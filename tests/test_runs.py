@@ -272,6 +272,9 @@ def test_the_stream_is_a_reduction_not_a_passthrough() -> None:
         "task": "Install the corosync authkey",
         "outcome": "changed",
         "message": None,
+        # What the host result already carries and the view now shows. The
+        # payload it comes wrapped in stays out.
+        "seconds": None,
     }
 
 
@@ -558,3 +561,26 @@ def test_an_entry_the_shipped_collection_lacks_is_explained_not_offered(
         service.launch("seapath_setup_main", "alice")
 
     assert failure.value.status_code == 409
+
+
+def test_the_time_each_task_took_is_kept(store, inventory, trust, tmp_path) -> None:
+    # ansible-runner reports a duration on every host result, so answering
+    # "which step took the four minutes" costs nothing and needs no callback
+    # plugin. The longest host rather than the sum: hosts run in parallel, and
+    # the sum would describe a run nobody waited through.
+    run_progress = RunProgress()
+    for host, seconds in (("node1", 3.0), ("node2", 41.5), ("node3", 2.0)):
+        apply_event(
+            run_progress,
+            {
+                "event": "runner_on_ok",
+                "event_data": {
+                    "host": host,
+                    "task": "Install the packages",
+                    "duration": seconds,
+                    "res": {},
+                },
+            },
+        )
+
+    assert run_progress.durations == {"Install the packages": 41.5}

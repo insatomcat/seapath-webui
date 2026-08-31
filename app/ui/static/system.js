@@ -285,11 +285,13 @@
     return state.inventory ? Object.keys(state.inventory.hosts) : [];
   }
 
-  // The single most dangerous button in the product, and it has to look like
-  // it: the operator types the machine's name before anything happens.
+  // The single most dangerous button in the product. It asks once, in a modal
+  // that says what the run will disturb and which machines it will play, and
+  // that is where the friction stops. Typing the machine's name was also asked
+  // for here at first, and an operator who applies twenty times a day types it
+  // twenty times without reading the sentence above it, which buys nothing.
   function confirmRun(entry, check) {
     const modal = element("confirm");
-    const input = element("confirm-input");
     const go = element("confirm-go");
     const reboot = element("confirm-reboot");
 
@@ -304,12 +306,8 @@
         " Machines played: " +
         machineNames().join(", ") +
         ".";
-    // Typed to confirm: this machine's name, because this is the one the
-    // operator is sitting in front of and the one a mistake reboots first.
-    element("confirm-name").textContent = state.node.hostname;
     element("confirm-error").hidden = true;
-    input.value = "";
-    go.disabled = true;
+    go.disabled = false;
     go.textContent = check ? "Preview" : "Apply";
 
     let skipReboot = false;
@@ -337,9 +335,6 @@
       reboot.append(label);
     }
 
-    input.oninput = () => {
-      go.disabled = input.value !== state.node.hostname;
-    };
     go.onclick = async () => {
       go.disabled = true;
       try {

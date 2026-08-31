@@ -131,7 +131,7 @@ not it. The client never has to know which node leads.
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode |
 | GET | `/runs` | History, most recent first |
 | GET | `/runs/{id}` | Status, inventory commit, per host result, command line used |
-| GET | `/runs/{id}/events` | Server sent events, one per Ansible task event |
+| GET | `/runs/{id}/events` | Server sent events, one per Ansible task event, each host result carrying the seconds it took |
 | GET | `/runs/{id}/log` | Full log, for download |
 | POST | `/runs/{id}/cancel` | Best effort, and honest that a cancelled convergence leaves a partial state |
 

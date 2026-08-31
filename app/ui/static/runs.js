@@ -78,7 +78,11 @@
       line.textContent = "TASK  " + payload.task;
     } else if (payload.kind === "result") {
       line.textContent =
-        payload.outcome.padEnd(12) + payload.host + "  " + (payload.task || "");
+        payload.outcome.padEnd(12) +
+        payload.host +
+        "  " +
+        (payload.task || "") +
+        (payload.seconds ? "  " + seconds(payload.seconds) : "");
       line.classList.add("outcome-" + payload.outcome);
       if (payload.message) {
         const reason = document.createElement("div");
@@ -122,6 +126,41 @@
             .join(" ")
       )
       .join("   ");
+  }
+
+  function seconds(value) {
+    return value >= 10 ? value.toFixed(0) + "s" : value.toFixed(1) + "s";
+  }
+
+  // Ansible prints this only when profile_tasks is enabled. The numbers are in
+  // the event stream either way, so the view answers "which step took the four
+  // minutes" without a callback plugin and without parsing stdout.
+  function renderTimings(durations) {
+    const card = element("timing-card");
+    const rows = Object.entries(durations || {}).sort((a, b) => b[1] - a[1]);
+    card.hidden = !rows.length;
+    if (!rows.length) {
+      return;
+    }
+    const total = rows.reduce((sum, [, value]) => sum + value, 0);
+    card.querySelector("summary").textContent =
+      "Where the time went  (" +
+      rows.length +
+      " tasks, " +
+      seconds(total) +
+      " of task time)";
+
+    const body = card.querySelector("tbody");
+    body.replaceChildren();
+    rows.slice(0, 15).forEach(([task, value]) => {
+      const row = document.createElement("tr");
+      [task, seconds(value)].forEach((text) => {
+        const cell = document.createElement("td");
+        cell.textContent = text;
+        row.append(cell);
+      });
+      body.append(row);
+    });
   }
 
   function renderHosts(hosts) {
@@ -168,6 +207,7 @@
     message.hidden = !record.message;
 
     renderHosts(record.progress.hosts);
+    renderTimings(record.progress.durations);
     element("run-play").textContent = record.progress.play || "";
     element("run-task").textContent = record.progress.task || "";
 
@@ -220,6 +260,7 @@
     source.addEventListener("state", async (message) => {
       const final = JSON.parse(message.data);
       renderHosts(final.hosts);
+      renderTimings(final.durations);
       source.close();
       state.source = null;
       renderRecord(await API.get("/runs/" + runId));

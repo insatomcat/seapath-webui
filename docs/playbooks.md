@@ -49,6 +49,14 @@ unreachable a minute later, which is a late and expensive way to find out.
 Reachability here is about credentials; whether the network answers is the
 run's own business, and it says so host by host.
 
+### Where the time went
+
+`ansible-runner` reports a `duration` on every host result, so the run view
+lists the tasks by the time they took without `profile_tasks` being enabled and
+without anything parsing stdout. The number kept per task is the **longest**
+host rather than the sum: hosts run in parallel with `forks = 20`, and a sum
+would describe a run nobody waited through.
+
 ## 3. Preview quality
 
 Check mode is honest only where roles write files through `template`, `copy` and

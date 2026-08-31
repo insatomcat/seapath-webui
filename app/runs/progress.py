@@ -45,6 +45,11 @@ def apply_event(progress: RunProgress, event: dict[str, Any]) -> RunProgress:
             else:
                 setattr(state, outcome, getattr(state, outcome) + 1)
             state.last_task = data.get("task") or progress.task
+
+        task = data.get("task")
+        seconds = data.get("duration")
+        if task and isinstance(seconds, int | float):
+            progress.durations[task] = max(progress.durations.get(task, 0.0), seconds)
     elif name == "playbook_on_stats":
         # Ansible's recap. Its presence is the whole signal: a run that ends
         # without it did not finish, it stopped existing.
@@ -95,6 +100,7 @@ def summarise(event: dict[str, Any]) -> dict[str, Any] | None:
             "host": data.get("host"),
             "task": data.get("task"),
             "outcome": outcome,
+            "seconds": data.get("duration"),
             # The operator needs to know why a task failed, and nothing else
             # from the result payload.
             "message": _failure_message(data) if outcome == "failed" else None,

@@ -44,6 +44,12 @@ class RunProgress(BaseModel):
     play: str | None = None
     task: str | None = None
     tasks_started: int = 0
+    # Seconds per task, the longest a host took. `ansible-runner` reports a
+    # duration on every host result, so this costs nothing and answers the
+    # question a commissioning run raises: which step took the four minutes.
+    # The longest rather than the sum, because hosts run in parallel and the
+    # sum would describe a run nobody waited through.
+    durations: dict[str, float] = Field(default_factory=dict)
     hosts: dict[str, HostProgress] = Field(default_factory=dict)
     # True once Ansible emitted its recap, which is what tells a finished run
     # from one whose machine went away underneath it.

@@ -109,8 +109,26 @@ def test_the_summaries_a_browser_receives_carry_no_task_payload(
 
     assert {"play", "task", "result", "stats"} & {s["kind"] for s in summaries}
     # No `res`, no `stdout`, no module arguments. The raw stream is megabytes
-    # nobody reads and a place for a secret to reach a browser.
-    assert keys <= {"kind", "play", "task", "host", "outcome", "message", "stats"}
+    # nobody reads and a place for a secret to reach a browser. `seconds` is
+    # the one number kept out of a host result, because the alternative is a
+    # callback plugin printing the same thing into stdout.
+    assert keys <= {
+        "kind",
+        "play",
+        "task",
+        "host",
+        "outcome",
+        "message",
+        "seconds",
+        "stats",
+    }
+    # And it is a real reading, from a real playbook, rather than a field this
+    # service invents.
+    assert any(
+        isinstance(summary.get("seconds"), int | float)
+        for summary in summaries
+        if summary["kind"] == "result"
+    )
 
 
 def test_a_failing_task_is_reported_with_its_reason(tmp_path: Path) -> None:

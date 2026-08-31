@@ -97,15 +97,19 @@ def test_the_real_time_fields_are_behind_a_collapsed_expert_section(
     assert "Latency is the product" in body
 
 
-def test_the_apply_confirmation_makes_the_machine_be_typed_out(
+def test_the_apply_confirmation_says_what_it_will_disturb(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/system").text
 
-    # This is the single most dangerous button in the product, and it has to
-    # look like it.
-    assert "confirm-input" in body
-    assert "to confirm" in body
+    # The single most dangerous button in the product asks once, in a modal
+    # naming the disruption and the machines. Typing the host name was here
+    # too, and an operator who applies twenty times a day types it twenty times
+    # without reading the sentence above it.
+    assert 'id="confirm"' in body
+    assert 'id="confirm-disruption"' in body
+    assert 'id="confirm-reboot"' in body
+    assert "confirm-input" not in body
 
 
 def test_a_hidden_element_is_hidden_whatever_its_display_rule(
