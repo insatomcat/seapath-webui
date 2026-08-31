@@ -28,6 +28,13 @@ ruamel.yaml==0.18.10
 # on the controller.
 netaddr==1.3.0
 
+# Same story for the Ceph role: it filters the ceph-volume inventory with
+# json_query, which evaluates a JMESPath expression through this library.
+# Without it cluster_setup_cephadm.yaml fails on every host at "Compute devices
+# claimed by OSDs of the cluster", with a message that names the package and
+# gives no hint that the missing install is the controller's.
+jmespath==1.0.1
+
 # The configuration plane. ansible-core is pinned to the version prepare.sh
 # enforces in seapath-ansible: an image carrying a different one runs playbooks
 # against a version they were never tested with.

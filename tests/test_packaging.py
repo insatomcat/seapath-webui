@@ -117,3 +117,8 @@ def test_the_controller_dependencies_are_all_in_one_file() -> None:
 
     assert "netaddr==" in requirements
     assert "pip install --no-cache-dir netaddr" not in dockerfile
+
+    # jmespath is the same kind of dependency, pulled in by the json_query
+    # filter roles/cephadm uses to read the ceph-volume inventory.
+    assert "jmespath==" in requirements
+    assert "pip install --no-cache-dir jmespath" not in dockerfile
