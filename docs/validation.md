@@ -94,9 +94,9 @@ playbook that reboots the host running it.
 | 13 | `GET /playbooks` marks as unavailable any entry the shipped collection does not carry, naming the collection version | Depends on what the image was built from | |
 | 14 | The administration address changed through the form, then applied, leaves the self trust working after the reboot | The `from=` repair at startup | |
 | 15 | `cyclictest` on the isolated CPUs is unchanged with a run in progress | A convergence must not disturb a running guest | |
-| 16 | On a node whose repository holds only the seed, the configuration page is writable and the form saves | The read only rule must leave a freshly installed machine alone | |
-| 17 | With the site's own inventory put in `/etc/seapath/inventory`, the page shows it, refuses every write, and names `hostname` and `subnet` among what a save would have changed | The check runs against a real site inventory, which is where the shapes the fixture models were found | |
-| 18 | After 17, `git -C /etc/seapath/inventory status` is clean and the file is byte for byte what was cloned | The claim the refusal makes: reading an inventory never modifies it | |
+| 16 | On a node whose repository holds only the seed, the configuration page is writable and the form saves | The read only rule must leave a freshly installed machine alone | Pending: run it when the seed is back on elabo1 |
+| 17 | With the site's own inventory put in `/etc/seapath/inventory`, the page shows it, refuses every write, and names `hostname` and `subnet` among what a save would have changed | The check runs against a real site inventory, which is where the shapes the fixture models were found | **Pass**, elabo1, 2026-08-31: 31 divergences, `hostname`, `network_interface` and `subnet` at the top, form locked |
+| 18 | After 17, `git -C /etc/seapath/inventory status` is clean and the file is byte for byte what was cloned | The claim the refusal makes: reading an inventory never modifies it | **Pass**, elabo1, 2026-08-31: clean tree, and `HEAD:inventory.yaml` and the working file share one sha256 |
 
 Check 5 is the one that decides whether the milestone is real. Everything else
 can pass while the product claim is false.
@@ -105,6 +105,14 @@ Checks 16 to 18 are the adoption rule of [D14](decisions.md#d14), and 17 is
 worth running on the site inventory rather than on a copy of the fixture: the
 fixture was written from one real file, and the next real file will have a
 shape neither of them has.
+
+Run on elabo1 on 2026-08-31, against the site's own three node inventory, the
+one the fixture was sanitised from. The service listed 31 divergences, led by
+the three that would have reached the machines: `hostname` reverting to the host
+key on all three nodes, `network_interface` emptied because it is a group
+variable, and `subnet` appearing with a value the file never set. The repository
+was untouched afterwards, which is the half of the rule that matters most: a
+refusal that had already written something would be worthless.
 
 ### First contact with real hardware
 
