@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 
 from app.core.auth import Role
@@ -13,21 +15,46 @@ from app.runs import catalogue
 
 
 def write_fake_collection(
-    collections_path: Path, entries: list[str] | None = None
+    collections_path: Path,
+    entries: list[str] | None = None,
+    version: str = "2.0.0",
+    contents: str = "---\n",
 ) -> Path:
     """Lay out a `seapath.ansible` collection with empty playbook files.
 
     The service checks that a catalogue entry exists in the collection its
     image ships, so the tests need somewhere for it to look. Passing `entries`
     leaves the others out, which is how the version skew case is exercised.
+
+    `MANIFEST.json` and `FILES.json` are written the way `ansible-galaxy`
+    writes them, because what a run records about the code it ran is read from
+    those two files.
     """
-    playbooks = collections_path / "ansible_collections/seapath/ansible/playbooks"
+    root = collections_path / "ansible_collections/seapath/ansible"
+    playbooks = root / "playbooks"
     playbooks.mkdir(parents=True, exist_ok=True)
+    (root / "MANIFEST.json").write_text(
+        json.dumps({"collection_info": {"name": "ansible", "version": version}})
+    )
+    # ansible-galaxy records a checksum per file, so two collections holding
+    # different code have different FILES.json. The fake has to have that
+    # property or the fingerprint it feeds means nothing.
+    digest = hashlib.sha256(contents.encode()).hexdigest()
+    (root / "FILES.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"name": f"playbooks/{entry.id}.yaml", "chksum_sha256": digest}
+                    for entry in catalogue.CATALOGUE
+                ]
+            }
+        )
+    )
     wanted = entries if entries is not None else [e.id for e in catalogue.CATALOGUE]
     for entry in catalogue.CATALOGUE:
         if entry.id in wanted:
             name = entry.playbook.rsplit(".", 1)[-1]
-            (playbooks / f"{name}.yaml").write_text("---\n")
+            (playbooks / f"{name}.yaml").write_text(contents)
     return collections_path
 
 

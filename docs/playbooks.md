@@ -49,6 +49,23 @@ unreachable a minute later, which is a late and expensive way to find out.
 Reachability here is about credentials; whether the network answers is the
 run's own business, and it says so host by host.
 
+### Which collection a run actually ran
+
+A run records the collection it used, read from disk at launch rather than from
+a value baked at build time. `galaxy.yml` declares the same version on every
+branch, so `2.0.0` says nothing for a site pinned to a branch, which is the
+normal case while a feature is being landed upstream.
+
+`FILES.json`, which `ansible-galaxy` writes beside the collection, holds a
+sha256 per file. Hashing that one file fingerprints the whole tree, so a run
+records `2.0.0+49c8b604e913`: two branches differ, the same content matches,
+and reinstalling the same code reads the same. The build label from the image
+is appended only when it says something the fingerprint cannot, such as the
+branch it was built from.
+
+This is half of the reproducibility pair. The other half is the inventory
+commit, and together they answer "which code, against which desired state".
+
 ### Where the time went
 
 `ansible-runner` reports a `duration` on every host result, so the run view

@@ -302,7 +302,11 @@ def test_a_successful_run_is_recorded_with_its_reproducibility_pair(
     # "Which version of the desired state is this machine running, and which
     # version of the code read it" has an answer.
     assert record.inventory_commit == inventory.state().commit
-    assert record.collection_version == "2.0.0"
+    # The version galaxy.yml declares, and a fingerprint of the collection's
+    # own FILES.json. Every branch declares 2.0.0, so the version alone answers
+    # nothing for a site running one.
+    assert record.collection_version.startswith("2.0.0+")
+    assert len(record.collection_version) == len("2.0.0+") + 12
 
 
 def test_the_inventory_used_is_frozen_with_the_run(
@@ -661,3 +665,22 @@ def test_a_result_from_any_other_module_carries_no_payload() -> None:
     )
 
     assert summary["output"] is None
+
+
+def test_two_branches_of_the_collection_are_told_apart(tmp_path: Path) -> None:
+    # The reason this exists. A site pinned to a branch rather than a release
+    # installs a collection whose galaxy.yml declares the same version as every
+    # other branch, so "2.0.0" answers nothing about which code converged a
+    # machine.
+    one = write_fake_collection(tmp_path / "one", contents="---\n# a branch\n")
+    other = write_fake_collection(tmp_path / "other", contents="---\n# another\n")
+
+    assert catalogue.identity(one) != catalogue.identity(other)
+    assert catalogue.identity(one).startswith("2.0.0+")
+    # Same content, same answer, so reinstalling the same code reads the same.
+    again = write_fake_collection(tmp_path / "again", contents="---\n# a branch\n")
+    assert catalogue.identity(again) == catalogue.identity(one)
+
+
+def test_a_collection_that_is_not_there_has_no_identity(tmp_path: Path) -> None:
+    assert catalogue.identity(tmp_path / "nowhere") is None

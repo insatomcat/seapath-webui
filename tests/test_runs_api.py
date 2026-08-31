@@ -61,7 +61,10 @@ def test_launching_returns_the_run_and_its_preview_quality(
     assert record["state"] == "success"
     assert record["launched_by"] == "admin"
     assert record["inventory_commit"]
-    assert record["collection_version"] == "test"
+    # The installed collection, and the build label when it says something the
+    # fingerprint cannot.
+    assert record["collection_version"].startswith("2.0.0+")
+    assert record["collection_version"].endswith("(build test)")
 
 
 def test_the_reboot_can_be_declined_and_the_variable_reaches_the_run(

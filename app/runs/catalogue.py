@@ -15,6 +15,8 @@ member of three would be accepted by Ansible and would mean nothing.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from enum import Enum
 from pathlib import Path
 
@@ -347,6 +349,33 @@ def playbook_file(collections_path: Path, entry: PlaybookEntry) -> Path:
     """Where the shipped collection keeps this entry's playbook."""
     name = entry.playbook.rsplit(".", 1)[-1]
     return Path(collections_path).joinpath(*_COLLECTION_DIRECTORY, f"{name}.yaml")
+
+
+def identity(collections_path: Path) -> str | None:
+    """What the installed collection actually is, precisely enough to compare.
+
+    The version in `MANIFEST.json` is the one `galaxy.yml` declares, and every
+    branch of the repository declares the same one, so "2.0.0" answers nothing
+    for a site running a branch rather than a release. `FILES.json` carries a
+    sha256 for every file in the collection, so hashing that one file
+    fingerprints the whole tree: two branches differ, the same content matches,
+    and it costs one read of a file the installer already wrote.
+
+    The result is what a run records. "Which code converged this machine" then
+    has an answer that survives someone reinstalling the collection.
+    """
+    root = Path(collections_path).joinpath(*_COLLECTION_DIRECTORY[:-1])
+    try:
+        manifest = json.loads((root / "MANIFEST.json").read_text())
+        version = manifest["collection_info"]["version"]
+    except (OSError, ValueError, KeyError):
+        return None
+
+    try:
+        digest = hashlib.sha256((root / "FILES.json").read_bytes()).hexdigest()
+    except OSError:
+        return str(version)
+    return f"{version}+{digest[:12]}"
 
 
 def missing_from(collections_path: Path) -> set[str]:

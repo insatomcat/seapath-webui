@@ -72,7 +72,10 @@ class RunService:
         self._trust = trust
         self._paths = paths
         self._hostname = hostname
-        self._collection_version = collection_version
+        # What the image was built with. The collection actually installed is
+        # read from disk at each launch, because a node can be pointed at
+        # another one and a branch does not change the version in galaxy.yml.
+        self._configured_version = collection_version
         self._cancelled: set[str] = set()
 
     # Catalogue
@@ -107,7 +110,7 @@ class RunService:
                 (
                     Precondition.PLAYBOOK_PRESENT.value,
                     f"{entry.playbook} is not in the SEAPATH collection this "
-                    f"image ships (version {self._collection_version}). The "
+                    f"image ships (version {self.collection_version()}). The "
                     "catalogue and the collection are released separately.",
                 ),
             )
@@ -134,6 +137,24 @@ class RunService:
             for name in others
             if state.inventory.hosts[name].ansible_host not in known
         ]
+
+    def collection_version(self) -> str:
+        """What a run records as the code it ran.
+
+        Read from the installed collection rather than from the build, because
+        a site running a branch installs a collection whose `galaxy.yml` says
+        the same version as every other branch. The fingerprint is what tells
+        two branches apart, and it survives someone reinstalling.
+        """
+        observed = catalogue.identity(self._paths.collections_path)
+        if observed is None:
+            return self._configured_version
+        build = self._configured_version
+        if build and build != "unknown" and build not in observed:
+            # A build label the fingerprint cannot carry, such as the branch
+            # the image was built from. Dropped when it repeats the version.
+            return f"{observed} (build {build})"
+        return observed
 
     def _missing_playbooks(self) -> set[str]:
         return catalogue.missing_from(self._paths.collections_path)
@@ -248,7 +269,7 @@ class RunService:
             check=check,
             launched_by=launched_by,
             inventory_commit=state.commit,
-            collection_version=self._collection_version,
+            collection_version=self.collection_version(),
         )
 
         # The lock before the directory: two operators must not converge the

@@ -268,10 +268,12 @@ to do. It needs the collection installed once, and it is worth knowing what it
 does not prove.
 
 ```bash
-# Once. It survives every later git pull.
+# Once. It survives every later git pull. -b takes the branch a site needs,
+# and the run view then reports that branch's fingerprint rather than the
+# version every branch declares.
 . .venv/bin/activate                 # prepare.sh reads `ansible` and `python3`
                                      # off PATH, and Debian 13 ships 2.19
-git clone https://github.com/seapath/ansible /src/seapath-ansible
+git clone -b <branch> https://github.com/seapath/ansible /src/seapath-ansible
 cd /src/seapath-ansible && ./prepare.sh
 mkdir -p /opt/ansible && cp -a collections /opt/ansible/collections
 
