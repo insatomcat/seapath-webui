@@ -18,7 +18,12 @@ RUN python -m venv /opt/venv && \
 FROM python:3.11-slim AS collection
 
 ARG SEAPATH_ANSIBLE_REPOSITORY=https://github.com/seapath/ansible.git
-ARG SEAPATH_ANSIBLE_REF=main
+# `seapathalloc` rather than `main`: two catalogue entries,
+# `seapath_setup_prometheus_exporters` and `seapath_setup_deploy_seapath_alloc`,
+# name playbooks that only exist on that branch. An image built from `main`
+# reports both unavailable, which is correct and useless to a site that needs
+# them. Override at build time for a site pinned elsewhere.
+ARG SEAPATH_ANSIBLE_REF=seapathalloc
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl git && \

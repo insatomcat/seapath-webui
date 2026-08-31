@@ -13,11 +13,16 @@ set -euo pipefail
 REGISTRY_USER="${REGISTRY_USER:-insatomcat}"
 IMAGE_NAME="seapath-webui"
 VERSION="${VERSION:-0.1.0}"
-COLLECTION_VERSION="${COLLECTION_VERSION:-unknown}"
+# The branch of seapath/ansible the collection comes from, and the label the
+# service reports for it. `galaxy.yml` says 2.0.0 on every branch, so the branch
+# is the part of the label that says which code the machines get.
+SEAPATH_ANSIBLE_REF="${SEAPATH_ANSIBLE_REF:-seapathalloc}"
+COLLECTION_VERSION="${COLLECTION_VERSION:-${SEAPATH_ANSIBLE_REF}}"
 IMAGE="${REGISTRY_USER}/${IMAGE_NAME}"
 
-echo "Building ${IMAGE}:${VERSION}"
+echo "Building ${IMAGE}:${VERSION} from seapath/ansible ${SEAPATH_ANSIBLE_REF}"
 podman build \
+    --build-arg "SEAPATH_ANSIBLE_REF=${SEAPATH_ANSIBLE_REF}" \
     --build-arg "COLLECTION_VERSION=${COLLECTION_VERSION}" \
     -t "${IMAGE}:${VERSION}" .
 podman tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"

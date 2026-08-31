@@ -38,8 +38,16 @@ trail, and the service shells out to `git` for every commit, diff and revert.
 ### Building the collection into the image
 
 A dedicated stage clones `seapath-ansible` and runs its own `prepare.sh`. No
-role is patched. Two things about that build are worth knowing, and both were
-found by running it rather than by reading it:
+role is patched.
+
+The branch is `seapathalloc`, carried by the `SEAPATH_ANSIBLE_REF` build
+argument. `seapath_setup_prometheus_exporters` and
+`seapath_setup_deploy_seapath_alloc` exist there and are absent from `main`, so
+an image built from `main` offers neither. Every other entry in the catalogue is
+present on both, and a site pinned elsewhere overrides the argument.
+
+Two things about that build are worth knowing, and both were found by running it
+rather than by reading it:
 
 - `prepare.sh` installs the local collection **before** it updates the git
   submodules, so the copy it installs carries an empty
@@ -56,9 +64,11 @@ found by running it rather than by reading it:
 
 The collection version is stamped into the image with `--build-arg
 COLLECTION_VERSION`, reported by `GET /api/v1/node`, and recorded on every run
-next to the inventory commit. That pair is what makes a deployment
-reproducible, and the catalogue refuses to offer an entry the shipped
-collection does not contain.
+next to the inventory commit. `galaxy.yml` says `2.0.0` on every branch, so the
+label carries the branch instead, and `buildpush.sh` defaults it to the branch
+name. That label, with the inventory commit, is what makes a deployment
+reproducible, and the catalogue refuses to offer an entry the shipped collection
+does not contain.
 
 The collection version is part of the image identity. It determines which
 playbooks exist and what they do, so it is recorded at build time, reported by
@@ -268,12 +278,13 @@ to do. It needs the collection installed once, and it is worth knowing what it
 does not prove.
 
 ```bash
-# Once. It survives every later git pull. -b takes the branch a site needs,
-# and the run view then reports that branch's fingerprint rather than the
-# version every branch declares.
+# Once. It survives every later git pull. -b takes the branch a site needs;
+# seapathalloc is the one the image is built from, and the run view then
+# reports that branch's fingerprint rather than the version every branch
+# declares.
 . .venv/bin/activate                 # prepare.sh reads `ansible` and `python3`
                                      # off PATH, and Debian 13 ships 2.19
-git clone -b <branch> https://github.com/seapath/ansible /src/seapath-ansible
+git clone -b seapathalloc https://github.com/seapath/ansible /src/seapath-ansible
 cd /src/seapath-ansible && ./prepare.sh
 mkdir -p /opt/ansible && cp -a collections /opt/ansible/collections
 

@@ -208,8 +208,10 @@ repository:
   playbook is absent from `/opt/ansible/collections` is reported unavailable,
   naming the collection version, instead of being offered as a button that
   fails at the first task. `seapath_setup_prometheus_exporters` and
-  `seapath_setup_deploy_seapath_alloc` are exactly this case today: they exist
-  on a feature branch of `seapath-ansible` and not on `main`.
+  `seapath_setup_deploy_seapath_alloc` are what found this: they exist on the
+  `seapathalloc` branch of `seapath-ansible` and not on `main`. The image is
+  built from that branch for exactly this reason, and an image built from
+  `main` correctly offers neither.
 - **`galaxy.yml` decides what a playbook can actually reach.** Its `build_ignore`
   list is matched against whole relative paths, so `"*.tar.gz"` strips
   `roles/deploy_cockpit_plugins/files/*.tar.gz` along with any archive at the

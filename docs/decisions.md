@@ -196,9 +196,11 @@ against the collection installed in the image, and an entry that is not there
 is reported unavailable naming the collection version.
 
 Found by building the image: `seapath_setup_prometheus_exporters` and
-`seapath_setup_deploy_seapath_alloc` exist on a feature branch of
+`seapath_setup_deploy_seapath_alloc` exist on the `seapathalloc` branch of
 `seapath-ansible` and not on `main`, so an image built from `main` correctly
-offers neither.
+offers neither. The image is built from `seapathalloc`, which is what makes the
+two entries offerable, and the check stays: it is what a SEAPATH release
+renaming a playbook underneath this service runs into next.
 
 ## D13 - Settled: live state is the exporter's, this service reads what a machine *is*
 
