@@ -1,24 +1,24 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""What rewriting an inventory would change, before anything is rewritten.
+"""Checking a write before it becomes a commit.
 
-The service writes the inventory back from a typed model on every form save.
-That is safe for a file the service produced, and it is a loaded gun aimed at a
-file somebody else wrote: the model holds the variables the forms edit, and a
-hand written inventory carries several times as many.
+A save changes some variables on some hosts. This module asserts that the file
+it produced changes exactly those and nothing else, by resolving both versions
+the way Ansible resolves them and comparing every host's variables.
 
-So the rule is that the service earns the right to write a file by proving it
-can reproduce it. The proof is mechanical. Resolve the file the way Ansible
-resolves it, parse it into the model, render the model back, resolve that, and
-compare. A file the service wrote comes back identical. A file it cannot
-reproduce is served read only, with the exact list of what a save would have
-destroyed.
+It exists because the first real inventory this service met would have lost
+thirty group variables, three machine names and a group it had never heard of,
+silently, on the first form submission. The editor no longer works that way.
+This is what proves it on every write instead of trusting it.
 
-This is the check that would have caught the three losses found on the first
-real inventory this service ever met: group variables dropped wholesale, groups
-it has never heard of erased, and `hostname` overwritten with the host key,
-which renames a running machine.
+Three failures are caught here, and each is silent without it:
+
+- a variable nobody touched changed anyway, which is a splice landing in the
+  wrong place;
+- a variable disappeared, which is a block edit swallowing its neighbour;
+- a variable the operator asked for did not change, which is a save that
+  reports success and does nothing.
 """
 
 from __future__ import annotations
@@ -27,8 +27,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.inventory.parser import InvalidInventory, parse
-from app.inventory.renderer import render
 from app.inventory.resolve import resolve
 
 # Beyond this the list stops being a list and becomes a wall. What was elided is
@@ -45,7 +43,14 @@ _MAX_NAMED_HOSTS = 4
 # The list is truncated for display, so this ordering decides what an operator
 # actually reads: `hostname` changing and `subnet` appearing are two lines
 # among forty, and they are the two that matter.
-_ORDER = {"unsupported": 0, "host_lost": 1, "changed": 2, "invented": 3, "lost": 4}
+_ORDER = {
+    "unsupported": 0,
+    "host_lost": 1,
+    "not_applied": 2,
+    "changed": 3,
+    "invented": 4,
+    "lost": 5,
+}
 
 # The two variables the roles accept as either a string or a list: the template
 # joins a list and passes a string through. The model normalises them to lists,
@@ -62,44 +67,45 @@ class Divergence(BaseModel):
     hosts: list[str] = Field(default_factory=list)
 
 
-def divergences(document: str) -> list[Divergence]:
-    """Everything a rewrite of this document would change. Empty means safe."""
-    try:
-        model = parse(document)
-    except InvalidInventory:
-        # A file that does not parse is reported as a parse error elsewhere,
-        # and it is certainly not writable.
-        return [
-            Divergence(
-                kind="unsupported",
-                message="This inventory cannot be read, so it cannot be rewritten.",
-            )
-        ]
-
-    try:
-        rewritten = render(model)
-    except NotImplementedError:
-        return [
-            Divergence(
-                kind="unsupported",
-                message=(
-                    "This is a cluster inventory. Writing one is implemented "
-                    "from M3, so the file is served read only until then."
-                ),
-            )
-        ]
-
-    before = resolve(document)
-    after = resolve(rewritten)
+def unintended_changes(
+    before: str, after: str, intended: dict[str, dict[str, Any]]
+) -> list[Divergence]:
+    """What this write changed beyond what was asked. Empty means the write is
+    exactly its intent."""
+    resolved_before = resolve(before)
+    resolved_after = resolve(after)
 
     raw: list[tuple[str, str | None, str, Any, Any]] = []
-    for host, variables in before.items():
-        if host not in after:
+
+    for host, variables in resolved_before.items():
+        if host not in resolved_after:
             raw.append(("host_lost", None, host, None, None))
             continue
-        raw.extend(_compare(host, variables, after[host]))
+        asked = intended.get(host, {})
+        for change in _compare(host, variables, resolved_after[host]):
+            _, variable, _, _, produced = change
+            if variable in asked and _equivalent(variable, produced, asked[variable]):
+                continue
+            raw.append(change)
+
+    # A change that was asked for and did not happen is the quietest failure of
+    # the three: the commit lands, the diff is empty, and the operator believes
+    # the machine is about to be configured differently.
+    for host, asked in intended.items():
+        produced = resolved_after.get(host, {})
+        for variable, value in asked.items():
+            got = produced.get(variable)
+            if _wanted_gone(value):
+                if variable in produced:
+                    raw.append(("not_applied", variable, host, None, got))
+            elif not _equivalent(variable, got, value):
+                raw.append(("not_applied", variable, host, value, got))
 
     return _collapse(raw)
+
+
+def _wanted_gone(value: Any) -> bool:
+    return value is None or value == [] or value == ""
 
 
 def _compare(
@@ -158,6 +164,13 @@ def _message(
 
     if kind == "host_lost":
         return f"{hosts} would disappear from the inventory."
+    if kind == "not_applied":
+        wanted = {repr(before) for _, before, _ in occurrences}
+        got = {repr(after) for _, _, after in occurrences}
+        return (
+            f"{variable} on {hosts} was asked to become {', '.join(sorted(wanted))} "
+            f"and stayed {', '.join(sorted(got))}."
+        )
     if kind == "lost":
         return f"{variable} would be dropped from {hosts}."
     if kind == "invented":

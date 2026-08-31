@@ -9,18 +9,6 @@ SPDX-License-Identifier: Apache-2.0
 <main class="page single">
   <p class="banner" id="banner" hidden></p>
 
-  <section class="card" id="readonly-card" hidden>
-    <h2>This inventory is read only</h2>
-    <p class="lead" id="readonly-reason"></p>
-    <ul class="findings" id="readonly-list"></ul>
-    <p class="help">
-      The file itself is untouched and stays exactly as it was written. It can
-      be read, exported and applied from here, and it is edited on the machine
-      that produced it, or through the repository at
-      <code>/etc/seapath/inventory</code>.
-    </p>
-  </section>
-
   <section class="card">
     <h2>Desired state</h2>
     <p class="lead">
@@ -28,6 +16,25 @@ SPDX-License-Identifier: Apache-2.0
       makes a commit, and applying runs the SEAPATH playbooks against it.
     </p>
     <dl id="repo-summary"></dl>
+
+    <details id="import-details">
+      <summary>Import an inventory</summary>
+      <p class="help">
+        A site that already has an inventory brings it here. The file is
+        committed whole and becomes the desired state, and the version it
+        replaces stays one revert away in the history below. Editing it
+        afterwards changes the lines you change and leaves the rest of the file
+        exactly as you wrote it, comments included.
+      </p>
+      <div class="field">
+        <label for="import-file">Inventory file</label>
+        <input id="import-file" type="file" accept=".yaml,.yml,text/yaml">
+      </div>
+      <p class="error" id="import-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="import-go" disabled>Import and replace</button>
+      </div>
+    </details>
   </section>
 
   <form class="card" id="node-form">

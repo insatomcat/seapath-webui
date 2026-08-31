@@ -15,6 +15,12 @@ cryptography==44.0.0
 # The inventory is YAML, and it is the product.
 pyyaml==6.0.2
 
+# Reading YAML with the line and column of every value, which is what lets a
+# form save edit the two lines it changes and leave the other hundred and
+# fifty, comments included, byte for byte. Used as a parser that reports
+# positions; the writing is a splice into the original text.
+ruamel.yaml==0.18.10
+
 # The configuration plane. ansible-core is pinned to the version prepare.sh
 # enforces in seapath-ansible: an image carrying a different one runs playbooks
 # against a version they were never tested with.

@@ -21,11 +21,13 @@ from app.core.security import require_role
 from app.inventory.discovery import Discovery
 from app.inventory.grub import hash_password
 from app.inventory.model import Inventory
+from app.inventory.parser import InvalidInventory
 from app.inventory.repository import Commit, RepositoryError, StaleWrite
 from app.inventory.service import (
+    ImportRefused,
     InventoryService,
     InventoryState,
-    ReadOnlyInventory,
+    RefusedWrite,
 )
 from app.inventory.validation import ValidationResult
 
@@ -52,6 +54,23 @@ class CandidateRequest(BaseModel):
     inventory: Inventory
 
 
+class ImportRequest(BaseModel):
+    """An inventory the operator brought, as the YAML they have in hand.
+
+    The document arrives as text rather than as a model: what a site owns is a
+    file, and anything this service cannot express in its model has to survive
+    the trip.
+    """
+
+    document: str
+
+
+class ImportResponse(BaseModel):
+    commit: str | None
+    hosts: list[str]
+    validation: ValidationResult
+
+
 class HostPatch(BaseModel):
     """Changed fields only, which is what a form submits.
 
@@ -64,14 +83,14 @@ class HostPatch(BaseModel):
     grub_password_plain: str | None = None
 
 
-def _read_only(error: ReadOnlyInventory) -> ApiError:
+def _read_only(error: RefusedWrite) -> ApiError:
     """A refusal that says exactly what it protected.
 
-    409 rather than 403: the request was legitimate and the state of the
-    resource is what refuses it.
+    409 rather than 403: the request was legitimate and the state of the file
+    is what refuses it.
     """
     return ApiError(
-        "read_only_inventory",
+        "refused_write",
         str(error),
         409,
         {"divergences": [d.model_dump() for d in error.divergences]},
@@ -153,7 +172,7 @@ def preview(
     """What committing this candidate would change, without committing it."""
     try:
         diff = _service(request).preview(payload.inventory)
-    except ReadOnlyInventory as error:
+    except RefusedWrite as error:
         raise _read_only(error) from error
     return Response(
         content=diff,
@@ -210,12 +229,45 @@ def patch_host(
     return _save(request, candidate, user.username, if_match)
 
 
+@router.post("/import")
+def import_inventory(
+    request: Request, payload: ImportRequest, user: User = admin
+) -> ImportResponse:
+    """Replace the inventory with one the operator brought.
+
+    This is the deployment path: three machines installed from the ISO, one
+    inventory, and a cluster to converge. It is also the only write that
+    legitimately replaces the whole file, since the operator is replacing the
+    desired state rather than editing it. The previous version stays one
+    `git revert` away.
+    """
+    service = _service(request)
+    try:
+        commit, _ = service.import_document(payload.document, user.username)
+    except InvalidInventory as error:
+        raise ApiError("invalid_inventory", str(error), 400) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+
+    state = service.state()
+    return ImportResponse(
+        commit=commit.hash if commit else None,
+        hosts=list(state.inventory.hosts) if state.inventory else [],
+        validation=state.validation,
+    )
+
+
 @router.post("/revert/{commit}")
 def revert(request: Request, commit: str, user: User = admin) -> CommitResponse:
     """Create a revert commit. It is not applied: that is a separate act."""
     try:
         reverted = _service(request).revert(commit, user.username)
-    except ReadOnlyInventory as error:
+    except RefusedWrite as error:
         raise _read_only(error) from error
     except RepositoryError as error:
         raise ApiError("revert_failed", str(error), 409) from error
@@ -231,7 +283,7 @@ def _save(
     service = _service(request)
     try:
         commit, validation = service.save(candidate, author, expected_head=if_match)
-    except ReadOnlyInventory as error:
+    except RefusedWrite as error:
         raise _read_only(error) from error
     except StaleWrite as error:
         # Refusing beats merging: a silently merged desired state is one nobody

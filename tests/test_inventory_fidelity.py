@@ -1,18 +1,20 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Adoption: reading a file somebody else wrote, and refusing to ruin it.
+"""Adoption: reading a file somebody else wrote, and editing it in place.
 
 The claim this service rests on is that its inventory is equivalent to a hand
 written one. Adoption is the same claim read backwards, and it is the harder
 direction: a hand written inventory carries group variables, groups this
 service has never heard of, and a `hostname` that deliberately differs from the
-host key. Rewriting one of those from a model that holds a dozen fields
+host key. Rendering one of those from a model that holds a dozen fields
 destroys the rest.
 
-So the service proves it can reproduce a file before it is allowed to write it,
-and the fixture it is proved against is a real inventory from a real cluster,
-with its secrets replaced and nothing else changed.
+So a save against such a file is an **edit**: the lines that change are the
+lines the form changed, and every write is checked against what Ansible
+resolves before it becomes a commit. The fixture all of this is proved against
+is a real inventory from a real cluster, with its secrets replaced and nothing
+else changed.
 """
 
 from __future__ import annotations
@@ -25,9 +27,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
-from app.inventory.fidelity import divergences
-from app.inventory.parser import parse
-from app.inventory.renderer import render
+from app.inventory.editor import UneditableInventory, edit
+from app.inventory.fidelity import unintended_changes
 from app.inventory.resolve import resolve
 from tests.conftest import ANSIBLE_INVENTORY
 
@@ -118,67 +119,135 @@ def test_a_host_variable_wins_over_the_group_it_comes_from() -> None:
     assert resolve(document)["node1"]["ptp_interface"] == "eno1"
 
 
-# 2. What the service may write, and what it may not.
+# 2. Editing a file this service did not write.
 
 
-def test_an_inventory_this_service_wrote_can_be_written_again() -> None:
-    # The round trip is exact for our own files, which is what keeps the check
-    # from turning into a service that can never write anything.
-    assert divergences(OURS.read_text()) == []
+def test_an_edit_touches_only_the_lines_it_changes() -> None:
+    document = ADOPTED.read_text()
+
+    edited = edit(document, {"node1": {"ansible_host": "10.132.159.70"}})
+
+    before, after = document.splitlines(), edited.splitlines()
+    assert len(before) == len(after)
+    changed = [(b, a) for b, a in zip(before, after, strict=False) if b != a]
+    assert changed == [
+        ("      ansible_host: 10.132.159.60", "      ansible_host: 10.132.159.70")
+    ]
 
 
-def test_the_adopted_inventory_is_refused_and_says_what_it_protected() -> None:
-    found = divergences(ADOPTED.read_text())
-    messages = [divergence.message for divergence in found]
-    variables = {divergence.variable for divergence in found}
+def test_the_comments_and_the_rest_of_the_file_survive() -> None:
+    document = ADOPTED.read_text()
 
-    assert found
+    edited = edit(document, {"node1": {"ansible_host": "10.132.159.70"}})
 
-    # The rename comes first, because it is the one that changes three running
-    # machines rather than a file. The host key is `node1` and the machine is
-    # called `elabo1`.
-    assert found[0].variable == "hostname"
-    assert "elabo1" in found[0].message
+    # The variables this service has never heard of, the Ceph groups, and the
+    # comments an engineer wrote for the next engineer.
+    assert "#node 2 cluster network ip" in edited
+    assert "cephadm_install_release_name: tentacle" in edited
+    assert "primitive nginxquadlet systemd:nginxquadlet.service" in edited
+    assert edited.count("mons:") == 1
 
-    # Group variables, which the model reads on the host and nowhere else.
-    assert {"cephadm_network", "admin_ssh_keys", "admin_passwd"} <= variables
-    # There are more of them than a page should list, and the count of what is
-    # elided is itself the finding.
-    assert "further variables" in messages[-1]
-    # A value nobody set, which the renderer writes on every host.
-    assert any(
-        divergence.kind == "invented" and divergence.variable == "subnet"
-        for divergence in found
+
+def test_a_comment_on_the_edited_line_survives_the_edit() -> None:
+    document = ADOPTED.read_text()
+
+    edited = edit(document, {"node1": {"cluster_next_ip_addr": "192.168.55.9"}})
+
+    assert "192.168.55.9  #node 2 cluster network ip" in edited
+    # The line below the edited one is a favourite casualty of line splicing.
+    assert 'cluster_previous_ip_addr : "192.168.55.3"' in edited
+
+
+def test_a_group_variable_is_overridden_on_the_host_it_was_edited_for() -> None:
+    # The form edits one machine. Writing to `cluster_machines` instead would
+    # change the other two, which nobody asked for.
+    document = ADOPTED.read_text()
+
+    edited = edit(document, {"node1": {"ptp_interface": "eno5"}})
+
+    resolved = resolve(edited)
+    assert resolved["node1"]["ptp_interface"] == "eno5"
+    assert resolved["node2"]["ptp_interface"] == "eno12429"
+    assert resolved["node3"]["ptp_interface"] == "eno12429"
+    assert "network_interface: eno8303" in edited
+
+
+def test_a_variable_the_file_never_had_is_added_to_the_host() -> None:
+    document = ADOPTED.read_text()
+
+    edited = edit(document, {"node2": {"subnet": 22}})
+
+    assert resolve(edited)["node2"]["subnet"] == 22
+    # And nowhere else, because the file never set it.
+    assert "subnet" not in resolve(edited)["node1"]
+
+
+def test_a_list_is_written_as_a_block_the_way_the_file_writes_them() -> None:
+    document = ADOPTED.read_text()
+
+    servers = ["ntp1.example", "ntp2.example"]
+
+    edited = edit(document, {"node3": {"ntp_servers": servers}})
+
+    assert resolve(edited)["node3"]["ntp_servers"] == servers
+    assert resolve(edited)["node1"]["ntp_servers"] == [
+        "ntp.example.org",
+        "51.145.123.29",
+    ]
+
+
+def test_an_edit_to_a_host_with_no_entry_of_its_own_is_refused() -> None:
+    document = """
+    all:
+      hosts: {}
+    cluster_machines:
+      hosts:
+        node1:
+    """
+    with pytest.raises(UneditableInventory, match="nowhere to write"):
+        edit(document, {"node1": {"ansible_host": "10.0.0.1"}})
+
+
+# 3. The check that runs on every write.
+
+
+def test_a_write_that_changes_only_what_was_asked_passes() -> None:
+    document = ADOPTED.read_text()
+    intended = {"node1": {"ptp_interface": "eno5"}}
+
+    edited = edit(document, intended)
+
+    assert unintended_changes(document, edited, intended) == []
+
+
+def test_a_write_that_loses_a_neighbour_is_caught() -> None:
+    # The failure mode of line splicing, forged here by hand: this is what the
+    # check exists to refuse, and it was a real bug before it existed.
+    document = ADOPTED.read_text()
+    mangled = document.replace(
+        '      cluster_previous_ip_addr : "192.168.55.3" #node 3 cluster network ip\n',
+        "",
     )
-    # And the three hosts named once rather than the same loss repeated.
-    assert any("node1, node2, node3" in message for message in messages)
+
+    found = unintended_changes(document, mangled, {"node1": {"ptp_interface": "eno5"}})
+
+    kinds = {divergence.kind for divergence in found}
+    assert "lost" in kinds
+    assert any(d.variable == "cluster_previous_ip_addr" for d in found)
 
 
-def test_a_cluster_inventory_is_refused_before_the_renderer_raises() -> None:
-    # `render` raises NotImplementedError for a cluster, which reached the API
-    # as a 500 on the preview button. It is a refusal with a reason now.
-    cluster = OURS.read_text().replace(
-        "cluster_machines: null", "cluster_machines:\n  hosts:\n    seapath-machine:"
-    )
-    found = divergences(cluster)
+def test_a_change_that_did_not_happen_is_caught() -> None:
+    # The quietest failure: the commit lands, the diff is empty, and the
+    # operator believes the machine is about to be configured differently.
+    document = ADOPTED.read_text()
 
-    assert [divergence.kind for divergence in found] == ["unsupported"]
-    assert "M3" in found[0].message
+    found = unintended_changes(document, document, {"node1": {"ptp_interface": "eno5"}})
 
-
-def test_the_dns_and_ntp_lists_are_not_reported_as_a_change() -> None:
-    # The roles take either a list or a string, the model normalises to a list,
-    # and reporting that as a divergence would make every reference inventory
-    # unwritable for a difference the roles cannot see.
-    document = OURS.read_text().replace(
-        "      dns_servers:\n        - 192.168.200.1",
-        "      dns_servers: 192.168.200.1",
-    )
-    assert "dns_servers: 192.168.200.1" in document
-    assert divergences(document) == []
+    assert [d.kind for d in found] == ["not_applied"]
+    assert "stayed 'eno12429'" in found[0].message
 
 
-# 3. The same rule, seen from the API and the machine it protects.
+# 4. The same rule, seen from the API and the machine it protects.
 
 
 def _adopt(settings: Settings, fixture: Path) -> None:
@@ -186,59 +255,87 @@ def _adopt(settings: Settings, fixture: Path) -> None:
     (settings.inventory_dir / "inventory.yaml").write_text(fixture.read_text())
 
 
-def test_the_api_reports_the_inventory_as_read_only(
+def test_the_api_reads_an_adopted_cluster_inventory_whole(
     signed_in: TestClient, settings: Settings
 ) -> None:
     _adopt(settings, ADOPTED)
 
     state = signed_in.get("/api/v1/inventory").json()
 
-    assert state["writable"] is False
-    assert "read only" in state["read_only_reason"]
-    assert state["divergences"]
-    # Reading still works, which is the point of refusing to write rather than
-    # refusing to open.
+    assert state["adopted"] is True
+    assert state["inventory"]["mode"] == "cluster"
     assert list(state["inventory"]["hosts"]) == ["node1", "node2", "node3"]
+    # Everything below lives on a group in that file, and the form needs it.
+    node = state["inventory"]["hosts"]["node1"]
+    assert node["network_interface"] == "eno8303"
+    assert node["ptp_interface"] == "eno12429"
+    assert node["gateway_addr"] == "10.132.159.1"
+    assert node["isolcpus"] == "3-11,15-23"
+    # And it has nothing to complain about, which it did when it read a third
+    # of the file.
+    assert state["validation"]["findings"] == []
 
 
-def test_a_form_save_against_an_adopted_inventory_is_refused(
+def test_a_form_save_against_an_adopted_inventory_edits_it_in_place(
     signed_in: TestClient, settings: Settings
 ) -> None:
     _adopt(settings, ADOPTED)
-    before = (settings.inventory_dir / "inventory.yaml").read_text()
+    path = settings.inventory_dir / "inventory.yaml"
+    before = path.read_text()
 
     response = signed_in.patch(
         "/api/v1/inventory/hosts/node1",
         json={"changes": {"ptp_interface": "eno5"}},
     )
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "read_only_inventory"
-    assert response.json()["error"]["detail"]["divergences"]
-    # The file is untouched, which is the whole claim.
-    assert (settings.inventory_dir / "inventory.yaml").read_text() == before
+    assert response.status_code == 200
+    after = path.read_text()
+    assert len(after.splitlines()) == len(before.splitlines()) + 1
+    # What Ansible resolves changed by exactly one variable on one host.
+    assert unintended_changes(before, after, {"node1": {"ptp_interface": "eno5"}}) == []
+    assert resolve(after)["node2"]["ptp_interface"] == "eno12429"
 
 
-def test_the_preview_of_an_adopted_inventory_is_refused_rather_than_crashing(
+def test_the_commit_message_names_what_changed(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _adopt(settings, ADOPTED)
+
+    signed_in.patch(
+        "/api/v1/inventory/hosts/node2", json={"changes": {"ptp_interface": "eno5"}}
+    )
+
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "time: set ptp_interface on node2"
+    assert history[0]["author"] == "admin"
+
+
+def test_adding_a_machine_to_an_adopted_inventory_is_refused(
     signed_in: TestClient, settings: Settings
 ) -> None:
     _adopt(settings, ADOPTED)
     state = signed_in.get("/api/v1/inventory").json()
+    candidate = state["inventory"]
+    fourth = dict(candidate["hosts"]["node1"])
+    # A distinct address, so what refuses this is the writer rather than the
+    # duplicate address rule.
+    fourth["ansible_host"] = "10.132.159.63"
+    candidate["hosts"]["node4"] = fourth
 
-    response = signed_in.post(
-        "/api/v1/inventory/preview", json={"inventory": state["inventory"]}
-    )
+    response = signed_in.put("/api/v1/inventory", json={"inventory": candidate})
 
     assert response.status_code == 409
+    assert response.json()["error"]["code"] == "refused_write"
 
 
-def test_the_seeded_inventory_stays_writable(signed_in: TestClient) -> None:
-    # The first boot seed is our own render, so nothing about this check makes
-    # a freshly installed machine harder to configure.
+def test_the_seeded_inventory_is_still_rendered_from_the_model(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # A freshly installed machine keeps the canonical shape, and the editor
+    # never touches it.
     state = signed_in.get("/api/v1/inventory").json()
+    assert state["adopted"] is False
 
-    assert state["writable"] is True
-    assert state["divergences"] == []
     assert (
         signed_in.patch(
             "/api/v1/inventory/hosts/seapath-machine",
@@ -246,19 +343,113 @@ def test_the_seeded_inventory_stays_writable(signed_in: TestClient) -> None:
         ).status_code
         == 200
     )
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    assert "managed by seapath-webui" in written
+    assert "ptp_interface: eno5" in written
 
 
-# 4. Where this is going.
+# 5. The property the whole design is for.
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "The writer keeps neither group variables nor unknown groups yet. "
-        "When it does, this passes and the read only rule stops applying to "
-        "inventories like this one."
-    ),
-)
-def test_a_rewrite_of_the_adopted_inventory_changes_nothing_ansible_can_see() -> None:
+def test_a_save_leaves_everything_ansible_resolves_alone_except_the_change(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _adopt(settings, ADOPTED)
+    path = settings.inventory_dir / "inventory.yaml"
+    before = resolve(path.read_text())
+
+    signed_in.patch(
+        "/api/v1/inventory/hosts/node1",
+        json={"changes": {"ansible_host": "10.132.159.70"}},
+    )
+
+    after = resolve(path.read_text())
+    assert set(before) == set(after)
+    for host in before:
+        expected = dict(before[host])
+        if host == "node1":
+            expected["ansible_host"] = "10.132.159.70"
+        assert after[host] == expected
+
+
+# 6. Bringing an inventory in.
+
+
+def test_an_imported_inventory_is_committed_exactly_as_it_arrived(
+    signed_in: TestClient, settings: Settings
+) -> None:
     document = ADOPTED.read_text()
-    assert resolve(render(parse(document))) == resolve(document)
+
+    response = signed_in.post("/api/v1/inventory/import", json={"document": document})
+
+    assert response.status_code == 200
+    assert response.json()["hosts"] == ["node1", "node2", "node3"]
+    # Byte for byte. The operator brought a file, and a file is what the
+    # repository holds.
+    assert (settings.inventory_dir / "inventory.yaml").read_text() == document
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == (
+        "inventory: import a cluster inventory of node1, node2, node3"
+    )
+
+
+def test_the_replaced_inventory_stays_one_revert_away(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    signed_in.post("/api/v1/inventory/import", json={"document": ADOPTED.read_text()})
+
+    history = signed_in.get("/api/v1/inventory/history").json()
+
+    # The seed is still in the history, so importing over it destroys nothing.
+    assert history[-1]["message"].startswith("discovery: seed")
+
+
+def test_an_inventory_that_is_not_yaml_is_refused(signed_in: TestClient) -> None:
+    response = signed_in.post(
+        "/api/v1/inventory/import", json={"document": "all: {hosts: {node1: {"}
+    )
+
+    assert response.status_code == 400
+    assert "YAML" in response.json()["error"]["message"]
+
+
+def test_an_inventory_that_breaks_a_rule_is_refused_with_the_rule(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    before = (settings.inventory_dir / "inventory.yaml").read_text()
+    broken = ADOPTED.read_text().replace(
+        "gateway_addr: 10.132.159.1", "gateway_addr: 10.99.99.1"
+    )
+
+    response = signed_in.post("/api/v1/inventory/import", json={"document": broken})
+
+    assert response.status_code == 422
+    rules = {f["rule"] for f in response.json()["error"]["detail"]["findings"]}
+    assert "gateway_is_reachable" in rules
+    # And nothing was written.
+    assert (settings.inventory_dir / "inventory.yaml").read_text() == before
+
+
+def test_the_machine_finds_its_own_entry_when_the_key_is_not_its_name(
+    signed_in: TestClient,
+) -> None:
+    # The fixture keys its hosts node1..node3 and carries the real names in
+    # `hostname`, which is what `network_buildhosts` honours. This machine is
+    # `seapath-machine`, so it is node2 here.
+    document = ADOPTED.read_text().replace(
+        'hostname: "elabo2"', 'hostname: "seapath-machine"'
+    )
+    signed_in.post("/api/v1/inventory/import", json={"document": document})
+
+    state = signed_in.get("/api/v1/inventory").json()
+
+    assert state["this_host"] == "node2"
+
+
+def test_a_machine_that_recognises_no_entry_says_so(signed_in: TestClient) -> None:
+    # Guessing would put the operator in front of another machine's
+    # configuration, which is worse than admitting the file does not describe
+    # this one.
+    signed_in.post("/api/v1/inventory/import", json={"document": ADOPTED.read_text()})
+
+    assert signed_in.get("/api/v1/inventory").json()["this_host"] is None

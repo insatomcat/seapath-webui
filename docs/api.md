@@ -91,11 +91,18 @@ The heart of the API. See [inventory.md](inventory.md).
 | GET | `/inventory/history` | Commits with author, message, timestamp |
 | POST | `/inventory/revert/{commit}` | Create a revert commit, does not apply it |
 
-`GET /inventory` carries `writable`, `read_only_reason` and `divergences`. An
-inventory the service did not produce, and cannot reproduce, is readable and
-exportable and refuses every write with `409 read_only_inventory`, whose detail
-lists what a write would have changed. See
-[inventory.md](inventory.md#the-service-has-to-be-able-to-reproduce-a-file-before-it-writes-it).
+| POST | `/inventory/import` | Replace the inventory with one the operator brought, committed whole |
+
+`GET /inventory` carries `adopted`, saying whether this file was written
+somewhere else, and `this_host`, naming the entry that describes the machine
+serving the page, which is frequently not the entry whose key matches its
+hostname.
+
+A save against an adopted inventory edits it in place, one line per changed
+variable. A change the editor cannot express, and any write that would change
+more than the form asked for, is refused with `409 refused_write` whose detail
+names what it protected. See
+[inventory.md](inventory.md#editing-one-without-rewriting-it).
 | GET | `/inventory/discovery` | What hardware discovery proposes for this node, never committed automatically |
 | GET | `/inventory/export` | The repository as a tarball, for a site that wants a real control machine |
 

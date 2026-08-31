@@ -7,6 +7,13 @@ The repository holds YAML, not a model, and that is deliberate: the file is the
 product, and a second serialisation of the same state would be a second thing
 to keep in sync. Parsing back is the price, and it has one rule that matters:
 a variable this service does not know about is kept, not dropped.
+
+Variables are read **resolved**, the way Ansible resolves them, so a value the
+file holds on a group reaches the form that edits it. Reading host variables
+alone was how a real cluster inventory arrived in the UI with an empty
+administration interface: that file keeps `network_interface` on
+`cluster_machines`, shared by three machines, which is where a hand written
+inventory keeps almost everything.
 """
 
 from __future__ import annotations
@@ -17,6 +24,8 @@ import yaml
 
 from app.inventory.model import Inventory, Mode, NodeConfig, Role
 from app.inventory.renderer import FIXED_HOST_VAR_NAMES, PTP_DOMAIN_ALIASES
+from app.inventory.resolve import Group, resolve
+from app.inventory.resolve import groups as declared_groups
 
 # The variables the model owns. Anything else found on a host lands in `extra`
 # and is written back out unchanged.
@@ -49,17 +58,20 @@ def parse(document: str) -> Inventory:
     if not isinstance(loaded, dict):
         raise InvalidInventory("The inventory must be a mapping of groups.")
 
-    hosts = _group_hosts(loaded.get("all"))
-    if not hosts:
-        raise InvalidInventory("The inventory declares no host under `all`.")
+    resolved = resolve(loaded)
+    if not resolved:
+        raise InvalidInventory("The inventory declares no host.")
 
-    cluster_members = set(_group_host_names(loaded.get("cluster_machines")))
-    observers = set(_group_host_names(loaded.get("observers")))
-    group_isolcpus = _group_vars(loaded.get("hypervisors")).get("isolcpus")
+    # Group membership is read from the whole file, so a group declared under
+    # `all.children` counts exactly as much as one declared at the top level.
+    # Both shapes are valid Ansible and a hand written file uses either.
+    table = declared_groups(loaded)
+    cluster_members = _members(table, "cluster_machines")
+    observers = _members(table, "observers")
 
-    parsed: dict[str, NodeConfig] = {}
-    for name, raw in hosts.items():
-        parsed[name] = _node(name, dict(raw or {}), observers, group_isolcpus)
+    parsed: dict[str, NodeConfig] = {
+        name: _node(name, variables, observers) for name, variables in resolved.items()
+    }
 
     return Inventory(
         mode=Mode.CLUSTER if cluster_members else Mode.STANDALONE,
@@ -67,9 +79,22 @@ def parse(document: str) -> Inventory:
     )
 
 
-def _node(
-    name: str, variables: dict[str, Any], observers: set[str], group_isolcpus: Any
-) -> NodeConfig:
+def _members(table: dict[str, Group], name: str) -> set[str]:
+    """The hosts of a group and of every group below it."""
+    seen: set[str] = set()
+    hosts: set[str] = set()
+    stack = [name]
+    while stack:
+        current = stack.pop()
+        if current in seen or current not in table:
+            continue
+        seen.add(current)
+        hosts.update(table[current].hosts)
+        stack.extend(table[current].children)
+    return hosts
+
+
+def _node(name: str, variables: dict[str, Any], observers: set[str]) -> NodeConfig:
     known = {name: variables.get(name) for name in _MODELLED if name in variables}
     extra = {
         name: value
@@ -96,7 +121,7 @@ def _node(
         ntp_servers=_as_list(ntp),
         admin_user=_optional_str(known.get("admin_user")),
         grub_password=_optional_str(known.get("grub_password")),
-        isolcpus=_optional_str(known.get("isolcpus", group_isolcpus)),
+        isolcpus=_optional_str(known.get("isolcpus")),
         extra=extra,
     )
 

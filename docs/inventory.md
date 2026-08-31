@@ -44,59 +44,89 @@ If the service has already started once, the repository holds a seed commit
 describing this machine and nothing else. Removing the directory and cloning
 over it loses nothing that was not derived from the machine itself.
 
-### The service has to be able to reproduce a file before it writes it
+### Importing one from the browser
 
-Adoption was specified above before any real inventory had been read. The first
-one that was tried, from a three node cluster deployed the conventional way,
-showed the specification was optimistic: the service read a fraction of the file
-and would have destroyed the rest on the first form save.
+`POST /inventory/import` takes the file whole and commits it whole, and the
+configuration page offers it as a file picker. That is the deployment path this
+service exists for: three machines installed from the ISO, one inventory, and a
+cluster to converge, with no shell anywhere. The version it replaces stays one
+`git revert` away, so importing over the seed destroys nothing.
 
-So there is now a rule, and it is mechanical. `app/inventory/fidelity.py`
-resolves the file the way Ansible resolves it, parses it into the model, renders
-the model back, resolves that, and compares. A file the service produced comes
-back identical. A file it cannot reproduce is served, exported and applied, and
-never written, with the list of what a save would have changed shown on the
-configuration page.
+The document is parsed and validated before it is committed. A file that is not
+YAML is refused with 400, a file that breaks a rule with 422 and the rule named,
+and neither reaches the repository.
 
-`app/inventory/resolve.py` is what makes the comparison meaningful, and a test
-asserts it agrees with `ansible-inventory --list` variable for variable on the
-reference inventories and on a real one.
+### Editing one, without rewriting it
 
-What the check found on that first real inventory, and what the writer therefore
-still has to learn, is in [decisions.md](decisions.md#d14):
+A save against an imported inventory is an **edit**. The lines that change are
+the lines the form changed, and the rest of the file survives byte for byte,
+comments and all.
 
-- groups declared under `all.children` rather than at the top level, which is
-  the shape the parser missed entirely, reading the file as a standalone one;
-- variables held on groups rather than on hosts, which is where a real
-  inventory keeps almost all of them;
-- groups the service has never heard of, `mons`, `osds` and `clients`;
-- `hostname` set to something other than the host key, so that rewriting the
-  key renames a running machine;
-- `subnet` absent, where the renderer writes one on every host.
+This is the second design of this path. The first rendered the whole file from
+the model on every save, which is harmless for a file this service wrote and
+catastrophic for a file an engineer wrote: the model holds a dozen fields, a
+real inventory holds fifty, and the render kept the dozen. Read the first real
+inventory this service met, in `tests/golden/adopted-cluster.yaml`, and count
+what a form submission would have destroyed. [D14](decisions.md#d14) has the
+list.
+
+So:
+
+- `app/inventory/resolve.py` resolves a document the way Ansible does, groups
+  included, and a test asserts it agrees with `ansible-inventory --list`
+  variable for variable;
+- `app/inventory/editor.py` uses `ruamel.yaml` as a parser that reports the
+  line and column of every value, and writes a change as a splice into the
+  original text;
+- `app/inventory/fidelity.py` resolves both versions after every edit and
+  refuses the commit unless the difference is exactly what the form asked for.
+
+Two rules decide where a change lands. A variable already on the host is
+changed where it sits. A variable the host inherits from a group is written on
+the host as an override, because the form edits one machine and rewriting the
+group would silently change the other two.
+
+An inventory this service rendered itself keeps being rendered, so a freshly
+installed machine keeps the canonical shape.
+
+What the editor refuses, rather than approximates: adding or removing a machine,
+and changing a role, which means moving a host between groups. Both are cluster
+formation, and they arrive with it.
+
+### Which entry describes this machine
+
+The host key is the obvious answer and frequently the wrong one. A site is free
+to key its inventory `node1`, `node2`, `node3` and carry the real names in
+`hostname`, which `network_buildhosts` honours. `this_host` in `GET /inventory`
+is the answer: the key, then `hostname`, then the administration address against
+the addresses this machine answers on. A node that recognises no entry says so,
+because putting an operator in front of another machine's configuration is worse
+than admitting the file does not describe this one.
 
 Four things have to be true of what lands there:
 
 - **One file, `inventory.yaml`, at the root.** That is the only file read and
   the only file written. An inventory kept as `seapath-cluster.yaml` is renamed
   with `git mv` and committed.
-- **This machine appears under `all.hosts`, keyed by its own hostname.** The
-  host key is what `inventory_hostname` resolves to, and `hostname` renames the
-  machine, so a key that does not match is not a naming detail.
+- **This machine appears somewhere in it.** The host key is what
+  `inventory_hostname` resolves to, and `hostname` overrides the machine's
+  name, so a site may key its hosts `node1..node3` and name the machines
+  something else. Both are recognised, see "Which entry describes this
+  machine".
 - **Groups carry the meaning they carry upstream.** `cluster_machines` present
   means cluster mode, membership of `observers` rather than `hypervisors` is the
   role. That is how the reference inventories express it and how the playbooks
   read it.
-- **Variables this service does not model survive.** A variable held on a
-  host is parsed into `extra` and written back unchanged. A variable held on a
-  group is read for display and is not preserved by the writer yet, which is
-  why an inventory that has any is read only.
+- **Variables this service does not model survive**, wherever they live. Host
+  variables and group variables alike are read resolved, so the form is filled
+  from them, and a save touches only the lines it changes.
 
-Two limits of M1 are worth knowing before adopting a cluster inventory. The
-configuration form edits the first host under `all.hosts`, because M1 configures
-one machine. And a run plays every host the inventory declares, since the
-adapter passes no `--limit`, while M1 only provisions the trust between this
-node and itself: applying against hosts this node has no trust with fails on
-them, as unreachable.
+One limit of M1 is worth knowing before importing a cluster inventory: a run
+plays every host the inventory declares, since the adapter passes no `--limit`,
+while M1 only provisions the trust between this node and itself. Applying
+against the other machines fails on them, as unreachable, until the trust mesh
+of [cluster-join.md](cluster-join.md) exists at M3. Importing, reading and
+editing all work today.
 
 The repository is an ordinary git repository, so a remote survives the clone.
 Nothing pushes or pulls it by itself: replication between nodes arrives with the

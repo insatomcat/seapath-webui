@@ -114,12 +114,17 @@
     }
     state.inventory = payload.inventory;
     state.commit = payload.commit;
-    state.host = Object.keys(payload.inventory.hosts)[0];
+    // Which entry describes this machine. The host key is frequently not the
+    // machine's name: a site can key an inventory node1, node2, node3 and
+    // carry the real names in `hostname`. The server works it out.
+    state.host = payload.this_host || Object.keys(payload.inventory.hosts)[0];
 
     const pairs = [
       ["Machine", state.host],
       ["Inventory commit", (state.commit || "none").slice(0, 12)],
       ["Mode", payload.inventory.mode],
+      ["Machines", Object.keys(payload.inventory.hosts).join(", ")],
+      ["Written", payload.adopted ? "elsewhere, edited in place here" : "here"],
     ];
     const summary = element("repo-summary");
     summary.replaceChildren();
@@ -132,13 +137,6 @@
     });
 
     writeForm(payload.inventory.hosts[state.host]);
-    if (showReadOnly(payload)) {
-      // The validation warnings describe a desired state this page cannot
-      // change. Showing them next to a locked form would read as a list of
-      // repairs to make here, and there are none to make here.
-      showBanner([]);
-      return true;
-    }
     // Warnings are advice, not refusals. They are the difference between "this
     // is wrong" and "this is unusual, and you may have meant it".
     showBanner(
@@ -149,35 +147,42 @@
     return true;
   }
 
-  // The service refuses to rewrite a file it cannot reproduce, and the page
-  // says so where the operator is about to type: the list of what a save would
-  // have changed, and a form that cannot be typed into. Controls are only ever
-  // disabled here, never re-enabled, so this cannot undo the lock a viewer
-  // account is already under.
-  function showReadOnly(payload) {
-    const card = element("readonly-card");
-    if (payload.writable !== false) {
-      card.hidden = true;
-      return false;
+  // Bringing an inventory in. The file is read in the browser and posted as
+  // text: what a site owns is a file, and anything this service cannot express
+  // in its model has to survive the trip.
+  const importFile = element("import-file");
+  const importGo = element("import-go");
+
+  importFile.addEventListener("change", () => {
+    importGo.disabled = !importFile.files.length;
+    element("import-error").hidden = true;
+  });
+
+  importGo.addEventListener("click", async () => {
+    const error = element("import-error");
+    error.hidden = true;
+    const file = importFile.files[0];
+    if (!file) {
+      return;
     }
-
-    element("readonly-reason").textContent = payload.read_only_reason || "";
-    const list = element("readonly-list");
-    list.replaceChildren();
-    (payload.divergences || []).forEach((divergence) => {
-      const item = document.createElement("li");
-      item.textContent = divergence.message;
-      list.append(item);
-    });
-    card.hidden = false;
-
-    element("node-form")
-      .querySelectorAll("input, select, button")
-      .forEach((control) => {
-        control.disabled = true;
+    importGo.disabled = true;
+    try {
+      const imported = await API.post("/inventory/import", {
+        document: await file.text(),
       });
-    return true;
-  }
+      element("import-details").open = false;
+      importFile.value = "";
+      await refresh();
+      showBanner([
+        "Imported " + imported.hosts.join(", ") + ". Nothing has been applied " +
+          "to any machine: that is the Apply section below.",
+      ]);
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      importGo.disabled = false;
+    }
+  });
 
   async function loadDiscovery() {
     const discovery = await API.get("/inventory/discovery");

@@ -12,11 +12,13 @@ from pydantic import BaseModel, Field
 
 from app.hosts.reader import HostReader
 from app.inventory.discovery import Discovery, discover, seed_inventory
-from app.inventory.fidelity import Divergence, divergences
+from app.inventory.editor import UneditableInventory, edit
+from app.inventory.fidelity import Divergence, unintended_changes
 from app.inventory.model import Inventory, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
 from app.inventory.renderer import render
 from app.inventory.repository import Commit, InventoryRepository
+from app.inventory.resolve import resolve
 from app.inventory.validation import ValidationResult, validate
 
 logger = logging.getLogger(__name__)
@@ -39,14 +41,21 @@ _SECTIONS = {
 }
 
 
-class ReadOnlyInventory(Exception):
-    """A write was refused because the file was written elsewhere.
+class ImportRefused(Exception):
+    """An imported inventory was refused before it reached the repository."""
 
-    The service earns the right to rewrite an inventory by proving it can
-    reproduce it. Until then the file is served and exported, and never
-    written, because a form save that silently dropped thirty group variables
-    would be a configuration change nobody asked for and nobody would see until
-    a run behaved differently.
+    def __init__(self, message: str, validation: ValidationResult) -> None:
+        super().__init__(message)
+        self.validation = validation
+
+
+class RefusedWrite(Exception):
+    """The change could not be made without changing something else.
+
+    Raised when the edit cannot be expressed against this file, and when the
+    file it produced would change more than the form asked for. Both are
+    refusals rather than best efforts, because a save that quietly rewrote a
+    neighbouring line is the failure this whole path exists to prevent.
     """
 
     def __init__(self, message: str, divergences: list[Divergence]) -> None:
@@ -64,14 +73,13 @@ class InventoryState(BaseModel):
         default=False, description="Whether an inventory exists at all yet"
     )
     parse_error: str | None = None
-    writable: bool = Field(
-        default=True,
-        description="Whether a form save can rewrite this file faithfully",
+    adopted: bool = Field(
+        default=False,
+        description="Whether this file was written somewhere other than here",
     )
-    read_only_reason: str | None = None
-    divergences: list[Divergence] = Field(
-        default_factory=list,
-        description="What a rewrite would change, when it would change anything",
+    this_host: str | None = Field(
+        default=None,
+        description="Which entry in the inventory describes the machine serving it",
     )
 
 
@@ -95,19 +103,71 @@ class InventoryService:
                 seeded=True,
                 commit=self._repository.head(),
                 parse_error=str(error),
-                writable=False,
-                read_only_reason="The inventory could not be read.",
             )
-        found = divergences(document)
         return InventoryState(
             inventory=inventory,
             commit=self._repository.head(),
             validation=validate(inventory),
             seeded=True,
-            writable=not found,
-            read_only_reason=read_only_reason(found),
-            divergences=found,
+            adopted=not _is_ours(document),
+            this_host=self.identify(document, inventory),
         )
+
+    def identify(self, document: str, inventory: Inventory) -> str | None:
+        """Which entry describes the machine this service runs on.
+
+        The host key is the obvious answer and it is frequently the wrong one.
+        A site is free to key its inventory `node1`, `node2`, `node3` and carry
+        the real names in `hostname`, which the first real inventory this
+        service met does, and `network_buildhosts` honours: the machine is
+        called `elabo1` and its entry is `node1`.
+
+        So the key is tried, then `hostname`, then the administration address
+        against the addresses this machine actually answers on. A node that
+        recognises none of the entries says so rather than guessing, because
+        editing the wrong machine's entry is worse than editing none.
+        """
+        hostname = self._reader.node_identity().hostname
+        if hostname in inventory.hosts:
+            return hostname
+
+        # `hostname` is one of the variables the renderer owns, so the model
+        # drops it. It is read from the file itself, resolved, which is also
+        # how it reaches Ansible.
+        resolved = resolve(document)
+        for name in inventory.hosts:
+            if str(resolved.get(name, {}).get("hostname") or "") == hostname:
+                return name
+
+        addresses = {
+            address.address
+            for interface in self._reader.network().interfaces
+            for address in interface.addresses
+        }
+        for name, node in inventory.hosts.items():
+            if node.ansible_host in addresses:
+                return name
+        return None
+
+    def import_document(self, document: str, author: str) -> tuple[Commit | None, str]:
+        """Replace the inventory with one the operator brought.
+
+        The file arrives whole and is committed whole, which is the one write
+        that legitimately rewrites everything: the operator is replacing the
+        desired state, rather than editing it.
+        """
+        inventory = parse(document)
+        result = validate(inventory)
+        if not result.valid:
+            raise ImportRefused(result.errors()[0].message, result)
+
+        names = ", ".join(inventory.hosts)
+        commit = self._repository.commit(
+            content=document,
+            message=f"inventory: import a {inventory.mode.value} inventory of {names}",
+            author=author,
+        )
+        return commit, names
 
     def raw(self) -> str:
         return self._repository.read()
@@ -122,8 +182,7 @@ class InventoryService:
         return self._repository.diff(from_ref, to_ref)
 
     def preview(self, candidate: Inventory) -> str:
-        self._refuse_if_read_only()
-        return self._repository.diff_against(render(candidate))
+        return self._repository.diff_against(self.document_for(candidate))
 
     def export(self) -> bytes:
         return self._repository.export()
@@ -141,7 +200,6 @@ class InventoryService:
         message: str | None = None,
     ) -> tuple[Commit | None, ValidationResult]:
         """Validate, then commit. An invalid inventory never reaches git."""
-        self._refuse_if_read_only()
         result = validate(candidate)
         if not result.valid:
             return None, result
@@ -149,7 +207,7 @@ class InventoryService:
         if message is None:
             message = self._message_for(candidate)
         commit = self._repository.commit(
-            content=render(candidate),
+            content=self.document_for(candidate),
             message=message,
             author=author,
             expected_head=expected_head,
@@ -157,16 +215,40 @@ class InventoryService:
         return commit, result
 
     def revert(self, commit: str, author: str) -> Commit:
-        self._refuse_if_read_only()
         return self._repository.revert(commit, author)
 
-    def _refuse_if_read_only(self) -> None:
+    def document_for(self, candidate: Inventory) -> str:
+        """The file this candidate becomes, written the way the file allows.
+
+        An inventory this service produced is rendered from the model, which
+        keeps it in the canonical shape. An inventory written anywhere else is
+        **edited**, one line per changed variable, so that its groups, its
+        comments and the fifty variables this model knows nothing about are
+        still there afterwards.
+        """
         document = self._repository.read()
         if not document.strip():
-            return
-        found = divergences(document)
-        if found:
-            raise ReadOnlyInventory(read_only_reason(found) or "", found)
+            return render(candidate)
+        if _is_ours(document):
+            return render(candidate)
+
+        current = parse(document)
+        changes = field_changes(current, candidate)
+        if not changes:
+            return document
+        try:
+            edited = edit(document, changes)
+        except UneditableInventory as error:
+            raise RefusedWrite(str(error), []) from error
+
+        unintended = unintended_changes(document, edited, changes)
+        if unintended:
+            raise RefusedWrite(
+                "This change could not be made without changing other things "
+                "in the file, so nothing was written.",
+                unintended,
+            )
+        return edited
 
     def ensure_seed(self) -> bool:
         """Write the inventory a node produces about itself at first boot.
@@ -228,19 +310,67 @@ class InventoryService:
         return f"{', '.join(sections)}: set {', '.join(fields)} on {', '.join(hosts)}"
 
 
-def read_only_reason(found: list[Divergence]) -> str | None:
-    """Why the file cannot be written, in the words the operator reads."""
-    if not found:
-        return None
-    if any(divergence.kind == "unsupported" for divergence in found):
-        return found[0].message
-    return (
-        "This inventory was written somewhere else, and rewriting it here "
-        "would change what Ansible resolves for the machines below. It is "
-        "served read only until this service can reproduce it exactly. The "
-        "file itself is untouched, and exporting the repository gives it back "
-        "as it is."
-    )
+def _is_ours(document: str) -> bool:
+    """Whether this file is one the renderer produces, byte for byte.
+
+    The question decides how a save is written, and it is asked of the file
+    rather than of a flag: a marker in a header would be a claim, and this is
+    a proof.
+    """
+    try:
+        return render(parse(document)) == document
+    except (InvalidInventory, NotImplementedError):
+        return False
+
+
+# The model field names are the inventory variable names, which is what lets a
+# form submission become a set of variables to write without a mapping table.
+_EDITABLE = (
+    "ansible_host",
+    "network_interface",
+    "subnet",
+    "gateway_addr",
+    "dns_servers",
+    "ptp_interface",
+    "ptp_domain_number",
+    "ntp_servers",
+    "admin_user",
+    "grub_password",
+    "isolcpus",
+)
+
+
+def field_changes(
+    current: Inventory, candidate: Inventory
+) -> dict[str, dict[str, Any]]:
+    """What the form actually changed, per host and per variable."""
+    added = set(candidate.hosts) - set(current.hosts)
+    removed = set(current.hosts) - set(candidate.hosts)
+    if added or removed:
+        raise RefusedWrite(
+            "Adding or removing a machine in an inventory written elsewhere "
+            "is not something this service does yet. Edit the file and commit "
+            "it, or form the cluster from here.",
+            [],
+        )
+
+    changes: dict[str, dict[str, Any]] = {}
+    for name, node in candidate.hosts.items():
+        before = current.hosts[name]
+        if node.role is not before.role:
+            raise RefusedWrite(
+                f"Changing the role of {name} means moving it between groups, "
+                "which this service does not write yet.",
+                [],
+            )
+        fields = {
+            field: getattr(node, field)
+            for field in _EDITABLE
+            if getattr(node, field) != getattr(before, field)
+        }
+        if fields:
+            changes[name] = fields
+    return changes
 
 
 def _changed_fields(before: NodeConfig, after: NodeConfig) -> list[tuple[str, str]]:

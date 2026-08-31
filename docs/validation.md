@@ -94,9 +94,9 @@ playbook that reboots the host running it.
 | 13 | `GET /playbooks` marks as unavailable any entry the shipped collection does not carry, naming the collection version | Depends on what the image was built from | |
 | 14 | The administration address changed through the form, then applied, leaves the self trust working after the reboot | The `from=` repair at startup | |
 | 15 | `cyclictest` on the isolated CPUs is unchanged with a run in progress | A convergence must not disturb a running guest | |
-| 16 | On a node whose repository holds only the seed, the configuration page is writable and the form saves | The read only rule must leave a freshly installed machine alone | Pending: run it when the seed is back on elabo1 |
-| 17 | With the site's own inventory put in `/etc/seapath/inventory`, the page shows it, refuses every write, and names `hostname` and `subnet` among what a save would have changed | The check runs against a real site inventory, which is where the shapes the fixture models were found | **Pass**, elabo1, 2026-08-31: 31 divergences, `hostname`, `network_interface` and `subnet` at the top, form locked |
-| 18 | After 17, `git -C /etc/seapath/inventory status` is clean and the file is byte for byte what was cloned | The claim the refusal makes: reading an inventory never modifies it | **Pass**, elabo1, 2026-08-31: clean tree, and `HEAD:inventory.yaml` and the working file share one sha256 |
+| 16 | On a node whose repository holds only the seed, the form saves and the file keeps its rendered shape | The editor must leave a freshly installed machine alone | Pending |
+| 17 | The site's own inventory, imported from the browser, shows every machine with its group variables resolved, no validation finding, and `this_host` naming this machine | The read only version of this check passed on elabo1 on 2026-08-31. Re-run against the importer | Pending |
+| 18 | After 17, changing one field through the form produces a commit whose diff is that one field, with every comment and every group variable of the site file still in place | The claim the editor makes, against a file no fixture can fully stand in for | Pending |
 
 Check 5 is the one that decides whether the milestone is real. Everything else
 can pass while the product claim is false.
@@ -106,13 +106,12 @@ worth running on the site inventory rather than on a copy of the fixture: the
 fixture was written from one real file, and the next real file will have a
 shape neither of them has.
 
-Run on elabo1 on 2026-08-31, against the site's own three node inventory, the
-one the fixture was sanitised from. The service listed 31 divergences, led by
-the three that would have reached the machines: `hostname` reverting to the host
-key on all three nodes, `network_interface` emptied because it is a group
-variable, and `subnet` appearing with a value the file never set. The repository
-was untouched afterwards, which is the half of the rule that matters most: a
-refusal that had already written something would be worthless.
+The read only version of these checks ran on elabo1 on 2026-08-31 and passed:
+31 divergences named, led by `hostname` reverting to the host key on all three
+machines, and the repository byte for byte what it was. That version is gone,
+replaced by an editor that makes the same file editable, so the checks above are
+the ones that now matter and they are unrun. What the earlier run established
+stands: the shapes in the site file are the shapes in the fixture.
 
 ### First contact with real hardware
 

@@ -272,30 +272,44 @@ silent: a form save that drops thirty group variables produces a valid
 inventory, a clean commit, and a cluster that breaks on the next convergence for
 reasons nobody connects to the save.
 
-So the check is mechanical and runs on every read. `app/inventory/resolve.py`
-resolves a document the way Ansible does. `app/inventory/fidelity.py` resolves
-the file, parses it, renders the model back, resolves that, and compares. Zero
-divergences makes the file writable. Anything else makes it read only, and the
-configuration page lists what a save would have changed, ordered so that the
-lines that put a new value on a machine come first.
+The first answer was to serve such a file read only, listing what a save would
+have destroyed. It shipped, it was checked on the cluster above, and it lasted
+one conversation: the target is that an ISO and an inventory are enough to
+deploy a cluster, and an inventory nobody can edit fails that on the second
+word.
+
+So the writer changed instead. A save against a file this service did not
+produce is an **edit**:
+
+- `app/inventory/resolve.py` resolves a document the way Ansible does, groups
+  included, in both declaration shapes;
+- `app/inventory/editor.py` uses `ruamel.yaml` as a parser that reports the line
+  and column of every value, and writes a change as a splice into the original
+  text. One changed variable is one changed line, and the comments an engineer
+  wrote for the next engineer are still there;
+- `app/inventory/fidelity.py` resolves both versions after every edit and
+  refuses the commit unless the difference is exactly what the form asked for.
+
+Where a change lands is itself a decision. A variable already on the host is
+changed in place. A variable inherited from a group is written **on the host**,
+as an override, because the form edits one machine and rewriting
+`cluster_machines` would silently reconfigure the other two.
 
 Three consequences worth stating:
 
-- **A freshly installed machine is unaffected.** The seed is the service's own
-  render, so it round trips exactly and the commissioning flow keeps working.
-- **The cluster `NotImplementedError` stops being a 500.** A cluster inventory
-  is refused with a reason and a 409 rather than crashing the preview button.
-- **The resolver is anchored to Ansible, not to our belief about Ansible.** A
-  test asserts it agrees with `ansible-inventory --list` variable for variable
-  on both reference inventories and on the real one. A resolver that was wrong
-  in the same way in both directions would make this whole check say "safe" and
-  mean nothing.
+- **A freshly installed machine is unaffected.** A file the renderer produces
+  round trips exactly, which is how the service recognises its own work, and it
+  keeps being rendered rather than edited.
+- **The resolver is anchored to Ansible rather than to our belief about
+  Ansible.** A test asserts it agrees with `ansible-inventory --list` variable
+  for variable on both reference inventories and on the real one. A resolver
+  wrong in the same way in both directions would make every check here say
+  "safe" and mean nothing.
+- **The verification survived its own bug.** The first editor spliced a value
+  and swallowed the line below it, and the resolved comparison named the
+  swallowed variable before anything was committed. That failure is now a test.
 
-What this defers is the writer itself: group variables, unknown groups, a
-`hostname` that differs from the key, and a cluster render. Until those land,
-adoption gives a site a readable, exportable, appliable inventory and a locked
-form.
-`test_a_rewrite_of_the_adopted_inventory_changes_nothing_ansible_can_see` is
-marked `xfail(strict=True)` against the real fixture, so the day the writer
-learns all four, the suite fails until this decision is revisited.
+What the editor refuses, rather than approximates: adding or removing a machine,
+and changing a role, which means moving a host between groups. Both are cluster
+formation and arrive with it at M3.
 
