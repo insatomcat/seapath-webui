@@ -214,10 +214,10 @@ def test_the_keys_reach_the_ssh_commands_a_role_spawns_itself(
     tmp_path: Path,
 ) -> None:
     # `ansible.posix.synchronize` builds its own ssh command line for rsync and
-    # forwards only `private_key_file`, so a machine this node drives with the
-    # site key is offered the wrong identity, ssh asks for a password, and the
-    # run hangs on a prompt nobody can see. Four roles push files that way,
-    # `configure_physical_machine` among them.
+    # forwards only `private_key_file` unless the task sets `use_ssh_args`. A
+    # task that forgets it offers the wrong identity to a machine driven with
+    # the site key, ssh asks for a password, and the run hangs on a prompt
+    # nobody can see. `deploy_seapath_alloc` is that task today.
     config_file = tmp_path / "root/.ssh/config"
     prepare(
         RunRequest(
