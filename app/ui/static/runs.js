@@ -280,30 +280,43 @@
     };
   }
 
+  // Relaunching asks once, like applying does. Typing the machine's name was
+  // asked for here after the apply confirmation stopped asking, which put the
+  // heavier friction on the lighter act: a relaunch converges again with the
+  // same playbook, and converging again is how a failed run is recovered.
   function confirmRelaunch(record) {
     const modal = element("confirm");
-    const input = element("confirm-input");
     const go = element("confirm-go");
-    const node = document.getElementById("node-name").textContent;
 
     element("confirm-title").textContent = "Relaunch " + record.playbook_id;
     element("confirm-disruption").textContent =
       "Relaunching is safe: the playbooks are idempotent, so converging again " +
       "is the recovery. It will run against this machine from the current " +
       "inventory, which may have changed since the run that failed.";
-    element("confirm-name").textContent = node;
+
+    // A relaunch repeats the run it relaunches, variables included. Dropping
+    // them silently would reboot a machine whose run was launched with
+    // skip_reboot_setup, and would send cluster_remove_machine off without the
+    // machine to remove.
+    const variables = record.variables || {};
+    const named = Object.keys(variables);
+    const line = element("confirm-variables");
+    line.textContent = named.length
+      ? "Launched again with " +
+        named.map((name) => name + " = " + variables[name]).join(", ") +
+        ", as the original run was."
+      : "";
+    line.hidden = !named.length;
+
     element("confirm-error").hidden = true;
-    input.value = "";
-    go.disabled = true;
-    input.oninput = () => {
-      go.disabled = input.value !== node;
-    };
+    go.disabled = false;
     go.onclick = async () => {
       go.disabled = true;
       try {
         const started = await API.post("/runs", {
           playbook: record.playbook_id,
           check: record.check,
+          variables,
         });
         modal.hidden = true;
         await show(started.run_id);

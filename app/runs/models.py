@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -71,6 +72,11 @@ class RunRecord(BaseModel):
     # which version of the code that reads it.
     inventory_commit: str | None = None
     collection_version: str = "unknown"
+    # What the catalogue entry accepted at launch. Kept so a relaunch repeats
+    # the run rather than a neighbouring one: a run launched with
+    # `skip_reboot_setup` relaunched without it reboots a machine the operator
+    # had asked to leave up.
+    variables: dict[str, Any] = Field(default_factory=dict)
     command: list[str] = Field(default_factory=list)
     return_code: int | None = None
     progress: RunProgress = Field(default_factory=RunProgress)

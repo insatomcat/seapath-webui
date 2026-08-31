@@ -112,6 +112,17 @@ def test_the_apply_confirmation_says_what_it_will_disturb(
     assert "confirm-input" not in body
 
 
+def test_relaunching_asks_no_more_than_applying_does(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/runs").text
+
+    # The heavier friction was on the lighter act: a relaunch converges again
+    # with the same playbook, which is how a failed run is recovered.
+    assert 'id="confirm-disruption"' in body
+    assert "confirm-input" not in body
+
+
 def test_a_hidden_element_is_hidden_whatever_its_display_rule(
     signed_in: TestClient,
 ) -> None:

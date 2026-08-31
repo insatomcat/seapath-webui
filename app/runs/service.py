@@ -270,6 +270,7 @@ class RunService:
             launched_by=launched_by,
             inventory_commit=state.commit,
             collection_version=self.collection_version(),
+            variables=extra_vars,
         )
 
         # The lock before the directory: two operators must not converge the

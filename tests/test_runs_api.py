@@ -77,9 +77,12 @@ def test_the_reboot_can_be_declined_and_the_variable_reaches_the_run(
             "variables": {"skip_reboot_setup": True},
         },
     ).json()["run_id"]
-    wait_for(signed_in, run_id)
+    record = wait_for(signed_in, run_id)
 
     assert run_adapter.requests[0].extra_vars == {"skip_reboot_setup": True}
+    # And the record keeps them, so relaunching repeats this run rather than
+    # the one that reboots.
+    assert record["variables"] == {"skip_reboot_setup": True}
 
 
 def test_an_undeclared_variable_is_refused(signed_in: TestClient) -> None:

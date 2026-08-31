@@ -130,7 +130,7 @@ not it. The client never has to know which node leads.
 | GET | `/playbooks` | The catalogue of [playbooks.md](playbooks.md): targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them |
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode |
 | GET | `/runs` | History, most recent first |
-| GET | `/runs/{id}` | Status, inventory commit, per host result, command line used |
+| GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used |
 | GET | `/runs/{id}/events` | Server sent events, one per Ansible task event, each host result carrying the seconds it took |
 | GET | `/runs/{id}/log` | Full log, for download |
 | POST | `/runs/{id}/cancel` | Best effort, and honest that a cancelled convergence leaves a partial state |
@@ -162,6 +162,11 @@ Run states: `pending`, `running`, `success`, `failed`, `interrupted`,
 `cancelled`. `interrupted` means the run ended without a final status, typically
 because the playbook rebooted the machine it was running from, and it is
 presented as "relaunch" rather than as a failure.
+
+A record carries the variables the run was launched with, and relaunching posts
+them again. A relaunch has to repeat the run it relaunches: dropping them would
+reboot a machine whose run asked for `skip_reboot_setup`, and would send
+`cluster_remove_machine.yaml` off without the machine to remove.
 
 ## Node and cluster, read only
 
