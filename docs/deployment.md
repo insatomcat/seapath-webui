@@ -260,22 +260,38 @@ machine discovers about itself, see
 [inventory.md](inventory.md#adopting-an-inventory-that-already-exists), and do
 it before the first start.
 
-### Running from a source checkout, and the collection
+### Running from a source checkout on a node
 
-The image carries the collection at `/opt/ansible/collections`, and that is
-where the playbooks a run needs come from. A service started from a source
-checkout has no such directory, so **every catalogue entry is unavailable and
-the Apply section has no buttons at all**. That is correct behaviour and it
-looked like a broken page the first time it happened, so the System page now
-says it in one sentence rather than repeating it under thirteen dimmed rows.
-
-Point it at a collection, or run the image:
+`git pull` and a restart is seconds, and a build and a push is minutes, so
+iterating on the service from a checkout on the machine is the reasonable thing
+to do. It needs the collection installed once, and it is worth knowing what it
+does not prove.
 
 ```bash
+# Once. It survives every later git pull.
 ansible-galaxy collection install \
     git+https://github.com/seapath/ansible.git -p /opt/ansible/collections
-export SEAPATH_WEBUI_COLLECTIONS_PATH=/opt/ansible/collections
+
+# Then, from the checkout, on the housekeeping CPUs.
+taskset -c 0-1 .venv/bin/python -m app
 ```
+
+Without that first command **every catalogue entry is unavailable and the Apply
+section has no buttons**, because the playbooks live in the collection and the
+image is what usually installs it. That is correct behaviour and it read as a
+broken page the first time it happened, so the service now says it in the
+journal at startup and the System page says it once above the list.
+
+Three things a source checkout does not reproduce, and one of them can do harm:
+
+| | Image | Source checkout |
+|---|---|---|
+| Collection | Installed at build, version baked into `SEAPATH_WEBUI_COLLECTION_VERSION` | Whatever was installed by hand, version reported as `unknown`, and the version is what a run records |
+| PAM | Ships `/etc/pam.d/seapath-webui` | Falls back to `/etc/pam.d/other`, so an authentication result here says nothing about the deployed one |
+| CPUs | `CPUAffinity=0-1` and `Nice=5` from the quadlet | Free to run anywhere, **including the isolated CPUs**, which on a machine running real time guests is a latency source. `taskset` is the substitute |
+
+So: iterate from the checkout, and confirm from the image before believing a
+result. The image is what ships.
 
 ## 3. Surviving the runs it launches
 

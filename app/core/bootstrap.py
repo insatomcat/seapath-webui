@@ -21,6 +21,7 @@ from pathlib import Path
 
 from app.hosts.reader import HostReader
 from app.inventory.service import InventoryService
+from app.runs import catalogue
 from app.runs.service import RunService
 from app.trust import known_hosts
 from app.trust.authorized_keys import MissingAccount
@@ -78,6 +79,36 @@ def check_account_files() -> list[str]:
     return missing
 
 
+def check_collection(settings) -> bool:
+    """Say in the journal when there is no collection to run playbooks from.
+
+    The image carries one and a source checkout does not, and the symptom is an
+    Apply section with no buttons, which reads as a broken page rather than as
+    a missing directory. Reported here so the answer is in the log before
+    anyone opens the page.
+    """
+    missing = catalogue.missing_from(settings.collections_path)
+    if not missing:
+        return True
+    if len(missing) == len(catalogue.CATALOGUE):
+        logger.warning(
+            "No SEAPATH playbook was found under %s, so nothing can be applied "
+            "from this node. The image installs the collection there; a "
+            "service started from a source checkout has to be pointed at one "
+            "with SEAPATH_WEBUI_COLLECTIONS_PATH.",
+            settings.collections_path,
+        )
+    else:
+        logger.warning(
+            "%d of %d catalogue entries are missing from the collection under "
+            "%s, and are offered as unavailable.",
+            len(missing),
+            len(catalogue.CATALOGUE),
+            settings.collections_path,
+        )
+    return False
+
+
 def run_startup_tasks(
     hostname: str,
     reader: HostReader,
@@ -119,6 +150,8 @@ def run_startup_tasks(
         inventory.ensure_seed()
     except Exception as error:  # pragma: no cover - defensive
         logger.error("Could not write the seed inventory: %s", error)
+
+    check_collection(settings)
 
     # A record left saying `running` is a run whose process is gone, because
     # the machine rebooted or the container restarted. Leaving it would hold
