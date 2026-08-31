@@ -202,10 +202,13 @@
     const catalogue = await API.get("/playbooks");
     const container = element("playbooks");
     container.replaceChildren();
-    element("apply-lead").textContent = Chrome.isAdmin(state.me)
-      ? "Applying runs an upstream SEAPATH playbook against this machine. " +
-        "This is the part that changes it."
-      : "Applying requires the admin role.";
+
+    // When nothing can run, the reason is almost always one reason, and
+    // repeating it in small print under nine dimmed rows is how an operator
+    // ends up asking why the buttons are greyed out. Say it once, at the top.
+    const blocked = element("apply-blocked");
+    blocked.textContent = blockingEverything(catalogue).join("  ");
+    blocked.hidden = !blocked.textContent;
 
     catalogue.forEach((item) => {
       const entry = item.entry;
@@ -223,7 +226,7 @@
       }
 
       const detail = document.createElement("p");
-      detail.className = "help";
+      detail.className = item.available ? "help" : "warning";
       detail.textContent = item.available
         ? entry.disruption
         : item.unmet.join(" ");
@@ -249,6 +252,32 @@
 
       row.append(title, detail, actions);
       container.append(row);
+    });
+  }
+
+  // What blocks every entry, said once. Grouped by the code behind the
+  // sentence rather than by the sentence: thirteen playbooks missing from the
+  // collection produce thirteen different sentences and one problem.
+  function blockingEverything(catalogue) {
+    if (!catalogue.length || catalogue.some((item) => item.available)) {
+      return [];
+    }
+    const shared = catalogue
+      .map((item) => new Set(item.unmet_codes))
+      .reduce((left, right) => new Set([...left].filter((c) => right.has(c))));
+
+    return [...shared].map((code) => {
+      if (code === "playbook_present") {
+        return (
+          "None of these playbooks is in the SEAPATH collection this service " +
+          "is running with, so nothing can be launched from here. That is what " +
+          "the image ships and a run needs; a service started from a source " +
+          "checkout has to be pointed at a collection with " +
+          "SEAPATH_WEBUI_COLLECTIONS_PATH."
+        );
+      }
+      const first = catalogue.find((item) => item.unmet_codes.includes(code));
+      return first.unmet[first.unmet_codes.indexOf(code)];
     });
   }
 
@@ -352,19 +381,20 @@
     lead.textContent =
       "A run plays every machine the inventory declares, which is " +
       Object.keys(payload.inventory.hosts).join(", ") +
-      ". It runs from this node, so this node needs a way to reach the others.";
+      ". It runs from this node, so this node needs a way to reach the others." +
+      (Chrome.isAdmin(state.me) ? "" : " Applying requires the admin role.");
   }
 
   async function refresh() {
     await Promise.all([loadSiteKey(), loadHostKeys()]);
     await loadPlaybooks();
+    await loadInventoryHosts();
   }
 
   async function start() {
     const chrome = await Chrome.load();
     state.me = chrome.me;
     state.node = chrome.node;
-    await loadInventoryHosts();
     await refresh();
   }
 

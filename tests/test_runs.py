@@ -513,6 +513,11 @@ def test_an_entry_the_shipped_collection_lacks_is_explained_not_offered(
         by_id["seapath_setup_main"].unmet[0]
     )
     assert "1.9.0" in by_id["seapath_setup_main"].unmet[0]
+    # The code behind the sentence, so a page can group thirteen entries that
+    # are unavailable for one reason into one line. Comparing the sentences
+    # cannot do it: each names its own playbook.
+    assert by_id["seapath_setup_main"].unmet_codes == ["playbook_present"]
+    assert by_id["seapath_setup_network"].unmet_codes == []
 
     with pytest.raises(ApiError) as failure:
         service.launch("seapath_setup_main", "alice")

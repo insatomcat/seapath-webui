@@ -260,6 +260,23 @@ machine discovers about itself, see
 [inventory.md](inventory.md#adopting-an-inventory-that-already-exists), and do
 it before the first start.
 
+### Running from a source checkout, and the collection
+
+The image carries the collection at `/opt/ansible/collections`, and that is
+where the playbooks a run needs come from. A service started from a source
+checkout has no such directory, so **every catalogue entry is unavailable and
+the Apply section has no buttons at all**. That is correct behaviour and it
+looked like a broken page the first time it happened, so the System page now
+says it in one sentence rather than repeating it under thirteen dimmed rows.
+
+Point it at a collection, or run the image:
+
+```bash
+ansible-galaxy collection install \
+    git+https://github.com/seapath/ansible.git -p /opt/ansible/collections
+export SEAPATH_WEBUI_COLLECTIONS_PATH=/opt/ansible/collections
+```
+
 ## 3. Surviving the runs it launches
 
 A playbook can reboot the machine running it, and

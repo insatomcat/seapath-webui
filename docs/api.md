@@ -127,7 +127,7 @@ not it. The client never has to know which node leads.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/playbooks` | The catalogue of [playbooks.md](playbooks.md): targets, preview quality, reboot behaviour, disruption, preconditions |
+| GET | `/playbooks` | The catalogue of [playbooks.md](playbooks.md): targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them |
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode |
 | GET | `/runs` | History, most recent first |
 | GET | `/runs/{id}` | Status, inventory commit, per host result, command line used |

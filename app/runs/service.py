@@ -34,6 +34,11 @@ class PlaybookAvailability(BaseModel):
     entry: PlaybookEntry
     available: bool
     unmet: list[str] = []
+    # The codes behind those sentences. A page showing thirteen entries that
+    # are all unavailable for the same reason has to be able to say the reason
+    # once, and it cannot do that by comparing thirteen sentences that each
+    # name a different playbook.
+    unmet_codes: list[str] = []
 
 
 class RunPaths(BaseModel):
@@ -70,29 +75,35 @@ class RunService:
     def playbooks(self) -> list[PlaybookAvailability]:
         unmet_by_condition = self._unmet_preconditions()
         missing = self._missing_playbooks()
-        return [
-            PlaybookAvailability(
-                entry=entry,
-                available=not self._blocking(entry, unmet_by_condition, missing),
-                unmet=self._blocking(entry, unmet_by_condition, missing),
+        rows = []
+        for entry in catalogue.CATALOGUE:
+            blocking = self._blocking(entry, unmet_by_condition, missing)
+            rows.append(
+                PlaybookAvailability(
+                    entry=entry,
+                    available=not blocking,
+                    unmet=[reason for _, reason in blocking],
+                    unmet_codes=[code for code, _ in blocking],
+                )
             )
-            for entry in catalogue.CATALOGUE
-        ]
+        return rows
 
     def _blocking(
         self,
         entry: PlaybookEntry,
         unmet: dict[Precondition, str],
         missing: set[str],
-    ) -> list[str]:
-        reasons = [unmet[c] for c in entry.requires if c in unmet]
+    ) -> list[tuple[str, str]]:
+        """What stops this entry, each reason paired with the code behind it."""
+        reasons = [(c.value, unmet[c]) for c in entry.requires if c in unmet]
         if entry.id in missing:
             reasons.insert(
                 0,
                 (
+                    Precondition.PLAYBOOK_PRESENT.value,
                     f"{entry.playbook} is not in the SEAPATH collection this "
                     f"image ships (version {self._collection_version}). The "
-                    "catalogue and the collection are released separately."
+                    "catalogue and the collection are released separately.",
                 ),
             )
         return reasons
@@ -203,9 +214,12 @@ class RunService:
             # to satisfy.
             raise ApiError(
                 "precondition_failed",
-                blocking[0],
+                blocking[0][1],
                 409,
-                {"unmet": blocking},
+                {
+                    "unmet": [reason for _, reason in blocking],
+                    "codes": [code for code, _ in blocking],
+                },
             )
 
         if check and not entry.previewable:

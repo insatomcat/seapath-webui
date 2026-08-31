@@ -158,3 +158,15 @@ def test_the_static_assets_are_served(signed_in: TestClient) -> None:
         "style.css",
     ):
         assert signed_in.get(f"/static/{asset}").status_code == 200
+
+
+def test_the_system_page_says_once_why_nothing_can_run(
+    signed_in: TestClient, settings, tmp_path
+) -> None:
+    # A node running from source, or from an image built without the
+    # collection, has every entry unavailable for the same reason. Nine dimmed
+    # rows each repeating it in small print is how an operator ends up asking
+    # why the buttons are greyed out.
+    body = signed_in.get("/system").text
+
+    assert 'id="apply-blocked"' in body
