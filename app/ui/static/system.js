@@ -231,6 +231,15 @@
         title.append(" ", tag);
       }
 
+      // The name everything outside this page uses: docs/playbooks.md, the
+      // upstream repository, the run list and the artefacts of a run all say
+      // `seapath_setup_deploy_seapath_alloc`, and the row above says "Apply the
+      // dynamic CPU pinning". An operator looking for the playbook they were
+      // told to run has to be able to find it here.
+      const name = document.createElement("div");
+      name.className = "playbook-id";
+      name.textContent = entry.id;
+
       const detail = document.createElement("p");
       detail.className = item.available ? "help" : "warning";
       detail.textContent = item.available
@@ -256,7 +265,7 @@
         actions.append(apply);
       }
 
-      row.append(title, detail, actions);
+      row.append(title, name, detail, actions);
       container.append(row);
     });
   }

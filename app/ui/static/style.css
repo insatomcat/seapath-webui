@@ -515,6 +515,13 @@ button.secondary {
   font-weight: 600;
 }
 
+.playbook-id {
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+}
+
 .tag.warn {
   border-color: var(--warn);
   color: var(--warn);
