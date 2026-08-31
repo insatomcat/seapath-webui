@@ -199,6 +199,121 @@
     return discovery;
   }
 
+  // Reaching the other machines. Two acts, both explicit, both reversible:
+  // holding the site key, and accepting the host keys of the machines this
+  // node is about to drive.
+
+  async function loadSiteKey() {
+    const state = await API.get("/trust/site-key");
+    const summary = element("site-key-summary");
+    summary.replaceChildren();
+    const pairs = state.installed
+      ? [["Type", state.key_type], ["Fingerprint", state.fingerprint]]
+      : [["Status", "No site key. This node reaches only itself."]];
+    pairs.forEach(([label, value]) => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const definition = document.createElement("dd");
+      definition.textContent = value;
+      summary.append(term, definition);
+    });
+    element("site-key-remove").hidden = !state.installed;
+    return state;
+  }
+
+  async function loadHostKeys() {
+    const accepted = await API.get("/trust/host-keys");
+    renderHostKeys(
+      Object.entries(accepted).flatMap(([address, keys]) =>
+        keys.map((key) => ({
+          address,
+          key_type: key.split(" ")[0],
+          key,
+          fingerprint: null,
+          accepted: true,
+        }))
+      )
+    );
+  }
+
+  function renderHostKeys(rows) {
+    const body = document.querySelector("#host-keys-table tbody");
+    body.replaceChildren();
+    rows.forEach((row) => {
+      const line = document.createElement("tr");
+      [row.address, row.key_type, row.fingerprint || "accepted"].forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        line.append(cell);
+      });
+      const actions = document.createElement("td");
+      if (Chrome.isAdmin(state.me)) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = row.accepted ? "forget" : "accept";
+        button.addEventListener("click", () =>
+          row.accepted ? forgetHostKey(row) : acceptHostKey(row)
+        );
+        actions.append(button);
+      }
+      line.append(actions);
+      body.append(line);
+    });
+  }
+
+  async function acceptHostKey(row) {
+    await API.post("/trust/host-keys", { keys: [row] });
+    await loadHostKeys();
+  }
+
+  async function forgetHostKey(row) {
+    await API.del("/trust/host-keys/" + encodeURIComponent(row.address));
+    await loadHostKeys();
+  }
+
+  element("site-key-file").addEventListener("change", (event) => {
+    element("site-key-go").disabled = !event.target.files.length;
+    element("site-key-error").hidden = true;
+  });
+
+  element("site-key-go").addEventListener("click", async () => {
+    const error = element("site-key-error");
+    error.hidden = true;
+    const file = element("site-key-file").files[0];
+    if (!file) {
+      return;
+    }
+    try {
+      await API.put("/trust/site-key", { material: await file.text() });
+      element("site-key-file").value = "";
+      element("site-key-go").disabled = true;
+      await loadSiteKey();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
+  });
+
+  element("site-key-remove").addEventListener("click", async () => {
+    await API.del("/trust/site-key");
+    await loadSiteKey();
+  });
+
+  element("host-keys-scan").addEventListener("click", async () => {
+    const error = element("host-keys-error");
+    error.hidden = true;
+    const addresses = Object.values(state.inventory ? state.inventory.hosts : {})
+      .map((node) => node.ansible_host)
+      .filter(Boolean);
+    try {
+      const found = await API.post("/trust/host-keys/scan", { addresses });
+      renderHostKeys(found.map((key) => Object.assign({ accepted: false }, key)));
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
+  });
+
   async function loadHistory() {
     const history = await API.get("/inventory/history?limit=20");
     const body = document.querySelector("#history-table tbody");
@@ -459,7 +574,12 @@
 
   async function refresh() {
     const loaded = await loadInventory();
-    await Promise.all([loadHistory(), loadPlaybooks()]);
+    await Promise.all([
+      loadHistory(),
+      loadPlaybooks(),
+      loadSiteKey(),
+      loadHostKeys(),
+    ]);
     return loaded;
   }
 

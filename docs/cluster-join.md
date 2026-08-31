@@ -96,6 +96,42 @@ the environment and never written into the inventory. That is precisely why the
 exported inventory works unchanged on a conventional control machine that has
 its own key.
 
+## 2b. Before the handshake exists: the site key
+
+The handshake below is the destination. It needs M3, and a site with three
+machines and an inventory needs to apply today, so there is an interim path and
+it is the one the site already uses.
+
+Every machine installed from the SEAPATH ISO carries a site public key in the
+`ansible` account, and a conventional control machine holds the private half.
+An operator uploads that private half to one node, and that node reaches every
+machine in the inventory exactly as the fourth machine does. Two acts, both in
+the configuration page, both undone in one click:
+
+- **the site key.** Stored `0600` in `/etc/seapath/webui/ssh/id_site`, never
+  returned by the API, never logged, reported only as a fingerprint to compare
+  against `ssh-keygen -lf`. A key protected by a passphrase is refused rather
+  than stored, because nothing here can type one during a run.
+- **the host keys** of the machines it will drive, read with `ssh-keyscan` and
+  written only after an operator has compared each fingerprint against
+  `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the machine itself.
+  They live in a record of their own, since `known_hosts` is rebuilt from this
+  machine's filesystem at every start.
+
+What is being accepted, stated plainly rather than buried: **that key is root
+on every machine that trusts it**, through the `NOPASSWD:EXEC:SETENV: /bin/sh`
+rule the ISO grants the `ansible` account. Uploading it makes this node as
+powerful as the control machine it came from. The node was already in that
+trust domain, since these machines share a corosync secret, a Ceph cluster and
+each other's VM storage, so what changes is the number of places the private
+key exists. That is a real change and it is why this is an explicit act with a
+visible fingerprint and a remove button, rather than something the service
+arranges quietly.
+
+The handshake below removes the need for it: each pair of nodes gets its own
+key, generated where it is used, and no private key ever moves. A site that has
+uploaded a site key removes it once the mesh exists.
+
 ## 3. The manual exchange, and what it buys
 
 Same gesture as Proxmox, one paste per added node.

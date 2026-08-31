@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     def known_hosts_file(self) -> Path:
         return self.ssh_dir / "known_hosts"
 
+    @property
+    def site_private_key_file(self) -> Path:
+        """The key an operator uploaded so this node can reach the others."""
+        return self.ssh_dir / "id_site"
+
 
 @lru_cache
 def get_settings() -> Settings:

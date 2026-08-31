@@ -313,3 +313,34 @@ What the editor refuses, rather than approximates: adding or removing a machine,
 and changing a role, which means moving a host between groups. Both are cluster
 formation and arrive with it at M3.
 
+## D15 - Settled: the site key is an interim path to the other machines, and it is explicit
+
+An ISO and an inventory have to be enough to deploy a cluster. Importing and
+editing an inventory landed with [D14](#d14); applying it to three machines
+needs this node to reach the other two, and the mutual handshake that gets it
+there properly is M3.
+
+The interim answer uses what the site already has. Every machine from the ISO
+trusts a site key, a control machine holds its private half, and an operator can
+hand that half to one node. `PUT /trust/site-key` takes it, `0600`, no read
+back, no logging, fingerprint only. `ssh` is given it alongside this node's own
+key with `IdentityFile`, resolved at each launch so adding or removing it takes
+effect on the next run.
+
+The cost is stated where an operator reads it rather than in a footnote: that
+key is root on every machine that trusts it. The mitigation is that it is
+visible, revocable in one click, and temporary by design.
+
+Host keys are the other half and get the same treatment. `ssh-keyscan` is trust
+on first use, so the scan reports fingerprints and writes nothing, and an
+operator compares them against the machines before accepting. Accepting is what
+writes. `StrictHostKeyChecking=no`, which several real inventories carry in
+`ansible_ssh_common_args`, would have made all of this unnecessary and pointless
+at the same time.
+
+Two things this deliberately does not do. It does not generate a key and install
+it on the peers, which would need the peers' cooperation and is the handshake.
+And it does not accept a passphrase protected key: nothing here can type a
+passphrase during a run at three in the morning, and storing the passphrase next
+to the key it protects is a decision dressed as a feature.
+

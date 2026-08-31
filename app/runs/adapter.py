@@ -85,6 +85,10 @@ class RunRequest:
     collections_path: Path
     private_key_file: Path
     known_hosts_file: Path
+    # Keys offered in addition to this node's own, which in practice means the
+    # site key an operator uploaded so that one node can drive the others.
+    # ssh tries each identity in turn, and IdentitiesOnly keeps it to these.
+    extra_key_files: tuple[Path, ...] = ()
     extra_vars: dict[str, Any] = field(default_factory=dict)
     check: bool = False
 
@@ -138,9 +142,12 @@ def prepare(request: RunRequest) -> Preparation:
             run_id=request.run_id,
             collections_path=request.collections_path,
             private_key_file=request.private_key_file,
-            ssh_args=" ".join(_SSH_OPTIONS).format(
-                known_hosts=request.known_hosts_file
-            ),
+            ssh_args=" ".join(
+                [
+                    *_SSH_OPTIONS,
+                    *(f"-o IdentityFile={path}" for path in request.extra_key_files),
+                ]
+            ).format(known_hosts=request.known_hosts_file),
         )
     )
 

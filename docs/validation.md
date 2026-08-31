@@ -97,6 +97,10 @@ playbook that reboots the host running it.
 | 16 | On a node whose repository holds only the seed, the form saves and the file keeps its rendered shape | The editor must leave a freshly installed machine alone | Pending |
 | 17 | The site's own inventory, imported from the browser, shows every machine with its group variables resolved, no validation finding, and `this_host` naming this machine | The read only version of this check passed on elabo1 on 2026-08-31. Re-run against the importer | Pending |
 | 18 | After 17, changing one field through the form produces a commit whose diff is that one field, with every comment and every group variable of the site file still in place | The claim the editor makes, against a file no fixture can fully stand in for | Pending |
+| 19 | The site key uploaded through the page reports the fingerprint `ssh-keygen -lf` prints for it, and `/etc/seapath/webui/ssh/id_site` is `0600` | | Pending |
+| 20 | Scanning the inventory's machines reports fingerprints matching `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` read on each machine | The scan is over the network, and comparing it against the machine is the whole point | Pending |
+| 21 | After accepting them, a check mode run of `seapath_setup_main.yaml` reaches all three machines and reports no unreachable host | **The one that says the interim path works.** Everything before it can pass with a cluster nobody can converge | Pending |
+| 22 | Removing the site key makes the same run fail on the two other machines, and only on them | A revocation that does not revoke is worse than no button | Pending |
 
 Check 5 is the one that decides whether the milestone is real. Everything else
 can pass while the product claim is false.

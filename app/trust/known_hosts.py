@@ -15,6 +15,14 @@ only for exactly this.
 
 The same shape works for a peer at M3, where the host key travels over the
 mutually authenticated TLS channel rather than over the wire unverified.
+
+Until then a node that drives its neighbours with the site key has to learn
+their host keys somehow, and `ssh-keyscan` is the only source available. That
+is trust on first use, so it is done in the open: the scan reports fingerprints,
+an operator compares them with `ssh-keygen -lf /etc/ssh/ssh_host_*.pub` on each
+machine, and only what they accept is written. The accepted keys live in their
+own record, so the local ones can be rewritten at every start without losing
+them.
 """
 
 from __future__ import annotations
@@ -57,6 +65,86 @@ def render(entries: dict[str, list[str]]) -> str:
     return _HEADER + "".join(f"{line}\n" for line in lines)
 
 
+def peer_record_file(known_hosts_file: Path) -> Path:
+    return known_hosts_file.with_name(known_hosts_file.name + ".peers")
+
+
+def read_peers(known_hosts_file: Path) -> dict[str, list[str]]:
+    """The peer host keys an operator has accepted, by address."""
+    try:
+        content = peer_record_file(known_hosts_file).read_text()
+    except OSError:
+        return {}
+    entries: dict[str, list[str]] = {}
+    for line in content.splitlines():
+        fields = line.split()
+        if len(fields) >= 3 and not line.startswith("#"):
+            entries.setdefault(fields[0], []).append(f"{fields[1]} {fields[2]}")
+    return entries
+
+
+def accept_peers(known_hosts_file: Path, entries: dict[str, list[str]]) -> None:
+    """Record host keys for machines this node will drive, and merge them in."""
+    known = read_peers(known_hosts_file)
+    for address, keys in entries.items():
+        for key in keys:
+            if key not in known.setdefault(address, []):
+                known[address].append(key)
+    record = peer_record_file(known_hosts_file)
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(render(known))
+    # The live file is updated now rather than at the next start, because the
+    # operator accepted these keys in order to launch a run with them.
+    _merge_into_live(known_hosts_file, known)
+    logger.info("Accepted host keys for %s", ", ".join(sorted(entries)))
+
+
+def forget_peer(known_hosts_file: Path, address: str) -> bool:
+    known = read_peers(known_hosts_file)
+    if address not in known:
+        return False
+    del known[address]
+    peer_record_file(known_hosts_file).write_text(render(known))
+    _drop_from_live(known_hosts_file, address)
+    logger.info("Forgot the host keys of %s", address)
+    return True
+
+
+def _merge_into_live(known_hosts_file: Path, peers: dict[str, list[str]]) -> None:
+    """Add the peer lines to the file ssh reads, keeping the local ones.
+
+    The local lines are rewritten from the machine's own filesystem at every
+    start, so this only ever adds. Rebuilding the whole file here would need
+    the list of names this node answers to, which lives at startup.
+    """
+    existing = ""
+    try:
+        existing = known_hosts_file.read_text()
+    except OSError:
+        pass
+    lines = [line for line in existing.splitlines() if line.strip()]
+    for address in sorted(peers):
+        for key in sorted(peers[address]):
+            entry = f"{address} {key}"
+            if entry not in lines:
+                lines.append(entry)
+    known_hosts_file.parent.mkdir(parents=True, exist_ok=True)
+    known_hosts_file.write_text("".join(f"{line}\n" for line in lines))
+
+
+def _drop_from_live(known_hosts_file: Path, address: str) -> None:
+    try:
+        existing = known_hosts_file.read_text()
+    except OSError:
+        return
+    kept = [
+        line
+        for line in existing.splitlines()
+        if not line.split()[:1] == [address] or line.startswith("#")
+    ]
+    known_hosts_file.write_text("".join(f"{line}\n" for line in kept))
+
+
 def ensure_local(
     known_hosts_file: Path,
     ssh_config_dir: Path,
@@ -78,7 +166,12 @@ def ensure_local(
         )
         return False
 
-    content = render({name: keys for name in names if name})
+    entries = {name: list(keys) for name in names if name}
+    # The peers an operator accepted are merged back in, because this file is
+    # rewritten wholesale at every start and they must survive it.
+    for address, peer_keys in read_peers(known_hosts_file).items():
+        entries.setdefault(address, []).extend(peer_keys)
+    content = render(entries)
     known_hosts_file.parent.mkdir(parents=True, exist_ok=True)
     if known_hosts_file.exists() and known_hosts_file.read_text() == content:
         return False

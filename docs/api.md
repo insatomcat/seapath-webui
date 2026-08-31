@@ -197,6 +197,10 @@ See [cluster-join.md](cluster-join.md).
 | POST | `/trust/invitations` | Generate the join blob with its one time token, admin only. The first call also creates the cluster CA on this node, which becomes the founder |
 | POST | `/trust/join` | Consume a blob pasted on the joining node |
 | GET | `/trust/relations` | Established relations, per direction, with their key fingerprints |
+| GET PUT DELETE | `/trust/site-key` | The site key this node holds so it can reach the other machines. The material goes in and never comes back out; only type and fingerprint are reported |
+| POST | `/trust/host-keys/scan` | Read host keys with `ssh-keyscan` and report their fingerprints. Writes nothing |
+| GET POST | `/trust/host-keys` | The peer host keys an operator accepted, and accepting more |
+| DELETE | `/trust/host-keys/{address}` | Forget one machine's host keys |
 | DELETE | `/trust/relations/{peer}` | Revoke, both directions, and drop the member certificate |
 
 ## VM runtime

@@ -138,6 +138,57 @@ SPDX-License-Identifier: Apache-2.0
     <pre class="diff" id="diff"></pre>
   </section>
 
+  <section class="card" id="reach-card">
+    <h2>Reaching the other machines</h2>
+    <p class="lead">
+      A run is Ansible over SSH, and this node reaches only itself until it is
+      given a way to reach the others. Both steps below are deliberate acts,
+      and both are undone in one click.
+    </p>
+
+    <h3>Site key</h3>
+    <p class="help">
+      The private half of the key the ISO already installed in the
+      <code>ansible</code> account of every machine, the one a conventional
+      control machine holds. <strong>This key is root on every machine that
+      trusts it.</strong> Uploading it here makes this node as capable as that
+      control machine. It is stored <code>0600</code>, never sent back out and
+      never logged, and only the fingerprint is displayed. A key protected by a
+      passphrase is refused, because nothing here can type one during a run.
+    </p>
+    <dl id="site-key-summary"></dl>
+    <div class="field">
+      <label for="site-key-file">Private key file</label>
+      <input id="site-key-file" type="file">
+    </div>
+    <p class="error" id="site-key-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="site-key-go" disabled>Upload</button>
+      <button type="button" id="site-key-remove" class="secondary" hidden>
+        Remove the key
+      </button>
+    </div>
+
+    <h3>Host keys</h3>
+    <p class="help">
+      Read over the network with <code>ssh-keyscan</code>, which means the
+      answer could come from whoever sits between these machines. Compare each
+      fingerprint against
+      <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on the
+      machine itself before accepting it. Nothing is written until you do.
+    </p>
+    <p class="error" id="host-keys-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
+    </div>
+    <table id="host-keys-table">
+      <thead>
+        <tr><th>Machine</th><th>Type</th><th>Fingerprint</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
   <section class="card">
     <h2>Apply</h2>
     <p class="lead" id="apply-lead"></p>

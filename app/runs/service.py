@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,9 @@ class RunPaths(BaseModel):
     collections_path: Path
     private_key_file: Path
     known_hosts_file: Path
+    # Resolved at launch rather than held: an operator can add or remove the
+    # site key between two runs, and a run must use what is installed now.
+    extra_key_files: Callable[[], tuple[Path, ...]] = tuple
 
 
 class RunService:
@@ -304,6 +308,7 @@ class RunService:
                     collections_path=self._paths.collections_path,
                     private_key_file=self._paths.private_key_file,
                     known_hosts_file=self._paths.known_hosts_file,
+                    extra_key_files=self._paths.extra_key_files(),
                     extra_vars=extra_vars,
                     check=record.check,
                 ),
