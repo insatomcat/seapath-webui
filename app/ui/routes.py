@@ -44,9 +44,19 @@ def install(app: FastAPI) -> None:
     def index(request: Request):
         return _page(request, "node.html", "node")
 
-    @app.get("/setup", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/inventory", response_class=HTMLResponse, include_in_schema=False)
+    def inventory(request: Request):
+        return _page(request, "inventory.html", "inventory")
+
+    @app.get("/system", response_class=HTMLResponse, include_in_schema=False)
+    def system(request: Request):
+        return _page(request, "system.html", "system")
+
+    @app.get("/setup", include_in_schema=False)
     def setup(request: Request):
-        return _page(request, "setup.html", "setup")
+        # The page that used to do both jobs. Kept as a redirect because it is
+        # in people's history and in the first deployment's notes.
+        return RedirectResponse("/inventory", status_code=308)
 
     @app.get("/runs", response_class=HTMLResponse, include_in_schema=False)
     def runs(request: Request):

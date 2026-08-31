@@ -344,3 +344,45 @@ And it does not accept a passphrase protected key: nothing here can type a
 passphrase during a run at three in the morning, and storing the passphrase next
 to the key it protects is a decision dressed as a feature.
 
+## D16 - Settled: the guided form and the file are both editors, on the same page
+
+Once the inventory could be edited as a file, the per machine form looked
+redundant, and the question was asked directly: why is there a machine section
+inside the inventory page at all?
+
+It is not redundant, and what it holds is everything a text area cannot:
+
+- **discovery.** The interface selector lists the NICs this machine actually
+  has, with link state and PTP capability; the disks come with their stable
+  `by-path` name; the CPU count is what `isolcpus` is chosen against. Nobody
+  types `eno12429` into a text area without first knowing it exists.
+- **values that must not be typed.** `grub_password` has to be a PBKDF2 hash.
+  The form takes the password once and stores only the hash. By hand it means
+  running `grub-mkpasswd-pbkdf2` in a shell, and a password typed in clear into
+  the file is in the git history for good.
+- **guard rails.** `isolcpus` behind a collapsed expert section, CPU 0 refused,
+  the machine's name typed out before a real time change.
+
+On a machine fresh from the ISO with an empty inventory, the form **is** the
+commissioning path. For a site arriving with a complete inventory it is nearly
+useless, which is exactly why it felt redundant to the first site that did.
+
+What was actually wrong was the page: two editors of one file stacked on each
+other, under a heading that read like "this machine's settings" while it edited
+YAML. So the page split along the line the whole design already draws:
+
+| Page | Question |
+|---|---|
+| `/inventory` | What should these machines be? The file, guided form and text area side by side, and its history |
+| `/system` | What makes it so? The site key, the host keys, and the runs |
+
+The related request was for a "system configuration" tab, for fixing a machine
+when the ISO got something wrong. It is answered by `/inventory` plus `/system`
+and by nothing else, because **there is no path in this design where the UI
+writes to a machine's files.** A wrong administration address is fixed by
+declaring the right one and applying, which is the ordinary commissioning flow
+and the reason reachability is not a commit rule. What genuinely cannot be
+fixed from here is a missing `ansible` account or a missing key, since the
+service refuses to create an account nobody reviewed. That is a console job or
+a reinstall, and saying so is better than a button that half works.
+

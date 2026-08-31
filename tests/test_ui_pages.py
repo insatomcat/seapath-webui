@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.mark.parametrize("path", ["/", "/setup", "/runs"])
+@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs"])
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
 
@@ -19,7 +19,12 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
 
 @pytest.mark.parametrize(
     ("path", "script"),
-    [("/", "node.js"), ("/setup", "setup.js"), ("/runs", "runs.js")],
+    [
+        ("/", "node.js"),
+        ("/inventory", "inventory.js"),
+        ("/system", "system.js"),
+        ("/runs", "runs.js"),
+    ],
 )
 def test_each_page_loads_its_own_script_and_the_shared_chrome(
     signed_in: TestClient, path: str, script: str
@@ -31,21 +36,59 @@ def test_each_page_loads_its_own_script_and_the_shared_chrome(
     assert "api.js" in body
 
 
-def test_the_configuration_page_says_what_saving_does_and_does_not_do(
+def test_the_inventory_page_says_what_saving_does_and_does_not_do(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/setup").text
+    body = signed_in.get("/inventory").text
 
-    # The two acts are separate, and the page has to say so: deciding what a
-    # machine should be is not the same as making it so.
-    assert "saving" in body and "commit" in body
-    assert "applying runs the SEAPATH playbooks" in body
+    # The two acts are separate and now live on separate pages, which is the
+    # whole reason for the split: deciding what a machine should be, and making
+    # it so.
+    assert "Every change is a commit" in body
+    assert "that is the System page" in body
+
+
+def test_the_two_ways_of_editing_are_on_the_inventory_page_and_only_there(
+    signed_in: TestClient,
+) -> None:
+    inventory = signed_in.get("/inventory").text
+    system = signed_in.get("/system").text
+
+    # The guided form and the file, side by side, because a form that models a
+    # dozen variables cannot be the only way to change a file holding fifty.
+    assert "One machine, guided" in inventory
+    assert 'id="raw-editor"' in inventory
+    assert 'id="import-file"' in inventory
+    assert "raw-editor" not in system
+    assert "node-form" not in system
+
+
+def test_the_system_page_carries_the_credentials_and_the_button(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/system").text
+
+    assert "Reaching the other machines" in body
+    assert 'id="site-key-file"' in body
+    assert 'id="host-keys-scan"' in body
+    assert 'id="playbooks"' in body
+    # And edits nothing: the desired state has one page and it is the other one.
+    assert 'id="import-file"' not in body
+
+
+def test_the_old_configuration_url_still_leads_somewhere(
+    signed_in: TestClient,
+) -> None:
+    response = signed_in.get("/setup", follow_redirects=False)
+
+    assert response.status_code == 308
+    assert response.headers["location"] == "/inventory"
 
 
 def test_the_real_time_fields_are_behind_a_collapsed_expert_section(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/setup").text
+    body = signed_in.get("/inventory").text
 
     # The rule is that the UI never makes a real time relevant change look
     # routine.
@@ -57,7 +100,7 @@ def test_the_real_time_fields_are_behind_a_collapsed_expert_section(
 def test_the_apply_confirmation_makes_the_machine_be_typed_out(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/setup").text
+    body = signed_in.get("/system").text
 
     # This is the single most dangerous button in the product, and it has to
     # look like it.
@@ -68,7 +111,7 @@ def test_the_apply_confirmation_makes_the_machine_be_typed_out(
 def test_a_hidden_element_is_hidden_whatever_its_display_rule(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/setup").text
+    body = signed_in.get("/system").text
     css = signed_in.get("/static/style.css").text
 
     # Everything in this UI is shown and dismissed with the `hidden` attribute,
@@ -105,5 +148,13 @@ def test_the_login_page_carries_no_navigation(client: TestClient) -> None:
 
 
 def test_the_static_assets_are_served(signed_in: TestClient) -> None:
-    for asset in ("api.js", "chrome.js", "node.js", "setup.js", "runs.js", "style.css"):
+    for asset in (
+        "api.js",
+        "chrome.js",
+        "node.js",
+        "inventory.js",
+        "system.js",
+        "runs.js",
+        "style.css",
+    ):
         assert signed_in.get(f"/static/{asset}").status_code == 200
