@@ -124,7 +124,7 @@ no preview button at all rather than a button that lies.
 | `cluster_setup_cephadm.yaml` | `cluster_machines` | none | no | Bootstrap, monitors, OSDs. Destructive on the selected disks. The inventory diff is the review step, since check mode cannot be one. |
 | `cluster_setup_libvirt.yaml` | `hypervisors:&cluster_machines` | none | no | The RBD secret libvirt presents to Ceph. The second playbook that touches libvirt, see below. |
 | `cluster_setup_users.yaml` | `hypervisors:&cluster_machines` | none | no | The `libvirtadmin` user, needed for live migration and console access. |
-| `cluster_remove_machine.yaml` | `cluster_machines` | none | no | Requires `machine_to_remove`. Must run from a surviving node. |
+| `cluster_remove_machine.yaml` | `cluster_machines` | none | no | Requires `machine_to_remove`, chosen from a list. See section 5. |
 
 ### The two libvirt entries
 
@@ -159,7 +159,32 @@ touches.
 - `seapath_setup_custom_hardware.yaml`, `seapath_setup_configure_nic_irq_affinity.yaml`.
   Site specific, driven by variables the UI does not model yet.
 
-## 5. The reboot question
+## 5. Naming the machine to remove
+
+`cluster_remove_machine.yaml` is the only entry that needs to be told something
+the inventory does not already say, and the machine it names is usually one that
+has died. The playbook plays `cluster_machines`, computes `first_node` as a
+member that is not the one leaving, and sends `crm_node -R` and
+`ceph orch host rm --offline` there. Nothing is asked of the machine being
+removed, which is the point.
+
+The UI offers the machines the inventory declares as a list rather than a text
+field, because the name has to match an inventory entry exactly: the playbook
+reads `hostvars[machine_to_remove]` to find its hostname. The API checks the
+same thing, and refuses two values:
+
+- a name the inventory does not carry, which would otherwise fail halfway
+  through an eviction on an undefined host;
+- **this** node's name. The eviction is delegated to a surviving member, and a
+  node cannot both drive the run and be its subject. The removal is launched
+  from a machine that stays.
+
+A dead machine is still in the inventory when the run starts, so the run reports
+it unreachable while the eviction succeeds on the survivors. The confirmation
+says so, otherwise the operator reads a successful removal as a failure. Taking
+the entry out of the inventory file is a separate, deliberate edit afterwards.
+
+## 6. The reboot question
 
 `seapath_setup_main.yaml` reboots at the end unless `skip_reboot_setup` is set.
 On a substation, a reboot is scheduled, not improvised, so the UI asks before
@@ -173,7 +198,7 @@ launching:
 Never silently set `skip_reboot_setup`. A machine that believes it is converged
 and is not is worse than one that rebooted at an inconvenient time.
 
-## 6. The catalogue and the collection move separately
+## 7. The catalogue and the collection move separately
 
 An entry names a playbook in a collection released on its own schedule. Two
 things follow, both found by building the image rather than by reading the
@@ -201,7 +226,7 @@ repository:
 `roles/deploy_cukinia/files/cukinia`. The image installs the collection a second
 time, after `prepare.sh`, which is enough.
 
-## 7. Ordering
+## 8. Ordering
 
 The UI does not invent an orchestration engine. `seapath_setup_main.yaml`
 already imports the right playbooks in the right order, and it is the entry

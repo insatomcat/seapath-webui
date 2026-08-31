@@ -148,6 +148,13 @@ a type and a validation rule. Today that is `machine_to_remove` for
 `seapath_setup_main.yaml`. Anything else is rejected, because an extra vars
 field is a tag selector wearing a different hat.
 
+A variable of type `machine` carries a machine name, and the API checks it
+against the inventory: a name the file does not declare, or the name of the node
+serving the request, comes back as `400 invalid_variable` with the machines that
+would be accepted. The eviction is delegated to a surviving member, so the node
+driving the run cannot be its subject. The UI turns the same type into a list
+rather than a text field.
+
 The response carries the playbook's preview quality (`full`, `partial`, `none`)
 so the UI can refuse to present a partial check as a guarantee.
 

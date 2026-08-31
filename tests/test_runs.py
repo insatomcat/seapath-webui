@@ -504,9 +504,43 @@ def test_a_required_variable_must_be_supplied(
     entry = catalogue.get("cluster_remove_machine")
 
     with pytest.raises(ApiError) as failure:
-        service._accepted_variables(entry, {})
+        service._accepted_variables(entry, {}, inventory.state())
 
     assert failure.value.code == "missing_variable"
+
+
+def test_the_machine_to_remove_must_be_one_the_inventory_declares(
+    store, inventory, trust, tmp_path
+) -> None:
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+    entry = catalogue.get("cluster_remove_machine")
+
+    # The playbook reads `hostvars[machine_to_remove]`, so a name the file does
+    # not carry fails halfway through an eviction rather than before it.
+    with pytest.raises(ApiError) as failure:
+        service._accepted_variables(
+            entry, {"machine_to_remove": "node-nine"}, inventory.state()
+        )
+
+    assert failure.value.code == "invalid_variable"
+    assert "seapath-machine" in failure.value.message
+
+
+def test_a_machine_cannot_evict_itself_from_the_cluster(
+    store, inventory, trust, tmp_path
+) -> None:
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+    entry = catalogue.get("cluster_remove_machine")
+
+    # The eviction is sent to a surviving member, and this node is the one
+    # driving the run.
+    with pytest.raises(ApiError) as failure:
+        service._accepted_variables(
+            entry, {"machine_to_remove": "seapath-machine"}, inventory.state()
+        )
+
+    assert failure.value.code == "invalid_variable"
+    assert "this machine" in failure.value.message
 
 
 def test_every_preview_quality_matches_what_the_playbook_can_report(

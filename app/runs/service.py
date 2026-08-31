@@ -17,10 +17,10 @@ from pydantic import BaseModel
 
 from app.core.errors import ApiError
 from app.core.logging import audit_event
-from app.inventory.service import InventoryService
+from app.inventory.service import InventoryService, InventoryState
 from app.runs import catalogue, progress
 from app.runs.adapter import RunAdapter, RunRequest
-from app.runs.catalogue import PlaybookEntry, Precondition
+from app.runs.catalogue import PlaybookEntry, Precondition, VariableType
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.store import RunLocked, RunStore
 from app.trust import known_hosts
@@ -258,9 +258,9 @@ class RunService:
                 409,
             )
 
-        extra_vars = self._accepted_variables(entry, variables or {})
-
         state = self._inventory.state()
+        extra_vars = self._accepted_variables(entry, variables or {}, state)
+
         run_id = _new_run_id()
         record = RunRecord(
             id=run_id,
@@ -320,7 +320,10 @@ class RunService:
         return record
 
     def _accepted_variables(
-        self, entry: PlaybookEntry, supplied: dict[str, Any]
+        self,
+        entry: PlaybookEntry,
+        supplied: dict[str, Any],
+        state: InventoryState,
     ) -> dict[str, Any]:
         """Only what the catalogue entry declares.
 
@@ -351,7 +354,48 @@ class RunService:
                 f"{entry.title} requires {', '.join(missing)}.",
                 400,
             )
+        for name, value in supplied.items():
+            if declared[name].type is VariableType.MACHINE:
+                self._check_machine(entry, name, value, state)
         return dict(supplied)
+
+    def _check_machine(
+        self,
+        entry: PlaybookEntry,
+        name: str,
+        value: Any,
+        state: InventoryState,
+    ) -> None:
+        """A machine variable names a machine of this inventory, not this one.
+
+        The playbook behind this is `cluster_remove_machine`, which reads
+        `hostvars[machine_to_remove]` and then sends the eviction to another
+        member. A name the inventory does not carry fails on an undefined
+        host halfway through, and this node's own name asks it to evict itself
+        from the cluster it is driving.
+        """
+        hosts = list(state.inventory.hosts) if state.inventory else []
+        if value not in hosts:
+            raise ApiError(
+                "invalid_variable",
+                (
+                    f"{value!r} is not a machine of this inventory. "
+                    + (f"It declares {', '.join(hosts)}." if hosts else "")
+                ).strip(),
+                400,
+                {"variable": name, "machines": hosts},
+            )
+        if value == state.this_host:
+            raise ApiError(
+                "invalid_variable",
+                (
+                    f"{value} is this machine, and it is the one driving the "
+                    f"run. {entry.title} has to be launched from a machine "
+                    "that stays in the cluster."
+                ),
+                400,
+                {"variable": name, "machines": hosts},
+            )
 
     def _execute(
         self,

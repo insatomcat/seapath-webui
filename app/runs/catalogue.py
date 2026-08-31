@@ -79,9 +79,21 @@ class Precondition(str, Enum):
     """
 
 
+class VariableType(str, Enum):
+    BOOLEAN = "boolean"
+    MACHINE = "machine"
+    """A machine name, which the UI offers as a list and the API checks.
+
+    A run is launched against the whole inventory, so a machine named in a
+    variable is the playbook's own business rather than a way of narrowing the
+    run. `cluster_remove_machine` is the case: it plays every cluster member
+    and needs to be told which one of them is leaving.
+    """
+
+
 class VariableSpec(BaseModel):
     name: str
-    type: str
+    type: VariableType
     description: str
     required: bool = False
 
@@ -108,7 +120,7 @@ class PlaybookEntry(BaseModel):
 
 _SKIP_REBOOT = VariableSpec(
     name="skip_reboot_setup",
-    type="boolean",
+    type=VariableType.BOOLEAN,
     description=(
         "Converge without rebooting. The configuration is not fully applied "
         "until a reboot happens, and the node view keeps saying so."
@@ -353,7 +365,12 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         targets=["cluster_machines"],
         preview=Preview.NONE,
         reboots=Reboots.NO,
-        disruption="Evicts the machine from Pacemaker and from Ceph.",
+        disruption=(
+            "Evicts the machine you name from Pacemaker and from Ceph. The "
+            "run plays every cluster member and the commands are sent to a "
+            "surviving one, so the machine being removed is usually reported "
+            "unreachable, which is what a dead machine looks like."
+        ),
         requires=[
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
@@ -362,12 +379,21 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         variables=[
             VariableSpec(
                 name="machine_to_remove",
-                type="string",
-                description="The inventory name of the machine to evict.",
+                type=VariableType.MACHINE,
+                description=(
+                    "The machine leaving the cluster, by the name the "
+                    "inventory gives it. Usually a machine that has died, "
+                    "which is why nothing here asks it to cooperate."
+                ),
                 required=True,
             )
         ],
-        notes="Must run from a surviving node, which is why the mesh is full.",
+        notes=(
+            "Runs from a surviving node and refuses to name this one: the "
+            "playbook sends `crm_node -R` and `ceph orch host rm` to a member "
+            "that stays, and a node cannot both drive the eviction and be its "
+            "subject."
+        ),
     ),
 )
 

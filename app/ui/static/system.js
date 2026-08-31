@@ -9,7 +9,13 @@
 // machine except through Ansible.
 
 (function () {
-  const state = { me: null, node: null, inventory: null, hostKeys: [] };
+  const state = {
+    me: null,
+    node: null,
+    inventory: null,
+    thisHost: null,
+    hostKeys: [],
+  };
 
   function element(id) {
     return document.getElementById(id);
@@ -285,11 +291,79 @@
     return state.inventory ? Object.keys(state.inventory.hosts) : [];
   }
 
+  // A playbook that needs a machine named, `cluster_remove_machine` being the
+  // one, gets a list of the machines the inventory declares rather than a text
+  // field. The name has to match an inventory entry exactly, since the
+  // playbook reads `hostvars[machine_to_remove]`, and typing it is the one way
+  // to get that wrong. This node is not in the list: it drives the run, and it
+  // cannot evict itself from the cluster it is driving.
+  function machineField(spec, values, onChange) {
+    const wrapper = document.createElement("label");
+    wrapper.className = "field";
+    const caption = document.createElement("span");
+    caption.textContent = spec.description;
+    const select = document.createElement("select");
+    const candidates = machineNames().filter((name) => name !== state.thisHost);
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = candidates.length
+      ? "Choose a machine"
+      : "No other machine in this inventory";
+    select.append(placeholder);
+    candidates.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.append(option);
+    });
+    select.disabled = !candidates.length;
+    select.addEventListener("change", () => {
+      if (select.value) {
+        values[spec.name] = select.value;
+      } else {
+        delete values[spec.name];
+      }
+      onChange();
+    });
+
+    wrapper.append(caption, select);
+    return wrapper;
+  }
+
+  // What the modal can ask for, and what it cannot. The reboot question has
+  // its own checkbox below, so it is not asked twice here.
+  function variableFields(entry, values, onChange) {
+    const container = element("confirm-variables");
+    container.replaceChildren();
+    const asked = entry.variables.filter(
+      (spec) => spec.name !== entry.reboot_variable
+    );
+    asked.forEach((spec) => {
+      if (spec.type === "machine") {
+        container.append(machineField(spec, values, onChange));
+      } else {
+        // An entry declaring a kind of variable this page has no field for.
+        // Said out loud, because the alternative is an Apply that comes back
+        // with a 400 nobody can act on.
+        const line = document.createElement("p");
+        line.className = "warning";
+        line.textContent =
+          spec.name + " cannot be filled in from this page yet.";
+        container.append(line);
+      }
+    });
+    container.hidden = !asked.length;
+    return asked;
+  }
+
   // The single most dangerous button in the product. It asks once, in a modal
   // that says what the run will disturb and which machines it will play, and
-  // that is where the friction stops. Typing the machine's name was also asked
-  // for here at first, and an operator who applies twenty times a day types it
-  // twenty times without reading the sentence above it, which buys nothing.
+  // that is where the friction stops. Typing the machine's name back as a
+  // confirmation was also asked for here at first, and an operator who applies
+  // twenty times a day types it twenty times without reading the sentence
+  // above it, which buys nothing. The picker below stays because the playbook
+  // has no other way of knowing which machine is leaving.
   function confirmRun(entry, check) {
     const modal = element("confirm");
     const go = element("confirm-go");
@@ -310,8 +384,16 @@
         machineNames().join(", ") +
         ".";
     element("confirm-error").hidden = true;
-    go.disabled = false;
     go.textContent = check ? "Preview" : "Apply";
+
+    // A required variable with nothing chosen keeps the button down. The
+    // alternative is an Apply that travels to the API to be told what the
+    // page already knew.
+    const values = {};
+    const asked = variableFields(entry, values, () => {
+      go.disabled = !satisfied(asked, values);
+    });
+    go.disabled = !satisfied(asked, values);
 
     let skipReboot = false;
     reboot.hidden = check || entry.reboots === "no";
@@ -341,7 +423,7 @@
     go.onclick = async () => {
       go.disabled = true;
       try {
-        const variables = {};
+        const variables = { ...values };
         if (skipReboot && entry.reboot_variable) {
           variables[entry.reboot_variable] = true;
         }
@@ -361,6 +443,10 @@
     modal.hidden = false;
   }
 
+  function satisfied(asked, values) {
+    return asked.every((spec) => !spec.required || values[spec.name]);
+  }
+
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });
@@ -368,6 +454,7 @@
   async function loadInventoryHosts() {
     const payload = await API.get("/inventory");
     state.inventory = payload.inventory;
+    state.thisHost = payload.this_host;
     const lead = element("apply-lead");
     if (!payload.inventory) {
       lead.textContent =
