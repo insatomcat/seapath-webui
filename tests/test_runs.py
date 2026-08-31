@@ -346,6 +346,41 @@ def test_a_run_without_a_final_status_is_interrupted_not_failed(
     assert "seapath-machine" in record.message
 
 
+def test_a_run_that_never_started_a_task_failed_rather_than_was_interrupted(
+    store, inventory, trust, tmp_path
+) -> None:
+    # Found on a real node. Ansible refused the playbook before reaching any
+    # machine, over a collection that was installed without its dependencies,
+    # and the run was reported as interrupted with "relaunching is safe". It is
+    # safe and it fails again in half a second, so the operator relaunches a
+    # second time before reading the log.
+    refusal = (
+        "\x1b[0;31mERROR! couldn't resolve module/action "
+        "'community.general.modprobe'. This often indicates a misspelling, "
+        "missing collection, or incorrect module path.\x1b[0m\n"
+        "\nThe error appears to be in '/opt/ansible/collections/"
+        "ansible_collections/seapath/ansible/roles/network_configovs/tasks/"
+        "main.yml': line 19, column 7\n"
+    )
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(events=[], return_code=4, output=refusal),
+        tmp_path,
+    )
+
+    record = wait_for(service, service.launch("seapath_setup_main", "alice").id)
+
+    assert record.state is RunState.FAILED
+    assert "before it reached any machine" in record.message
+    # Ansible's own sentence, colours stripped, rather than anything this
+    # service could infer about what went wrong.
+    assert "community.general.modprobe" in record.message
+    assert "\x1b[" not in record.message
+    assert "Relaunching" not in record.message
+
+
 def test_the_lock_serialises_two_operators(store, inventory, trust, tmp_path) -> None:
     store.acquire("an-earlier-run")
     service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)

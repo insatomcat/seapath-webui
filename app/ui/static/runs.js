@@ -87,7 +87,9 @@
         line.append(reason);
       }
     } else if (payload.kind === "stats") {
-      line.textContent = "RECAP";
+      // Ansible's own recap. Printing the word and dropping the numbers left a
+      // heading with nothing under it at the end of every run.
+      line.textContent = "RECAP  " + recapLine(payload.stats);
     } else {
       return;
     }
@@ -96,21 +98,50 @@
     stream.scrollTop = stream.scrollHeight;
   }
 
+  // The stats event carries one mapping per outcome, each keyed by host, which
+  // is Ansible's shape rather than a reader's. Turned back into one line per
+  // host, and the zeroes are kept: "failed=0" is the sentence an operator is
+  // looking for.
+  function recapLine(stats) {
+    const outcomes = ["ok", "changed", "skipped", "failures", "dark", "rescued"];
+    const labels = { failures: "failed", dark: "unreachable" };
+    const hosts = [
+      ...new Set(outcomes.flatMap((key) => Object.keys(stats[key] || {}))),
+    ].sort();
+    if (!hosts.length) {
+      return "no host was reached";
+    }
+    return hosts
+      .map(
+        (host) =>
+          host +
+          " " +
+          outcomes
+            .filter((key) => key !== "rescued" || (stats[key] || {})[host])
+            .map((key) => (labels[key] || key) + "=" + ((stats[key] || {})[host] || 0))
+            .join(" ")
+      )
+      .join("   ");
+  }
+
   function renderHosts(hosts) {
     const body = document.querySelector("#hosts-table tbody");
     body.replaceChildren();
     Object.entries(hosts || {}).forEach(([host, counts]) => {
       const row = document.createElement("tr");
+      // skipped is here because a run of sixteen tasks reporting five ok reads
+      // as a truncated log until the eleven skipped ones are visible.
       [
         host,
         counts.ok,
         counts.changed,
+        counts.skipped,
         counts.failed,
         counts.unreachable,
       ].forEach((value, index) => {
         const cell = document.createElement("td");
         cell.textContent = value;
-        if (index === 3 && counts.failed) cell.className = "state-failed";
+        if (index === 4 && counts.failed) cell.className = "state-failed";
         row.append(cell);
       });
       body.append(row);

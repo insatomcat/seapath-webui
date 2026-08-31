@@ -269,12 +269,22 @@ does not prove.
 
 ```bash
 # Once. It survives every later git pull.
-ansible-galaxy collection install \
-    git+https://github.com/seapath/ansible.git -p /opt/ansible/collections
+git clone https://github.com/seapath/ansible /src/seapath-ansible
+cd /src/seapath-ansible && ./prepare.sh
+mkdir -p /opt/ansible && cp -a collections /opt/ansible/collections
 
 # Then, from the checkout, on the housekeeping CPUs.
 taskset -c 0-1 .venv/bin/python -m app
 ```
+
+**`prepare.sh` rather than `ansible-galaxy collection install git+...`.** The
+short form installs `seapath.ansible` and none of what it depends on, and the
+roles call `community.general` and `ansible.posix` modules. The playbooks then
+parse until the first task that uses one, and Ansible refuses the whole run
+with `couldn't resolve module/action 'community.general.modprobe'` before
+reaching any machine. `prepare.sh` installs `ansible-requirements.yaml` first,
+fetches the git submodules, then installs the collection, which is the sequence
+the Dockerfile follows for the same reason.
 
 Without that first command **every catalogue entry is unavailable and the Apply
 section has no buttons**, because the playbooks live in the collection and the

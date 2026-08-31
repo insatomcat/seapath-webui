@@ -170,3 +170,15 @@ def test_the_system_page_says_once_why_nothing_can_run(
     body = signed_in.get("/system").text
 
     assert 'id="apply-blocked"' in body
+
+
+def test_the_run_view_shows_the_skipped_column(signed_in: TestClient) -> None:
+    # A run of sixteen tasks reporting five ok reads as a truncated log until
+    # the eleven skipped ones are visible somewhere.
+    body = signed_in.get("/runs").text
+    script = signed_in.get("/static/runs.js").text
+
+    assert "<th>skipped</th>" in body
+    assert "counts.skipped" in script
+    # And the recap line carries Ansible's numbers rather than the bare word.
+    assert "recapLine" in script

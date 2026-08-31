@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -26,6 +27,10 @@ from app.trust import known_hosts
 from app.trust.service import TrustService
 
 logger = logging.getLogger(__name__)
+
+# `ansible-playbook` colours its errors, and a colour code in the middle of a
+# message rendered as text is noise an operator has to read around.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
 class PlaybookAvailability(BaseModel):
@@ -388,14 +393,29 @@ class RunService:
         # not finish, it stopped existing, and that is almost always because
         # the playbook rebooted the machine it was running from. Calling it a
         # failure would send an operator looking for a fault that is not there.
+        #
+        # With one exception, found on a real node: a run that never started a
+        # single task never reached a machine at all, so no reboot can explain
+        # it. Ansible refused before it began, over a missing collection or a
+        # playbook it could not parse, and the reason is in the log. Calling
+        # that "interrupted, relaunching is safe" sends an operator to relaunch
+        # something that will fail again in half a second.
         if not run_progress.final_status_seen:
+            if run_progress.tasks_started == 0:
+                return RunState.FAILED
             return RunState.INTERRUPTED
         return RunState.SUCCESS if outcome.return_code == 0 else RunState.FAILED
 
-    @staticmethod
-    def _final_message(record: RunRecord, outcome) -> str | None:
+    def _final_message(self, record: RunRecord, outcome) -> str | None:
         if outcome.error:
             return outcome.error
+        if record.state is RunState.FAILED and not record.progress.tasks_started:
+            # Ansible said why before it stopped, and that sentence is worth
+            # more than anything this service can infer.
+            return (
+                "Ansible stopped before it reached any machine, so nothing was "
+                "changed. " + self._first_error(record.id)
+            )
         if record.state is RunState.INTERRUPTED:
             reached = [
                 host for host, state in record.progress.hosts.items() if state.reached
@@ -419,6 +439,22 @@ class RunService:
                 "per host results below name which ones were reached."
             )
         return None
+
+    def _first_error(self, run_id: str) -> str:
+        """The line in the log that names the cause, colours stripped."""
+        try:
+            log = self._store.log(run_id)
+        except OSError:
+            return "The log below has the reason."
+        plain = _ANSI.sub("", log)
+        for line in plain.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("ERROR!") or stripped.startswith("fatal:"):
+                return stripped
+        for line in reversed(plain.splitlines()):
+            if line.strip():
+                return line.strip()
+        return "The log below has the reason."
 
 
 def _new_run_id() -> str:
