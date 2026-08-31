@@ -68,12 +68,19 @@ RUN ansible-galaxy collection list --collections-path=/opt/ansible/collections
 
 FROM python:3.11-slim
 
-# Three groups of tools, each earning its place:
+# Four tools, each earning its place:
 #   git                     the inventory repository, which is the audit trail
 #   openssh-client          the configuration plane, which reaches every node
 #                           over SSH including the local one
 #   iproute2                the one hardware reading that is not a file under
 #                           /proc or /sys: sysfs carries no IPv4 address
+#   rsync                   ansible.posix.synchronize runs it on the controller
+#                           as well as on the target, and four roles push files
+#                           with it: configure_physical_machine, which
+#                           seapath_setup_main imports, snmp, deploy_vm_manager
+#                           and deploy_seapath_alloc. Without it the task fails
+#                           on every host with "Failed to find required
+#                           executable rsync", naming the container's PATH
 #
 # No `systemd` and no `chrony`. This image held both so it could ask the host
 # for unit states, the journal and the clock offset, which is live state that
@@ -88,6 +95,7 @@ RUN apt-get update && \
         libpam-modules \
         libpam0g \
         openssh-client \
+        rsync \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv

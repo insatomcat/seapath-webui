@@ -24,6 +24,9 @@ Contents:
 - the `seapath_ansible` collection with its galaxy dependencies and its
   submodules, installed at build time by running the upstream `prepare.sh`;
 - an OpenSSH client;
+- `rsync`, which `ansible.posix.synchronize` runs on the controller as well as
+  on the target. Four roles push files with it, `configure_physical_machine`
+  among them, so a commissioning run needs it;
 - `libvirt0` and the `vm_manager` package, for the runtime plane;
 - the `ceph` client libraries that `vm_manager` needs in cluster mode;
 - `iproute2`, for the one reading that is not a file under `/proc` or `/sys`:
