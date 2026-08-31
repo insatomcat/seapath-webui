@@ -11,6 +11,7 @@ what tells a finished run from one whose machine went away underneath it.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.runs.models import HostProgress, RunProgress
@@ -46,7 +47,7 @@ def apply_event(progress: RunProgress, event: dict[str, Any]) -> RunProgress:
                 setattr(state, outcome, getattr(state, outcome) + 1)
             state.last_task = data.get("task") or progress.task
 
-        task = data.get("task")
+        task = _qualified(data)
         seconds = data.get("duration")
         if task and isinstance(seconds, int | float):
             progress.durations[task] = max(progress.durations.get(task, 0.0), seconds)
@@ -90,7 +91,11 @@ def summarise(event: dict[str, Any]) -> dict[str, Any] | None:
     if name == "playbook_on_play_start":
         return {"kind": "play", "play": data.get("play")}
     if name == "playbook_on_task_start":
-        return {"kind": "task", "task": data.get("task"), "play": data.get("play")}
+        return {
+            "kind": "task",
+            "task": _qualified(data),
+            "play": data.get("play"),
+        }
     if name in _HOST_RESULTS:
         outcome = _HOST_RESULTS[name]
         if outcome == "ok" and (data.get("res") or {}).get("changed"):
@@ -98,16 +103,61 @@ def summarise(event: dict[str, Any]) -> dict[str, Any] | None:
         return {
             "kind": "result",
             "host": data.get("host"),
-            "task": data.get("task"),
+            "task": _qualified(data),
             "outcome": outcome,
             "seconds": data.get("duration"),
             # The operator needs to know why a task failed, and nothing else
             # from the result payload.
             "message": _failure_message(data) if outcome == "failed" else None,
+            "output": _debug_output(data),
         }
     if name == "playbook_on_stats":
         return {"kind": "stats", "stats": _stats(data)}
     return None
+
+
+def _qualified(data: dict[str, Any]) -> str | None:
+    """`role : task`, which is how Ansible names a task on screen.
+
+    Twelve tasks called "Detect Debian distribution" and "Copy libvirtd.conf"
+    say very little without the role they came from, and the role is in the
+    event already.
+    """
+    task = data.get("task")
+    role = data.get("role")
+    if task and role and not str(task).startswith(f"{role} :"):
+        return f"{role} : {task}"
+    return task
+
+
+# What `debug` returns beside the thing it was asked to print.
+_BOOKKEEPING = frozenset(
+    {"changed", "failed", "skipped", "rescued", "ignored", "warnings", "deprecations"}
+)
+
+
+def _debug_output(data: dict[str, Any]) -> str | None:
+    """What a `debug` task printed, which is the only reason it exists.
+
+    Narrow on purpose. The rest of a result payload stays out of the browser,
+    and `no_log` is honoured here as Ansible honours it everywhere else: a task
+    marked no_log shows that it ran and nothing more.
+    """
+    if data.get("task_action") != "debug":
+        return None
+    result = data.get("res") or {}
+    if result.get("_ansible_no_log"):
+        return None
+    shown = {
+        key: value
+        for key, value in result.items()
+        if not key.startswith("_ansible") and key not in _BOOKKEEPING
+    }
+    if not shown:
+        return None
+    if list(shown) == ["msg"]:
+        return str(shown["msg"])[:2000]
+    return json.dumps(shown, ensure_ascii=False, sort_keys=True)[:2000]
 
 
 def _failure_message(data: dict[str, Any]) -> str | None:

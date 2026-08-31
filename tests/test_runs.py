@@ -275,6 +275,7 @@ def test_the_stream_is_a_reduction_not_a_passthrough() -> None:
         # What the host result already carries and the view now shows. The
         # payload it comes wrapped in stays out.
         "seconds": None,
+        "output": None,
     }
 
 
@@ -584,3 +585,77 @@ def test_the_time_each_task_took_is_kept(store, inventory, trust, tmp_path) -> N
         )
 
     assert run_progress.durations == {"Install the packages": 41.5}
+
+
+def test_a_task_is_named_the_way_ansible_names_it() -> None:
+    # Twelve tasks called "Detect Debian distribution" say very little without
+    # the role they came from, and the role is in the event already.
+    summary = summarise(
+        {
+            "event": "playbook_on_task_start",
+            "event_data": {
+                "task": "Copy libvirtd.conf",
+                "role": "configure_libvirt",
+                "play": "Configure libvirt",
+            },
+        }
+    )
+
+    assert summary["task"] == "configure_libvirt : Copy libvirtd.conf"
+
+
+def test_a_debug_task_shows_what_it_printed() -> None:
+    # The only reason a debug task exists. Everything else in the payload stays
+    # out of the browser.
+    summary = summarise(
+        {
+            "event": "runner_on_ok",
+            "event_data": {
+                "host": "node1",
+                "task": "Show seapath_distro",
+                "task_action": "debug",
+                "res": {
+                    "seapath_distro": "Debian",
+                    "changed": False,
+                    "_ansible_verbose_always": True,
+                    "_ansible_no_log": False,
+                },
+            },
+        }
+    )
+
+    assert summary["output"] == '{"seapath_distro": "Debian"}'
+
+
+def test_a_debug_task_marked_no_log_prints_nothing() -> None:
+    # Honoured here as Ansible honours it everywhere else: the task shows that
+    # it ran and nothing more.
+    summary = summarise(
+        {
+            "event": "runner_on_ok",
+            "event_data": {
+                "host": "node1",
+                "task": "Show the join token",
+                "task_action": "debug",
+                "res": {"msg": "a secret", "_ansible_no_log": True},
+            },
+        }
+    )
+
+    assert summary["output"] is None
+
+
+def test_a_result_from_any_other_module_carries_no_payload() -> None:
+    summary = summarise(
+        {
+            "event": "runner_on_ok",
+            "event_data": {
+                "host": "node1",
+                "task": "Copy libvirtd.conf",
+                "task_action": "copy",
+                "res": {"content": "a secret nobody should see", "changed": True},
+            },
+        }
+    )
+
+    assert summary["output"] is None

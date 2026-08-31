@@ -84,12 +84,17 @@
         (payload.task || "") +
         (payload.seconds ? "  " + seconds(payload.seconds) : "");
       line.classList.add("outcome-" + payload.outcome);
-      if (payload.message) {
-        const reason = document.createElement("div");
-        reason.className = "stream-reason";
-        reason.textContent = payload.message;
-        line.append(reason);
-      }
+      // A failure says why, and a debug task shows what it printed. Those are
+      // the two reasons to look at a result rather than at a counter.
+      [payload.message, payload.output].forEach((text) => {
+        if (!text) {
+          return;
+        }
+        const detail = document.createElement("div");
+        detail.className = "stream-reason";
+        detail.textContent = text;
+        line.append(detail);
+      });
     } else if (payload.kind === "stats") {
       // Ansible's own recap. Printing the word and dropping the numbers left a
       // heading with nothing under it at the end of every run.

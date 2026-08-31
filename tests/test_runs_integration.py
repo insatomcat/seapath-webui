@@ -120,6 +120,7 @@ def test_the_summaries_a_browser_receives_carry_no_task_payload(
         "outcome",
         "message",
         "seconds",
+        "output",
         "stats",
     }
     # And it is a real reading, from a real playbook, rather than a field this
