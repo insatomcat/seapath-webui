@@ -86,6 +86,7 @@ def settings(tmp_path: Path, host_tree: Path, collections_path: Path) -> Setting
         collections_path=collections_path,
         ssh_config_dir=host_tree / "etc/ssh",
         ansible_ssh_dir=host_tree / "home/ansible/.ssh",
+        client_ssh_config_file=tmp_path / "root/.ssh/config",
         collection_version="test",
     )
 

@@ -43,6 +43,12 @@ class Settings(BaseSettings):
     collections_path: Path = Path("/opt/ansible/collections")
     # The host's sshd configuration, read only, for its public host keys.
     ssh_config_dir: Path = Path("/etc/ssh")
+    # The ssh client configuration this service writes for its own runs, so
+    # that the ssh commands a role spawns itself are given the same keys as the
+    # connection. Root's, and by its absolute path: ssh resolves `~/.ssh/config`
+    # through the password database, not through HOME. Inside the container
+    # this is the image's own /root, never a path on the host.
+    client_ssh_config_file: Path = Path("/root/.ssh/config")
 
     # The account every Ansible connection targets, including the connection to
     # this very machine. It must match `ansible_user` in the inventory, and the

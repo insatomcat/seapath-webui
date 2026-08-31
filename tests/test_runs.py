@@ -77,6 +77,7 @@ def build(
             collections_path=write_fake_collection(tmp_path / "collections"),
             private_key_file=tmp_path / "state/ssh/id_ed25519_self",
             known_hosts_file=tmp_path / "state/ssh/known_hosts",
+            ssh_config_file=tmp_path / "root/.ssh/config",
         ),
         hostname="seapath-machine",
         collection_version="2.0.0",
@@ -207,6 +208,62 @@ def test_the_private_key_is_a_fact_about_the_control_machine(tmp_path: Path) -> 
     # Not in the inventory, which is why the exported inventory works unchanged
     # on a conventional control machine that has its own key.
     assert preparation.environment["ANSIBLE_PRIVATE_KEY_FILE"] == str(tmp_path / "key")
+
+
+def test_the_keys_reach_the_ssh_commands_a_role_spawns_itself(
+    tmp_path: Path,
+) -> None:
+    # `ansible.posix.synchronize` builds its own ssh command line for rsync and
+    # forwards only `private_key_file`, so a machine this node drives with the
+    # site key is offered the wrong identity, ssh asks for a password, and the
+    # run hangs on a prompt nobody can see. Four roles push files that way,
+    # `configure_physical_machine` among them.
+    config_file = tmp_path / "root/.ssh/config"
+    prepare(
+        RunRequest(
+            run_id="r1",
+            playbook="seapath.ansible.seapath_setup_deploy_seapath_alloc",
+            inventory_file=tmp_path / "inventory.yaml",
+            private_data_dir=tmp_path / "run",
+            collections_path=tmp_path / "collections",
+            private_key_file=tmp_path / "key",
+            known_hosts_file=tmp_path / "known_hosts",
+            ssh_config_file=config_file,
+            extra_key_files=(tmp_path / "id_site",),
+        )
+    )
+
+    content = config_file.read_text()
+    assert f"IdentityFile {tmp_path / 'key'}" in content
+    assert f"IdentityFile {tmp_path / 'id_site'}" in content
+    # The other half: a run that cannot authenticate says so rather than
+    # waiting forever on a prompt, holding the run lock.
+    assert "BatchMode yes" in content
+    assert config_file.stat().st_mode & 0o777 == 0o600
+
+
+def test_an_ssh_configuration_this_service_did_not_write_is_left_alone(
+    tmp_path: Path,
+) -> None:
+    # On a node running from a source checkout this is root's own file.
+    config_file = tmp_path / "root/.ssh/config"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("Host bastion\n    User someone\n")
+
+    prepare(
+        RunRequest(
+            run_id="r1",
+            playbook="seapath.ansible.seapath_setup_main",
+            inventory_file=tmp_path / "inventory.yaml",
+            private_data_dir=tmp_path / "run",
+            collections_path=tmp_path / "collections",
+            private_key_file=tmp_path / "key",
+            known_hosts_file=tmp_path / "known_hosts",
+            ssh_config_file=config_file,
+        )
+    )
+
+    assert config_file.read_text() == "Host bastion\n    User someone\n"
 
 
 def test_the_ansible_that_runs_is_the_one_this_image_pins(tmp_path: Path) -> None:
@@ -590,6 +647,7 @@ def test_an_entry_the_shipped_collection_lacks_is_explained_not_offered(
             ),
             private_key_file=tmp_path / "state/ssh/id_ed25519_self",
             known_hosts_file=tmp_path / "state/ssh/known_hosts",
+            ssh_config_file=tmp_path / "root/.ssh/config",
         ),
         hostname="seapath-machine",
         collection_version="1.9.0",

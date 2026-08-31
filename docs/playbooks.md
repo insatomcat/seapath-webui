@@ -212,6 +212,16 @@ repository:
   `seapathalloc` branch of `seapath-ansible` and not on `main`. The image is
   built from that branch for exactly this reason, and an image built from
   `main` correctly offers neither.
+- **A role that spawns `ssh` itself is not given the connection's arguments.**
+  `ansible.posix.synchronize` builds its own ssh command line for rsync and
+  forwards only the connection's private key, dropping everything
+  `ansible.cfg` sets. A machine this node drives with the site key is therefore
+  offered the wrong identity, ssh falls back to asking for a password, and the
+  run hangs on a prompt nobody can see until an operator cancels it. The
+  service writes an ssh client configuration naming every key, plus
+  `BatchMode`, before each run, and the image carries `rsync` for the same
+  reason. Four roles push files this way and `configure_physical_machine` is
+  one of them, so it is the commissioning path.
 - **`galaxy.yml` decides what a playbook can actually reach.** Its `build_ignore`
   list is matched against whole relative paths, so `"*.tar.gz"` strips
   `roles/deploy_cockpit_plugins/files/*.tar.gz` along with any archive at the

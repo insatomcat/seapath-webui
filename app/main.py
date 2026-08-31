@@ -168,6 +168,7 @@ def create_app(
             collections_path=settings.collections_path,
             private_key_file=settings.self_private_key_file,
             known_hosts_file=settings.known_hosts_file,
+            ssh_config_file=settings.client_ssh_config_file,
             # Looked up at each launch, so adding or removing the site key
             # takes effect on the next run rather than on the next restart.
             extra_key_files=lambda: (
