@@ -39,6 +39,16 @@ node: Ansible would accept it and the result would be meaningless, since
 `cluster_setup_ha.yaml` on a single member of three is not a smaller version of
 forming a cluster.
 
+That has a consequence the preconditions have to carry. A run plays **every**
+host the inventory declares, and a node begins life with an SSH trust with
+itself alone. `peer_reachable` is therefore checked before a run is offered: it
+asks whether a key would be presented to the other machines and whether their
+host keys are known, and it names the machines that fail. Without it the
+operator confirms a disruptive convergence and learns two hosts were
+unreachable a minute later, which is a late and expensive way to find out.
+Reachability here is about credentials; whether the network answers is the
+run's own business, and it says so host by host.
+
 ## 3. Preview quality
 
 Check mode is honest only where roles write files through `template`, `copy` and

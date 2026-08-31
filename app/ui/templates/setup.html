@@ -41,6 +41,12 @@ SPDX-License-Identifier: Apache-2.0
     <h2>Machine</h2>
 
     <div class="field">
+      <label for="host-select">Which machine</label>
+      <select id="host-select"></select>
+      <p class="help" id="host-select-help"></p>
+    </div>
+
+    <div class="field">
       <label for="ansible_host">Administration address</label>
       <input id="ansible_host" name="ansible_host" required>
       <p class="help">
@@ -138,6 +144,28 @@ SPDX-License-Identifier: Apache-2.0
     <pre class="diff" id="diff"></pre>
   </section>
 
+  <section class="card wide">
+    <h2>The file</h2>
+    <p class="lead">
+      The form above edits the variables this service models. Everything else in
+      the inventory is edited here, on this machine, with the same validation
+      and the same history. Saving replaces the file and makes one commit.
+    </p>
+    <details id="raw-details">
+      <summary>Edit the inventory file</summary>
+      <textarea id="raw-editor" spellcheck="false" rows="28"></textarea>
+      <p class="error" id="raw-error" hidden></p>
+      <ul class="findings" id="raw-findings" hidden></ul>
+      <div class="actions">
+        <button type="button" id="raw-check">Check without saving</button>
+        <button type="button" id="raw-save">Save the file</button>
+        <button type="button" id="raw-reload" class="secondary">
+          Discard my changes
+        </button>
+      </div>
+    </details>
+  </section>
+
   <section class="card" id="reach-card">
     <h2>Reaching the other machines</h2>
     <p class="lead">
@@ -180,13 +208,18 @@ SPDX-License-Identifier: Apache-2.0
     <p class="error" id="host-keys-error" hidden></p>
     <div class="actions">
       <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
+      <button type="button" id="host-keys-accept-all" class="secondary" hidden></button>
     </div>
-    <table id="host-keys-table">
-      <thead>
-        <tr><th>Machine</th><th>Type</th><th>Fingerprint</th><th></th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
+    <div class="table-scroll">
+      <table id="host-keys-table">
+        <thead>
+          <tr>
+            <th>Machine</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
   </section>
 
   <section class="card">

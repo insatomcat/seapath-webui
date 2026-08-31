@@ -30,6 +30,7 @@ from app.core.settings import Settings
 from app.inventory.editor import UneditableInventory, edit
 from app.inventory.fidelity import unintended_changes
 from app.inventory.resolve import resolve
+from app.inventory.service import _ansible_opinion
 from tests.conftest import ANSIBLE_INVENTORY
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -453,3 +454,104 @@ def test_a_machine_that_recognises_no_entry_says_so(signed_in: TestClient) -> No
     signed_in.post("/api/v1/inventory/import", json={"document": ADOPTED.read_text()})
 
     assert signed_in.get("/api/v1/inventory").json()["this_host"] is None
+
+
+# 7. Editing the file itself, which is the escape hatch every form needs.
+
+
+def test_the_raw_editor_saves_the_file_as_it_was_typed(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _adopt(settings, ADOPTED)
+    edited = ADOPTED.read_text().replace(
+        "        cephadm_release: 20.2.2", "        cephadm_release: 20.2.3"
+    )
+
+    response = signed_in.put("/api/v1/inventory/raw", json={"document": edited})
+
+    assert response.status_code == 200
+    assert (settings.inventory_dir / "inventory.yaml").read_text() == edited
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "inventory: edit the file directly"
+
+
+def test_the_raw_editor_checks_without_saving(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _adopt(settings, ADOPTED)
+    before = (settings.inventory_dir / "inventory.yaml").read_text()
+
+    result = signed_in.post(
+        "/api/v1/inventory/raw/check", json={"document": ADOPTED.read_text()}
+    ).json()
+
+    assert result["findings"] == []
+    assert (settings.inventory_dir / "inventory.yaml").read_text() == before
+
+
+@pytest.mark.skipif(
+    ANSIBLE_INVENTORY is None,
+    reason="ansible-core is not installed in this environment",
+)
+def test_ansible_is_asked_and_its_exit_status_is_not_believed() -> None:
+    # `ansible-inventory` exits 0 on a file it could not read, having printed a
+    # warning and an empty inventory. Reading the exit status alone would wave
+    # through exactly the files this check exists to catch, so the check reads
+    # what it said. Called directly, because the rules here refuse this file
+    # first and the point is what happens when one day they do not.
+    broken = ADOPTED.read_text().replace(
+        "    node2:\n", "    node2:\n      ansible_host: 10.132.159.61\n"
+    )
+
+    finding = _ansible_opinion(broken)
+
+    assert finding is not None
+    assert finding.rule == "ansible_parses_it"
+    assert finding.level.value == "error"
+
+
+@pytest.mark.skipif(
+    ANSIBLE_INVENTORY is None,
+    reason="ansible-core is not installed in this environment",
+)
+def test_ansible_has_nothing_to_say_about_a_good_file() -> None:
+    assert _ansible_opinion(ADOPTED.read_text()) is None
+
+
+def test_a_stale_raw_save_is_refused_rather_than_merged(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _adopt(settings, ADOPTED)
+
+    response = signed_in.put(
+        "/api/v1/inventory/raw",
+        json={"document": ADOPTED.read_text()},
+        headers={"If-Match": "0" * 40},
+    )
+
+    assert response.status_code == 409
+
+
+def test_any_machine_in_the_inventory_can_be_edited(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The form edits one machine at a time and any machine, so a three node
+    # cluster is configured from one browser.
+    _adopt(settings, ADOPTED)
+
+    for name, address in (
+        ("node2", "10.132.159.71"),
+        ("node3", "10.132.159.72"),
+    ):
+        assert (
+            signed_in.patch(
+                f"/api/v1/inventory/hosts/{name}",
+                json={"changes": {"ansible_host": address}},
+            ).status_code
+            == 200
+        )
+
+    resolved = resolve((settings.inventory_dir / "inventory.yaml").read_text())
+    assert resolved["node2"]["ansible_host"] == "10.132.159.71"
+    assert resolved["node3"]["ansible_host"] == "10.132.159.72"
+    assert resolved["node1"]["ansible_host"] == "10.132.159.60"

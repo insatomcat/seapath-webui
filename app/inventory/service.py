@@ -6,6 +6,10 @@
 from __future__ import annotations
 
 import logging
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -19,7 +23,7 @@ from app.inventory.parser import InvalidInventory, parse
 from app.inventory.renderer import render
 from app.inventory.repository import Commit, InventoryRepository
 from app.inventory.resolve import resolve
-from app.inventory.validation import ValidationResult, validate
+from app.inventory.validation import Finding, Level, ValidationResult, validate
 
 logger = logging.getLogger(__name__)
 
@@ -149,25 +153,41 @@ class InventoryService:
                 return name
         return None
 
-    def import_document(self, document: str, author: str) -> tuple[Commit | None, str]:
-        """Replace the inventory with one the operator brought.
+    def check_document(self, document: str) -> ValidationResult:
+        """Everything that can be said about a whole file, committing nothing.
 
-        The file arrives whole and is committed whole, which is the one write
-        that legitimately rewrites everything: the operator is replacing the
-        desired state, rather than editing it.
+        Three opinions in order: it parses as YAML into something that looks
+        like an inventory, it satisfies the rules, and Ansible itself accepts
+        it. The last one is the reason this exists: `ansible-inventory --list`
+        catches what a schema cannot, and finding out at the first task of a
+        convergence is finding out late.
         """
         inventory = parse(document)
         result = validate(inventory)
+        finding = _ansible_opinion(document)
+        if finding is not None:
+            result.findings.append(finding)
+        return result
+
+    def replace_document(
+        self, document: str, author: str, message: str | None = None
+    ) -> tuple[Commit | None, Inventory]:
+        """Replace the whole file, the one write that legitimately rewrites all
+        of it: the operator is replacing the desired state rather than editing
+        one variable of it.
+        """
+        result = self.check_document(document)
         if not result.valid:
             raise ImportRefused(result.errors()[0].message, result)
 
-        names = ", ".join(inventory.hosts)
+        inventory = parse(document)
+        if message is None:
+            names = ", ".join(inventory.hosts)
+            message = f"inventory: import a {inventory.mode.value} inventory of {names}"
         commit = self._repository.commit(
-            content=document,
-            message=f"inventory: import a {inventory.mode.value} inventory of {names}",
-            author=author,
+            content=document, message=message, author=author
         )
-        return commit, names
+        return commit, inventory
 
     def raw(self) -> str:
         return self._repository.read()
@@ -308,6 +328,48 @@ class InventoryService:
         fields = sorted({field for _, field, _ in changes})
         hosts = sorted({host for _, _, host in changes})
         return f"{', '.join(sections)}: set {', '.join(fields)} on {', '.join(hosts)}"
+
+
+def _ansible_opinion(document: str) -> Finding | None:
+    """What `ansible-inventory --list` thinks, or nothing if it cannot be asked.
+
+    Run against a temporary copy, so a file that Ansible refuses never touches
+    the repository. An image without ansible-core is not a reason to refuse a
+    file, so a missing binary is silence rather than an error.
+    """
+    binary = shutil.which("ansible-inventory")
+    if binary is None:
+        logger.warning(
+            "ansible-inventory is not on PATH, so an imported inventory is "
+            "checked against this service's rules alone."
+        )
+        return None
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "inventory.yaml"
+        path.write_text(document)
+        completed = subprocess.run(
+            [binary, "--list", "-i", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    # The return code lies. `ansible-inventory` exits 0 on a file it could not
+    # read, having printed a warning and an empty inventory, so the exit status
+    # alone would wave through exactly the files this check exists to catch.
+    stderr = completed.stderr.strip()
+    refused = any(marker in stderr for marker in ("Failed to parse", "Unable to parse"))
+    if completed.returncode == 0 and not refused:
+        return None
+    reason = next(
+        (line.strip() for line in stderr.splitlines() if line.strip()),
+        "no reason given",
+    )
+    return Finding(
+        level=Level.ERROR,
+        rule="ansible_parses_it",
+        message=f"Ansible cannot read this inventory: {reason}",
+    )
 
 
 def _is_ours(document: str) -> bool:

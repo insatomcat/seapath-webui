@@ -42,6 +42,9 @@ const API = (function () {
       const failure = new Error(detail.message || response.statusText);
       failure.code = detail.code || "error";
       failure.status = response.status;
+      // The envelope's detail carries the failing rules, which is the whole
+      // value of a refusal: what to fix, rather than that something is wrong.
+      failure.detail = detail.detail || {};
       throw failure;
     }
     return payload;

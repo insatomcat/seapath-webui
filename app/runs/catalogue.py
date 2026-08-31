@@ -42,6 +42,15 @@ class Reboots(str, Enum):
 class Precondition(str, Enum):
     INVENTORY_VALID = "inventory_valid"
     SELF_TRUST = "self_trust"
+    PEER_REACHABLE = "peer_reachable"
+    """Every machine the run will play can be reached from this one.
+
+    A run plays every host the inventory declares, since the adapter passes no
+    `--limit`, and this node starts life with an SSH trust with itself alone.
+    Launching against three machines with nothing to reach the other two
+    produces a run that dies on `unreachable` after the operator has confirmed
+    a disruptive convergence, which is a late and expensive way to learn it.
+    """
     STANDALONE = "standalone"
     CLUSTER = "cluster"
     PLAYBOOK_PRESENT = "playbook_present"
@@ -109,7 +118,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "whatever the roles decide to restart, and it reboots at the end "
             "unless you ask it not to."
         ),
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
         variables=[_SKIP_REBOOT],
         notes=(
             "This is the commissioning path and what the CI runs, which makes "
@@ -127,7 +140,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "The playbook most likely to cut the connection under the run. "
             "Applies only when apply_network_config is true."
         ),
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
         notes=(
             "Run from another node when there is one. Launched from the "
             "machine it reconfigures, the run will very likely be interrupted."
@@ -141,7 +158,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         preview=Preview.FULL,
         reboots=Reboots.NO,
         disruption="Restarts timemaster, which briefly interrupts PTP.",
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
     ),
     PlaybookEntry(
         id="seapath_setup_libvirt",
@@ -151,7 +172,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         preview=Preview.PARTIAL,
         reboots=Reboots.NO,
         disruption="Restarts libvirt. Running guests keep running.",
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
     ),
     PlaybookEntry(
         id="seapath_setup_prometheus_exporters",
@@ -161,7 +186,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         preview=Preview.FULL,
         reboots=Reboots.NO,
         disruption="Restarts the exporters. Monitoring has a gap, nothing else.",
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
     ),
     PlaybookEntry(
         id="seapath_setup_snmp",
@@ -171,7 +200,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         preview=Preview.FULL,
         reboots=Reboots.NO,
         disruption="Restarts snmpd.",
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
     ),
     PlaybookEntry(
         id="seapath_setup_deploy_seapath_alloc",
@@ -184,7 +217,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "Real time relevant. Changes how guest threads are pinned to "
             "isolated CPUs, which is what the latency guarantee rests on."
         ),
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
     ),
     PlaybookEntry(
         id="seapath_setup_hardening",
@@ -197,7 +234,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "Ends with a reboot of every host. Sets PermitRootLogin no and "
             "restricts sshd to the administration and cluster addresses."
         ),
-        requires=[Precondition.INVENTORY_VALID, Precondition.SELF_TRUST],
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
         notes=(
             "Offered only once the rest converges cleanly. This is the reason "
             "the SSH trust targets the `ansible` account and not root."

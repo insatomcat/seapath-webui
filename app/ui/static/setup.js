@@ -7,7 +7,14 @@
 // making it so are separate decisions.
 
 (function () {
-  const state = { inventory: null, commit: null, host: null, me: null };
+  const state = {
+    inventory: null,
+    commit: null,
+    host: null,
+    me: null,
+    me_host: null,
+    hostKeys: [],
+  };
 
   const fields = [
     "ansible_host",
@@ -26,6 +33,26 @@
 
   function element(id) {
     return document.getElementById(id);
+  }
+
+  // The form edits one machine at a time and any machine in the inventory. A
+  // three node cluster is configured from one browser, and defaulting to this
+  // node is a convenience rather than a limit.
+  function fillHosts(names) {
+    const select = element("host-select");
+    select.replaceChildren();
+    names.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name === state.me_host ? name + " (this machine)" : name;
+      option.selected = name === state.host;
+      select.append(option);
+    });
+    select.disabled = names.length < 2;
+    element("host-select-help").textContent =
+      state.host === state.me_host
+        ? "The entry that describes the machine serving this page."
+        : "Editing another machine's entry. Applying still runs from here.";
   }
 
   function showBanner(messages) {
@@ -117,7 +144,12 @@
     // Which entry describes this machine. The host key is frequently not the
     // machine's name: a site can key an inventory node1, node2, node3 and
     // carry the real names in `hostname`. The server works it out.
-    state.host = payload.this_host || Object.keys(payload.inventory.hosts)[0];
+    state.me_host = payload.this_host;
+    const names = Object.keys(payload.inventory.hosts);
+    if (!state.host || !names.includes(state.host)) {
+      state.host = payload.this_host || names[0];
+    }
+    fillHosts(names);
 
     const pairs = [
       ["Machine", state.host],
@@ -221,54 +253,103 @@
     return state;
   }
 
+  // One list, whose rows change state. Scanning merges what it found into
+  // what is already accepted, so an operator checking three fingerprints in
+  // one sitting never sees the list replaced under the cursor.
   async function loadHostKeys() {
-    const accepted = await API.get("/trust/host-keys");
-    renderHostKeys(
-      Object.entries(accepted).flatMap(([address, keys]) =>
-        keys.map((key) => ({
-          address,
-          key_type: key.split(" ")[0],
-          key,
-          fingerprint: null,
-          accepted: true,
-        }))
-      )
+    state.hostKeys = await API.get("/trust/host-keys");
+    renderHostKeys();
+  }
+
+  function keyOf(row) {
+    return row.address + " " + row.key;
+  }
+
+  function mergeHostKeys(found) {
+    const byKey = new Map(state.hostKeys.map((row) => [keyOf(row), row]));
+    found.forEach((row) => {
+      const existing = byKey.get(keyOf(row));
+      if (existing) {
+        existing.accepted = row.accepted;
+      } else {
+        byKey.set(keyOf(row), row);
+      }
+    });
+    state.hostKeys = [...byKey.values()].sort((a, b) =>
+      a.address.localeCompare(b.address)
     );
   }
 
-  function renderHostKeys(rows) {
+  function renderHostKeys() {
     const body = document.querySelector("#host-keys-table tbody");
     body.replaceChildren();
-    rows.forEach((row) => {
+    state.hostKeys.forEach((row) => {
       const line = document.createElement("tr");
-      [row.address, row.key_type, row.fingerprint || "accepted"].forEach((value) => {
+      [row.address, row.key_type, row.fingerprint].forEach((value) => {
         const cell = document.createElement("td");
         cell.textContent = value;
         line.append(cell);
       });
+
+      const status = document.createElement("td");
+      status.textContent = row.accepted ? "accepted" : "seen, not accepted";
+      line.append(status);
+
       const actions = document.createElement("td");
       if (Chrome.isAdmin(state.me)) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = row.accepted ? "forget" : "accept";
-        button.addEventListener("click", () =>
-          row.accepted ? forgetHostKey(row) : acceptHostKey(row)
-        );
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try {
+            await (row.accepted ? forgetHostKey(row) : acceptHostKeys([row]));
+          } finally {
+            button.disabled = false;
+          }
+        });
         actions.append(button);
       }
       line.append(actions);
       body.append(line);
     });
+
+    const pending = state.hostKeys.filter((row) => !row.accepted);
+    const all = element("host-keys-accept-all");
+    all.hidden = pending.length < 2 || !Chrome.isAdmin(state.me);
+    all.textContent = "Accept all " + pending.length + " remaining";
   }
 
-  async function acceptHostKey(row) {
-    await API.post("/trust/host-keys", { keys: [row] });
-    await loadHostKeys();
+  async function acceptHostKeys(rows) {
+    const error = element("host-keys-error");
+    error.hidden = true;
+    try {
+      const accepted = await API.post("/trust/host-keys", { keys: rows });
+      const acceptedKeys = new Set(accepted.map(keyOf));
+      // The rows change state in place. Replacing the list here would drop the
+      // fingerprints of everything scanned but not yet accepted.
+      state.hostKeys.forEach((row) => {
+        if (acceptedKeys.has(keyOf(row))) {
+          row.accepted = true;
+        }
+      });
+      renderHostKeys();
+      await loadPlaybooks();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
   }
 
   async function forgetHostKey(row) {
     await API.del("/trust/host-keys/" + encodeURIComponent(row.address));
-    await loadHostKeys();
+    state.hostKeys.forEach((other) => {
+      if (other.address === row.address) {
+        other.accepted = false;
+      }
+    });
+    renderHostKeys();
+    await loadPlaybooks();
   }
 
   element("site-key-file").addEventListener("change", (event) => {
@@ -306,13 +387,17 @@
       .map((node) => node.ansible_host)
       .filter(Boolean);
     try {
-      const found = await API.post("/trust/host-keys/scan", { addresses });
-      renderHostKeys(found.map((key) => Object.assign({ accepted: false }, key)));
+      mergeHostKeys(await API.post("/trust/host-keys/scan", { addresses }));
+      renderHostKeys();
     } catch (failure) {
       error.textContent = failure.message;
       error.hidden = false;
     }
   });
+
+  element("host-keys-accept-all").addEventListener("click", () =>
+    acceptHostKeys(state.hostKeys.filter((row) => !row.accepted))
+  );
 
   async function loadHistory() {
     const history = await API.get("/inventory/history?limit=20");
@@ -598,6 +683,91 @@
       showBanner(["Changing the inventory requires the admin role."]);
     }
   }
+
+  element("host-select").addEventListener("change", async (event) => {
+    state.host = event.target.value;
+    element("diff-card").hidden = true;
+    await loadInventory();
+  });
+
+  // The file itself. Everything the form does not model lives here, and an
+  // operator who has to leave the browser to change one line has been given a
+  // form rather than an editor.
+  async function loadRaw() {
+    const response = await fetch("/api/v1/inventory/raw", {
+      credentials: "same-origin",
+    });
+    element("raw-editor").value = await response.text();
+    element("raw-error").hidden = true;
+    element("raw-findings").hidden = true;
+  }
+
+  function showFindings(findings) {
+    const list = element("raw-findings");
+    list.replaceChildren();
+    if (!findings || !findings.length) {
+      list.hidden = true;
+      return;
+    }
+    findings.forEach((finding) => {
+      const item = document.createElement("li");
+      item.textContent =
+        finding.level.toUpperCase() +
+        " " +
+        finding.rule +
+        (finding.host ? " on " + finding.host : "") +
+        ": " +
+        finding.message;
+      list.append(item);
+    });
+    list.hidden = false;
+  }
+
+  element("raw-details").addEventListener("toggle", (event) => {
+    if (event.target.open && !element("raw-editor").value) {
+      loadRaw();
+    }
+  });
+
+  element("raw-reload").addEventListener("click", loadRaw);
+
+  element("raw-check").addEventListener("click", async () => {
+    const error = element("raw-error");
+    error.hidden = true;
+    try {
+      const result = await API.post("/inventory/raw/check", {
+        document: element("raw-editor").value,
+      });
+      showFindings(result.findings);
+      if (!result.findings.length) {
+        showBanner(["The file is valid, and Ansible parses it. Nothing saved."]);
+      }
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
+  });
+
+  element("raw-save").addEventListener("click", async () => {
+    const error = element("raw-error");
+    error.hidden = true;
+    try {
+      await API.put("/inventory/raw", { document: element("raw-editor").value });
+      showFindings([]);
+      await refresh();
+      await loadRaw();
+      showBanner([
+        "The file is saved and committed. Nothing has been applied to any " +
+          "machine: that is the Apply section below.",
+      ]);
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      showFindings(
+        (failure.detail && failure.detail.findings) || []
+      );
+    }
+  });
 
   element("preview").addEventListener("click", preview);
   element("node-form").addEventListener("submit", save);

@@ -82,6 +82,7 @@ class ScannedKeyOut(BaseModel):
     key_type: str
     key: str
     fingerprint: str
+    accepted: bool = False
 
 
 class AcceptRequest(BaseModel):
@@ -134,9 +135,29 @@ def remove_site_key(request: Request, user: User = admin) -> Response:
 
 
 @router.get("/host-keys")
-def host_keys(request: Request, user: User = viewer) -> dict[str, list[str]]:
-    """The peer host keys an operator has accepted on this node."""
-    return known_hosts.read_peers(_settings(request).known_hosts_file)
+def host_keys(request: Request, user: User = viewer) -> list[ScannedKeyOut]:
+    """The peer host keys an operator has accepted on this node.
+
+    Reported in the same shape a scan reports, fingerprints included, so the
+    page shows one list whose rows change state rather than two lists that
+    replace each other.
+    """
+    return _accepted(_settings(request).known_hosts_file)
+
+
+def _accepted(known_hosts_file) -> list[ScannedKeyOut]:
+    stored = known_hosts.read_peers(known_hosts_file)
+    return [
+        ScannedKeyOut(
+            address=address,
+            key_type=key.split()[0],
+            key=key,
+            fingerprint=keyscan.fingerprint_of(key),
+            accepted=True,
+        )
+        for address in sorted(stored)
+        for key in sorted(stored[address])
+    ]
 
 
 @router.post("/host-keys/scan")
@@ -153,12 +174,14 @@ def scan_host_keys(
         found = keyscan.scan(payload.addresses)
     except keyscan.ScanFailed as error:
         raise ApiError("scan_failed", str(error), 502) from error
+    already = {key.key for key in _accepted(_settings(request).known_hosts_file)}
     return [
         ScannedKeyOut(
             address=key.address,
             key_type=key.key_type,
             key=key.key,
             fingerprint=key.fingerprint,
+            accepted=key.key in already,
         )
         for key in found
     ]
@@ -167,14 +190,27 @@ def scan_host_keys(
 @router.post("/host-keys")
 def accept_host_keys(
     request: Request, payload: AcceptRequest, user: User = admin
-) -> dict[str, list[str]]:
-    """Record the host keys an operator looked at and accepted."""
+) -> list[ScannedKeyOut]:
+    """Record the host keys an operator looked at and accepted.
+
+    A list rather than one key, because a three node cluster is three
+    fingerprints an operator checks in one sitting.
+    """
+    malformed = [key.key for key in payload.keys if not keyscan.is_host_key(key.key)]
+    if malformed:
+        raise ApiError(
+            "invalid_host_key",
+            f"{malformed[0]!r} is not an SSH host key. A line here is a key "
+            "type and its base64 blob, as ssh-keyscan reports them.",
+            400,
+        )
+
     entries: dict[str, list[str]] = {}
     for key in payload.keys:
         entries.setdefault(key.address, []).append(key.key)
     settings = _settings(request)
     known_hosts.accept_peers(settings.known_hosts_file, entries)
-    return known_hosts.read_peers(settings.known_hosts_file)
+    return _accepted(settings.known_hosts_file)
 
 
 @router.delete("/host-keys/{address}", status_code=204, response_class=Response)

@@ -189,4 +189,78 @@ def test_forgetting_a_host_removes_it_from_both_files(
     assert signed_in.delete("/api/v1/trust/host-keys/10.132.159.61").status_code == 204
 
     assert "10.132.159.61" not in settings.known_hosts_file.read_text()
-    assert signed_in.get("/api/v1/trust/host-keys").json() == {}
+    assert signed_in.get("/api/v1/trust/host-keys").json() == []
+
+
+def test_several_host_keys_are_accepted_in_one_go(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # Three machines is three fingerprints an operator checks in one sitting,
+    # and asking them to click accept three times, reloading the list between
+    # each, is how a step gets skipped.
+    keys = [
+        {
+            "address": address,
+            "key_type": "ssh-ed25519",
+            "key": f"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI{suffix}",
+            "fingerprint": "SHA256:unused-by-the-server",
+        }
+        for address, suffix in (
+            ("10.132.159.60", "aaa"),
+            ("10.132.159.61", "bbb"),
+            ("10.132.159.62", "ccc"),
+        )
+    ]
+
+    accepted = signed_in.post("/api/v1/trust/host-keys", json={"keys": keys}).json()
+
+    assert [row["address"] for row in accepted] == [
+        "10.132.159.60",
+        "10.132.159.61",
+        "10.132.159.62",
+    ]
+    assert all(row["accepted"] for row in accepted)
+    # The fingerprint is computed here rather than trusted from the request, so
+    # the list a page shows says what is actually stored.
+    assert all(row["fingerprint"].startswith("SHA256:") for row in accepted)
+    live = settings.known_hosts_file.read_text()
+    assert all(row["address"] in live for row in accepted)
+
+
+def test_an_accepted_key_is_reported_as_accepted_when_scanned_again(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # What lets the page flip one row's state instead of replacing the list.
+    known_hosts.accept_peers(
+        settings.known_hosts_file, {"10.132.159.61": ["ssh-ed25519 AAAApeer"]}
+    )
+
+    listed = signed_in.get("/api/v1/trust/host-keys").json()
+
+    assert listed[0]["accepted"] is True
+    assert listed[0]["key_type"] == "ssh-ed25519"
+
+
+def test_a_malformed_host_key_is_refused_rather_than_stored(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # What lands in the record comes from a request body, and a listing that
+    # cannot compute a fingerprint for its own contents is a page that fails to
+    # open. Found by feeding the API a plausible looking key that was not one.
+    response = signed_in.post(
+        "/api/v1/trust/host-keys",
+        json={
+            "keys": [
+                {
+                    "address": "10.132.159.61",
+                    "key_type": "ssh-ed25519",
+                    "key": "ssh-ed25519 not-actually-base64",
+                    "fingerprint": "SHA256:x",
+                }
+            ]
+        },
+    )
+
+    assert response.status_code == 400
+    assert signed_in.get("/api/v1/trust/host-keys").json() == []
+    assert "10.132.159.61" not in settings.known_hosts_file.read_text()

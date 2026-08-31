@@ -22,6 +22,7 @@ from app.runs.adapter import RunAdapter, RunRequest
 from app.runs.catalogue import PlaybookEntry, Precondition
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.store import RunLocked, RunStore
+from app.trust import known_hosts
 from app.trust.service import TrustService
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,28 @@ class RunService:
             )
         return reasons
 
+    def _unreachable(self, state) -> list[str]:
+        """The machines in the inventory this node has no way of reaching.
+
+        Reachability here is about credentials rather than about the network:
+        whether a key would be offered and whether the host key is known. The
+        network answer belongs to the run, which says it host by host.
+        """
+        if state.inventory is None:
+            return []
+        others = [name for name in state.inventory.hosts if name != state.this_host]
+        if not others:
+            return []
+        if not self._paths.extra_key_files():
+            return others
+
+        known = known_hosts.read_peers(self._paths.known_hosts_file)
+        return [
+            name
+            for name in others
+            if state.inventory.hosts[name].ansible_host not in known
+        ]
+
     def _missing_playbooks(self) -> set[str]:
         return catalogue.missing_from(self._paths.collections_path)
 
@@ -118,6 +141,15 @@ class RunService:
             unmet[Precondition.SELF_TRUST] = (
                 "This node has no SSH trust with itself, so it cannot converge "
                 "even its own configuration."
+            )
+
+        unreachable = self._unreachable(state)
+        if unreachable:
+            unmet[Precondition.PEER_REACHABLE] = (
+                f"{', '.join(unreachable)} cannot be reached from this node. A "
+                "run plays every machine the inventory declares, so it would "
+                "die on those. Upload the site key, and accept their host "
+                "keys, in Reaching the other machines."
             )
 
         mode = state.inventory.mode.value if state.inventory else None

@@ -669,3 +669,25 @@ button.secondary {
 #readonly-card {
   border-left: 3px solid var(--warn);
 }
+
+/* The raw inventory editor. Monospace and full width, because what is being
+   edited is a file whose indentation carries meaning. */
+#raw-editor {
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+}
+
+#raw-details summary,
+#import-details summary {
+  cursor: pointer;
+  margin-top: 0.75rem;
+  color: var(--muted);
+}

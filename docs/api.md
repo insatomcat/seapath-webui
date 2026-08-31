@@ -92,6 +92,8 @@ The heart of the API. See [inventory.md](inventory.md).
 | POST | `/inventory/revert/{commit}` | Create a revert commit, does not apply it |
 
 | POST | `/inventory/import` | Replace the inventory with one the operator brought, committed whole |
+| POST | `/inventory/raw/check` | Parse, validate and ask Ansible about a whole file, committing nothing |
+| PUT | `/inventory/raw` | Commit the file as the operator typed it, `If-Match` on the commit hash |
 
 `GET /inventory` carries `adopted`, saying whether this file was written
 somewhere else, and `this_host`, naming the entry that describes the machine

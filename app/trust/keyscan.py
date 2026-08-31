@@ -16,6 +16,7 @@ It is unavailable for a machine this node has never talked to.
 from __future__ import annotations
 
 import base64
+import binascii
 import logging
 import shutil
 import subprocess
@@ -80,6 +81,35 @@ def scan(addresses: list[str]) -> list[ScannedKey]:
     return found
 
 
+def is_host_key(key: str) -> bool:
+    """Whether this is a `<type> <base64 blob>` an ssh host key line carries.
+
+    Checked before anything is written, because what lands in the record comes
+    from a request body, and a listing that cannot compute a fingerprint for
+    its own contents is a page that fails to open.
+    """
+    fields = key.split()
+    if len(fields) < 2 or not fields[0].startswith(("ssh-", "ecdsa-", "sk-")):
+        return False
+    try:
+        base64.b64decode(fields[1], validate=True)
+    except (ValueError, binascii.Error):
+        return False
+    return True
+
+
+def fingerprint_of(key: str) -> str:
+    """The `SHA256:...` form `ssh-keygen -l` prints, from a `<type> <blob>`."""
+    fields = key.split()
+    return _fingerprint(fields[1] if len(fields) > 1 else fields[0])
+
+
 def _fingerprint(blob: str) -> str:
-    digest = base64.b64encode(sha256(base64.b64decode(blob)).digest()).decode("ascii")
+    try:
+        raw = base64.b64decode(blob, validate=True)
+    except (ValueError, binascii.Error):
+        # A record written before this was validated, or edited by hand. Saying
+        # so beats a stack trace where a fingerprint should be.
+        return "unreadable"
+    digest = base64.b64encode(sha256(raw).digest()).decode("ascii")
     return "SHA256:" + digest.rstrip("=")

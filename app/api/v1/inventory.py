@@ -243,7 +243,7 @@ def import_inventory(
     """
     service = _service(request)
     try:
-        commit, _ = service.import_document(payload.document, user.username)
+        commit, _ = service.replace_document(payload.document, user.username)
     except InvalidInventory as error:
         raise ApiError("invalid_inventory", str(error), 400) from error
     except ImportRefused as error:
@@ -260,6 +260,57 @@ def import_inventory(
         hosts=list(state.inventory.hosts) if state.inventory else [],
         validation=state.validation,
     )
+
+
+@router.post("/raw/check")
+def check_raw(
+    request: Request, payload: ImportRequest, user: User = viewer
+) -> ValidationResult:
+    """What is wrong with this file, committing nothing.
+
+    The editor's companion: an operator editing YAML in a browser finds out
+    before saving, and finds out from Ansible as well as from the rules here.
+    """
+    try:
+        return _service(request).check_document(payload.document)
+    except InvalidInventory as error:
+        raise ApiError("invalid_inventory", str(error), 400) from error
+
+
+@router.put("/raw")
+def replace_raw(
+    request: Request,
+    payload: ImportRequest,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> CommitResponse:
+    """Commit the file as the operator typed it.
+
+    The whole file, edited by hand, which is the escape hatch every form needs:
+    anything this service does not model is still editable here, on the machine
+    itself, with the same validation and the same audit trail.
+    """
+    service = _service(request)
+    if if_match is not None and service.state().commit != if_match:
+        raise ApiError(
+            "stale_write",
+            "The inventory changed since you opened it. Reload before saving.",
+            409,
+        )
+    try:
+        commit, _ = service.replace_document(
+            payload.document, user.username, message="inventory: edit the file directly"
+        )
+    except InvalidInventory as error:
+        raise ApiError("invalid_inventory", str(error), 400) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+    return _commit_response(commit, ValidationResult())
 
 
 @router.post("/revert/{commit}")

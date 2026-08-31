@@ -93,6 +93,26 @@ What the editor refuses, rather than approximates: adding or removing a machine,
 and changing a role, which means moving a host between groups. Both are cluster
 formation, and they arrive with it.
 
+### The editor is the form and the file
+
+Two ways in, because a form that models a dozen variables cannot be the only
+way to change a file that holds fifty.
+
+- **The form** edits one machine at a time and **any** machine in the
+  inventory, chosen from a selector that defaults to this one. A three node
+  cluster is configured from one browser.
+- **The file** is edited directly, in a text area on the same page, and saved
+  with `PUT /inventory/raw`. `POST /inventory/raw/check` says what is wrong
+  without committing anything.
+
+A whole file arriving by either route is checked three ways before it becomes a
+commit: it parses into something shaped like an inventory, it satisfies the
+rules of section 5, and `ansible-inventory --list` accepts it. That last one
+has a trap in it worth naming: **`ansible-inventory` exits 0 on a file it could
+not read**, having printed a warning and returned an empty inventory. Reading
+the exit status alone would wave through exactly the files the check exists to
+catch, so its output is read too.
+
 ### Which entry describes this machine
 
 The host key is the obvious answer and frequently the wrong one. A site is free
