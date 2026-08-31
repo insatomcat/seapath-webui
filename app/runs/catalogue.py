@@ -11,6 +11,18 @@ interface, and a tag selector produces combinations nobody has ever run.
 `targets` is copied from the playbook's own `hosts:` lines and is not a
 parameter a caller can override. Narrowing `cluster_setup_ha.yaml` to one
 member of three would be accepted by Ansible and would mean nothing.
+
+`preview` is read off the modules the playbook's roles use, so the value can be
+checked against the collection rather than argued about:
+
+`full`    every task runs a module check mode understands. The preview is a
+          real diff of what an apply would write.
+`partial` some tasks are `command` or `shell`. Check mode skips them, the run
+          still reaches the end, and what it reports is a subset.
+`none`    a preview would crash or say nothing. Either the playbook is command
+          driven from end to end, or a later task reads the `.stdout` of a
+          command check mode skipped, which fails on an undefined attribute.
+          Such an entry offers no preview button at all.
 """
 
 from __future__ import annotations
@@ -169,11 +181,15 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
     PlaybookEntry(
         id="seapath_setup_libvirt",
         playbook=f"{COLLECTION}.seapath_setup_libvirt",
-        title="Apply the libvirt configuration",
+        title="Configure libvirt",
         targets=["hypervisors"],
-        preview=Preview.PARTIAL,
+        # One template and a restart, which check mode reads exactly.
+        preview=Preview.FULL,
         reboots=Reboots.NO,
-        disruption="Restarts libvirt. Running guests keep running.",
+        disruption=(
+            "Writes libvirtd.conf and restarts libvirtd. Running guests keep "
+            "running."
+        ),
         requires=[
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
@@ -213,7 +229,8 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         playbook=f"{COLLECTION}.seapath_setup_deploy_seapath_alloc",
         title="Apply the dynamic CPU pinning",
         targets=["hypervisors"],
-        preview=Preview.PARTIAL,
+        # `deploy_seapath_alloc` copies files and enables a unit. No command.
+        preview=Preview.FULL,
         reboots=Reboots.NO,
         disruption=(
             "Real time relevant. Changes how guest threads are pinned to "
@@ -282,14 +299,26 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.CLUSTER,
         ],
     ),
+    # The second entry that touches libvirt, and a different playbook upstream.
+    # `seapath_setup_libvirt` configures the daemon on every hypervisor; this
+    # one only hands libvirt the credential it needs to open a disk that lives
+    # in the Ceph pool, and it exists separately because a standalone machine
+    # has no Ceph and must not run it.
     PlaybookEntry(
         id="cluster_setup_libvirt",
         playbook=f"{COLLECTION}.cluster_setup_libvirt",
-        title="Apply the cluster libvirt configuration",
+        title="Give libvirt access to the Ceph pool",
         targets=["hypervisors:&cluster_machines"],
-        preview=Preview.FULL,
+        # `configure_libvirt_rdb_secret` reads the existing secret with
+        # `virsh secret-list` and the next task reads that result's `.stdout`.
+        # Check mode skips the shell and the play dies on the missing
+        # attribute, so there is nothing to preview.
+        preview=Preview.NONE,
         reboots=Reboots.NO,
-        disruption="Installs the RBD secret for libvirt.",
+        disruption=(
+            "Defines the RBD secret libvirt presents to Ceph. Running guests "
+            "keep running."
+        ),
         requires=[
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
@@ -301,9 +330,16 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         playbook=f"{COLLECTION}.cluster_setup_users",
         title="Apply the cluster accounts",
         targets=["hypervisors:&cluster_machines"],
-        preview=Preview.FULL,
+        # `add_libvirtadmin_user` finds root's home with a shell and fetches a
+        # key from it. Check mode skips the shell and the fetch then reads a
+        # `.stdout` that is not there.
+        preview=Preview.NONE,
         reboots=Reboots.NO,
-        disruption="Creates libvirtadmin, needed for live migration.",
+        disruption=(
+            "Creates libvirtadmin and exchanges the root keys between the "
+            "cluster members, which is what live migration and console access "
+            "use."
+        ),
         requires=[
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,

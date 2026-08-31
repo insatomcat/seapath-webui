@@ -509,6 +509,18 @@ def test_a_required_variable_must_be_supplied(
     assert failure.value.code == "missing_variable"
 
 
+def test_every_preview_quality_matches_what_the_playbook_can_report(
+    store, inventory, trust, tmp_path
+) -> None:
+    # The three values are read off the modules the roles use, so they are
+    # checkable. `cluster_setup_libvirt` reads the `.stdout` of a shell check
+    # mode skips, which is a crash rather than a partial answer.
+    assert catalogue.get("seapath_setup_libvirt").preview.value == "full"
+    assert catalogue.get("seapath_setup_network").preview.value == "partial"
+    assert catalogue.get("cluster_setup_libvirt").preview.value == "none"
+    assert catalogue.get("cluster_setup_users").preview.value == "none"
+
+
 def test_a_playbook_that_cannot_be_previewed_offers_no_preview(
     store, inventory, trust, tmp_path
 ) -> None:

@@ -76,12 +76,30 @@ would describe a run nobody waited through.
 
 ## 3. Preview quality
 
-Check mode is honest only where roles write files through `template`, `copy` and
-`lineinfile`. Roles built on `command` and `shell`, which is most of
-`configure_ha` and `cephadm`, are skipped or report a meaningless change. The
-attribute is therefore per playbook, and the UI never renders a `partial` or
-`none` check as a guarantee. A `none` playbook offers no preview button at all,
-rather than a button that lies.
+The value is read off the modules a playbook's roles use, so it can be checked
+against the collection rather than argued about:
+
+- **`full`**: every task runs a module check mode understands, `template`,
+  `copy`, `file`, `user`, `systemd`. The preview is a real diff of what an apply
+  would write.
+- **`partial`**: some tasks are `command` or `shell`. Check mode skips them, the
+  run still reaches the end, and what it reports is a subset. Most of
+  `configure_ha`, `cephadm` and three of the network roles are in this case.
+- **`none`**: a preview would crash or say nothing. Either the playbook is
+  command driven from end to end, or a later task reads the `.stdout` of a
+  command check mode skipped and dies on the undefined attribute.
+
+That last case is why `cluster_setup_libvirt` and `cluster_setup_users` carry
+`none` rather than `full`. `configure_libvirt_rdb_secret` reads the existing
+secret with `virsh secret-list` and the next `set_fact` reads that result's
+`stdout`; `add_libvirtadmin_user` finds root's home with `getent` and then
+fetches a key from the path that shell printed. Check mode skips the shell in
+both, and the play fails on the attribute that is not there. A preview that
+crashes is worse than no preview, because the operator reads the failure as a
+statement about the machine.
+
+The UI never renders a `partial` check as a guarantee, and a `none` entry offers
+no preview button at all rather than a button that lies.
 
 ## 4. Catalogue, first version
 
@@ -92,10 +110,10 @@ rather than a button that lies.
 | `seapath_setup_main.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | yes, gated by `skip_reboot_setup` | The full convergence. Imports prerequisites, network, timemaster, libvirt, snmp, exporters, the cluster playbooks and `deploy_seapath_alloc`. This is the commissioning path and what the CI runs. |
 | `seapath_setup_network.yaml` | `cluster_machines`, `standalone_machine` | partial | yes | Applies only when `apply_network_config` is true. The playbook most likely to cut the connection under the run. Warn hard when launched from a target machine. |
 | `seapath_setup_timemaster.yaml` | `cluster_machines`, `standalone_machine` | full | no | PTP and NTP, plus `ptp_status_vsock` unless `disable_vsock`. |
-| `seapath_setup_libvirt.yaml` | `hypervisors` | partial | no | |
+| `seapath_setup_libvirt.yaml` | `hypervisors` | full | no | Writes `libvirtd.conf` and restarts `libvirtd`. The daemon's own configuration, on every hypervisor, cluster or not. |
 | `seapath_setup_prometheus_exporters.yaml` | `cluster_machines`, `standalone_machine` | full | no | |
 | `seapath_setup_snmp.yaml` | `cluster_machines`, `standalone_machine` | full | no | |
-| `seapath_setup_deploy_seapath_alloc.yaml` | `hypervisors` | partial | no | Dynamic CPU pinning. RT relevant, confirmation names the impacted machines. |
+| `seapath_setup_deploy_seapath_alloc.yaml` | `hypervisors` | full | no | Dynamic CPU pinning. RT relevant, confirmation names the impacted machines. |
 | `seapath_setup_hardening.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | yes | Ends with a reboot of every host. Sets `PermitRootLogin no` and restricts `ListenAddress`, which is why the trust targets the `ansible` account. Offered only after the rest converges cleanly. |
 
 ### Cluster
@@ -104,9 +122,19 @@ rather than a button that lies.
 |---|---|---|---|---|
 | `cluster_setup_ha.yaml` | `cluster_machines` | none | no | Corosync, the authkey, Pacemaker, stonith disabled. Command driven, so no preview. |
 | `cluster_setup_cephadm.yaml` | `cluster_machines` | none | no | Bootstrap, monitors, OSDs. Destructive on the selected disks. The inventory diff is the review step, since check mode cannot be one. |
-| `cluster_setup_libvirt.yaml` | `hypervisors:&cluster_machines` | full | no | RBD secret for libvirt. |
-| `cluster_setup_users.yaml` | `hypervisors:&cluster_machines` | full | no | The `libvirtadmin` user, needed for live migration and console access. |
+| `cluster_setup_libvirt.yaml` | `hypervisors:&cluster_machines` | none | no | The RBD secret libvirt presents to Ceph. The second playbook that touches libvirt, see below. |
+| `cluster_setup_users.yaml` | `hypervisors:&cluster_machines` | none | no | The `libvirtadmin` user, needed for live migration and console access. |
 | `cluster_remove_machine.yaml` | `cluster_machines` | none | no | Requires `machine_to_remove`. Must run from a surviving node. |
+
+### The two libvirt entries
+
+They are two playbooks upstream, and they stay two entries here.
+`seapath_setup_libvirt.yaml` configures the libvirt daemon itself and runs on
+every hypervisor, standalone included. `cluster_setup_libvirt.yaml` runs only
+where there is a Ceph cluster and does one thing: define the RBD secret libvirt
+presents when it opens a disk that lives in the pool. Merging them into one
+button would offer a standalone machine a Ceph credential it has no use for, and
+the titles now say which is which.
 
 ### VMs
 
@@ -114,6 +142,10 @@ rather than a button that lies.
 |---|---|---|---|---|
 | `deploy_vms_cluster.yaml` | first host of `cluster_machines` | partial | no | Deploys every VM in the `VMs` group. Note it already runs from one node, so which node drives is irrelevant. |
 | `deploy_vms_standalone.yaml` | `standalone_machine` | partial | no | |
+
+Neither is in the catalogue yet: the UI has no VM model, and a run that deploys
+the `VMs` group needs one before the confirmation can say which guests it
+touches.
 
 ### Not exposed in the first version
 

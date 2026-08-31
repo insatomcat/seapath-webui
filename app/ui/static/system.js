@@ -298,10 +298,13 @@
     element("confirm-title").textContent =
       (check ? "Preview " : "Apply ") + entry.title.toLowerCase();
     element("confirm-disruption").textContent = check
-      ? "Check mode changes nothing. This playbook is " +
-        entry.preview +
-        "ly previewable, so treat the result as an indication and not as a " +
-        "guarantee."
+      ? "Check mode changes nothing. " +
+        (entry.preview === "full"
+          ? "This playbook writes through modules check mode understands, so " +
+            "what it reports is what an apply would change."
+          : "Part of this playbook is command driven, and check mode skips " +
+            "those tasks. Read the result as an indication, not as a " +
+            "guarantee.")
       : entry.disruption +
         " Machines played: " +
         machineNames().join(", ") +
