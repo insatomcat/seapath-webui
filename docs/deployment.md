@@ -8,7 +8,13 @@ SPDX-License-Identifier: CC-BY-4.0
 ## 1. Image
 
 Multi stage `Dockerfile`, same shape as `insatomcat-exporter`. Published as
-`docker.io/insatomcat/seapath-webui`, built and pushed by `buildpush.sh`.
+`docker.io/insatomcat/seapath-webui`, built and pushed by `buildpush.sh` on a
+laptop and by `.github/workflows/image.yml` on every push to `main`. The
+workflow runs `ruff`, `black` and `pytest` first, builds, smoke tests the image
+the way `buildpush.sh` does, then pushes two tags: the commit's short sha, and
+`latest`. It needs two repository secrets, `DOCKERHUB_USERNAME` and
+`DOCKERHUB_TOKEN`, the second an access token from Docker Hub rather than an
+account password.
 
 Contents:
 
@@ -65,10 +71,11 @@ rather than by reading it:
 The collection version is stamped into the image with `--build-arg
 COLLECTION_VERSION`, reported by `GET /api/v1/node`, and recorded on every run
 next to the inventory commit. `galaxy.yml` says `2.0.0` on every branch, so the
-label carries the branch instead, and `buildpush.sh` defaults it to the branch
-name. That label, with the inventory commit, is what makes a deployment
-reproducible, and the catalogue refuses to offer an entry the shipped collection
-does not contain.
+label carries the branch and the upstream commit instead: `buildpush.sh`
+defaults it to the branch name, and the workflow resolves the branch head and
+stamps `seapathalloc@<commit>`. That label, with the inventory commit, is what
+makes a deployment reproducible, and the catalogue refuses to offer an entry the
+shipped collection does not contain.
 
 The collection version is part of the image identity. It determines which
 playbooks exist and what they do, so it is recorded at build time, reported by
