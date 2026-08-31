@@ -71,19 +71,19 @@ ssh_args = {ssh_args}
 # The ssh client configuration the run's own children read.
 #
 # `ansible.posix.synchronize` builds its own ssh command line for rsync and
-# carries none of the arguments above unless the task sets `use_ssh_args`. Ten
-# tasks in the collection set it, `configure_physical_machine` included, and
-# `deploy_seapath_alloc` is the one they missed: what reaches its rsync is the
-# single key in `private_key_file`, so a machine this node drives with the site
-# key is offered the wrong identity, ssh falls back to asking for a password,
-# and the run hangs on a prompt nobody can see, holding the run lock until an
-# operator cancels it.
+# carries none of the arguments above unless the task sets `use_ssh_args`. All
+# eleven tasks in the collection set it, which is a property of the collection
+# rather than of the module: a task that forgets it is given the single key in
+# `private_key_file`, so a machine this node drives with the site key is
+# offered the wrong identity, ssh falls back to asking for a password, and the
+# run hangs on a prompt nobody can see, holding the run lock until an operator
+# cancels it. That is how deploy_seapath_alloc behaved before its task was
+# fixed upstream.
 #
-# The role is where that gets fixed. This file is the guard, and it is worth
-# having on its own: `BatchMode` turns the next task that forgets the option
-# into a run that fails saying so, in seconds, rather than one that waits
-# forever. The identities are here for the same reason, and they are the ones
-# ssh_args already names.
+# The task is where that gets fixed. This file is the guard, and `BatchMode` is
+# what makes it worth having: the next task written without the option fails
+# saying so, in seconds, rather than waiting forever. The identities are here
+# for the same reason, and they are the ones ssh_args already names.
 #
 # Host key checking for that transfer is not decided here. The module defaults
 # `verify_host` to false and puts `StrictHostKeyChecking=no` on the command
