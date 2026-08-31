@@ -9,6 +9,18 @@ SPDX-License-Identifier: Apache-2.0
 <main class="page single">
   <p class="banner" id="banner" hidden></p>
 
+  <section class="card" id="readonly-card" hidden>
+    <h2>This inventory is read only</h2>
+    <p class="lead" id="readonly-reason"></p>
+    <ul class="findings" id="readonly-list"></ul>
+    <p class="help">
+      The file itself is untouched and stays exactly as it was written. It can
+      be read, exported and applied from here, and it is edited on the machine
+      that produced it, or through the repository at
+      <code>/etc/seapath/inventory</code>.
+    </p>
+  </section>
+
   <section class="card">
     <h2>Desired state</h2>
     <p class="lead">

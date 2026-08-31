@@ -650,3 +650,22 @@ button.secondary {
   padding-left: 2rem;
   color: var(--bad);
 }
+
+/* The list of what a rewrite would have changed. Shown when the service
+   refuses to write a file it did not produce, which is a refusal worth
+   reading in full rather than summarising into one line. */
+.findings {
+  margin: 0.75rem 0 0;
+  padding-left: 1.1rem;
+  color: #eccd93;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.findings li {
+  margin-bottom: 0.3rem;
+}
+
+#readonly-card {
+  border-left: 3px solid var(--warn);
+}

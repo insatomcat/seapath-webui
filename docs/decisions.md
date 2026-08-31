@@ -245,3 +245,57 @@ Pacemaker resource placement are live state by the same definition. What this
 service can add that Prometheus cannot is **conformance**: whether the machines
 match the inventory they were converged from, which is a question about the
 desired state and belongs here.
+
+## D14 - Settled: the service earns the right to write a file by reproducing it
+
+Adoption of an existing inventory was specified in
+[inventory.md](inventory.md#adopting-an-inventory-that-already-exists) before
+any inventory written by somebody else had been read. Then one was: a three node
+cluster deployed the conventional way, from a fourth machine. The service read
+three host entries out of it and would have destroyed everything else on the
+first form save.
+
+Five shapes did it, and all five are ordinary:
+
+| Shape in the file | What the service did |
+|---|---|
+| Groups under `all.children` | Read no group at all, so a three node cluster parsed as `standalone` |
+| Variables on groups | Read none of them: the model reads host variables and `hypervisors.vars.isolcpus` |
+| `mons`, `osds`, `clients` | Unknown groups, absent from anything the renderer writes |
+| `hostname: elabo1` under the key `node1` | Would write `hostname: "{{ inventory_hostname }}"`, renaming three running machines at the next network run |
+| No `subnet` | Would write `subnet: 24` on every host, a value nobody chose |
+
+The tempting reading is that the parser needs a few more cases. The durable one
+is that **a writer that cannot reproduce a file has no business writing it**,
+and that this has to be checked rather than believed, because the failure is
+silent: a form save that drops thirty group variables produces a valid
+inventory, a clean commit, and a cluster that breaks on the next convergence for
+reasons nobody connects to the save.
+
+So the check is mechanical and runs on every read. `app/inventory/resolve.py`
+resolves a document the way Ansible does. `app/inventory/fidelity.py` resolves
+the file, parses it, renders the model back, resolves that, and compares. Zero
+divergences makes the file writable. Anything else makes it read only, and the
+configuration page lists what a save would have changed, ordered so that the
+lines that put a new value on a machine come first.
+
+Three consequences worth stating:
+
+- **A freshly installed machine is unaffected.** The seed is the service's own
+  render, so it round trips exactly and the commissioning flow keeps working.
+- **The cluster `NotImplementedError` stops being a 500.** A cluster inventory
+  is refused with a reason and a 409 rather than crashing the preview button.
+- **The resolver is anchored to Ansible, not to our belief about Ansible.** A
+  test asserts it agrees with `ansible-inventory --list` variable for variable
+  on both reference inventories and on the real one. A resolver that was wrong
+  in the same way in both directions would make this whole check say "safe" and
+  mean nothing.
+
+What this defers is the writer itself: group variables, unknown groups, a
+`hostname` that differs from the key, and a cluster render. Until those land,
+adoption gives a site a readable, exportable, appliable inventory and a locked
+form.
+`test_a_rewrite_of_the_adopted_inventory_changes_nothing_ansible_can_see` is
+marked `xfail(strict=True)` against the real fixture, so the day the writer
+learns all four, the suite fails until this decision is revisited.
+

@@ -82,7 +82,7 @@ The heart of the API. See [inventory.md](inventory.md).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/inventory` | Current inventory, with its commit hash and whether this copy is stale |
+| GET | `/inventory` | Current inventory, with its commit hash, whether this copy is stale, and whether it can be written |
 | GET | `/inventory/raw` | The YAML itself, for the operator who wants to read or export it |
 | PUT | `/inventory` | Replace the inventory, `If-Match` on the commit hash, validated then committed |
 | PATCH | `/inventory/hosts/{name}` | Change one host's variables, the common path for forms |
@@ -90,6 +90,12 @@ The heart of the API. See [inventory.md](inventory.md).
 | GET | `/inventory/diff?from=&to=` | Diff between two commits, or between the working copy and HEAD |
 | GET | `/inventory/history` | Commits with author, message, timestamp |
 | POST | `/inventory/revert/{commit}` | Create a revert commit, does not apply it |
+
+`GET /inventory` carries `writable`, `read_only_reason` and `divergences`. An
+inventory the service did not produce, and cannot reproduce, is readable and
+exportable and refuses every write with `409 read_only_inventory`, whose detail
+lists what a write would have changed. See
+[inventory.md](inventory.md#the-service-has-to-be-able-to-reproduce-a-file-before-it-writes-it).
 | GET | `/inventory/discovery` | What hardware discovery proposes for this node, never committed automatically |
 | GET | `/inventory/export` | The repository as a tarball, for a site that wants a real control machine |
 

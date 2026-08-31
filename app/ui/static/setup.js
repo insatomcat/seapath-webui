@@ -132,6 +132,13 @@
     });
 
     writeForm(payload.inventory.hosts[state.host]);
+    if (showReadOnly(payload)) {
+      // The validation warnings describe a desired state this page cannot
+      // change. Showing them next to a locked form would read as a list of
+      // repairs to make here, and there are none to make here.
+      showBanner([]);
+      return true;
+    }
     // Warnings are advice, not refusals. They are the difference between "this
     // is wrong" and "this is unusual, and you may have meant it".
     showBanner(
@@ -139,6 +146,36 @@
         .filter((finding) => finding.level === "warning")
         .map((finding) => finding.message)
     );
+    return true;
+  }
+
+  // The service refuses to rewrite a file it cannot reproduce, and the page
+  // says so where the operator is about to type: the list of what a save would
+  // have changed, and a form that cannot be typed into. Controls are only ever
+  // disabled here, never re-enabled, so this cannot undo the lock a viewer
+  // account is already under.
+  function showReadOnly(payload) {
+    const card = element("readonly-card");
+    if (payload.writable !== false) {
+      card.hidden = true;
+      return false;
+    }
+
+    element("readonly-reason").textContent = payload.read_only_reason || "";
+    const list = element("readonly-list");
+    list.replaceChildren();
+    (payload.divergences || []).forEach((divergence) => {
+      const item = document.createElement("li");
+      item.textContent = divergence.message;
+      list.append(item);
+    });
+    card.hidden = false;
+
+    element("node-form")
+      .querySelectorAll("input, select, button")
+      .forEach((control) => {
+        control.disabled = true;
+      });
     return true;
   }
 

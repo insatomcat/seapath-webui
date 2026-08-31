@@ -11,10 +11,7 @@ that claim from quietly becoming false.
 
 from __future__ import annotations
 
-import os
-import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -23,6 +20,7 @@ import yaml
 from app.inventory.model import Inventory, Mode, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
 from app.inventory.renderer import render
+from tests.conftest import ANSIBLE_INVENTORY
 
 GOLDEN = Path(__file__).parent / "golden" / "standalone.yaml"
 
@@ -146,16 +144,6 @@ def test_a_broken_file_is_reported_rather_than_guessed_at() -> None:
 
     with pytest.raises(InvalidInventory, match="no host"):
         parse("all:\n  hosts:\n")
-
-
-# Where this interpreter's own ansible-core is, which is the one the
-# requirements pin, and which an unactivated virtualenv keeps off PATH.
-ANSIBLE_INVENTORY = shutil.which(
-    "ansible-inventory",
-    path=os.pathsep.join(
-        [str(Path(sys.executable).parent), os.environ.get("PATH", "")]
-    ),
-)
 
 
 @pytest.mark.skipif(

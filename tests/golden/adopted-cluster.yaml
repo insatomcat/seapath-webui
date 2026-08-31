@@ -1,0 +1,161 @@
+# A real inventory, from a three node cluster deployed the conventional way,
+# with the site's SSH keys and password hash replaced. It is here because the
+# shapes it uses are the ones a hand written inventory actually has, and every
+# one of them was found by reading a real file rather than imagined:
+#
+#   - the groups live under `all.children`;
+#   - almost every variable is a group variable;
+#   - `hostname` differs from the host key, so rewriting the key would rename
+#     three running machines;
+#   - there are groups this service has never heard of (mons, osds, clients);
+#   - `subnet` is absent, and the service must leave it absent.
+---
+all:
+  hosts:
+    node1:
+      ansible_host: 10.132.159.60
+      hostname: "elabo1"
+      cluster_next_ip_addr : "192.168.55.2" #node 2 cluster network ip
+      cluster_previous_ip_addr : "192.168.55.3" #node 3 cluster network ip
+      cluster_ip_addr: "192.168.55.1"
+      br_rstp_priority: 12288
+      ceph_osd_disk: "/dev/disk/by-path/pci-0000:c3:00.0-scsi-0:0:1:0"
+    node2:
+      ansible_host: 10.132.159.61
+      hostname: "elabo2"
+      cluster_next_ip_addr : "192.168.55.3" #node 3 cluster network ip
+      cluster_previous_ip_addr :  "192.168.55.1" #node 1 cluster network ip
+      cluster_ip_addr: "192.168.55.2"
+      br_rstp_priority: 16384
+      ceph_osd_disk: "/dev/disk/by-path/pci-0000:c3:00.0-scsi-0:0:1:0"
+    node3:
+      ansible_host: 10.132.159.62
+      hostname: "elabo3"
+      cluster_next_ip_addr : "192.168.55.1" #ip de hyperviseur 1
+      cluster_previous_ip_addr :  "192.168.55.2" #ip de l'hyperviseur 2
+      cluster_ip_addr: "192.168.55.3"
+      br_rstp_priority: 16384
+      ceph_osd_disk: "/dev/disk/by-path/pci-0000:c3:00.0-scsi-0:0:1:0"
+  children:
+    cluster_machines:
+      hosts:
+        node1:
+        node2:
+        node3:
+      vars:
+        ip_addr: "{{ ansible_host }}"
+        network_interface: eno8303
+        team0_0: "eno12399" # cluster network first interface
+        team0_1: "eno12409" # cluster network second interface
+        ptp_interface: "eno12429" #OPTIONAL PTP Interface
+        cephadm_release: 20.2.2
+        cephadm_install: true
+        cephadm_install_registryurl: "public.ecr.aws/docker/library/registry:2"
+
+        cephadm_install_release: 20.2.2
+        cephadm_install_release_name: tentacle
+        cephadm_install_downloadbinary: true
+        cephadm_install_binary: true
+
+        cephadm_network: "192.168.55.0/24"
+        public_network: "{{ cluster_network }}"
+        ignored_bridges:
+        # the team0 bridge (cluster network) is created separately by the networking playbook.
+          - "team0"
+    hypervisors:
+
+      children:
+        cluster_machines:
+      vars:
+        isolcpus: "3-11,15-23"
+
+    # Ceph groups
+    # All machines in the cluster must be part of mons groups
+    mons:
+      children:
+        cluster_machines:
+    # Machines that will be used as OSDs (which will store data)
+    osds:
+      children:
+        cluster_machines:
+      vars:
+        devices:
+            - "{{ ceph_osd_disk }}"
+    # Machines that will be used as clients (which will use Ceph)
+    clients:
+      children:
+        cluster_machines:
+      vars:
+        # These are SEAPATH needed overrides.
+        user_config: true
+        rbd:
+          name: "rbd"
+          application: "rbd"
+          pg_autoscale_mode: on
+          target_size_ratio: 1
+        pools:
+          - "{{ rbd }}"
+        keys:
+          - name: client.libvirt
+            caps:
+              mon: 'profile rbd, allow command "osd blacklist"'
+              osd: "allow class-read object_prefix rbd_children, profile rbd pool=rbd"
+            mode: "{{ ceph_keyring_permissions }}"
+  # Common vars for all hosts
+  vars:
+    # Ansible vars
+    ansible_connection: ssh
+    ansible_user: ansible
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+    ansible_remote_tmp: /tmp/.ansible/tmp
+
+    # Main network configuration
+    gateway_addr: 10.132.159.1
+    dns_servers: #remove this variable to disable dns, leave empty for DHCP
+        - 8.8.8.8
+        - 4.4.4.4
+
+    # NTP servers used by timemaster
+    ntp_servers:
+        - "ntp.example.org"
+        - "51.145.123.29"
+
+    extra_kernel_modules: []
+
+    apt_repo:
+      - name: debian
+        types: deb
+        uris: http://ftp.fr.debian.org/debian
+        suites:
+          - trixie
+          - trixie-backports
+        components:
+          - main
+          - contrib
+          - non-free
+          - non-free-firmware
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+
+    admin_user: "admin"
+    admin_passwd: '$y$j9T$REPLACED$FORTHISFIXTURE'
+    admin_ssh_keys:
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAreplaced first@example"
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAreplaced second@example"
+
+    apply_network_config: true
+    skip_reboot_setup_network: true
+    skip_reboot_setup: true
+    upload_extra_files_upload_files:
+      - { src: '../inventories_private/node-exporter.container.j2', dest: '/etc/containers/systemd/node-exporter.container', mode: "0644" }
+      - { src: '../inventories_private/nginxquadlet.container', dest: '/etc/containers/systemd/nginxquadlet.container', mode: "0644" }
+    interfaces_to_wait_for:
+      - "br0"
+    upload_extra_files_commands_to_run_after_upload:
+      - "/usr/bin/systemctl daemon-reload"
+      - "/usr/bin/systemctl start node-exporter"
+    extra_crm_cmd_to_run: |
+      primitive nginxquadlet systemd:nginxquadlet.service op monitor interval=30s op start timeout=60s interval=0s op stop timeout=60s interval=0s
+    nics_affinity:
+      - eno12419: slot=irq12419:3
+    seapath_alloc_strategy: repacking

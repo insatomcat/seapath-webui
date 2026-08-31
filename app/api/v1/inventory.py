@@ -22,7 +22,11 @@ from app.inventory.discovery import Discovery
 from app.inventory.grub import hash_password
 from app.inventory.model import Inventory
 from app.inventory.repository import Commit, RepositoryError, StaleWrite
-from app.inventory.service import InventoryService, InventoryState
+from app.inventory.service import (
+    InventoryService,
+    InventoryState,
+    ReadOnlyInventory,
+)
 from app.inventory.validation import ValidationResult
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
@@ -58,6 +62,20 @@ class HostPatch(BaseModel):
 
     changes: dict[str, Any]
     grub_password_plain: str | None = None
+
+
+def _read_only(error: ReadOnlyInventory) -> ApiError:
+    """A refusal that says exactly what it protected.
+
+    409 rather than 403: the request was legitimate and the state of the
+    resource is what refuses it.
+    """
+    return ApiError(
+        "read_only_inventory",
+        str(error),
+        409,
+        {"divergences": [d.model_dump() for d in error.divergences]},
+    )
 
 
 def _commit_response(
@@ -133,8 +151,12 @@ def preview(
     request: Request, payload: CandidateRequest, user: User = viewer
 ) -> Response:
     """What committing this candidate would change, without committing it."""
+    try:
+        diff = _service(request).preview(payload.inventory)
+    except ReadOnlyInventory as error:
+        raise _read_only(error) from error
     return Response(
-        content=_service(request).preview(payload.inventory),
+        content=diff,
         media_type="text/x-diff",
     )
 
@@ -193,6 +215,8 @@ def revert(request: Request, commit: str, user: User = admin) -> CommitResponse:
     """Create a revert commit. It is not applied: that is a separate act."""
     try:
         reverted = _service(request).revert(commit, user.username)
+    except ReadOnlyInventory as error:
+        raise _read_only(error) from error
     except RepositoryError as error:
         raise ApiError("revert_failed", str(error), 409) from error
     return _commit_response(reverted, ValidationResult())
@@ -207,6 +231,8 @@ def _save(
     service = _service(request)
     try:
         commit, validation = service.save(candidate, author, expected_head=if_match)
+    except ReadOnlyInventory as error:
+        raise _read_only(error) from error
     except StaleWrite as error:
         # Refusing beats merging: a silently merged desired state is one nobody
         # reviewed.

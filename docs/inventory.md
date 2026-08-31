@@ -44,6 +44,36 @@ If the service has already started once, the repository holds a seed commit
 describing this machine and nothing else. Removing the directory and cloning
 over it loses nothing that was not derived from the machine itself.
 
+### The service has to be able to reproduce a file before it writes it
+
+Adoption was specified above before any real inventory had been read. The first
+one that was tried, from a three node cluster deployed the conventional way,
+showed the specification was optimistic: the service read a fraction of the file
+and would have destroyed the rest on the first form save.
+
+So there is now a rule, and it is mechanical. `app/inventory/fidelity.py`
+resolves the file the way Ansible resolves it, parses it into the model, renders
+the model back, resolves that, and compares. A file the service produced comes
+back identical. A file it cannot reproduce is served, exported and applied, and
+never written, with the list of what a save would have changed shown on the
+configuration page.
+
+`app/inventory/resolve.py` is what makes the comparison meaningful, and a test
+asserts it agrees with `ansible-inventory --list` variable for variable on the
+reference inventories and on a real one.
+
+What the check found on that first real inventory, and what the writer therefore
+still has to learn, is in [decisions.md](decisions.md#d14):
+
+- groups declared under `all.children` rather than at the top level, which is
+  the shape the parser missed entirely, reading the file as a standalone one;
+- variables held on groups rather than on hosts, which is where a real
+  inventory keeps almost all of them;
+- groups the service has never heard of, `mons`, `osds` and `clients`;
+- `hostname` set to something other than the host key, so that rewriting the
+  key renames a running machine;
+- `subnet` absent, where the renderer writes one on every host.
+
 Four things have to be true of what lands there:
 
 - **One file, `inventory.yaml`, at the root.** That is the only file read and
@@ -56,9 +86,10 @@ Four things have to be true of what lands there:
   means cluster mode, membership of `observers` rather than `hypervisors` is the
   role. That is how the reference inventories express it and how the playbooks
   read it.
-- **Variables this service does not model survive.** They are parsed into
-  `extra` and written back unchanged, so a hand maintained inventory does not
-  come back from the first form save with half of itself missing.
+- **Variables this service does not model survive.** A variable held on a
+  host is parsed into `extra` and written back unchanged. A variable held on a
+  group is read for display and is not preserved by the writer yet, which is
+  why an inventory that has any is read only.
 
 Two limits of M1 are worth knowing before adopting a cluster inventory. The
 configuration form edits the first host under `all.hosts`, because M1 configures

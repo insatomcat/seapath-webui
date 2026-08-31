@@ -15,6 +15,9 @@ exercise the real first boot sequence rather than a shortcut around it.
 
 from __future__ import annotations
 
+import os
+import shutil
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -34,6 +37,17 @@ BASE_URL = "https://testserver"
 
 # What the ISO bakes into the account at build time.
 SITE_KEY = "ssh-rsa AAAAB3NzaC1yc2Esite ansible@control-machine"
+
+# Where this interpreter's own ansible-core is, which is the one the
+# requirements pin, and which an unactivated virtualenv keeps off PATH. Ansible
+# is the only authority on what an inventory means, so several tests ask it
+# rather than asserting what we believe it would say.
+ANSIBLE_INVENTORY = shutil.which(
+    "ansible-inventory",
+    path=os.pathsep.join(
+        [str(Path(sys.executable).parent), os.environ.get("PATH", "")]
+    ),
+)
 
 
 @pytest.fixture
