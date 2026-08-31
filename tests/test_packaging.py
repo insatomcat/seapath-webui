@@ -105,3 +105,15 @@ def test_the_ansible_account_home_is_never_created_by_the_unit() -> None:
     # missing it was not installed from the SEAPATH ISO.
     assert "/home/ansible/.ssh" in _SOURCES
     assert "/home/ansible" not in _PRE_START
+
+
+def test_the_controller_dependencies_are_all_in_one_file() -> None:
+    # A service deployed from a source checkout installs requirements.txt and
+    # nothing else. netaddr used to be a separate pip install in two Dockerfile
+    # stages, so the image had it and a checkout did not, and
+    # seapath_setup_network failed on the controller with no obvious cause.
+    requirements = (_ROOT / "requirements.txt").read_text()
+    dockerfile = (_ROOT / "Dockerfile").read_text()
+
+    assert "netaddr==" in requirements
+    assert "pip install --no-cache-dir netaddr" not in dockerfile

@@ -27,10 +27,6 @@ RUN apt-get update && \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
-# netaddr and six are what prepare.sh checks for and what the network roles
-# use at run time.
-RUN pip install --no-cache-dir netaddr
-
 RUN git clone --branch "${SEAPATH_ANSIBLE_REF}" --depth 1 \
         "${SEAPATH_ANSIBLE_REPOSITORY}" /src
 
@@ -95,8 +91,6 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
-# netaddr is imported by the network roles at run time, not only by prepare.sh.
-RUN pip install --no-cache-dir netaddr
 
 # Reported by GET /api/v1/node, and recorded next to the inventory commit on
 # every run. A deployment is reproducible from that pair, so it has to be

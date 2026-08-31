@@ -269,6 +269,8 @@ does not prove.
 
 ```bash
 # Once. It survives every later git pull.
+. .venv/bin/activate                 # prepare.sh reads `ansible` and `python3`
+                                     # off PATH, and Debian 13 ships 2.19
 git clone https://github.com/seapath/ansible /src/seapath-ansible
 cd /src/seapath-ansible && ./prepare.sh
 mkdir -p /opt/ansible && cp -a collections /opt/ansible/collections
@@ -276,6 +278,17 @@ mkdir -p /opt/ansible && cp -a collections /opt/ansible/collections
 # Then, from the checkout, on the housekeeping CPUs.
 taskset -c 0-1 .venv/bin/python -m app
 ```
+
+`prepare.sh` runs four preflight checks under `set -e` and creates
+`collections/` only after all four pass, so a failed check leaves no directory
+at all and the reason is one line of output that scrolls past easily:
+
+| Check | What fails it |
+|---|---|
+| `ansible` on PATH | The venv is not activated and ansible is only in it |
+| `core 2.16` | The venv is not activated: Debian 13 ships ansible-core 2.19 |
+| `ansible-galaxy` on PATH | Same as the first |
+| `import netaddr` | It reads `python3` off PATH, so it is the venv's when activated. `requirements.txt` carries netaddr for this and because the network roles import it at run time |
 
 **`prepare.sh` rather than `ansible-galaxy collection install git+...`.** The
 short form installs `seapath.ansible` and none of what it depends on, and the
