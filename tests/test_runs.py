@@ -613,7 +613,9 @@ def test_a_debug_task_shows_what_it_printed() -> None:
             "event_data": {
                 "host": "node1",
                 "task": "Show seapath_distro",
-                "task_action": "debug",
+                # Ansible resolves the module name, so this is what actually
+                # arrives. Comparing against the short name matched nothing.
+                "task_action": "ansible.builtin.debug",
                 "res": {
                     "seapath_distro": "Debian",
                     "changed": False,
@@ -636,7 +638,7 @@ def test_a_debug_task_marked_no_log_prints_nothing() -> None:
             "event_data": {
                 "host": "node1",
                 "task": "Show the join token",
-                "task_action": "debug",
+                "task_action": "ansible.builtin.debug",
                 "res": {"msg": "a secret", "_ansible_no_log": True},
             },
         }
@@ -652,7 +654,7 @@ def test_a_result_from_any_other_module_carries_no_payload() -> None:
             "event_data": {
                 "host": "node1",
                 "task": "Copy libvirtd.conf",
-                "task_action": "copy",
+                "task_action": "ansible.builtin.copy",
                 "res": {"content": "a secret nobody should see", "changed": True},
             },
         }

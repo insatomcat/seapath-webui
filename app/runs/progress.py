@@ -143,7 +143,10 @@ def _debug_output(data: dict[str, Any]) -> str | None:
     and `no_log` is honoured here as Ansible honours it everywhere else: a task
     marked no_log shows that it ran and nothing more.
     """
-    if data.get("task_action") != "debug":
+    # `task_action` is the resolved name, so it is `ansible.builtin.debug`
+    # rather than `debug`, and comparing against the short name silently
+    # matched nothing. The last segment is the module either way.
+    if str(data.get("task_action") or "").rsplit(".", 1)[-1] != "debug":
         return None
     result = data.get("res") or {}
     if result.get("_ansible_no_log"):
