@@ -182,3 +182,22 @@ def test_the_run_view_shows_the_skipped_column(signed_in: TestClient) -> None:
     assert "counts.skipped" in script
     # And the recap line carries Ansible's numbers rather than the bare word.
     assert "recapLine" in script
+
+
+def test_a_static_asset_is_revalidated_rather_than_held(
+    signed_in: TestClient,
+) -> None:
+    # A node upgraded in place serves new HTML and, without this, an old
+    # script: the page is then half from each version, and the symptom looks
+    # like a bug in the new code. `no-cache` costs one conditional request and
+    # answers 304 while the file is unchanged.
+    response = signed_in.get("/static/runs.js")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers.get("etag")
+
+    unchanged = signed_in.get(
+        "/static/runs.js", headers={"If-None-Match": response.headers["etag"]}
+    )
+    assert unchanged.status_code == 304

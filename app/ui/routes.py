@@ -16,6 +16,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.types import Scope
 
 from app import __version__
 from app.core.security import current_session
@@ -24,10 +25,27 @@ _UI_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(_UI_DIR / "templates"))
 
 
+class _RevalidatedStatics(StaticFiles):
+    """Static assets a browser must ask about before reusing.
+
+    `no-cache` means revalidate, and it costs one conditional request that
+    almost always answers 304: the file is still transferred only when it
+    changed. Without it a browser holds an old script for as long as it likes,
+    which on a node upgraded in place means a page half from this version and
+    half from the last one. That was diagnosed once as a bug in the new code,
+    which is an hour nobody gets back.
+    """
+
+    async def get_response(self, path: str, scope: Scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def install(app: FastAPI) -> None:
     app.mount(
         "/static",
-        StaticFiles(directory=str(_UI_DIR / "static")),
+        _RevalidatedStatics(directory=str(_UI_DIR / "static")),
         name="static",
     )
 
