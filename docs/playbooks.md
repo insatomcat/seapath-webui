@@ -66,6 +66,23 @@ branch it was built from.
 This is half of the reproducibility pair. The other half is the inventory
 commit, and together they answer "which code, against which desired state".
 
+### What a run is given
+
+A run plays the playbooks of the installed collection, and it reads the site's
+own files from a mirror of that collection built in the run directory: one
+symlink per entry of the installed tree, the inventory folder and the artefacts
+overlaid at its root. That is what makes `src: '../inventories_private/quadlet.network'`,
+written against a control machine, resolve on a node with no control machine
+anywhere. [D17](decisions.md#d17) and
+[inventory.md](inventory.md#1bis-the-folder-because-an-inventory-is-rarely-alone)
+have the mechanism.
+
+The folder is copied into the run rather than pointed at, so the trace says what
+was pushed rather than what the repository holds now, and the run record lists
+every file it was given with its size and its store. An artefact leaves no trace
+in `git log`, so that listing is where "which image did this run push" is
+answered.
+
 ### Where the time went
 
 `ansible-runner` reports a `duration` on every host result, so the run view

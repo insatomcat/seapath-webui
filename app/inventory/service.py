@@ -9,19 +9,23 @@ import logging
 import shutil
 import subprocess
 import tempfile
+from collections.abc import AsyncIterable, Iterable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 from app.hosts.reader import HostReader
+from app.inventory import files as tree
+from app.inventory import references
+from app.inventory.artefacts import ArtefactStore
 from app.inventory.discovery import Discovery, discover, seed_inventory
 from app.inventory.editor import UneditableInventory, edit
 from app.inventory.fidelity import Divergence, unintended_changes
 from app.inventory.model import Inventory, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
 from app.inventory.renderer import render
-from app.inventory.repository import Commit, InventoryRepository
+from app.inventory.repository import INVENTORY_FILENAME, Commit, InventoryRepository
 from app.inventory.resolve import resolve
 from app.inventory.validation import Finding, Level, ValidationResult, validate
 
@@ -87,10 +91,39 @@ class InventoryState(BaseModel):
     )
 
 
+class RefusedFile(Exception):
+    """A file could not be stored, and the message says which rule refused."""
+
+
 class InventoryService:
-    def __init__(self, repository: InventoryRepository, reader: HostReader) -> None:
+    def __init__(
+        self,
+        repository: InventoryRepository,
+        reader: HostReader,
+        artefacts: ArtefactStore | None = None,
+        collections_path: Path | None = None,
+        max_file_bytes: int = 4 * 1024 * 1024,
+    ) -> None:
         self._repository = repository
         self._reader = reader
+        self._artefacts = artefacts
+        self._collections_path = collections_path
+        self._max_file_bytes = max_file_bytes
+
+    # The folder, and the two stores under it
+
+    @property
+    def folder(self) -> Path:
+        """The versioned inventory folder, which a run copies whole."""
+        return self._repository.path
+
+    @property
+    def artefacts_root(self) -> Path | None:
+        return self._artefacts.root if self._artefacts is not None else None
+
+    @property
+    def max_file_bytes(self) -> int:
+        return self._max_file_bytes
 
     # Reading
 
@@ -108,14 +141,48 @@ class InventoryService:
                 commit=self._repository.head(),
                 parse_error=str(error),
             )
+        validation = validate(inventory)
+        validation.findings.extend(self._missing_files())
         return InventoryState(
             inventory=inventory,
             commit=self._repository.head(),
-            validation=validate(inventory),
+            validation=validation,
             seeded=True,
             adopted=not _is_ours(document),
             this_host=self.identify(document, inventory),
         )
+
+    def _missing_files(self) -> list[Finding]:
+        """The files the inventory names and nothing here holds.
+
+        A warning rather than an error: uploading the quadlet after committing
+        the variable that names it is a normal order of work, and refusing the
+        commit would forbid it. The run is where it stops mattering, and the
+        page says so before the operator gets there.
+        """
+        findings = []
+        for reference in self.references():
+            if reference.found:
+                continue
+            where = (
+                f" Upload it as {reference.expected}."
+                if reference.expected
+                else " It points above the inventory folder, where no run can "
+                "reach it."
+            )
+            findings.append(
+                Finding(
+                    level=Level.WARNING,
+                    rule="referenced_file_present",
+                    host=reference.host,
+                    field=reference.variable,
+                    message=(
+                        f"{reference.variable} names {reference.value}, which "
+                        f"is not in the inventory folder.{where}"
+                    ),
+                )
+            )
+        return findings
 
     def identify(self, document: str, inventory: Inventory) -> str | None:
         """Which entry describes the machine this service runs on.
@@ -206,6 +273,118 @@ class InventoryService:
 
     def export(self) -> bytes:
         return self._repository.export()
+
+    # The files beside the inventory
+    #
+    # An inventory is rarely alone. `upload_extra_files`, `iptables`,
+    # `syslog_ng_client`, `cephadm` and the VM roles all take a path to a file
+    # the control machine holds, and a folder that held `inventory.yaml` alone
+    # would describe machines no playbook here could converge.
+
+    def files(self) -> list[tree.StoredFile]:
+        """The companion files, the inventory itself excluded.
+
+        Excluded because it has a page of its own: it is the one file here that
+        is parsed, validated and checked against Ansible before it is written,
+        and offering it as an upload beside the quadlets would be a way around
+        all of that.
+        """
+        return [
+            entry
+            for entry in self._repository.files()
+            if entry.path != INVENTORY_FILENAME
+        ]
+
+    def read_file(self, path: str) -> bytes:
+        return self._repository.read_file(path)
+
+    def file_path(self, path: str) -> Path:
+        return self._repository.file_path(path)
+
+    def save_file(self, path: str, content: bytes, author: str) -> Commit | None:
+        """Commit one companion file. Returns None when it did not change."""
+        self._refuse_the_inventory(path)
+        if len(content) > self._max_file_bytes:
+            raise RefusedFile(
+                f"{path} is {_megabytes(len(content))}, and the versioned "
+                f"folder takes files up to {_megabytes(self._max_file_bytes)}. "
+                "A file this size belongs in the artefacts, which a run mounts "
+                "in the same place and git does not carry."
+            )
+        existed = self._repository.file_path(path).exists()
+        verb = "update" if existed else "add"
+        return self._repository.write_file(
+            path=path,
+            content=content,
+            message=f"files: {verb} {path}",
+            author=author,
+        )
+
+    def remove_file(self, path: str, author: str) -> Commit | None:
+        self._refuse_the_inventory(path)
+        return self._repository.delete_file(
+            path=path, message=f"files: remove {path}", author=author
+        )
+
+    def _refuse_the_inventory(self, path: str) -> None:
+        if tree.relative_path(path).as_posix() == INVENTORY_FILENAME:
+            raise RefusedFile(
+                "The inventory itself is edited by the form or by the file "
+                "editor, where it is validated before it is committed."
+            )
+
+    # The artefacts, which are the same files without the history
+
+    def artefacts(self) -> list[tree.StoredFile]:
+        return self._artefacts.files() if self._artefacts is not None else []
+
+    def artefacts_free_bytes(self) -> int | None:
+        return self._artefacts.free_bytes() if self._artefacts is not None else None
+
+    def store_artefact(self, path: str, chunks: Iterable[bytes]) -> tree.StoredFile:
+        return self._store().write(path, chunks)
+
+    async def receive_artefact(
+        self, path: str, chunks: AsyncIterable[bytes]
+    ) -> tree.StoredFile:
+        return await self._store().write_stream(path, chunks)
+
+    def _store(self) -> ArtefactStore:
+        if self._artefacts is None:
+            raise RefusedFile("This node has nowhere to keep artefacts.")
+        return self._artefacts
+
+    def artefact_path(self, path: str) -> Path:
+        return self._store().file_path(path)
+
+    def remove_artefact(self, path: str) -> bool:
+        return self._artefacts.delete(path) if self._artefacts is not None else False
+
+    # What the inventory points at
+
+    def references(self) -> list[references.Reference]:
+        """Every file the inventory names, and whether a run would find it.
+
+        Asked here rather than by the run, because the answer is only useful
+        while an operator is still looking at the inventory. A missing file
+        stops a convergence at a task that failed on every host at once.
+        """
+        document = self._repository.read()
+        if not document.strip():
+            return []
+        return references.check(
+            document,
+            references.Roots(
+                inventory=self.folder,
+                artefacts=self.artefacts_root,
+                collection=self._collection_root(),
+            ),
+        )
+
+    def _collection_root(self) -> Path | None:
+        if self._collections_path is None:
+            return None
+        return self._collections_path / "ansible_collections/seapath/ansible"
 
     # Writing
 
@@ -328,6 +507,10 @@ class InventoryService:
         fields = sorted({field for _, field, _ in changes})
         hosts = sorted({host for _, _, host in changes})
         return f"{', '.join(sections)}: set {', '.join(fields)} on {', '.join(hosts)}"
+
+
+def _megabytes(size: int) -> str:
+    return f"{size / (1024 * 1024):.1f} MB"
 
 
 def _ansible_opinion(document: str) -> Finding | None:

@@ -192,6 +192,22 @@
     });
   }
 
+  // What the run was given beside the inventory. An artefact leaves no trace
+  // in `git log`, so this line is where "which image did this run push" is
+  // answered, next to the commit and the collection it already records.
+  function describeFiles(files) {
+    if (!files || !files.length) {
+      return "the inventory alone";
+    }
+    const artefacts = files.filter((file) => file.source === "artefacts");
+    const bytes = files.reduce((total, file) => total + file.size, 0);
+    const parts = [files.length - artefacts.length + " versioned"];
+    if (artefacts.length) {
+      parts.push(artefacts.length + " artefact" + (artefacts.length > 1 ? "s" : ""));
+    }
+    return parts.join(", ") + " (" + (bytes / (1024 * 1024)).toFixed(1) + " MB)";
+  }
+
   function renderRecord(record) {
     element("run-detail").hidden = false;
     element("run-title").textContent =
@@ -204,6 +220,7 @@
       ["Started", record.started_at ? new Date(record.started_at).toLocaleString() : ""],
       ["Inventory commit", (record.inventory_commit || "none").slice(0, 12)],
       ["Collection", record.collection_version],
+      ["Files staged", describeFiles(record.files)],
       ["Command", (record.command || []).join(" ")],
     ]);
 

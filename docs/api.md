@@ -120,6 +120,33 @@ names what it protected. See
 | GET | `/inventory/discovery` | What hardware discovery proposes for this node, never committed automatically |
 | GET | `/inventory/export` | The repository as a tarball, for a site that wants a real control machine |
 
+### The folder around the inventory
+
+An inventory is rarely alone: a dozen roles name a file the control machine
+holds. The folder carries them, and a run mounts it where a checkout of
+`seapath-ansible` would be. See
+[inventory.md](inventory.md#1bis-the-folder-because-an-inventory-is-rarely-alone).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/inventory/folder` | Both stores listed, with the size limit of the versioned one and the room left for artefacts |
+| GET | `/inventory/references` | Every path the inventory names, where it resolves, and where to upload a missing one |
+| GET | `/inventory/files/{path}` | One versioned file, byte for byte |
+| PUT | `/inventory/files/{path}` | Store one versioned file, body is the file, one commit |
+| DELETE | `/inventory/files/{path}` | Remove one versioned file, one commit |
+| GET | `/inventory/artefacts/{path}` | One artefact, byte for byte |
+| PUT | `/inventory/artefacts/{path}` | Store one artefact, body streamed to disk, no commit |
+| DELETE | `/inventory/artefacts/{path}` | Remove one artefact |
+
+The body of a `PUT` is the file itself: a multipart form would mean a parser
+and a copy of a twenty gigabyte image for the sake of a name the URL already
+carries. A file over `max_file_bytes` is refused with `413 file_too_large`
+naming the artefacts, which take it. `inventory.yaml` is refused here with
+`409 refused_file`: it is the one file that is parsed, validated and put to
+Ansible before it is written, and `PUT /inventory/raw` is where that happens. A
+path that would leave the folder, by `..` or through a symlink already in the
+tree, is refused with `400 unsafe_path`.
+
 Writes are forwarded transparently to the configuration lead when this node is
 not it. The client never has to know which node leads.
 

@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.inventory.service import InventoryService, InventoryState
-from app.runs import catalogue, progress
+from app.runs import catalogue, progress, staging
 from app.runs.adapter import RunAdapter, RunRequest
 from app.runs.catalogue import PlaybookEntry, Precondition, VariableType
 from app.runs.models import RunProgress, RunRecord, RunState
@@ -285,7 +285,18 @@ class RunService:
             raise ApiError("run_in_progress", str(error), 409) from error
 
         try:
-            directory = self._store.create(record, self._inventory.raw())
+            directory = self._store.create(record)
+            # The inventory folder, its companion files and the artefacts, laid
+            # out where Ansible looks for them. Done before the thread starts,
+            # so a failure to stage is reported to the operator who launched
+            # the run rather than found in a log afterwards.
+            staged = staging.stage(
+                directory=directory,
+                inventory_dir=self._inventory.folder,
+                collections_path=self._paths.collections_path,
+                artefacts_dir=self._inventory.artefacts_root,
+            )
+            record.files = staged.files
         except Exception:
             self._store.release(run_id)
             raise
@@ -304,7 +315,7 @@ class RunService:
 
         thread = threading.Thread(
             target=self._execute,
-            args=(record, entry, directory, extra_vars),
+            args=(record, entry, directory, staged, extra_vars),
             name=f"run-{run_id}",
             daemon=True,
         )
@@ -406,6 +417,7 @@ class RunService:
         record: RunRecord,
         entry: PlaybookEntry,
         directory: Path,
+        staged: staging.Staging,
         extra_vars: dict[str, Any],
     ) -> None:
         run_progress = RunProgress()
@@ -423,9 +435,10 @@ class RunService:
                 RunRequest(
                     run_id=record.id,
                     playbook=entry.playbook,
-                    inventory_file=directory / "inventory.yaml",
+                    inventory_file=staged.inventory_file,
                     private_data_dir=directory,
                     collections_path=self._paths.collections_path,
+                    site_collections_path=staged.collections_paths[0],
                     private_key_file=self._paths.private_key_file,
                     known_hosts_file=self._paths.known_hosts_file,
                     ssh_config_file=self._paths.ssh_config_file,

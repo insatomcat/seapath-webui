@@ -13,20 +13,24 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
 from app.inventory.discovery import Discovery
+from app.inventory.files import StoredFile, UnsafePath
 from app.inventory.grub import hash_password
 from app.inventory.model import Inventory
 from app.inventory.parser import InvalidInventory
+from app.inventory.references import Reference
 from app.inventory.repository import Commit, RepositoryError, StaleWrite
 from app.inventory.service import (
     ImportRefused,
     InventoryService,
     InventoryState,
+    RefusedFile,
     RefusedWrite,
 )
 from app.inventory.validation import ValidationResult
@@ -311,6 +315,170 @@ def replace_raw(
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
     return _commit_response(commit, ValidationResult())
+
+
+class FolderResponse(BaseModel):
+    """The two stores a run overlays, and the rule that separates them."""
+
+    files: list[StoredFile]
+    artefacts: list[StoredFile]
+    max_file_bytes: int = 0
+    """The size above which a file belongs in the artefacts."""
+    free_bytes: int | None = None
+
+
+class FileResponseModel(BaseModel):
+    commit: str | None = None
+    message: str | None = None
+    stored: StoredFile | None = None
+
+
+def _unsafe(error: UnsafePath) -> ApiError:
+    return ApiError("unsafe_path", str(error), 400)
+
+
+async def _body_within(request: Request, limit: int) -> bytes:
+    """The request body, refused as soon as it passes the limit.
+
+    Read chunk by chunk rather than whole: `await request.body()` on a file
+    somebody dropped by mistake would hold all of it in memory before anything
+    had a chance to refuse it.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > limit:
+            raise ApiError(
+                "file_too_large",
+                (
+                    f"The versioned folder takes files up to {limit} bytes. A "
+                    "file this size belongs in the artefacts, which a run "
+                    "mounts in the same place and git does not carry."
+                ),
+                413,
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+@router.get("/folder")
+def folder(request: Request, user: User = viewer) -> FolderResponse:
+    """Everything beside the inventory, versioned and not."""
+    service = _service(request)
+    return FolderResponse(
+        files=service.files(),
+        artefacts=service.artefacts(),
+        max_file_bytes=service.max_file_bytes,
+        free_bytes=service.artefacts_free_bytes(),
+    )
+
+
+@router.get("/references")
+def file_references(request: Request, user: User = viewer) -> list[Reference]:
+    """Which file every path in the inventory names, and whether it is here."""
+    return _service(request).references()
+
+
+@router.get("/files/{path:path}")
+def read_file(request: Request, path: str, user: User = viewer) -> FileResponse:
+    service = _service(request)
+    try:
+        target = service.file_path(path)
+    except UnsafePath as error:
+        raise _unsafe(error) from error
+    if not target.is_file():
+        raise ApiError("unknown_file", f"{path} is not in the inventory folder.", 404)
+    return FileResponse(target, filename=target.name)
+
+
+@router.put("/files/{path:path}")
+async def write_file(
+    request: Request, path: str, user: User = admin
+) -> FileResponseModel:
+    """Store one of the files the inventory names, as a commit.
+
+    The body is the file itself. A form field would mean a multipart parser and
+    a copy of the bytes for the sake of a name the URL already carries.
+    """
+    service = _service(request)
+    content = await _body_within(request, service.max_file_bytes)
+    try:
+        commit = service.save_file(path, content, user.username)
+    except UnsafePath as error:
+        raise _unsafe(error) from error
+    except RefusedFile as error:
+        raise ApiError("refused_file", str(error), 409) from error
+    stored = next(
+        (entry for entry in service.files() if entry.path == path.strip("/")), None
+    )
+    return FileResponseModel(
+        commit=commit.hash if commit else None,
+        message=commit.message if commit else None,
+        stored=stored,
+    )
+
+
+@router.delete("/files/{path:path}")
+def remove_file(request: Request, path: str, user: User = admin) -> FileResponseModel:
+    service = _service(request)
+    try:
+        commit = service.remove_file(path, user.username)
+    except UnsafePath as error:
+        raise _unsafe(error) from error
+    except RefusedFile as error:
+        raise ApiError("refused_file", str(error), 409) from error
+    if commit is None:
+        raise ApiError("unknown_file", f"{path} is not in the inventory folder.", 404)
+    return FileResponseModel(commit=commit.hash, message=commit.message)
+
+
+@router.get("/artefacts/{path:path}")
+def read_artefact(request: Request, path: str, user: User = viewer) -> FileResponse:
+    try:
+        target = _service(request).artefact_path(path)
+    except UnsafePath as error:
+        raise _unsafe(error) from error
+    except RefusedFile as error:
+        raise ApiError("refused_file", str(error), 409) from error
+    if not target.is_file():
+        raise ApiError("unknown_file", f"{path} is not in the artefacts.", 404)
+    return FileResponse(target, filename=target.name)
+
+
+@router.put("/artefacts/{path:path}")
+async def write_artefact(request: Request, path: str, user: User = admin) -> StoredFile:
+    """Store a large file the inventory names, without versioning it.
+
+    A VM image in git stays in its history forever, one copy per upload, and
+    takes the export and the clone with it. This store is what a run overlays
+    under the same root, so `vm_disk: ../files/guest.qcow2` resolves the way it
+    does on a control machine. What it costs is that `git log` says nothing
+    about it, and the run record is the trace instead.
+    """
+    service = _service(request)
+    try:
+        return await service.receive_artefact(path, request.stream())
+    except UnsafePath as error:
+        raise _unsafe(error) from error
+    except RefusedFile as error:
+        raise ApiError("refused_file", str(error), 409) from error
+    except OSError as error:
+        raise ApiError("write_failed", str(error), 507) from error
+
+
+@router.delete("/artefacts/{path:path}")
+def remove_artefact(request: Request, path: str, user: User = admin) -> Response:
+    service = _service(request)
+    try:
+        removed = service.remove_artefact(path)
+    except UnsafePath as error:
+        raise _unsafe(error) from error
+    except RefusedFile as error:
+        raise ApiError("refused_file", str(error), 409) from error
+    if not removed:
+        raise ApiError("unknown_file", f"{path} is not in the artefacts.", 404)
+    return Response(status_code=204)
 
 
 @router.post("/revert/{commit}")

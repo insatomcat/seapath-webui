@@ -266,6 +266,192 @@
     });
   }
 
+  // The folder around the inventory. An inventory is rarely alone: a dozen
+  // roles take a path to a file this machine has to hold, and a run mounts
+  // this folder where a checkout of seapath-ansible would be.
+
+  function humanSize(bytes) {
+    const units = ["B", "kB", "MB", "GB", "TB"];
+    let size = bytes;
+    let unit = 0;
+    while (size >= 1024 && unit < units.length - 1) {
+      size /= 1024;
+      unit += 1;
+    }
+    return (unit === 0 ? size : size.toFixed(1)) + " " + units[unit];
+  }
+
+  function fileRow(entry, store) {
+    const row = document.createElement("tr");
+    const name = document.createElement("td");
+    const link = document.createElement("a");
+    link.href = "/api/v1/inventory/" + store + "/" + entry.path;
+    link.textContent = entry.path;
+    name.append(link);
+    row.append(name);
+
+    const size = document.createElement("td");
+    size.textContent = humanSize(entry.size);
+    row.append(size);
+
+    const actions = document.createElement("td");
+    if (Chrome.isAdmin(state.me)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "remove";
+      button.addEventListener("click", async () => {
+        try {
+          await API.del("/inventory/" + store + "/" + entry.path);
+        } catch (failure) {
+          showBanner([failure.message]);
+        }
+        await loadFolder();
+        await loadInventory();
+      });
+      actions.append(button);
+    }
+    row.append(actions);
+    return row;
+  }
+
+  function fillTable(id, entries, store) {
+    const body = document.querySelector("#" + id + " tbody");
+    body.replaceChildren();
+    entries.forEach((entry) => body.append(fileRow(entry, store)));
+    if (!entries.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 3;
+      cell.className = "help";
+      cell.textContent = "Nothing here yet.";
+      row.append(cell);
+      body.append(row);
+    }
+  }
+
+  function referenceRow(reference) {
+    const row = document.createElement("tr");
+    [reference.host, reference.variable, reference.value].forEach((value) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      row.append(cell);
+    });
+
+    const status = document.createElement("td");
+    if (reference.found) {
+      status.textContent = reference.where || "resolved at run time";
+    } else if (reference.expected) {
+      // The answer an operator can act on, rather than the fact that something
+      // is wrong: the name to upload the file under, ready to use.
+      status.className = "missing";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "missing, upload as " + reference.expected;
+      button.addEventListener("click", () => {
+        element("file-name").value = reference.expected;
+        element("file-input").focus();
+      });
+      status.append(button);
+    } else {
+      status.className = "missing";
+      status.textContent = "points above the folder, no run can reach it";
+    }
+    row.append(status);
+    return row;
+  }
+
+  async function loadFolder() {
+    const [folder, refs] = await Promise.all([
+      API.get("/inventory/folder"),
+      API.get("/inventory/references"),
+    ]);
+
+    fillTable("files-table", folder.files, "files");
+    fillTable("artefacts-table", folder.artefacts, "artefacts");
+
+    const body = document.querySelector("#references-table tbody");
+    body.replaceChildren();
+    refs.forEach((reference) => body.append(referenceRow(reference)));
+    element("references-empty").hidden = refs.length > 0;
+    document.querySelector("#references-table").hidden = refs.length === 0;
+
+    element("artefacts-help").dataset.free = folder.free_bytes || "";
+    state.maxFileBytes = folder.max_file_bytes;
+  }
+
+  function uploadHandler(store, nameId, inputId, errorId, buttonId) {
+    const name = element(nameId);
+    const input = element(inputId);
+    const error = element(errorId);
+    const button = element(buttonId);
+
+    function ready() {
+      // One file is stored under the name typed; several are stored under
+      // their own names, in the directory typed, which may be the root. A
+      // folder arrives in one act rather than in five.
+      button.disabled = !(input.files.length && (name.value.trim() || multiple()));
+    }
+
+    function multiple() {
+      return input.files.length > 1;
+    }
+
+    function pathOf(file) {
+      const prefix = name.value.trim().replace(/\/+$/, "");
+      if (!multiple()) {
+        return prefix || file.name;
+      }
+      // `webkitRelativePath` is set when a directory was picked, and keeping
+      // it means the folder arrives with the shape the inventory references.
+      const own = file.webkitRelativePath || file.name;
+      return prefix ? prefix + "/" + own : own;
+    }
+
+    input.addEventListener("change", () => {
+      if (!name.value.trim() && input.files.length === 1) {
+        name.value = input.files[0].name;
+      }
+      ready();
+    });
+    name.addEventListener("input", ready);
+
+    button.addEventListener("click", async () => {
+      error.hidden = true;
+      const files = Array.from(input.files);
+      const label = button.textContent;
+      button.disabled = true;
+      const stored = [];
+      try {
+        for (const file of files) {
+          const path = pathOf(file);
+          button.textContent =
+            "Uploading " + path + " (" + humanSize(file.size) + ")...";
+          await API.upload("/inventory/" + store + "/" + path, file);
+          stored.push(path);
+        }
+        name.value = "";
+        input.value = "";
+        showBanner([
+          stored.join(", ") +
+            (stored.length > 1 ? " are stored. " : " is stored. ") +
+            "Nothing has been pushed to any machine: that is the Apply section.",
+        ]);
+      } catch (failure) {
+        // Each file is its own commit, so the ones already stored stay. The
+        // message names the one that stopped it.
+        error.textContent = failure.message;
+        error.hidden = false;
+      } finally {
+        button.textContent = label;
+        await loadFolder();
+        await loadInventory();
+        ready();
+      }
+    });
+  }
+
   async function revert(commit) {
     element("form-error").hidden = true;
     try {
@@ -455,8 +641,18 @@
   async function refresh() {
     const loaded = await loadInventory();
     await loadHistory();
+    await loadFolder();
     return loaded;
   }
+
+  uploadHandler("files", "file-name", "file-input", "file-error", "file-upload");
+  uploadHandler(
+    "artefacts",
+    "artefact-name",
+    "artefact-input",
+    "artefact-error",
+    "artefact-upload"
+  );
 
   async function start() {
     const chrome = await Chrome.load();
@@ -473,6 +669,13 @@
       // The picker stays live: reading another machine's entry is a viewer's
       // business too.
       element("host-select").disabled = false;
+      // The folder is read by a viewer and written by an administrator, like
+      // everything else on this page. The tables and their download links stay.
+      element("folder-card")
+        .querySelectorAll("input, button")
+        .forEach((control) => {
+          control.disabled = true;
+        });
       showBanner(["Changing the inventory requires the admin role."]);
     }
   }

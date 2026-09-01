@@ -477,8 +477,7 @@ def test_a_restart_closes_out_a_run_that_was_going(store) -> None:
             playbook_id="seapath_setup_main",
             state=RunState.RUNNING,
             launched_by="alice",
-        ),
-        inventory="all: {}\n",
+        )
     )
     store.acquire("20260811T090000")
 

@@ -25,9 +25,11 @@ Image=docker.io/insatomcat/seapath-webui:latest
 ContainerName=seapath-webui
 Network=host
 
-# Service state: PKI, session secret, and from M1 the SSH keys and the run
-# artefacts. The inventory repository is separate so it can be backed up,
-# cloned and exported on its own.
+# Service state: PKI, session secret, and from M1 the SSH keys, the run traces
+# and the artefact store, which holds the VM images and archives an inventory
+# names and git has no business carrying. The inventory repository is separate
+# so it can be backed up, cloned and exported on its own, and it holds the
+# whole folder: `inventory.yaml` and the configuration files it references.
 Volume=/etc/seapath/webui:/etc/seapath/webui:rw
 Volume=/etc/seapath/inventory:/etc/seapath/inventory:rw
 Volume=/var/lib/seapath-webui:/var/lib/seapath-webui:rw

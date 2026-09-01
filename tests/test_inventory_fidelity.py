@@ -272,8 +272,54 @@ def test_the_api_reads_an_adopted_cluster_inventory_whole(
     assert node["ptp_interface"] == "eno12429"
     assert node["gateway_addr"] == "10.132.159.1"
     assert node["isolcpus"] == "3-11,15-23"
-    # And it has nothing to complain about, which it did when it read a third
-    # of the file.
+    # And it has nothing to refuse, which it did when it read a third of the
+    # file. The warnings it does carry are the two quadlets this file uploads,
+    # on each of the three machines, and they are the subject of the test
+    # below.
+    errors = [f for f in state["validation"]["findings"] if f["level"] == "error"]
+    assert errors == []
+
+
+def test_an_adopted_inventory_says_which_files_it_still_needs(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The real inventory this service met uploads two quadlets through
+    # `upload_extra_files`, with the paths a control machine resolves against
+    # its checkout of seapath-ansible. Nothing on this node holds them yet, and
+    # a run would fail on the first `copy` of the first host.
+    _adopt(settings, ADOPTED)
+
+    references = signed_in.get("/api/v1/inventory/references").json()
+
+    assert {reference["value"] for reference in references} == {
+        "../inventories_private/node-exporter.container.j2",
+        "../inventories_private/nginxquadlet.container",
+    }
+    assert not any(reference["found"] for reference in references)
+    # The answer an operator can act on: the name to upload the file under.
+    assert {reference["expected"] for reference in references} == {
+        "inventories_private/node-exporter.container.j2",
+        "inventories_private/nginxquadlet.container",
+    }
+
+
+def test_uploading_the_file_an_inventory_names_answers_the_warning(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _adopt(settings, ADOPTED)
+
+    for name in ("node-exporter.container.j2", "nginxquadlet.container"):
+        response = signed_in.put(
+            f"/api/v1/inventory/files/inventories_private/{name}",
+            content=b"[Unit]\n",
+        )
+        assert response.status_code == 200, response.text
+
+    references = signed_in.get("/api/v1/inventory/references").json()
+    assert all(reference["found"] for reference in references)
+    assert {reference["where"] for reference in references} == {"inventory"}
+
+    state = signed_in.get("/api/v1/inventory").json()
     assert state["validation"]["findings"] == []
 
 

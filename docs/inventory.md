@@ -12,10 +12,12 @@ where it lives, who may write it, and how a form becomes YAML.
 ## 1. Storage
 
 A git repository per node, at `/etc/seapath/inventory/`, containing the
-inventory and nothing else.
+inventory and the files it names.
 
-- The working tree holds `inventory.yaml` and, later, `host_vars/` and
-  `group_vars/` if the size justifies it.
+- The working tree holds `inventory.yaml` at its root, and beside it whatever
+  the inventory references: `inventories_private/`, `files/`, `templates/`,
+  `host_vars/`, `group_vars/`. Section 1bis is about that folder, because an
+  inventory is rarely alone.
 - Every change through the UI is a commit whose author is the authenticated
   user and whose message is generated from the form (`network: set gateway_addr
   on node2`). `git log` is the configuration audit trail.
@@ -125,9 +127,10 @@ than admitting the file does not describe this one.
 
 Four things have to be true of what lands there:
 
-- **One file, `inventory.yaml`, at the root.** That is the only file read and
-  the only file written. An inventory kept as `seapath-cluster.yaml` is renamed
-  with `git mv` and committed.
+- **`inventory.yaml`, at the root.** That is the one file parsed as the desired
+  state. An inventory kept as `seapath-cluster.yaml` is renamed with `git mv`
+  and committed. The files beside it are carried, versioned and staged for a
+  run, and section 1bis says where they have to sit.
 - **This machine appears somewhere in it.** The host key is what
   `inventory_hostname` resolves to, and `hostname` overrides the machine's
   name, so a site may key its hosts `node1..node3` and name the machines
@@ -151,6 +154,88 @@ editing all work today.
 The repository is an ordinary git repository, so a remote survives the clone.
 Nothing pushes or pulls it by itself: replication between nodes arrives with the
 cluster, at M3.
+
+## 1bis. The folder, because an inventory is rarely alone
+
+A dozen SEAPATH roles take a path to a file the control machine holds, written
+in the inventory as an ordinary variable:
+
+```yaml
+upload_extra_files_upload_files:
+  - { src: '../inventories_private/quadlet-macvlan.network', dest: '/etc/containers/systemd/quadlet-macvlan.network', mode: "0644" }
+```
+
+and, in the same family, `iptables_rules_path`,
+`iptables_rules_template_path`, `syslog_conf_template`, `syslog_tls_ca`,
+`syslog_tls_key`, `syslog_tls_server_ca`, `cephadm_spec_path`,
+`configure_hypervisor_tuned_path`, `hosts_path`, `update_swu_image_path`,
+`vm_disk`, `vm_template`, `additional_disk`, `cloud_init.user_data_file`. A
+folder holding `inventory.yaml` alone would describe machines that no run from
+here could converge.
+
+### Where those paths point
+
+Ansible resolves a relative `src` against the role's own directories and **the
+directory the playbook sits in**, and against nothing else. The directory
+holding the inventory has no say in it, and neither does the working directory
+or the command line. On a control machine that is a checkout of
+`seapath-ansible` the playbooks are in `<checkout>/playbooks`, so
+`../inventories_private/x` means `<checkout>/inventories_private/x`.
+
+**The inventory folder is that checkout root.** A run builds a mirror of the
+collection in its own directory, overlays the folder at the mirror's root, and
+runs the playbook by its fully qualified name with the mirror searched first.
+So the paths an existing inventory already carries mean here exactly what they
+mean on a control machine, unchanged. [D17](decisions.md#d17) has the mechanism
+and the two designs it replaces, `app/runs/staging.py` has the code, and
+`tests/test_run_staging.py` ends by asking a real `ansible-playbook` whether it
+works.
+
+Practically, for an inventory arriving from a conventional deployment: upload
+the directory it lived next to. An inventory kept in `inventories_private/` on
+a control machine, referencing `../inventories_private/quadlet.network`, needs
+a `inventories_private/quadlet.network` in this folder. The page takes several
+files, or a whole directory, in one act, and a directory keeps its shape. A
+site that clones its repository into `/etc/seapath/inventory` before the first
+start, as in "Adopting an inventory that already exists" above, brings the
+folder along with the history and uploads nothing.
+
+### Two stores, one root
+
+| Store | Holds | Limit |
+|---|---|---|
+| The repository, `/etc/seapath/inventory` | The inventory and the configuration files it names: quadlets, iptables rules, `snmpd.conf`, a libvirt XML, a Jinja template | 4 MB per file, versioned |
+| The artefacts, `/var/lib/seapath-webui/artefacts` | VM images, archives, anything larger | The disk, unversioned |
+
+Both are overlaid under the same root at run time, so `vm_disk:
+"../files/guest.qcow2"` resolves whichever store holds `files/guest.qcow2`, and
+the versioned copy wins where both do. A file over the size limit is refused by
+the repository with the artefacts named in the refusal.
+
+What the split costs is worth knowing before relying on it: **a change to an
+artefact leaves no trace in `git log`, and the export carries the inventory
+without the images it names.** The run record lists every file a run was given,
+with its size and its store, which is what remains to answer "which image did
+that run push". [D18](decisions.md#d18).
+
+### Saying so before the run, rather than during it
+
+`GET /inventory/references` answers, for every path any of those variables
+carries, whether a run would find the file and where it resolved: the
+repository, the artefacts, the collection itself for the defaults a role ships,
+or this machine's filesystem for an absolute path. A missing one comes back
+with the name to upload it under, and the inventory page offers that name as a
+button.
+
+A missing file is a **warning**, and never a refused commit. Committing the
+variable before uploading the file it names is an ordinary order of work.
+Refusing at the commit would forbid it, and the run is where it matters: with
+`any_errors_fatal`, a `copy` that cannot find its source ends the convergence
+on every host at once, three minutes in.
+
+A templated path, `../files/{{ inventory_hostname }}.qcow2`, is left alone.
+Guessing at its value would produce a confident wrong answer and tell an
+operator to upload a file named after a variable.
 
 ## 2. Who may write
 

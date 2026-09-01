@@ -31,6 +31,7 @@ _RECORD = "run.json"
 _EVENTS = "events.jsonl"
 _LOG = "stdout.log"
 _INVENTORY = "inventory.yaml"
+_SITE = "site"
 _LOCK = ".lock"
 
 
@@ -56,12 +57,14 @@ class RunStore:
 
     # Records
 
-    def create(self, record: RunRecord, inventory: str) -> Path:
+    def create(self, record: RunRecord) -> Path:
         directory = self.directory(record.id)
         directory.mkdir(parents=True, exist_ok=True)
-        # The inventory the run actually used, frozen here so the repository
-        # can move on without making the trace a lie.
-        (directory / _INVENTORY).write_text(inventory)
+        # The inventory folder the run actually used is copied in by
+        # `app.runs.staging`, frozen there so the repository can move on
+        # without making the trace a lie. The whole folder, since the files an
+        # inventory names are as much a part of what a run pushed as the
+        # variables that name them.
         (directory / _EVENTS).touch()
         (directory / _LOG).touch()
         self.save(record)
@@ -95,10 +98,15 @@ class RunStore:
         return records[:limit]
 
     def inventory_of(self, run_id: str) -> str:
-        try:
-            return (self.directory(run_id) / _INVENTORY).read_text()
-        except OSError:
-            return ""
+        directory = self.directory(run_id)
+        # The staged folder first, then the flat copy runs recorded before the
+        # inventory became a folder. A node upgraded in place holds both.
+        for path in (directory / _SITE / _INVENTORY, directory / _INVENTORY):
+            try:
+                return path.read_text()
+            except OSError:
+                continue
+        return ""
 
     # Streams
 

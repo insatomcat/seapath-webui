@@ -388,3 +388,105 @@ fixed from here is a missing `ansible` account or a missing key, since the
 service refuses to create an account nobody reviewed. That is a console job or
 a reinstall, and saying so is better than a button that half works.
 
+
+## D17 - Settled: the inventory is a folder, mounted where a control machine would put it
+
+The first real inventory this service met uploads two quadlets:
+
+```yaml
+upload_extra_files_upload_files:
+  - { src: '../inventories_private/node-exporter.container.j2', dest: '/etc/containers/systemd/node-exporter.container', mode: "0644" }
+  - { src: '../inventories_private/nginxquadlet.container', dest: '/etc/containers/systemd/nginxquadlet.container', mode: "0644" }
+```
+
+That is an ordinary inventory. A dozen roles take a path to a file the control
+machine holds: `iptables_rules_path`, `iptables_rules_template_path`,
+`syslog_conf_template` and the three syslog certificates, `cephadm_spec_path`,
+`configure_hypervisor_tuned_path`, `hosts_path`, `update_swu_image_path`,
+`vm_disk`, `vm_template`, `additional_disk`, `cloud_init.user_data_file`. A
+repository holding `inventory.yaml` and nothing else describes machines that no
+playbook run from here could converge.
+
+So the repository holds a **folder**, and every file in it is versioned with the
+inventory: one commit per upload, `git log` as the audit trail, `git revert` as
+the rollback, the export carrying all of it.
+
+Where the folder is mounted at run time is the part that had to be discovered
+rather than decided. When Ansible resolves a relative `src`, the anchors it uses
+are the role's own directories and **the directory the playbook sits in**
+(`DataLoader.path_dwim_relative_stack`). The directory holding the inventory has
+no say in it, and neither does the working directory or the command line. On a
+control machine that is a checkout of `seapath-ansible`, the playbooks are in
+`<checkout>/playbooks`, so `../inventories_private/x` means
+`<checkout>/inventories_private/x`, and that is the convention every inventory
+in the field is written against. Run out of the installed collection, the same
+path means a file inside `seapath.ansible`, which the site does not own and
+`galaxy.yml` does not ship.
+
+Three ways out were considered:
+
+| Option | Why not |
+|---|---|
+| Rewrite the paths on import | The service would edit an inventory nobody asked it to edit, against everything [D14](#d14) settles |
+| Require absolute paths under `/etc/seapath/inventory` | Every existing inventory has to be rewritten by hand, and the exported one no longer runs on a control machine |
+| Copy the site's files into the image's collection | Writes into the tree whose fingerprint identifies the code a run used |
+
+What ships instead is a **mirror of the collection, per run**, in the run
+directory: one symlink per entry of the installed collection, the site's folder
+overlaid at its root, and `ANSIBLE_COLLECTIONS_PATH` naming the mirror before
+the image's own root so the dependency collections still resolve. The playbook
+is still addressed by its fully qualified name.
+
+`playbooks/` inside the mirror is a real directory holding one symlink per
+playbook, and that detail is the whole trick: `..` is resolved by the kernel
+after a symlink, so a symlinked `playbooks/` would send every relative `src`
+straight back into the installed collection.
+
+The result is that a path means the same thing here as on a control machine,
+which is the property this service has claimed since its first page and could
+not previously honour for anything but the inventory itself. `tests/test_run_staging.py`
+ends by handing the staged tree to a real `ansible-playbook`, with the `copy`
+task of the real `upload_extra_files` role and the `src` quoted above, and
+asserting the file arrived. Ansible is the only authority on how Ansible
+resolves a path.
+
+Two consequences worth stating:
+
+- **A run copies the folder rather than pointing at it.** The repository moves
+  on and the trace must not, which is the reason a run has kept a copy of the
+  inventory since the first version. The copy is what the mirror overlays.
+- **A file the inventory names and nothing holds is a warning, never a
+  refusal.** Committing the variable before uploading the file is an ordinary
+  order of work. `GET /inventory/references` answers where each path resolves,
+  and where a missing one should be uploaded, which is worth more than a
+  refusal: the alternative is finding out three minutes into a convergence,
+  from a task that failed on every host at once because `any_errors_fatal` is
+  on.
+
+## D18 - Settled: the large files live beside the repository
+
+`vm_disk: "../files/guest.qcow2"` names the same kind of thing as a quadlet
+does, resolves the same way, and has to be in the same tree at run time. Putting
+it in git is where the resemblance has to stop. A twenty gigabyte image in a
+repository stays in its history forever, one copy per upload, and takes the
+export, the clone and the whole "the inventory is a small git repository" idea
+with it. `git-lfs` is not on a SEAPATH node and adding it would put the desired
+state behind a server that has to be reachable.
+
+So there are two stores, and a run overlays both under the same root:
+
+| Store | Holds | Answers to |
+|---|---|---|
+| `/etc/seapath/inventory` | The inventory and the configuration files it names, up to 4 MB each | `git log`, `git revert`, the export |
+| `/var/lib/seapath-webui/artefacts` | VM images, archives, anything larger | The run record, which lists what it staged |
+
+The cost is stated rather than hidden: **a change to an artefact leaves no trace
+in the history, and the export carries the desired state without the images it
+names.** What remains is the run record, which lists every file the run was
+given with its size and its store, so "which image did that run actually push"
+has an answer even though `git log` has nothing to say about it.
+
+The limit between the two is a size rather than a file type. A file over the
+limit is refused by the versioned folder with the artefacts named in the
+refusal, because the alternative is an operator who cannot tell why one upload
+worked and another did not.

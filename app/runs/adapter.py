@@ -117,6 +117,11 @@ class RunRequest:
     collections_path: Path
     private_key_file: Path
     known_hosts_file: Path
+    # The mirror of `seapath.ansible` this run reads, built by
+    # `app.runs.staging` so that the files an inventory names sit where Ansible
+    # looks for them. Searched before the image's own collections root, which
+    # still answers for `ansible.posix` and everything else the roles use.
+    site_collections_path: Path | None = None
     # The ssh client configuration to write before the run. `None` writes none,
     # which is what a test asserting the invocation wants and what no
     # deployment does.
@@ -167,6 +172,17 @@ class Preparation:
     command: list[str]
 
 
+def collections_search_path(request: RunRequest) -> str:
+    """Where the run looks for collections, mirror first.
+
+    Two entries rather than one: the mirror holds `seapath.ansible` alone, with
+    the site's own files at its root, and everything the roles depend on stays
+    where the image installed it.
+    """
+    paths = [request.site_collections_path, request.collections_path]
+    return os.pathsep.join(str(path) for path in paths if path is not None)
+
+
 def prepare(request: RunRequest) -> Preparation:
     directory = request.private_data_dir
     (directory / "env").mkdir(parents=True, exist_ok=True)
@@ -176,7 +192,7 @@ def prepare(request: RunRequest) -> Preparation:
     config_file.write_text(
         _CONFIG_TEMPLATE.format(
             run_id=request.run_id,
-            collections_path=request.collections_path,
+            collections_path=collections_search_path(request),
             private_key_file=request.private_key_file,
             ssh_args=" ".join(
                 [
@@ -207,7 +223,7 @@ def prepare(request: RunRequest) -> Preparation:
         config_file=config_file,
         environment={
             "ANSIBLE_CONFIG": str(config_file),
-            "ANSIBLE_COLLECTIONS_PATH": str(request.collections_path),
+            "ANSIBLE_COLLECTIONS_PATH": collections_search_path(request),
             # The private key is a fact about this control machine, not about
             # the desired state, which is why it is here and not in the
             # inventory. It is also why the exported inventory works unchanged

@@ -28,6 +28,15 @@ class RunState(str, Enum):
     """
 
 
+class StagedFile(BaseModel):
+    """One file a run was given beside the inventory."""
+
+    path: str
+    size: int
+    source: str
+    """`inventory` for the versioned folder, `artefacts` for the store."""
+
+
 class HostProgress(BaseModel):
     ok: int = 0
     changed: int = 0
@@ -81,6 +90,11 @@ class RunRecord(BaseModel):
     return_code: int | None = None
     progress: RunProgress = Field(default_factory=RunProgress)
     message: str | None = None
+    # The files this run was given, beside the inventory: what the mirror of
+    # the collection held at its root, and where each name came from. An
+    # artefact leaves no trace in `git log`, so this is where "which quadlet
+    # did that run actually push" is answered.
+    files: list[StagedFile] = Field(default_factory=list)
 
     @property
     def finished(self) -> bool:

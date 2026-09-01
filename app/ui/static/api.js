@@ -26,6 +26,27 @@ const API = (function () {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
+    return unwrap(response);
+  }
+
+  // The body is the file itself, streamed by the browser. A multipart form
+  // would mean a copy of a twenty gigabyte VM image for the sake of a name the
+  // URL already carries.
+  async function upload(path, file) {
+    const response = await fetch("/api/v1" + path, {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/octet-stream",
+        "X-CSRF-Token": csrfToken(),
+      },
+      credentials: "same-origin",
+      body: file,
+    });
+    return unwrap(response);
+  }
+
+  async function unwrap(response) {
     if (response.status === 204) {
       return null;
     }
@@ -55,6 +76,7 @@ const API = (function () {
     post: (path, body) => request("POST", path, body),
     put: (path, body) => request("PUT", path, body),
     del: (path) => request("DELETE", path),
+    upload,
     csrfToken,
   };
 })();

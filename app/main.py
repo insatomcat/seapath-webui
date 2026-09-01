@@ -36,6 +36,7 @@ from app.core.tls import ensure_session_secret
 from app.hosts.fake import FakeHostReader
 from app.hosts.local import LocalHostReader, read_hostname
 from app.hosts.reader import HostReader
+from app.inventory.artefacts import ArtefactStore
 from app.inventory.repository import InventoryRepository
 from app.inventory.service import InventoryService
 from app.runs.adapter import AnsibleRunnerAdapter, RunAdapter
@@ -157,7 +158,15 @@ def create_app(
         ansible_user=settings.ansible_user,
     )
     app.state.inventory_service = InventoryService(
-        InventoryRepository(settings.inventory_dir), reader
+        InventoryRepository(settings.inventory_dir),
+        reader,
+        # The two stores a run overlays: the versioned folder, and the large
+        # files git has no business carrying.
+        artefacts=ArtefactStore(settings.artefacts_dir),
+        # Read to tell a file the site owes the run from one the collection
+        # already ships, such as the syslog template a role defaults to.
+        collections_path=settings.collections_path,
+        max_file_bytes=settings.max_inventory_file_bytes,
     )
     app.state.run_service = RunService(
         store=RunStore(settings.runs_dir),

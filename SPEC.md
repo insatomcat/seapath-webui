@@ -225,6 +225,12 @@ Specified in [docs/inventory.md](docs/inventory.md). Summary: a git repository
 per node, a single writer under quorum, the commit hash as the version, guided
 forms mapping to the documented variables, and hardware discovery to seed it.
 
+The repository holds a folder rather than one file, because a dozen roles take
+a path to a file the control machine holds. A run mounts that folder where a
+checkout of `seapath-ansible` would be, so the paths an inventory already
+carries mean the same thing here. The large files it names, VM images and
+archives, live in a store beside the repository that git does not carry.
+
 ## 8. Security
 
 - HTTPS only on port 8006, self signed certificate generated at first boot, the

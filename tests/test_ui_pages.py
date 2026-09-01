@@ -63,6 +63,23 @@ def test_the_two_ways_of_editing_are_on_the_inventory_page_and_only_there(
     assert "node-form" not in system
 
 
+def test_the_inventory_page_carries_the_folder_around_the_inventory(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+
+    # An inventory is rarely alone: a dozen roles name a file this machine has
+    # to hold, and the page has to be a way of putting one there.
+    assert "The files beside it" in body
+    assert 'id="files-table"' in body
+    assert 'id="artefacts-table"' in body
+    # And of saying which of them a run would fail to find.
+    assert 'id="references-table"' in body
+    # The two stores are told apart where an operator reads them, since one is
+    # in the history and the other is not.
+    assert "kept out of git" in body
+
+
 def test_the_system_page_carries_the_credentials_and_the_button(
     signed_in: TestClient,
 ) -> None:

@@ -173,6 +173,90 @@ SPDX-License-Identifier: Apache-2.0
     </details>
   </section>
 
+  <section class="card wide" id="folder-card">
+    <h2>The files beside it</h2>
+    <p class="lead">
+      An inventory is rarely alone. <code>upload_extra_files</code>,
+      <code>iptables</code>, <code>syslog_ng_client</code>, <code>cephadm</code>
+      and the VM roles all name a file this machine has to hold, and a run
+      mounts this folder where a checkout of <code>seapath-ansible</code> would
+      be. A path written <code>../inventories_private/quadlet.network</code>
+      means the same thing here as it does on a control machine.
+    </p>
+
+    <h3>What the inventory points at</h3>
+    <table id="references-table">
+      <thead>
+        <tr><th>Machine</th><th>Variable</th><th>Path</th><th>Where</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <p class="help" id="references-empty" hidden>
+      This inventory names no file yet.
+    </p>
+
+    <h3>Versioned files</h3>
+    <p class="help">
+      Committed with the inventory, so <code>git log</code> answers what
+      changed and <code>git revert</code> undoes it. Configuration files:
+      quadlets, iptables rules, an snmpd.conf, a libvirt XML, a Jinja template.
+    </p>
+    <table id="files-table">
+      <thead>
+        <tr><th>Path</th><th>Size</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="grid-2">
+      <div class="field">
+        <label for="file-name">Store as</label>
+        <input id="file-name" placeholder="inventories_private/quadlet.network">
+        <p class="help">
+          The name the inventory uses, relative to this folder. Picking several
+          files at once treats it as the directory to put them in, and an
+          inventory that references <code>../inventories_private/x</code> wants
+          <code>inventories_private</code> here.
+        </p>
+      </div>
+      <div class="field">
+        <label for="file-input">File</label>
+        <input id="file-input" type="file" multiple>
+      </div>
+    </div>
+    <p class="error" id="file-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="file-upload" disabled>Add to the inventory</button>
+    </div>
+
+    <h3>Artefacts</h3>
+    <p class="help" id="artefacts-help">
+      The large files, kept out of git: VM images, archives. A run mounts them
+      under the same root, so <code>vm_disk: ../files/guest.qcow2</code>
+      resolves the same way. What it costs is that a change here leaves no
+      trace in the history, and the export carries the inventory without them.
+    </p>
+    <table id="artefacts-table">
+      <thead>
+        <tr><th>Path</th><th>Size</th><th></th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="grid-2">
+      <div class="field">
+        <label for="artefact-name">Store as</label>
+        <input id="artefact-name" placeholder="files/guest.qcow2">
+      </div>
+      <div class="field">
+        <label for="artefact-input">File</label>
+        <input id="artefact-input" type="file" multiple>
+      </div>
+    </div>
+    <p class="error" id="artefact-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="artefact-upload" disabled>Add as an artefact</button>
+    </div>
+  </section>
+
   <section class="card">
     <h2>History</h2>
     <div class="table-scroll">

@@ -82,6 +82,7 @@ def settings(tmp_path: Path, host_tree: Path, collections_path: Path) -> Setting
         state_dir=tmp_path / "state",
         host_root=host_tree,
         inventory_dir=tmp_path / "inventory",
+        artefacts_dir=tmp_path / "artefacts",
         runs_dir=tmp_path / "runs",
         collections_path=collections_path,
         ssh_config_dir=host_tree / "etc/ssh",

@@ -35,8 +35,20 @@ class Settings(BaseSettings):
     host_root: Path = Path("/")
 
     # The inventory repository, separate from the service state so it can be
-    # backed up, cloned and exported on its own.
+    # backed up, cloned and exported on its own. A folder rather than a file:
+    # it holds `inventory.yaml` and the files that inventory names, which the
+    # `upload_extra_files`, `iptables`, `syslog_ng_client` and VM roles all
+    # take as ordinary variables.
     inventory_dir: Path = Path("/etc/seapath/inventory")
+    # The large files the inventory names, kept out of git. A qcow2 in a
+    # repository stays in its history forever, one copy per upload, and takes
+    # the export and the clone with it. A run overlays this store under the
+    # same root as the repository, so a path resolves the same either way.
+    artefacts_dir: Path = Path("/var/lib/seapath-webui/artefacts")
+    # Above this, a file is refused by the versioned folder and pointed at the
+    # artefacts. Four megabytes takes every configuration file the roles read,
+    # and no disk image.
+    max_inventory_file_bytes: int = 4 * 1024 * 1024
     # Run artefacts, written as a run progresses.
     runs_dir: Path = Path("/var/lib/seapath-webui/runs")
     # Where the image installed the seapath.ansible collection.

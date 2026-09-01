@@ -456,6 +456,17 @@ h3 {
   font-weight: 600;
 }
 
+/* A file the inventory names and this node does not hold. A run would stop at
+   the task that copies it, on every host at once, so the row says so where the
+   path is. */
+td.missing {
+  color: var(--warn);
+}
+
+td.missing button {
+  font-size: 0.8rem;
+}
+
 .warning {
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
