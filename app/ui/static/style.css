@@ -533,6 +533,16 @@ button.secondary {
   font-size: 0.78rem;
 }
 
+.playbook-scope {
+  margin-top: 0.1rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.playbook-groups {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
 .tag.warn {
   border-color: var(--warn);
   color: var(--warn);

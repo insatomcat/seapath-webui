@@ -133,7 +133,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
     PlaybookEntry(
         id="seapath_setup_main",
         playbook=f"{COLLECTION}.seapath_setup_main",
-        title="Configure this machine",
+        title="Configure every machine",
         targets=[*_MACHINE_TARGETS, "VMs"],
         preview=Preview.PARTIAL,
         reboots=Reboots.GATED,
@@ -257,7 +257,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
     PlaybookEntry(
         id="seapath_setup_hardening",
         playbook=f"{COLLECTION}.seapath_setup_hardening",
-        title="Harden this machine",
+        title="Harden every machine",
         targets=[*_MACHINE_TARGETS, "VMs"],
         preview=Preview.PARTIAL,
         reboots=Reboots.YES,

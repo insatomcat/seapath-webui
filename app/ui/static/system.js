@@ -240,6 +240,19 @@
       name.className = "playbook-id";
       name.textContent = entry.id;
 
+      // Which machines the run reaches. `targets` is copied from the
+      // playbook's own `hosts:` lines, so the groups are named here exactly as
+      // docs/playbooks.md and the upstream playbook name them, intersections
+      // included. Without this line the only statement of scope on the page is
+      // the title, and a title has room for "every machine" but not for "the
+      // hypervisors that are also cluster members".
+      const scope = document.createElement("div");
+      scope.className = "playbook-scope";
+      const groups = document.createElement("span");
+      groups.className = "playbook-groups";
+      groups.textContent = entry.targets.join(", ");
+      scope.append("Plays ", groups);
+
       const detail = document.createElement("p");
       detail.className = item.available ? "help" : "warning";
       detail.textContent = item.available
@@ -265,7 +278,7 @@
         actions.append(apply);
       }
 
-      row.append(title, name, detail, actions);
+      row.append(title, name, scope, detail, actions);
       container.append(row);
     });
   }
@@ -420,7 +433,8 @@
           entry.reboots === "gated"
             ? " Converge without rebooting. The configuration is not fully " +
               "applied until a reboot happens."
-            : " This playbook reboots the machine and cannot be told not to."
+            : " This playbook reboots every machine it plays, and cannot " +
+              "be told not to."
         )
       );
       if (entry.reboots !== "gated") {
