@@ -472,8 +472,33 @@
 
   element("playbook-choice").addEventListener("change", renderChoice);
 
+  // The two cards this page is, while the catalogue is being read. Reading it
+  // walks every playbook of the installed collection, which is a few hundred
+  // YAML files on a first load, and an empty card is what a node with no
+  // collection at all looks like.
+  function showPlaybooksLoading(loading) {
+    element("main-loading").hidden = !loading;
+    element("other-loading").hidden = !loading;
+    element("main-playbook").hidden = loading;
+    element("playbook-field").hidden = loading;
+    if (loading) {
+      element("playbook-detail").replaceChildren();
+    }
+  }
+
   async function loadPlaybooks() {
-    state.catalogue = await API.get("/playbooks");
+    showPlaybooksLoading(true);
+    try {
+      state.catalogue = await API.get("/playbooks");
+    } catch (failure) {
+      // The banner carries the message. What matters here is that the cards
+      // do not fall back to looking empty, which is what a node with no
+      // collection looks like, so the line says which of the two happened.
+      element("main-loading").textContent = "The catalogue could not be read.";
+      element("other-loading").textContent = "The catalogue could not be read.";
+      throw failure;
+    }
+    showPlaybooksLoading(false);
 
     // When nothing can run, the reason is almost always one reason, and
     // repeating it in small print under every dimmed entry is how an operator

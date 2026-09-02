@@ -86,6 +86,20 @@ class Precondition(str, Enum):
     collection does not have is reported as unavailable with that reason,
     rather than offered as a button that fails at the first task.
     """
+    DISTRIBUTION_MATCHES = "distribution_matches"
+    """This node runs the distribution the playbook configures.
+
+    Only the five `prerequisites` entries carry it, and only because none of
+    them looks at what it landed on: launched on a Yocto machine, the Debian
+    one runs `configure_seapath_distro` with `update-grub` anyway. A run plays
+    every machine the inventory declares, this node among them, so the wrong
+    one of the five is wrong for at least this machine and can be refused
+    before it starts.
+
+    What this node runs is read from `/etc/os-release`. It says nothing about
+    the other machines: an inventory mixing distributions still needs
+    `seapath_setup_main`, which picks per machine.
+    """
     VARIABLES_SUPPORTED = "variables_supported"
     """The variables the playbook needs have a field on this page.
 
@@ -153,6 +167,12 @@ class PlaybookEntry(BaseModel):
     notes: str = ""
     reviewed: bool = True
     """A human wrote this entry. False for one read off the collection."""
+    distribution: str | None = None
+    """The one SEAPATH distribution this playbook configures.
+
+    Set on the five `prerequisites` entries and on nothing else.
+    `seapath_setup_main` picks between them per machine, so it carries none.
+    """
     derivation: Derivation | None = None
 
     @property
@@ -207,6 +227,7 @@ def _prerequisites(
         id=playbook_id,
         playbook=f"{COLLECTION}.{playbook_id}",
         title=f"Prepare the {distribution} machines",
+        distribution=distribution,
         targets=targets,
         # `configure_seapath_distro` and `configure_physical_machine` both run
         # commands, so check mode reports the templates and the packages and
@@ -218,6 +239,7 @@ def _prerequisites(
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
             Precondition.PEER_REACHABLE,
+            Precondition.DISTRIBUTION_MATCHES,
         ],
         notes=" ".join(part for part in (_WRONG_DISTRIBUTION, notes) if part),
     )

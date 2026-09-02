@@ -175,6 +175,57 @@ def test_the_list_says_which_entries_nobody_reviewed(
     assert "withCode" in script
 
 
+def test_the_catalogue_says_it_is_being_read_before_it_is(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/system").text
+    script = signed_in.get("/static/system.js").text
+    css = signed_in.get("/static/style.css").text
+
+    # Reading the catalogue walks every playbook of the installed collection.
+    # Two empty cards for a second is what a node with no collection at all
+    # looks like, so the cards say which of the two is happening.
+    assert 'id="main-loading"' in body
+    assert 'id="other-loading"' in body
+    assert '<div id="main-playbook" hidden>' in body
+    assert "showPlaybooksLoading" in script
+    assert "The catalogue could not be read." in script
+    assert ".loading" in css
+    # An operator who turned animation off is told by the text alone.
+    assert "prefers-reduced-motion" in css
+
+
+def test_the_disks_sit_beside_the_cpu_rather_than_below_the_fold(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/").text
+    css = signed_in.get("/static/style.css").text
+
+    # Three cards of machine facts across, one wide table below. Left to the
+    # page's auto-fit, a wide window left a third of the first row empty and
+    # pushed the disks off the screen.
+    assert '<main class="page node">' in body
+    assert '<section class="card" id="card-disks">' in body
+    assert body.index('id="card-disks"') < body.index('id="card-network"')
+    assert '<section class="card wide" id="card-network">' in body
+    assert ".page.node" in css
+
+
+def test_the_history_is_beside_the_editor_and_bounded(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    css = signed_in.get("/static/style.css").text
+
+    # The history asks for twenty commits, and twenty rows is most of a screen
+    # on a repository that has seen some use. It scrolls in a window of about
+    # ten, under the folder rather than across the page, so the page stays the
+    # height of the file being edited.
+    assert '<section class="card" id="history-card">' in body
+    assert "#history-card .table-scroll" in css
+    assert "#editor-card {\n  grid-row: span 2;" in css
+
+
 def test_the_ssh_credentials_are_a_state_line_once_they_hold(
     signed_in: TestClient,
 ) -> None:
@@ -249,10 +300,10 @@ def test_a_table_scrolls_inside_its_card_rather_than_over_the_next_one(
     css = signed_in.get("/static/style.css").text
 
     # A `by-path` name is longer than half a page, and the cards sit in
-    # flexible grid tracks, so nothing widens a card to fit its content. The
-    # tables of machine values take the whole width, and scroll inside their
-    # card when even that is not enough.
-    assert body.count('class="card wide"') == 2
+    # flexible grid tracks, so nothing widens a card to fit its content. Both
+    # tables scroll inside their own card rather than over the one next to it,
+    # and the six column network table keeps the whole width.
+    assert body.count('class="card wide"') == 1
     assert body.count('<div class="table-scroll">') == 2
     assert ".card.wide" in css
     assert "overflow-x: auto" in css

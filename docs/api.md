@@ -166,7 +166,7 @@ not it. The client never has to know which node leads.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/playbooks` | Every playbook the installed collection carries: targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them. `reviewed` says whether a human wrote the entry or this service read it off the collection, and `derivation` carries what the reading counted: plays, tasks, command driven tasks, roles, imports |
+| GET | `/playbooks` | Every playbook the installed collection carries: targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them. `reviewed` says whether a human wrote the entry or this service read it off the collection, `derivation` carries what the reading counted (plays, tasks, command driven tasks, roles, imports), and `distribution` names the one SEAPATH distribution an entry configures, set on the five prerequisites entries and on nothing else |
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode |
 | GET | `/runs` | History, most recent first |
 | GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used |

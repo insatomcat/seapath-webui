@@ -38,9 +38,14 @@ class FakeHostReader:
         self,
         hostname: str = "seapath-machine",
         mode: NodeMode = NodeMode.STANDALONE,
+        seapath_distro: str = "Debian",
     ) -> None:
         self.hostname = hostname
         self.mode = mode
+        # Which of the five SEAPATH distributions this machine claims to run.
+        # A parameter because it decides which prerequisites playbook may be
+        # launched, and a test has to be able to be a Yocto machine.
+        self.seapath_distro = seapath_distro
 
     def node_identity(self) -> NodeIdentity:
         return NodeIdentity(
@@ -49,6 +54,7 @@ class FakeHostReader:
             distribution="Debian GNU/Linux 12 (bookworm)",
             distribution_id="debian",
             distribution_version="12",
+            seapath_distro=self.seapath_distro,
             uptime_seconds=7200.0,
             boot_time=_BOOT_TIME,
             mode=self.mode,

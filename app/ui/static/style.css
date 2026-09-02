@@ -232,10 +232,60 @@ dd {
   grid-column: 1 / -1;
 }
 
+/* The node page is three cards of machine facts and one wide table. Left to
+   the page's auto-fit, a wide window put Machine and CPU on the first row and
+   left a third of it empty, and pushed the disks below the fold. Named
+   columns instead, so the disks sit beside the CPU where the empty space
+   was. */
+.page.node {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 78rem) {
+  .page.node {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 52rem) {
+  .page.node {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The disks table in a third of the page rather than in all of it. The
+   `by-path` name is the column that does not fit, and it is also the one an
+   operator copies into `ceph_osd_disks`, so it keeps its characters and the
+   table scrolls under them. */
+#card-disks table {
+  min-width: 26rem;
+}
+
 /* And when even that is not enough, on a narrow window, the table scrolls
    inside its own card rather than over the one next to it. */
 .table-scroll {
   overflow-x: auto;
+}
+
+/* The history asks for twenty commits, and twenty rows is most of a screen on
+   a repository that has seen some use. It scrolls in a window of about ten
+   instead, so the page stays the height of the thing being edited rather than
+   the height of what has already been committed. */
+#history-card .table-scroll {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+/* Under the folder rather than across the page. The history is read beside the
+   file being edited, and a full width row of it below both pushed the editor
+   off a laptop screen. The editor spans the two rows the left column now has,
+   so it keeps its height rather than being cut to the folder's. */
+#history-card {
+  grid-column: 1;
+}
+
+#editor-card {
+  grid-row: span 2;
 }
 
 table {
@@ -494,6 +544,45 @@ button.secondary {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.78rem;
   white-space: pre;
+}
+
+/* Waiting on the catalogue, which is a walk of every playbook the installed
+   collection carries. The dot pulses rather than spins: this is a card filling
+   in, and a spinner would say something is being done to the machine. */
+.loading {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.75rem 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.loading::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* An operator who turned animation off is told by the text alone. */
+@media (prefers-reduced-motion: reduce) {
+  .loading::before {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 /* Playbooks */

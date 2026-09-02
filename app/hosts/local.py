@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import socket
 from datetime import UTC, datetime
 from pathlib import Path
@@ -130,6 +131,7 @@ class LocalHostReader:
             distribution=os_release.get("PRETTY_NAME"),
             distribution_id=os_release.get("ID"),
             distribution_version=os_release.get("VERSION_ID"),
+            seapath_distro=_seapath_distro(os_release),
             uptime_seconds=uptime_seconds,
             boot_time=boot_time,
             mode=mode,
@@ -490,6 +492,42 @@ def parse_cpu_list(raw: str | None) -> list[int]:
             # `isolcpus=nohz,domain,4-7` carries flags before the list.
             continue
     return sorted(set(cpus))
+
+
+# What `detect_seapath_distro` answers, worked out from `/etc/os-release`.
+#
+# The role reads `ansible_distribution`, a fact Ansible builds from the same
+# file, and matches it with the regexes below, then falls back to grepping
+# `CPE_NAME` for openembedded to recognise Yocto. Read here rather than asked
+# of Ansible because this answer is needed to decide whether to offer a button,
+# which happens long before any run.
+#
+# Kept in the order the role uses, since Oracle Linux carries `ID_LIKE` naming
+# Red Hat and would otherwise answer CentOS.
+_SEAPATH_DISTROS = (
+    ("Debian", re.compile(r"debian", re.I)),
+    ("OracleLinux", re.compile(r"oracle", re.I)),
+    ("CentOS", re.compile(r"centos|red\s*hat|rhel", re.I)),
+    ("SLES", re.compile(r"sles|suse", re.I)),
+)
+
+
+def _seapath_distro(os_release: dict[str, str]) -> str | None:
+    # Yocto first: a SEAPATH Yocto image names itself in ways the regexes above
+    # do not catch, and `CPE_NAME` is the signal the role itself trusts.
+    if "cpe:/o:openembedded" in os_release.get("CPE_NAME", ""):
+        return "Yocto"
+
+    # ID before NAME: `ID=debian` is the machine readable one, and a
+    # PRETTY_NAME can carry a vendor string that names two distributions.
+    for field in ("ID", "NAME", "PRETTY_NAME"):
+        value = os_release.get(field)
+        if not value:
+            continue
+        for distro, pattern in _SEAPATH_DISTROS:
+            if pattern.search(value):
+                return distro
+    return None
 
 
 def _kernel_parameter(cmdline: str, name: str) -> str | None:

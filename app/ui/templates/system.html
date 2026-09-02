@@ -13,7 +13,14 @@ SPDX-License-Identifier: Apache-2.0
 
   <section class="card" id="main-card">
     <h2>Commissioning</h2>
-    <div id="main-playbook"></div>
+    {#
+    Reading the catalogue walks every playbook of the installed collection,
+    which is a few hundred YAML files on a first load. Without this the page
+    shows two empty cards for a second, and an empty card is what a service
+    with no collection also looks like.
+    #}
+    <div class="loading" id="main-loading">Reading the collection</div>
+    <div id="main-playbook" hidden></div>
   </section>
 
   <section class="card" id="other-card">
@@ -23,7 +30,8 @@ SPDX-License-Identifier: Apache-2.0
       carries every entry of the catalogue, including the ones this node
       cannot run yet, which say why.
     </p>
-    <div class="field">
+    <div class="loading" id="other-loading">Reading the collection</div>
+    <div class="field" id="playbook-field" hidden>
       <label for="playbook-choice">Playbook</label>
       <select id="playbook-choice"></select>
     </div>

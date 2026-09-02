@@ -248,3 +248,35 @@ def test_the_reading_shells_out_only_for_the_addresses(
     reader.disks()
 
     assert [argv[0] for argv in runner.calls] == ["ip"]
+
+
+def test_the_seapath_distribution_is_read_from_os_release(tmp_path: Path) -> None:
+    # The same five names `detect_seapath_distro` produces, worked out from the
+    # file rather than asked of Ansible: the answer decides whether a button is
+    # offered, which happens long before any run.
+    cases = {
+        'ID=debian\nPRETTY_NAME="Debian GNU/Linux 12 (bookworm)"\n': "Debian",
+        'ID="centos"\nNAME="CentOS Stream"\n': "CentOS",
+        'ID="rhel"\nNAME="Red Hat Enterprise Linux"\n': "CentOS",
+        # Oracle Linux carries ID_LIKE="fedora" and a Red Hat compatible
+        # release file, so it has to be tested before CentOS rather than after.
+        'ID="ol"\nNAME="Oracle Linux Server"\nID_LIKE="fedora"\n': "OracleLinux",
+        'ID="sles"\nNAME="SLES"\n': "SLES",
+        # A SEAPATH Yocto image names itself in ways no regex catches, and
+        # CPE_NAME is the signal the upstream role itself trusts.
+        'ID="seapath"\nCPE_NAME="cpe:/o:openembedded:nodistro:0.1"\n': "Yocto",
+        # Anything else, and an unreadable file, answer nothing rather than
+        # guessing: nothing downstream may block on a guess.
+        'ID="ubuntu"\nNAME="Ubuntu"\n': None,
+        "": None,
+    }
+
+    for content, expected in cases.items():
+        root = tmp_path / (expected or "none") / content[:12].replace("/", "_")
+        (root / "etc").mkdir(parents=True, exist_ok=True)
+        (root / "etc/os-release").write_text(content)
+        (root / "etc/hostname").write_text("machine\n")
+
+        identity = LocalHostReader(root=root).node_identity()
+
+        assert identity.seapath_distro == expected, content

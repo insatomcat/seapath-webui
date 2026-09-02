@@ -68,6 +68,7 @@ class RunService:
         paths: RunPaths,
         hostname: str,
         collection_version: str = "unknown",
+        node_distribution: Callable[[], str | None] = lambda: None,
     ) -> None:
         self._store = store
         self._adapter = adapter
@@ -79,6 +80,11 @@ class RunService:
         # read from disk at each launch, because a node can be pointed at
         # another one and a branch does not change the version in galaxy.yml.
         self._configured_version = collection_version
+        # Which of the five SEAPATH distributions this machine runs, read from
+        # /etc/os-release through the host adapter. A callable rather than a
+        # value: the reader is the thing with a fake, and a service that cached
+        # this at startup would keep answering Debian after a reinstall.
+        self._node_distribution = node_distribution
         self._cancelled: set[str] = set()
 
     # Catalogue
@@ -118,6 +124,10 @@ class RunService:
     ) -> list[tuple[str, str]]:
         """What stops this entry, each reason paired with the code behind it."""
         reasons = [(c.value, unmet[c]) for c in entry.requires if c in unmet]
+
+        wrong = self._wrong_distribution(entry)
+        if wrong:
+            reasons.append((Precondition.DISTRIBUTION_MATCHES.value, wrong))
 
         # A variable the reader found in the playbook and this page has no
         # field for. Derived entries only: a reviewed entry types what it
@@ -235,6 +245,39 @@ class RunService:
             unmet[Precondition.STANDALONE] = "This machine is not standalone."
 
         return unmet
+
+    def _wrong_distribution(self, entry: PlaybookEntry) -> str | None:
+        """Whether this node rules the playbook out, and why in one sentence.
+
+        Only the five `prerequisites` entries ask. A run plays every machine
+        the inventory declares, this node among them, so a playbook that
+        configures a distribution this machine does not run is wrong for at
+        least this machine, and none of the five checks before it writes.
+
+        Two silences, both deliberate. An unreadable `/etc/os-release` blocks
+        nothing: refusing every one of the five because the container was
+        mounted wrong is worse than the risk. And an inventory that does not
+        declare this node says nothing about what a run will reach, so this
+        check has no standing over it.
+        """
+        if entry.distribution is None:
+            return None
+
+        running = self._node_distribution()
+        if running is None or running == entry.distribution:
+            return None
+
+        state = self._inventory.state()
+        if state.inventory is None or state.this_host not in state.inventory.hosts:
+            return None
+
+        return (
+            f"This machine runs {running}, and this playbook configures "
+            f"{entry.distribution}. A run plays every machine the inventory "
+            f"declares, {state.this_host} among them, and none of the five "
+            "prerequisites playbooks checks the distribution it lands on. Use "
+            "Configure every machine, which picks the right one per machine."
+        )
 
     # Runs
 

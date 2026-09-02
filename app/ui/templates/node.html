@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 {% endblock %}
 
 {% block body %}
-<main class="page">
+<main class="page node">
   <p class="banner" id="banner" hidden></p>
 
   <section class="card" id="card-summary">
@@ -32,22 +32,7 @@ SPDX-License-Identifier: Apache-2.0
     </p>
   </section>
 
-  <section class="card wide" id="card-network">
-    <h2>Network</h2>
-    <div class="table-scroll">
-      <table id="network-table">
-        <thead>
-          <tr>
-            <th>Interface</th><th>State</th><th>Addresses</th>
-            <th>Speed</th><th>Driver</th><th>MAC</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="card wide" id="card-disks">
+  <section class="card" id="card-disks">
     <h2>Disks</h2>
     <div class="table-scroll">
       <table id="disks-table">
@@ -67,6 +52,21 @@ SPDX-License-Identifier: Apache-2.0
       partition table, is not visible here and reads as available.
     </p>
   </section>
+  <section class="card wide" id="card-network">
+    <h2>Network</h2>
+    <div class="table-scroll">
+      <table id="network-table">
+        <thead>
+          <tr>
+            <th>Interface</th><th>State</th><th>Addresses</th>
+            <th>Speed</th><th>Driver</th><th>MAC</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
   <div class="modal" id="console-modal" hidden>
     <div class="console-panel">
       <div class="console-head">

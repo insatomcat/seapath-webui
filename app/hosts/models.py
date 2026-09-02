@@ -32,6 +32,14 @@ class NodeIdentity(Reading):
     distribution: str | None = None
     distribution_id: str | None = None
     distribution_version: str | None = None
+    seapath_distro: str | None = None
+    """Which of the five SEAPATH distributions this machine runs.
+
+    The same five names `detect_seapath_distro` produces, worked out from
+    `/etc/os-release` the way that role works them out from the facts it
+    gathers. It is what tells a Debian machine from a Yocto one, and therefore
+    which of the five prerequisites playbooks may be launched from here.
+    """
     uptime_seconds: float | None = None
     boot_time: datetime | None = None
     mode: NodeMode = NodeMode.UNKNOWN

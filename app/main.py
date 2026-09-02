@@ -214,6 +214,10 @@ def create_app(
         ),
         hostname=hostname,
         collection_version=settings.collection_version,
+        # Read through the adapter on each call, so the fake answers in the
+        # tests and a machine reinstalled under a running service is read
+        # again rather than remembered.
+        node_distribution=lambda: reader.node_identity().seapath_distro,
     )
 
     install_error_handlers(app)

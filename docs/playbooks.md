@@ -357,6 +357,18 @@ playbooks call `detect_seapath_distro` without ever reading its answer. Each
 entry says so, because the operator launching one directly is exactly the
 operator who has bypassed the choice.
 
+So the service filters them. It reads which of the five distributions this
+machine runs from `/etc/os-release`, the way `detect_seapath_distro` works it
+out from the facts it gathers, and refuses the four that do not match: a run
+plays every machine the inventory declares, this node among them, so the wrong
+one of the five is wrong for at least this machine before it starts. Both
+directions of doubt leave the entry available. An unreadable `/etc/os-release`
+blocks nothing, because refusing all five over a container mounted wrong is
+worse than the risk; and an inventory that does not declare this node says
+nothing about what a run will reach, so the check has no standing over it. It
+is a statement about this machine and never about the others: a mixed inventory
+still needs `seapath_setup_main`.
+
 They differ by more than the package manager. OracleLinux has no hypervisor
 play at all, so a machine prepared with it has had no tuned profile applied,
 which stays invisible until the latency is measured. Debian is the only one

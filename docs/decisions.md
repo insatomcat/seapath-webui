@@ -653,3 +653,34 @@ collection is installed and run where one is: no reviewed entry may understate
 the machines it plays, and none may say a playbook does not reboot when it
 does. Both are the dangerous direction, and both are exactly what a human
 writing thirteen entries by hand gets wrong.
+
+
+## D22 - Settled: the prerequisites are filtered by what this machine runs
+
+The five `prerequisites` playbooks are the only entries in the catalogue where
+picking the wrong one is both easy and silent. `seapath_setup_main` chooses
+between them after `detect_seapath_distro`; launched on their own they choose
+nothing, and the Debian one runs `configure_seapath_distro` with `update-grub`
+on whatever it reaches.
+
+The node view already reads `/etc/os-release`, so the service knows which of
+the five distributions this machine runs. It now uses that to refuse the other
+four, with a sentence naming both distributions. The reasoning that makes this
+sound rather than convenient: a run plays every machine the inventory declares,
+without `--limit`, and this node is one of them, so a playbook for another
+distribution is wrong for at least this machine whatever the others run.
+
+Two silences are deliberate, and both leave the entry available:
+
+- **An unreadable `/etc/os-release` blocks nothing.** Refusing all five because
+  the container was mounted without `/run/host/etc` is a worse failure than the
+  one the check guards against, and it would be indistinguishable from a
+  catalogue bug.
+- **An inventory that does not declare this node blocks nothing.** The check
+  rests entirely on this machine being one of the machines the run plays. Where
+  it is not, the service knows nothing about the distributions involved and
+  says nothing.
+
+What this is not is a claim about the other machines. The service reads one
+`/etc/os-release`, its own. An inventory mixing distributions still needs
+`seapath_setup_main`, and the note on every one of the five says so.

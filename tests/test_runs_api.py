@@ -321,3 +321,98 @@ def test_revoking_the_self_relation_stops_the_node_converging(
     response = signed_in.post("/api/v1/runs", json={"playbook": "seapath_setup_main"})
     assert response.status_code == 409
     assert "no SSH trust with itself" in response.json()["error"]["message"]
+
+
+def test_only_the_prerequisites_of_this_distribution_can_be_launched(
+    signed_in: TestClient,
+) -> None:
+    # The fake machine runs Debian. None of the five prerequisites playbooks
+    # checks what it landed on, and a run plays every machine the inventory
+    # declares, this one among them, so four of the five are wrong for at
+    # least this machine before they start.
+    catalogue = {
+        item["entry"]["id"]: item for item in signed_in.get("/api/v1/playbooks").json()
+    }
+
+    assert catalogue["seapath_setup_prerequisitesdebian"]["available"] is True
+
+    for other in ("centos", "oraclelinux", "sles", "yocto"):
+        entry = catalogue[f"seapath_setup_prerequisites{other}"]
+        assert entry["available"] is False, other
+        assert "distribution_matches" in entry["unmet_codes"], other
+        assert "This machine runs Debian" in entry["unmet"][0], other
+
+    # And the commissioning path is never filtered: it picks between the five
+    # per machine, which is the whole reason it exists.
+    assert catalogue["seapath_setup_main"]["available"] is True
+    assert catalogue["seapath_setup_main"]["entry"]["distribution"] is None
+
+
+def test_the_wrong_prerequisites_playbook_is_refused_at_launch(
+    signed_in: TestClient,
+) -> None:
+    # The list is the courtesy; this is the guarantee. An API client reads the
+    # same catalogue and can still ask for the run.
+    refused = signed_in.post(
+        "/api/v1/runs", json={"playbook": "seapath_setup_prerequisitesyocto"}
+    )
+
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "precondition_failed"
+    assert "This machine runs Debian" in refused.json()["error"]["message"]
+
+
+def test_a_yocto_machine_is_offered_the_yocto_prerequisites(
+    settings, reader, authenticator, directory, run_adapter, console_adapter
+) -> None:
+    from app.main import create_app
+
+    reader.seapath_distro = "Yocto"
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        session_secret=b"test-secret",
+        run_adapter=run_adapter,
+        console_adapter=console_adapter,
+    )
+    with TestClient(application, base_url="https://testserver") as client:
+        client.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "secret"}
+        )
+        catalogue = {
+            item["entry"]["id"]: item for item in client.get("/api/v1/playbooks").json()
+        }
+
+    assert catalogue["seapath_setup_prerequisitesyocto"]["available"] is True
+    assert catalogue["seapath_setup_prerequisitesdebian"]["available"] is False
+
+
+def test_an_unreadable_os_release_blocks_no_prerequisites(
+    settings, reader, authenticator, directory, run_adapter, console_adapter
+) -> None:
+    # Refusing all five because the container was mounted without
+    # /etc/os-release is worse than the risk it guards against.
+    from app.main import create_app
+
+    reader.seapath_distro = None
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        session_secret=b"test-secret",
+        run_adapter=run_adapter,
+        console_adapter=console_adapter,
+    )
+    with TestClient(application, base_url="https://testserver") as client:
+        client.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "secret"}
+        )
+        catalogue = {
+            item["entry"]["id"]: item for item in client.get("/api/v1/playbooks").json()
+        }
+
+    for distro in ("debian", "centos", "oraclelinux", "sles", "yocto"):
+        assert catalogue[f"seapath_setup_prerequisites{distro}"]["available"] is True
