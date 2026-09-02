@@ -11,6 +11,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.runs import fake
+from tests.fakes import write_fake_collection
 
 
 def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
@@ -43,6 +44,91 @@ def test_the_catalogue_says_what_each_playbook_disrupts(
     assert "not part of a cluster" in catalogue["cluster_setup_ha"]["unmet"][0]
     # A `none` playbook offers no preview button at all.
     assert catalogue["cluster_setup_ha"]["entry"]["preview"] == "none"
+
+
+EXTRA_PLAYBOOK = """---
+- name: Configure the thing
+  hosts:
+    - cluster_machines
+    - standalone_machine
+  become: true
+  tasks:
+    - name: Write the configuration
+      ansible.builtin.template:
+        src: thing.conf.j2
+        dest: /etc/thing.conf
+"""
+
+EXTRA_NEEDING_A_VARIABLE = """---
+- name: Update one machine
+  hosts: "{{ machine_to_update }}"
+  tasks:
+    - name: Write the configuration
+      ansible.builtin.template:
+        src: thing.conf.j2
+        dest: /etc/thing.conf
+"""
+
+
+def test_a_playbook_the_catalogue_never_heard_of_is_still_offered(
+    tmp_path,
+    signed_in_with,
+) -> None:
+    # The catalogue was written against one version of a collection that moves
+    # without it. A playbook this service has never heard of is one an operator
+    # can still see, read and launch, described by what the reader counted in
+    # it rather than by a sentence nobody wrote.
+    client = signed_in_with(
+        write_fake_collection(
+            tmp_path / "extra-collection", extras={"site_extra": EXTRA_PLAYBOOK}
+        )
+    )
+    catalogue = {
+        item["entry"]["id"]: item for item in client.get("/api/v1/playbooks").json()
+    }
+
+    extra = catalogue["site_extra"]
+    assert extra["entry"]["reviewed"] is False
+    assert extra["entry"]["title"] == "Site extra"
+    assert extra["entry"]["targets"] == ["cluster_machines", "standalone_machine"]
+    assert extra["entry"]["preview"] == "full"
+    assert extra["entry"]["derivation"]["tasks"] == 1
+    assert extra["available"] is True
+
+    # And the reviewed entries keep every word a human wrote for them.
+    assert catalogue["seapath_setup_snmp"]["entry"]["reviewed"] is True
+    assert catalogue["seapath_setup_snmp"]["entry"]["disruption"] == "Restarts snmpd."
+
+    started = client.post("/api/v1/runs", json={"playbook": "site_extra"})
+    assert started.status_code == 202
+    record = wait_for(client, started.json()["run_id"])
+    assert record["playbook"] == "seapath.ansible.site_extra"
+
+
+def test_a_playbook_needing_a_variable_with_no_field_is_refused(
+    tmp_path,
+    signed_in_with,
+) -> None:
+    client = signed_in_with(
+        write_fake_collection(
+            tmp_path / "variable-collection",
+            extras={"site_update": EXTRA_NEEDING_A_VARIABLE},
+        )
+    )
+    catalogue = {
+        item["entry"]["id"]: item for item in client.get("/api/v1/playbooks").json()
+    }
+
+    entry = catalogue["site_update"]
+    assert entry["available"] is False
+    assert "machine_to_update" in entry["unmet"][0]
+    assert "variables_supported" in entry["unmet_codes"]
+
+    # Refused where it counts as well, since an API client reads the same
+    # catalogue and can ask for the same run.
+    refused = client.post("/api/v1/runs", json={"playbook": "site_update"})
+    assert refused.status_code == 409
+    assert refused.json()["error"]["code"] == "precondition_failed"
 
 
 def test_launching_returns_the_run_and_its_preview_quality(

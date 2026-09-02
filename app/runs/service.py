@@ -83,11 +83,22 @@ class RunService:
 
     # Catalogue
 
+    def entries(self) -> tuple[PlaybookEntry, ...]:
+        """The catalogue merged with what the installed collection holds.
+
+        Resolved on every call and cached on the collection's fingerprint, so
+        a collection reinstalled under a running service is read again and a
+        page reload is not a walk of a few hundred YAML files.
+        """
+        return catalogue.resolve(
+            self._paths.collections_path, self.collection_version()
+        )
+
     def playbooks(self) -> list[PlaybookAvailability]:
         unmet_by_condition = self._unmet_preconditions()
         missing = self._missing_playbooks()
         rows = []
-        for entry in catalogue.CATALOGUE:
+        for entry in self.entries():
             blocking = self._blocking(entry, unmet_by_condition, missing)
             rows.append(
                 PlaybookAvailability(
@@ -107,6 +118,29 @@ class RunService:
     ) -> list[tuple[str, str]]:
         """What stops this entry, each reason paired with the code behind it."""
         reasons = [(c.value, unmet[c]) for c in entry.requires if c in unmet]
+
+        # A variable the reader found in the playbook and this page has no
+        # field for. Derived entries only: a reviewed entry types what it
+        # accepts.
+        unfillable = [
+            spec.name
+            for spec in entry.variables
+            if spec.required and spec.type is VariableType.UNKNOWN
+        ]
+        if unfillable:
+            reasons.append(
+                (
+                    Precondition.VARIABLES_SUPPORTED.value,
+                    (
+                        f"{entry.id} refuses to start without "
+                        f"{', '.join(unfillable)}, and this page has no field "
+                        "for it. Run it from a control machine, or give it a "
+                        "reviewed catalogue entry that says what the variable "
+                        "may hold."
+                    ),
+                )
+            )
+
         if entry.id in missing:
             reasons.insert(
                 0,
@@ -226,13 +260,14 @@ class RunService:
         variables: dict[str, Any] | None = None,
         check: bool = False,
     ) -> RunRecord:
-        entry = catalogue.get(playbook_id)
+        entries = {item.id: item for item in self.entries()}
+        entry = entries.get(playbook_id)
         if entry is None:
             raise ApiError(
                 "unknown_playbook",
                 f"{playbook_id} is not in the catalogue.",
                 404,
-                {"available": sorted(catalogue.BY_ID)},
+                {"available": sorted(entries)},
             )
 
         blocking = self._blocking(

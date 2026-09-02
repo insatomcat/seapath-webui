@@ -567,6 +567,14 @@ button.secondary {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+/* What the reader counted in the playbook. Small, under the scope line: it is
+   context for the sentence above it rather than a headline. */
+.playbook-counts {
+  margin-top: 0.35rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .tag.warn {
   border-color: var(--warn);
   color: var(--warn);

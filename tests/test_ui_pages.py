@@ -157,6 +157,20 @@ def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
     assert '" (unavailable)"' in script
 
 
+def test_the_list_says_which_entries_nobody_reviewed(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/system.js").text
+
+    # Everything the collection ships is in the list. The entries nobody wrote
+    # a sentence for are last, under a heading that says where the description
+    # came from, and they carry the counts the reader took from the playbook.
+    assert '"Read from the collection, not reviewed"' in script
+    assert "entry.reviewed" in script
+    assert '"not reviewed"' in script
+    assert "playbook-counts" in script
+
+
 def test_the_ssh_credentials_are_a_state_line_once_they_hold(
     signed_in: TestClient,
 ) -> None:

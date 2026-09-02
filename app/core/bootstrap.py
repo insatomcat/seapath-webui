@@ -87,6 +87,23 @@ def check_collection(settings) -> bool:
     a missing directory. Reported here so the answer is in the log before
     anyone opens the page.
     """
+    derived = [
+        entry
+        for entry in catalogue.resolve(settings.collections_path)
+        if not entry.reviewed
+    ]
+    if derived:
+        # The collection moved past the catalogue, which is the ordinary state
+        # of affairs. Named in the journal so "why is there a button for that"
+        # has an answer that does not need the source.
+        logger.info(
+            "%d playbooks of the collection under %s have no reviewed entry "
+            "and are offered as read from the collection: %s",
+            len(derived),
+            settings.collections_path,
+            ", ".join(entry.id for entry in derived),
+        )
+
     missing = catalogue.missing_from(settings.collections_path)
     if not missing:
         return True

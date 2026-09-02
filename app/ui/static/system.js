@@ -295,6 +295,14 @@
       tag.textContent = entry.reboots === "gated" ? "reboots (optional)" : "reboots";
       title.append(" ", tag);
     }
+    // An entry read off the collection rather than written by a human. The
+    // sentence below it says what was counted; this says who counted it.
+    if (!entry.reviewed) {
+      const tag = document.createElement("span");
+      tag.className = "tag warn";
+      tag.textContent = "not reviewed";
+      title.append(" ", tag);
+    }
 
     // The name everything outside this page uses: docs/playbooks.md, the
     // upstream repository, the run list and the artefacts of a run all say
@@ -323,6 +331,30 @@
     detail.textContent = item.available ? entry.disruption : item.unmet.join(" ");
 
     container.append(title, name, scope, detail);
+
+    // What the reader counted in the playbook, for every entry. It is the
+    // substance of an unreviewed description, and on a reviewed one it is the
+    // size of the act: eleven roles and four hundred tasks is not one template
+    // and a restart.
+    if (entry.derivation && entry.derivation.tasks) {
+      const counts = document.createElement("div");
+      counts.className = "playbook-counts";
+      const facts = entry.derivation;
+      const parts = [
+        facts.plays + (facts.plays === 1 ? " play" : " plays"),
+        facts.tasks + (facts.tasks === 1 ? " task" : " tasks"),
+      ];
+      if (facts.command_tasks) {
+        parts.push(facts.command_tasks + " command driven");
+      }
+      if (facts.roles.length) {
+        parts.push(
+          facts.roles.length + (facts.roles.length === 1 ? " role" : " roles")
+        );
+      }
+      counts.textContent = parts.join(", ");
+      container.append(counts);
+    }
 
     // What the catalogue knows and the old list had no room to say: run the
     // network playbook from another node, a removal names a machine that has
@@ -360,6 +392,20 @@
     return item.entry.requires.includes("cluster");
   }
 
+  // Every playbook of the collection is in the list. The ones nobody has
+  // written a sentence for are last, under a heading that says so, because an
+  // operator reaching for the network playbook must not have to tell the
+  // reviewed entry apart from a description this service counted itself.
+  function groups(rest) {
+    const reviewed = rest.filter((item) => item.entry.reviewed);
+    return [
+      ["Machine configuration", reviewed.filter((item) => !isCluster(item))],
+      ["Cluster", reviewed.filter(isCluster)],
+      ["Read from the collection, not reviewed",
+        rest.filter((item) => !item.entry.reviewed)],
+    ];
+  }
+
   // The catalogue as a list, grouped the way docs/playbooks.md groups it. The
   // unavailable entries stay in the list rather than disappearing from it: an
   // operator told to run `cluster_setup_ha` has to find it and read why it is
@@ -371,10 +417,7 @@
     select.replaceChildren();
 
     const rest = state.catalogue.filter((item) => item.entry.id !== MAIN);
-    [
-      ["Machine configuration", rest.filter((item) => !isCluster(item))],
-      ["Cluster", rest.filter(isCluster)],
-    ].forEach(([label, items]) => {
+    groups(rest).forEach(([label, items]) => {
       if (!items.length) {
         return;
       }
@@ -390,7 +433,7 @@
       select.append(group);
     });
 
-    const available = rest.find((item) => item.available);
+    const available = rest.find((item) => item.available && item.entry.reviewed);
     const keep = rest.some((item) => item.entry.id === chosen);
     select.value = keep
       ? chosen

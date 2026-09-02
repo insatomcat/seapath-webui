@@ -19,6 +19,7 @@ def write_fake_collection(
     entries: list[str] | None = None,
     version: str = "2.0.0",
     contents: str = "---\n",
+    extras: dict[str, str] | None = None,
 ) -> Path:
     """Lay out a `seapath.ansible` collection with empty playbook files.
 
@@ -55,6 +56,10 @@ def write_fake_collection(
         if entry.id in wanted:
             name = entry.playbook.rsplit(".", 1)[-1]
             (playbooks / f"{name}.yaml").write_text(contents)
+    # A playbook the catalogue has never heard of, which is the ordinary case
+    # for a collection released after this service was written.
+    for name, body in (extras or {}).items():
+        (playbooks / f"{name}.yaml").write_text(body)
     return collections_path
 
 

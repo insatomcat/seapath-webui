@@ -592,3 +592,52 @@ editable in place, and the ones it names that nothing here holds are listed
 too, in the colour of a warning: a missing quadlet is a convergence that stops
 at the task copying it, on every host at once, and the answer is now one click
 rather than a search.
+
+## D21 - Settled: the catalogue is the collection, read, with the reviewed entries on top
+
+The catalogue was thirteen entries written by hand against one version of
+`seapath-ansible`. The collection ships thirty-five playbooks. An operator told
+to run `seapath_setup_prerequisitesdebian` opened the page and did not find it,
+and nothing on the page said whether it was missing, forbidden or simply
+unknown here. A list that answers "what can this node run" with a subset chosen
+in another repository, months earlier, is a list an operator cannot trust.
+
+So the list is now the collection. `analysis.py` opens every playbook the
+installed collection carries, follows its `import_playbook` chain and its
+roles, and derives what the UI has to know before it may offer a button: the
+groups the plays target, what check mode is worth, whether it reboots and
+behind which variable, and the variables the playbook refuses to start without.
+The reviewed entries keep every word: where one exists, its prose and its
+judgement win whole, and analysis is attached beside it as counts.
+
+The two disagree, and the disagreement is instructive rather than alarming.
+`seapath_setup_snmp` is reviewed `full`; the reader finds one command in its
+role chain and says `partial`. Both are right. The command detects the
+distribution and writes nothing, which a human knows and a counter cannot.
+That asymmetry is the whole reason the reviewed value wins.
+
+What the reader refuses to do:
+
+- **It offers no `ci_*` or `test_*` playbook.** They reinstall an ISO, restore
+  a snapshot, reboot on a USB drive. They build a machine from nothing, and no
+  reading of a YAML file makes them safe next to the network configuration.
+- **It guesses no variable.** A playbook that needs `machine_to_update` is
+  listed, with the variable named, and stays unavailable: a free text field
+  wired to an Ansible run is the extra vars box this service refuses to have,
+  and typing a value into it is how a UI becomes a shell.
+- **It withdraws a check it cannot make useful.** Whether a preview would
+  crash on a task reading the output of a skipped command is answerable, and
+  the answer fired on twenty of twenty-six playbooks: nearly all of them import
+  `detect_seapath_distro`, which reads the `rc` of a `grep` inside a block
+  guarded by a condition that is almost never true. A warning on three quarters
+  of a list is not a warning.
+- **It guesses no polarity.** A reboot behind `skip_reboot_setup` is gated and
+  the checkbox is offered. A reboot behind any other condition is reported as a
+  reboot, because a checkbox reading "converge without rebooting" that reboots
+  a substation hypervisor is worse than a warning that overstates.
+
+An entry nobody reviewed is marked as such in the list, under its own heading,
+and its description says in its first sentence that it was counted rather than
+written. The way to promote one is to read the playbook and add it to
+`CATALOGUE`, which is the same deliberate act it always was. What changed is
+that not having done it yet no longer hides the playbook.

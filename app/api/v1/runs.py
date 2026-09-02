@@ -70,9 +70,7 @@ def launch(
         variables=payload.variables,
         check=payload.check,
     )
-    entry = next(
-        item.entry for item in service.playbooks() if item.entry.id == payload.playbook
-    )
+    entry = next(item for item in service.entries() if item.id == payload.playbook)
     # Carried back so the UI can refuse to present a partial check as a
     # guarantee.
     return LaunchResponse(

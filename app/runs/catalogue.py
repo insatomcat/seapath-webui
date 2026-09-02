@@ -1,7 +1,14 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""The catalogue of docs/playbooks.md.
+"""The catalogue of docs/playbooks.md, and the collection behind it.
+
+Two halves. The entries below are the reviewed half: a human read the playbook,
+wrote the sentence an operator needs before converging a live machine, and
+decided what check mode is worth. `analysis.py` is the derived half, reading
+every other playbook the collection ships and answering the same questions from
+the YAML. `resolve` merges them, a reviewed entry winning wherever there is
+one, so the list an operator sees is the collection they are running.
 
 Adding an entry here is a deliberate act, not a consequence of a playbook
 existing upstream. What the UI runs is a whole playbook, never a free form
@@ -33,6 +40,8 @@ from enum import Enum
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+from app.runs import analysis
 
 # The collection installed in the image. Playbooks are addressed by their fully
 # qualified name, which is what makes "the UI runs what the CI tests" literally
@@ -77,6 +86,16 @@ class Precondition(str, Enum):
     collection does not have is reported as unavailable with that reason,
     rather than offered as a button that fails at the first task.
     """
+    VARIABLES_SUPPORTED = "variables_supported"
+    """The variables the playbook needs have a field on this page.
+
+    A derived entry can find that a playbook refuses to start without a
+    variable, and finding it is a long way from knowing how to ask for it.
+    `seapath_update_yocto_cluster` plays `{{ machine_to_update }}`: nothing
+    here knows what that variable may hold, and a free text field wired to an
+    Ansible run is the extra vars box this service refuses to have. Such an
+    entry is listed with its variable named, and stays unavailable.
+    """
 
 
 class VariableType(str, Enum):
@@ -89,6 +108,12 @@ class VariableType(str, Enum):
     run. `cluster_remove_machine` is the case: it plays every cluster member
     and needs to be told which one of them is leaving.
     """
+    UNKNOWN = "unknown"
+    """A variable analysis found and nothing here knows how to ask for.
+
+    Only ever produced by a derived entry. A reviewed entry types the variables
+    it accepts, and accepts nothing else.
+    """
 
 
 class VariableSpec(BaseModel):
@@ -96,6 +121,22 @@ class VariableSpec(BaseModel):
     type: VariableType
     description: str
     required: bool = False
+
+
+class Derivation(BaseModel):
+    """What reading the playbook off the disk found, for the UI to show.
+
+    Present on every entry, reviewed ones included, because the numbers are how
+    an operator judges a description nobody wrote: eleven roles and four
+    hundred tasks is a different act from one template and a restart.
+    """
+
+    plays: int
+    tasks: int
+    command_tasks: int
+    roles: list[str] = Field(default_factory=list)
+    imports: list[str] = Field(default_factory=list)
+    parsed: bool = True
 
 
 class PlaybookEntry(BaseModel):
@@ -110,6 +151,9 @@ class PlaybookEntry(BaseModel):
     requires: list[Precondition] = Field(default_factory=list)
     variables: list[VariableSpec] = Field(default_factory=list)
     notes: str = ""
+    reviewed: bool = True
+    """A human wrote this entry. False for one read off the collection."""
+    derivation: Derivation | None = None
 
     @property
     def previewable(self) -> bool:
@@ -447,3 +491,188 @@ def missing_from(collections_path: Path) -> set[str]:
         for entry in CATALOGUE
         if not playbook_file(collections_path, entry).is_file()
     }
+
+
+# Words the collection writes as an acronym, so a title read off a file name
+# says "Cluster setup HA" rather than "Cluster setup ha".
+_ACRONYMS = {
+    "api": "API",
+    "ceph": "Ceph",
+    "cpu": "CPU",
+    "ha": "HA",
+    "irq": "IRQ",
+    "nic": "NIC",
+    "ptp": "PTP",
+    "seapath": "SEAPATH",
+    "snmp": "SNMP",
+    "ssh": "SSH",
+    "vm": "VM",
+    "vms": "VMs",
+}
+
+
+def _title_of(playbook_id: str) -> str:
+    """A readable name for a playbook nobody has written a title for.
+
+    Deliberately close to the file name. The id is displayed under the title
+    everywhere it matters, and an operator told to run
+    `seapath_setup_prerequisitesdebian` has to recognise it here.
+    """
+    words = [_ACRONYMS.get(word, word) for word in playbook_id.split("_") if word]
+    if not words:
+        return playbook_id
+    first = words[0]
+    if first == first.lower():
+        first = first.capitalize()
+    return " ".join([first, *words[1:]])
+
+
+def _derived_disruption(facts: analysis.PlaybookFacts) -> str:
+    """The sentence for an entry nobody has written a sentence for.
+
+    It says what was counted and where the counting stops. An operator reading
+    "23 tasks, 4 of them command driven" knows more than one reading a
+    confident description of a playbook this service has never been run
+    against.
+    """
+    parts = [
+        "Read from the collection, and not reviewed by anyone here: what "
+        "follows was counted in the playbook rather than written by a human.",
+        f"{facts.play_count} "
+        + ("play" if facts.play_count == 1 else "plays")
+        + f" over {facts.task_count} "
+        + ("task" if facts.task_count == 1 else "tasks")
+        + (
+            f", {facts.command_tasks} of them command driven."
+            if facts.command_tasks
+            else "."
+        ),
+    ]
+    if facts.reboots:
+        parts.append(
+            "It reboots the machines it plays."
+            if not facts.reboot_variable
+            else (
+                "It reboots the machines it plays unless "
+                f"{facts.reboot_variable} says otherwise."
+            )
+        )
+    parts.append(
+        "What it changes on a live machine is whatever those roles decide to " "change."
+    )
+    return " ".join(parts)
+
+
+def _derived_notes(facts: analysis.PlaybookFacts) -> str:
+    notes = []
+    if facts.imports:
+        notes.append("Imports " + ", ".join(facts.imports) + ".")
+    if facts.roles:
+        shown = facts.roles[:10]
+        listed = ", ".join(shown)
+        if len(facts.roles) > len(shown):
+            listed += f" and {len(facts.roles) - len(shown)} more"
+        notes.append(f"Roles: {listed}.")
+    if not facts.parsed:
+        notes.append(
+            "Part of this playbook could not be parsed, so the counts above "
+            "are a floor rather than a description."
+        )
+    return " ".join(notes)
+
+
+def derive(facts: analysis.PlaybookFacts) -> PlaybookEntry:
+    """A catalogue entry for a playbook nobody has reviewed."""
+    variables = []
+    if facts.reboot_variable:
+        variables.append(
+            VariableSpec(
+                name=facts.reboot_variable,
+                type=VariableType.BOOLEAN,
+                description=(
+                    "Converge without rebooting. The configuration is not "
+                    "fully applied until a reboot happens."
+                ),
+            )
+        )
+    variables.extend(
+        VariableSpec(
+            name=name,
+            type=VariableType.UNKNOWN,
+            description=f"{name}, which this playbook refuses to start without",
+            required=True,
+        )
+        for name in facts.required_variables
+        if name != facts.reboot_variable
+    )
+
+    requires = [
+        Precondition.INVENTORY_VALID,
+        Precondition.SELF_TRUST,
+        Precondition.PEER_REACHABLE,
+    ]
+    if facts.needs_cluster:
+        requires.append(Precondition.CLUSTER)
+
+    return PlaybookEntry(
+        id=facts.id,
+        playbook=f"{COLLECTION}.{facts.id}",
+        title=_title_of(facts.id),
+        targets=list(facts.targets),
+        preview=Preview(facts.preview),
+        reboots=Reboots(facts.reboot_state),
+        reboot_variable=facts.reboot_variable,
+        disruption=_derived_disruption(facts),
+        requires=requires,
+        variables=variables,
+        notes=_derived_notes(facts),
+        reviewed=False,
+        derivation=_derivation(facts),
+    )
+
+
+def _derivation(facts: analysis.PlaybookFacts) -> Derivation:
+    return Derivation(
+        plays=facts.play_count,
+        tasks=facts.task_count,
+        command_tasks=facts.command_tasks,
+        roles=list(facts.roles),
+        imports=list(facts.imports),
+        parsed=facts.parsed,
+    )
+
+
+def resolve(collections_path: Path, version: str = "") -> tuple[PlaybookEntry, ...]:
+    """Every playbook this node can run, reviewed entries first.
+
+    A reviewed entry keeps its prose and its judgement whole. Analysis of the
+    same playbook is attached beside it, and never overrides it: the values a
+    human wrote encode what a run actually did on a machine, and the reader
+    encodes what the YAML says. Where they disagree, on `seapath_setup_snmp`
+    for instance, the reviewed `full` knows that the one command in the chain
+    detects a distribution rather than writing anything, and the reader can
+    only count it.
+
+    Everything else the collection ships is derived, listed after them and
+    marked unreviewed. A playbook this service has never heard of is a playbook
+    an operator can still see, which is the point: the catalogue was written
+    against one version of a collection that moves without it.
+    """
+    root = Path(collections_path).joinpath(*_COLLECTION_DIRECTORY[:-1])
+    facts = {
+        item.id: item
+        for item in analysis.read_all(
+            root, version or identity(collections_path) or "none"
+        )
+    }
+
+    entries = []
+    for entry in CATALOGUE:
+        known = facts.pop(entry.id, None)
+        entries.append(
+            entry.model_copy(update={"derivation": _derivation(known)})
+            if known
+            else entry
+        )
+    entries.extend(derive(item) for item in sorted(facts.values(), key=lambda f: f.id))
+    return tuple(entries)

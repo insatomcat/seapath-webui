@@ -18,7 +18,8 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack
 from pathlib import Path
 
 import pytest
@@ -145,6 +146,41 @@ def client(
 @pytest.fixture
 def signed_in(client: TestClient) -> TestClient:
     return _sign_in(client, "admin")
+
+
+@pytest.fixture
+def signed_in_with(
+    settings: Settings,
+    reader: FakeHostReader,
+    authenticator: FakeAuthenticator,
+    directory: FakeRoleDirectory,
+    run_adapter: FakeRunAdapter,
+    console_adapter: FakeConsoleAdapter,
+) -> Iterator[Callable[[Path], TestClient]]:
+    """A signed in client whose service reads the collection you hand it.
+
+    The catalogue and the collection are released separately, and the cases
+    worth a test are the ones where they disagree: a playbook this service has
+    never heard of, or one that needs a variable no page can fill in.
+    """
+    with ExitStack() as stack:
+
+        def build(collections_path: Path) -> TestClient:
+            application = create_app(
+                settings=settings.model_copy(
+                    update={"collections_path": collections_path}
+                ),
+                reader=reader,
+                authenticator=authenticator,
+                role_directory=directory,
+                session_secret=b"test-secret",
+                run_adapter=run_adapter,
+                console_adapter=console_adapter,
+            )
+            client = stack.enter_context(TestClient(application, base_url=BASE_URL))
+            return _sign_in(client, "admin")
+
+        yield build
 
 
 @pytest.fixture

@@ -5,9 +5,17 @@ SPDX-License-Identifier: CC-BY-4.0
 
 # Exposed playbooks
 
-The UI runs whole playbooks, never a free form selection of tags. This document
-is the catalogue behind `GET /api/v1/playbooks`, and adding an entry to it is a
-deliberate act, not a consequence of a playbook existing upstream.
+The UI runs whole playbooks, never a free form selection of tags.
+
+`GET /api/v1/playbooks` answers with every playbook the installed collection
+carries, in two halves. This document is the reviewed half: entries a human
+read the playbook for and wrote the sentences below. Everything else the
+collection ships is derived by `app/runs/analysis.py`, which opens the YAML and
+counts what it finds, and is offered marked as unreviewed. [D21](decisions.md#d21)
+has the reasoning; section 9 has what the reader can and cannot answer.
+
+Writing a reviewed entry stays a deliberate act. What changed is that not
+having written one yet no longer hides the playbook from the operator.
 
 ## 1. Why whole playbooks
 
@@ -164,17 +172,38 @@ Neither is in the catalogue yet: the UI has no VM model, and a run that deploys
 the `VMs` group needs one before the confirmation can say which guests it
 touches.
 
-### Not exposed in the first version
+### Not reviewed, and offered as such
 
-- `seapath_update_debian.yaml` and the Yocto update playbooks. They snapshot the
-  root LVM, temporarily disable the GRUB password, arm a boot counter and
-  reboot. That sequence deserves its own screen with its own rollback story, not
-  a line in a generic run list.
-- `seapath_revert_hardening.yaml`. Reachable from a console, not from a browser.
-- `ci_*.yaml`, `test_*.yaml`. CI and test helpers, no operational meaning here.
-- `seapath_setup_vmmgrapi.yaml`. Deprecated by this service.
-- `seapath_setup_custom_hardware.yaml`, `seapath_setup_configure_nic_irq_affinity.yaml`.
-  Site specific, driven by variables the UI does not model yet.
+Every other playbook of the collection is read off the disk and listed under
+its own heading. They are launchable, described by what the reader counted, and
+carry no sentence a human wrote. Several deserve a reviewed entry and have not
+had one yet:
+
+- `seapath_setup_prerequisites{debian,centos,oraclelinux,sles,yocto}.yaml`.
+  Five playbooks, one per distribution, and `seapath_setup_main` picks between
+  them after `detect_seapath_distro`. Launched directly, none of them checks
+  what it landed on: the Debian one applies its roles on a Yocto machine. A
+  reviewed entry would say so.
+- `seapath_update_debian.yaml`. It snapshots the root LVM, temporarily disables
+  the GRUB password, arms a boot counter and reboots. That sequence deserves
+  its own screen with its own rollback story.
+- `seapath_revert_hardening.yaml`. Sitting next to `seapath_setup_hardening` in
+  the list, which is where an operator looks for it.
+- `seapath_setup_vmmgrapi.yaml`. Deprecated by this service, and the entry that
+  says so has to be written.
+- `seapath_setup_custom_hardware.yaml`,
+  `seapath_setup_configure_nic_irq_affinity.yaml`. Site specific, driven by
+  variables the UI does not model.
+
+Two families are refused outright rather than derived:
+
+- `ci_*.yaml`, `test_*.yaml`. They reinstall an ISO, restore a snapshot and
+  reboot on a USB drive. They build a machine from nothing, and no reading of a
+  YAML file makes them safe to offer next to the network configuration.
+- Any playbook needing a variable this page has no field for. It is listed with
+  the variable named and stays unavailable, `seapath_update_yocto_cluster` and
+  its `{{ machine_to_update }}` being the case. A free text field wired to an
+  Ansible run is the extra vars box this service refuses to have.
 
 ## 5. Naming the machine to remove
 
@@ -278,3 +307,41 @@ it and read why it is not offered.
 When a run fails, the UI does not chain into the next playbook. `any_errors_fatal`
 means the cluster is in a partial state, and the operator decides what happens
 next.
+
+## 9. What reading the collection can answer
+
+`app/runs/analysis.py` opens every playbook, follows its `import_playbook`
+chain, expands the roles of each play and the roles those roles include, and
+reads every task file of a role rather than `main.yml` alone. It never imports
+Ansible, never evaluates a template and never runs anything, so a collection
+built from a branch nobody here has seen can produce a poor description and
+nothing worse.
+
+| Question | How it is answered | Where it is weak |
+|---|---|---|
+| Which machines a run reaches | The `hosts:` lines of the plays, `localhost` dropped | A pattern built from a variable is reported verbatim, and the variable becomes a required input |
+| What check mode is worth | The modules the tasks use: `full` with no `command`/`shell`, `partial` with some, `none` when nothing writes through a module at all | A command that only reads, like `detect_seapath_distro` running `grep`, still counts as command driven, so a reviewed `full` beats a derived `partial` |
+| Whether it reboots | A `reboot` task anywhere in the chain | Only a `skip*` variable is offered as a gate |
+| Which variables it needs | A `fail` task guarded by `is undefined` in the playbook's own tasks, plus a `hosts:` built from a variable | A role's internal sanity check is deliberately not counted: `detect_seapath_distro` fails when it cannot work out the distribution, and that is the role talking to its author |
+| Whether a preview can crash | A task reading `.stdout` or `.rc` of a command registered in the same file | Reported as a warning on the preview button rather than by removing it |
+
+One question was asked and withdrawn: whether a preview would crash on a task
+reading the output of a command check mode skipped. The check works, and it
+fired on twenty of the collection's twenty-six playbooks, because nearly all of
+them import `detect_seapath_distro`, which registers a `grep` and reads its
+`rc` inside a block guarded by a condition that is almost never true. Telling a
+rarely taken guarded path apart from a real dependency needs the run.
+`cluster_setup_libvirt` and `cluster_setup_users` carry `none` for exactly this
+reason, written by someone who read the roles, which is the difference between
+the two halves of this document.
+
+The polarity rule is the one worth stating on its own. A reboot behind
+`skip_reboot_setup` is `gated` and the UI offers the checkbox. A reboot behind
+any other condition is reported as a plain reboot, because a checkbox reading
+"converge without rebooting" that reboots a substation hypervisor is worse than
+a warning that overstates.
+
+Where the reviewed value and the derived value disagree, the reviewed one wins
+whole and the counts are shown beside it. `seapath_setup_snmp` is the example:
+reviewed `full`, derived `partial`, and the human is right because the single
+command in its chain detects a distribution and writes nothing.
