@@ -322,11 +322,12 @@ reaching any machine. `prepare.sh` installs `ansible-requirements.yaml` first,
 fetches the git submodules, then installs the collection, which is the sequence
 the Dockerfile follows for the same reason.
 
-Without that first command **every catalogue entry is unavailable and the Apply
-section has no buttons**, because the playbooks live in the collection and the
-image is what usually installs it. That is correct behaviour and it read as a
-broken page the first time it happened, so the service now says it in the
-journal at startup and the System page says it once above the list.
+Without that first command **every catalogue entry is unavailable and nothing
+on the System page can be launched**, because the playbooks live in the
+collection and the image is what usually installs it. That is correct behaviour
+and it read as a broken page the first time it happened, so the service now
+says it in the journal at startup and the System page says it once, at the top,
+above the commissioning entry and the picker.
 
 Three things a source checkout does not reproduce. The CPU row is the one
 that can perturb a running machine; the other two only mislead:

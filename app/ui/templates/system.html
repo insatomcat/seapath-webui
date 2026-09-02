@@ -6,70 +6,104 @@ SPDX-License-Identifier: Apache-2.0
 {% block title %}System - SEAPATH{% endblock %}
 
 {% block body %}
-<main class="page single">
+<main class="page system">
   <p class="banner" id="banner" hidden></p>
+  <p class="warning" id="apply-blocked" hidden></p>
+  <p class="lead" id="apply-lead"></p>
 
-  <section class="card" id="reach-card">
-    <h2>Reaching the other machines</h2>
-    <p class="lead">
-      A run is Ansible over SSH, and this node reaches only itself until it is
-      given a way to reach the others. Both steps below are deliberate acts,
-      and both are undone in one click.
-    </p>
-
-    <h3>Site key</h3>
-    <p class="help">
-      The private half of the key the ISO already installed in the
-      <code>ansible</code> account of every machine, the one a conventional
-      control machine holds. <strong>This key is root on every machine that
-      trusts it.</strong> Uploading it here makes this node as capable as that
-      control machine. It is stored <code>0600</code>, never sent back out and
-      never logged, and only the fingerprint is displayed. A key protected by a
-      passphrase is refused, because nothing here can type one during a run.
-    </p>
-    <dl id="site-key-summary"></dl>
-    <div class="field">
-      <label for="site-key-file">Private key file</label>
-      <input id="site-key-file" type="file">
-    </div>
-    <p class="error" id="site-key-error" hidden></p>
-    <div class="actions">
-      <button type="button" id="site-key-go" disabled>Upload</button>
-      <button type="button" id="site-key-remove" class="secondary" hidden>
-        Remove the key
-      </button>
-    </div>
-
-    <h3>Host keys</h3>
-    <p class="help">
-      Read over the network with <code>ssh-keyscan</code>, which means the
-      answer could come from whoever sits between these machines. Compare each
-      fingerprint against
-      <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on the
-      machine itself before accepting it. Nothing is written until you do.
-    </p>
-    <p class="error" id="host-keys-error" hidden></p>
-    <div class="actions">
-      <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
-      <button type="button" id="host-keys-accept-all" class="secondary" hidden></button>
-    </div>
-    <div class="table-scroll">
-      <table id="host-keys-table">
-        <thead>
-          <tr>
-            <th>Machine</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+  <section class="card" id="main-card">
+    <h2>Commissioning</h2>
+    <div id="main-playbook"></div>
   </section>
 
-  <section class="card">
-    <h2>Apply</h2>
-    <p class="lead" id="apply-lead"></p>
-    <p class="warning" id="apply-blocked" hidden></p>
-    <div id="playbooks"></div>
+  <section class="card" id="other-card">
+    <h2>Converge one thing</h2>
+    <p class="lead">
+      Day two. Pick the playbook that covers what you just edited: the list
+      carries every entry of the catalogue, including the ones this node
+      cannot run yet, which say why.
+    </p>
+    <div class="field">
+      <label for="playbook-choice">Playbook</label>
+      <select id="playbook-choice"></select>
+    </div>
+    <div id="playbook-detail"></div>
+  </section>
+
+  {#
+  Last on the page and shut by default once it holds. These two credentials
+  are what lets this node reach the others at all, and they are set once and
+  then read as a state line: an operator converging a machine on a Tuesday
+  should not have to scroll past a key upload to find the button.
+  #}
+  <section class="card wide" id="reach-card">
+    <details id="reach-details">
+      <summary id="reach-summary">
+        <span class="reach-label">Reaching the other machines</span>
+        <span class="reach-state" id="reach-state"></span>
+      </summary>
+
+      <div class="reach-body">
+        <p class="lead">
+          A run is Ansible over SSH, and this node reaches only itself until it
+          is given a way to reach the others. Both steps below are deliberate
+          acts, and both are undone in one click.
+        </p>
+
+        <div class="reach-column">
+          <h3>Site key</h3>
+          <p class="help">
+            The private half of the key the ISO already installed in the
+            <code>ansible</code> account of every machine, the one a
+            conventional control machine holds. <strong>This key is root on
+            every machine that trusts it.</strong> Uploading it here makes this
+            node as capable as that control machine. It is stored
+            <code>0600</code>, never sent back out and never logged, and only
+            the fingerprint is displayed. A key protected by a passphrase is
+            refused, because nothing here can type one during a run.
+          </p>
+          <dl id="site-key-summary"></dl>
+          <div class="field">
+            <label for="site-key-file">Private key file</label>
+            <input id="site-key-file" type="file">
+          </div>
+          <p class="error" id="site-key-error" hidden></p>
+          <div class="actions">
+            <button type="button" id="site-key-go" disabled>Upload</button>
+            <button type="button" id="site-key-remove" class="secondary" hidden>
+              Remove the key
+            </button>
+          </div>
+        </div>
+
+        <div class="reach-column">
+          <h3>Host keys</h3>
+          <p class="help">
+            Read over the network with <code>ssh-keyscan</code>, which means
+            the answer could come from whoever sits between these machines.
+            Compare each fingerprint against
+            <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on
+            the machine itself before accepting it. Nothing is written until
+            you do.
+          </p>
+          <p class="error" id="host-keys-error" hidden></p>
+          <div class="actions">
+            <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
+            <button type="button" id="host-keys-accept-all" class="secondary" hidden></button>
+          </div>
+          <div class="table-scroll">
+            <table id="host-keys-table">
+              <thead>
+                <tr>
+                  <th>Machine</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </details>
   </section>
 
 </main>

@@ -130,9 +130,47 @@ def test_the_system_page_carries_the_credentials_and_the_button(
     assert "Reaching the other machines" in body
     assert 'id="site-key-file"' in body
     assert 'id="host-keys-scan"' in body
-    assert 'id="playbooks"' in body
+    assert 'id="main-playbook"' in body
     # And edits nothing: the desired state has one page and it is the other one.
     assert 'id="tree"' not in body
+
+
+def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/system").text
+    script = signed_in.get("/static/system.js").text
+
+    # Thirteen stacked entries put the one an operator came for below the fold,
+    # and the one they came for is never the first. `seapath_setup_main` is the
+    # commissioning path and stays a button; everything else is chosen from a
+    # list that carries the whole catalogue, unavailable entries included.
+    assert 'id="main-playbook"' in body
+    assert 'id="playbook-choice"' in body
+    assert 'id="playbook-detail"' in body
+    assert '"seapath_setup_main"' in script
+    # Grouped the way docs/playbooks.md groups it.
+    assert '"Machine configuration"' in script
+    assert '"Cluster"' in script
+    # And an entry the collection does not carry stays in the list, saying why,
+    # rather than disappearing from it.
+    assert '" (unavailable)"' in script
+
+
+def test_the_ssh_credentials_are_a_state_line_once_they_hold(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/system").text
+    css = signed_in.get("/static/style.css").text
+
+    # Set once, then read. A key upload above the playbook an operator came for
+    # is a form they scroll past every time and fill in never.
+    assert 'id="reach-details"' in body
+    assert 'id="reach-state"' in body
+    assert ".reach-state.warn" in css
+    # Last on the page, and it takes the width it needs when opened.
+    assert body.index('id="main-playbook"') < body.index('id="reach-details"')
+    assert body.index('id="playbook-choice"') < body.index('id="reach-details"')
 
 
 def test_the_old_configuration_url_still_leads_somewhere(

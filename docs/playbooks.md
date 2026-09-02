@@ -267,6 +267,14 @@ operator changes one thing and wants to converge that thing, and the UI states
 which playbook covers which part of the inventory so the choice is obvious from
 the form the operator just edited.
 
+The System page is shaped like that sentence. `seapath_setup_main` is a card of
+its own with its two buttons, and the rest of the catalogue is one picker: an
+entry, its scope, what it disturbs and its buttons, one at a time. Stacking
+thirteen entries put the one an operator came for below the fold, and the one
+they came for is never the first. The picker lists the unavailable entries too,
+with the reason, because an operator told to run `cluster_setup_ha` has to find
+it and read why it is not offered.
+
 When a run fails, the UI does not chain into the next playbook. `any_errors_fatal`
 means the cluster is in a partial state, and the operator decides what happens
 next.

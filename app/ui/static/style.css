@@ -498,17 +498,52 @@ button.secondary {
 
 /* Playbooks */
 
-.playbook {
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(38, 49, 64, 0.6);
+/* The system page is an application screen rather than a document: the
+   commissioning playbook and the picker for everything else side by side, and
+   the credentials that let this node reach the others last. What an operator
+   came to press is above the fold, on a laptop, without scrolling. */
+.page.system {
+  /* Two fixed columns rather than the page's usual auto-fit: this screen is
+     read as a whole, and a wide monitor spreading it over four columns puts
+     the picker somewhere different on every machine. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
 }
 
-.playbook:last-child {
-  border-bottom: none;
+@media (max-width: 62rem) {
+  .page.system {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.page.system > .warning,
+.page.system > .lead {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.playbook {
+  padding: 0.75rem 0;
+}
+
+/* One entry at a time now, so the separator only earns its place between the
+   fields of the picker and the entry they chose. */
+#playbook-detail.playbook {
+  border-top: 1px solid rgba(38, 49, 64, 0.6);
 }
 
 .playbook.unavailable {
   opacity: 0.55;
+}
+
+/* The commissioning path. Same rendering as any other entry, one size up:
+   this is the button of the page. */
+.playbook.hero .playbook-title {
+  font-size: 1.05rem;
+}
+
+.playbook.hero .actions button {
+  padding: 0.5rem 1.1rem;
 }
 
 .playbook-title {
@@ -535,6 +570,63 @@ button.secondary {
 .tag.warn {
   border-color: var(--warn);
   color: var(--warn);
+}
+
+/* Reaching the other machines: a form until it holds, a state line afterwards.
+   Once the site key is in and the host keys are accepted, nothing here is
+   pressed again for months, and it sits shut at the bottom of the page rather
+   than above the playbook an operator came for. */
+#reach-summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.reach-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.8rem;
+}
+
+.reach-state {
+  font-size: 0.8rem;
+}
+
+.reach-state.ok {
+  color: var(--ok);
+}
+
+.reach-state.warn {
+  color: var(--warn);
+}
+
+/* Opened, it is the tallest thing on the page, so it is laid out as two
+   columns and scrolls inside itself: the entry above it stays where the
+   operator left it, and closing it puts the page back as it was. */
+.reach-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 2rem;
+  max-height: 22rem;
+  overflow-y: auto;
+  margin-top: 0.75rem;
+}
+
+.reach-body > .lead {
+  grid-column: 1 / -1;
+}
+
+.reach-body h3 {
+  margin-top: 0;
+}
+
+@media (max-width: 62rem) {
+  .reach-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 /* The confirmation, which names the machine and makes it be typed out */
