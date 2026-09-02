@@ -95,19 +95,33 @@ What the editor refuses, rather than approximates: adding or removing a machine,
 and changing a role, which means moving a host between groups. Both are cluster
 formation, and they arrive with it.
 
-### The editor is the form and the file
+### The editor is the folder
 
-Two ways in, because a form that models a dozen variables cannot be the only
-way to change a file that holds fifty.
+The desired state of these machines is a folder, so the page is the shape of
+one: the files on the left, the file open on the right, and the acts a folder
+has. Open, edit, save, add, delete. Every one of them is a commit, and the
+history under it is the audit trail.
 
-- **The form** edits one machine at a time and **any** machine in the
-  inventory, chosen from a selector that defaults to this one. A three node
-  cluster is configured from one browser.
-- **The file** is edited directly, in a text area on the same page, and saved
-  with `PUT /inventory/raw`. `POST /inventory/raw/check` says what is wrong
-  without committing anything.
+- **The inventory** is edited as itself and saved with `PUT /inventory/raw`,
+  carrying `If-Match` on the commit the editor read it at.
+  `POST /inventory/raw/check` says what is wrong without committing anything.
+- **The files it names** are edited the same way, through
+  `PUT /inventory/files/{path}`, one commit each. A file too large for git is
+  stored as an artefact instead, and a file the inventory names and the folder
+  lacks is listed among the ones that exist, in the colour of a warning, so
+  that writing it is a click rather than a discovery three minutes into a
+  convergence.
+- **A whole inventory a site brings** arrives through the same control as any
+  other file: one named `inventory.yaml` goes to `POST /inventory/import`,
+  which replaces the desired state and leaves the version it replaced one
+  revert away.
 
-A whole file arriving by either route is checked three ways before it becomes a
+`PUT /inventory` and `PATCH /inventory/hosts/{name}` take values rather than a
+file. The page stopped using them when the form went ([D20](decisions.md#d20)),
+and they remain the path for a client that holds variables rather than a
+document.
+
+A whole file arriving by any route is checked three ways before it becomes a
 commit: it parses into something shaped like an inventory, it satisfies the
 rules of section 5, and `ansible-inventory --list` accepts it. That last one
 has a trap in it worth naming: **`ansible-inventory` exits 0 on a file it could
@@ -141,8 +155,9 @@ Four things have to be true of what lands there:
   role. That is how the reference inventories express it and how the playbooks
   read it.
 - **Variables this service does not model survive**, wherever they live. Host
-  variables and group variables alike are read resolved, so the form is filled
-  from them, and a save touches only the lines it changes.
+  variables and group variables alike are read resolved, so the rules and the
+  file references are computed from them, and a save through the value API
+  touches only the lines it changes.
 
 One limit of M1 is worth knowing before importing a cluster inventory: a run
 plays every host the inventory declares, since the adapter passes no `--limit`,
@@ -276,9 +291,17 @@ the operator starts from a filled form rather than from a blank file:
 | block devices by path, with their claim state | candidates for `ceph_osd_disks` |
 | NICs with link state and driver, PTP capability | candidates for `ptp_interface`, `team0_0`, `team0_1` |
 
-Discovery proposes, it never decides. Every discovered value is presented as a
-prefilled field the operator confirms, because a NIC that is up is not
-necessarily the NIC that carries sampled values.
+Discovery proposes, it never decides. Every discovered value reaches the
+operator as a candidate to confirm, because a NIC that is up is not necessarily
+the NIC that carries sampled values.
+
+The same proposal is available at any time, and not only at first boot:
+`GET /inventory/proposed` renders the standalone inventory this machine
+describes for itself, and the editor opens it as an unsaved candidate under
+"Propose a standalone inventory". Nothing is committed until the operator
+saves, which is what keeps it a proposal. It is the answer for a machine
+re-cabled since installation, one whose discovery failed then, and one whose
+file was emptied.
 
 ## 4. Form to variable mapping
 

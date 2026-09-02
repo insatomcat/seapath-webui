@@ -10,7 +10,10 @@ const API = (function () {
     return match ? decodeURIComponent(match[1]) : "";
   }
 
-  async function request(method, path, body) {
+  // `extra` carries the headers a single call needs and no other does, which
+  // today means `If-Match`: a write that names the version it was made against
+  // so two browsers cannot silently overwrite each other.
+  async function request(method, path, body, extra) {
     const headers = { Accept: "application/json" };
     if (body !== undefined) {
       headers["Content-Type"] = "application/json";
@@ -18,6 +21,7 @@ const API = (function () {
     if (method !== "GET" && method !== "HEAD") {
       headers["X-CSRF-Token"] = csrfToken();
     }
+    Object.assign(headers, extra || {});
 
     const response = await fetch("/api/v1" + path, {
       method,
@@ -32,14 +36,17 @@ const API = (function () {
   // The body is the file itself, streamed by the browser. A multipart form
   // would mean a copy of a twenty gigabyte VM image for the sake of a name the
   // URL already carries.
-  async function upload(path, file) {
+  async function upload(path, file, extra) {
     const response = await fetch("/api/v1" + path, {
       method: "PUT",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/octet-stream",
-        "X-CSRF-Token": csrfToken(),
-      },
+      headers: Object.assign(
+        {
+          Accept: "application/json",
+          "Content-Type": "application/octet-stream",
+          "X-CSRF-Token": csrfToken(),
+        },
+        extra || {}
+      ),
       credentials: "same-origin",
       body: file,
     });
@@ -74,7 +81,7 @@ const API = (function () {
   return {
     get: (path) => request("GET", path),
     post: (path, body) => request("POST", path, body),
-    put: (path, body) => request("PUT", path, body),
+    put: (path, body, extra) => request("PUT", path, body, extra),
     del: (path) => request("DELETE", path),
     upload,
     csrfToken,

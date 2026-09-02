@@ -6,258 +6,92 @@ SPDX-License-Identifier: Apache-2.0
 {% block title %}Inventory - SEAPATH{% endblock %}
 
 {% block body %}
-<main class="page single">
+<main class="page split">
   <p class="banner" id="banner" hidden></p>
 
-  <section class="card">
-    <h2>Desired state</h2>
+  <section class="card" id="folder-card">
+    <h2>The folder</h2>
     <p class="lead">
-      The inventory is the desired state of these machines, and this page is
-      the only thing that edits it. Every change is a commit. Nothing here
-      touches a machine: that is the System page.
+      The inventory and the files it names are the desired state of these
+      machines, and a run mounts this folder where a checkout of
+      <code>seapath-ansible</code> would be. Every change is a commit, and
+      nothing here touches a machine: that is the System page.
     </p>
-    <dl id="repo-summary"></dl>
 
-    <details id="import-details">
-      <summary>Import an inventory</summary>
-      <p class="help">
-        A site that already has an inventory brings it here. The file is
-        committed whole and becomes the desired state, and the version it
-        replaces stays one revert away in the history below. Editing it
-        afterwards changes the lines you change and leaves the rest of the file
-        exactly as you wrote it, comments included.
+    <ul class="tree" id="tree"></ul>
+
+    <div class="actions">
+      <button type="button" id="add-file">Add files</button>
+      <button type="button" id="new-file" class="secondary">New file</button>
+      <input id="file-input" type="file" multiple hidden>
+    </div>
+
+    <div class="new-file" id="new-file-row" hidden>
+      <input id="new-file-path" placeholder="inventories_private/quadlet.network"
+             spellcheck="false">
+      <button type="button" id="new-file-go">Create</button>
+      <button type="button" id="new-file-cancel" class="secondary">Cancel</button>
+    </div>
+
+    <ul class="pending" id="pending" hidden></ul>
+    <div class="actions" id="pending-actions" hidden>
+      <button type="button" id="upload">Store them</button>
+      <button type="button" id="upload-cancel" class="secondary">Cancel</button>
+    </div>
+
+    <p class="error" id="folder-error" hidden></p>
+    <p class="help" id="folder-note"></p>
+
+    <details id="references-details">
+      <summary>Every path the inventory names</summary>
+      <div class="table-scroll">
+        <table id="references-table">
+          <thead>
+            <tr><th>Machine</th><th>Variable</th><th>Path</th><th>Where</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="help" id="references-empty" hidden>
+        This inventory names no file yet.
       </p>
-      <div class="field">
-        <label for="import-file">Inventory file</label>
-        <input id="import-file" type="file" accept=".yaml,.yml,text/yaml">
-      </div>
-      <p class="error" id="import-error" hidden></p>
-      <div class="actions">
-        <button type="button" id="import-go" disabled>Import and replace</button>
-      </div>
     </details>
   </section>
 
-  <form class="card" id="node-form">
-    <h2>One machine, guided</h2>
-    <p class="lead">
-      The same file as below, edited field by field, with what this machine
-      reports about itself: its real interfaces, its disks by their stable
-      path, its CPU count. A GRUB password typed here is stored as the PBKDF2
-      hash and never in clear.
-    </p>
+  <section class="card" id="editor-card">
+    <div class="editor-head">
+      <span class="editor-path" id="editor-path">Nothing open</span>
+      <span class="tag" id="editor-store" hidden></span>
+      <a class="button-link" id="editor-download" href="#" hidden>download</a>
+    </div>
+    <p class="help" id="editor-note"></p>
 
-    <div class="field">
-      <label for="host-select">Which machine</label>
-      <select id="host-select"></select>
-      <p class="help" id="host-select-help"></p>
+    <textarea id="editor" spellcheck="false" wrap="off" hidden></textarea>
+
+    <p class="error" id="editor-error" hidden></p>
+    <ul class="findings" id="editor-findings" hidden></ul>
+
+    <div class="actions" id="editor-actions" hidden>
+      <button type="button" id="save">Save</button>
+      <button type="button" id="check" class="secondary" hidden>
+        Check without saving
+      </button>
+      <button type="button" id="propose" class="secondary" hidden>
+        Propose a standalone inventory
+      </button>
+      <button type="button" id="discard" class="secondary">Discard my changes</button>
+      <button type="button" id="delete" class="secondary">Delete</button>
+      <span class="editor-meta" id="editor-meta"></span>
     </div>
 
-    <div class="field">
-      <label for="ansible_host">Administration address</label>
-      <input id="ansible_host" name="ansible_host" required>
-      <p class="help">
-        The address this machine answers on, or the one the network
-        configuration is about to give it. Declaring an address it does not
-        have yet is normal at commissioning.
-      </p>
-    </div>
-
-    <div class="grid-2">
-      <div class="field">
-        <label for="network_interface">Administration interface</label>
-        <select id="network_interface" name="network_interface" required></select>
-      </div>
-      <div class="field">
-        <label for="subnet">Prefix length</label>
-        <input id="subnet" name="subnet" type="number" min="1" max="32" required>
-      </div>
-    </div>
-
-    <div class="grid-2">
-      <div class="field">
-        <label for="gateway_addr">Gateway</label>
-        <input id="gateway_addr" name="gateway_addr">
-      </div>
-      <div class="field">
-        <label for="dns_servers">DNS servers</label>
-        <input id="dns_servers" name="dns_servers" placeholder="one per comma">
-      </div>
-    </div>
-
-    <h3>Time</h3>
-    <div class="grid-2">
-      <div class="field">
-        <label for="ptp_interface">PTP interface</label>
-        <select id="ptp_interface" name="ptp_interface"></select>
-        <p class="help">
-          The interface receiving PTP frames. Discovery cannot know which one
-          that is: it is a cabling fact, not something the machine can observe.
-        </p>
-      </div>
-      <div class="field">
-        <label for="ptp_domain_number">PTP domain</label>
-        <input id="ptp_domain_number" name="ptp_domain_number" type="number"
-               min="0" max="255">
-      </div>
-    </div>
-
-    <div class="field">
-      <label for="ntp_servers">NTP servers</label>
-      <input id="ntp_servers" name="ntp_servers" placeholder="one per comma">
-      <p class="help">The fallback if PTP is lost.</p>
-    </div>
-
-    <h3>Accounts</h3>
-    <div class="grid-2">
-      <div class="field">
-        <label for="admin_user">Administrator account</label>
-        <input id="admin_user" name="admin_user">
-      </div>
-      <div class="field">
-        <label for="grub_password_plain">GRUB password</label>
-        <input id="grub_password_plain" name="grub_password_plain"
-               type="password" autocomplete="new-password">
-        <p class="help">
-          Hashed before it is written. The inventory is in git, so a password
-          in clear would be in the audit trail forever. Leave empty to keep the
-          current one.
-        </p>
-      </div>
-    </div>
-
-    <details class="expert">
-      <summary>Real time (expert)</summary>
-      <p class="warning">
-        Latency is the product. These fields change the guarantees the machine
-        makes to the protection functions running on it.
-      </p>
-      <div class="field">
-        <label for="isolcpus">Isolated CPUs</label>
-        <input id="isolcpus" name="isolcpus" placeholder="4-7">
-        <p class="help" id="isolcpus-help"></p>
-      </div>
-    </details>
-
-    <p class="error" id="form-error" hidden></p>
-    <div class="actions">
-      <button type="button" id="preview">Show what would change</button>
-      <button type="submit" id="save">Save to the inventory</button>
-    </div>
-  </form>
-
-  <section class="card" id="diff-card" hidden>
-    <h2>Pending change</h2>
-    <pre class="diff" id="diff"></pre>
-  </section>
-
-  <section class="card wide">
-    <h2>The file</h2>
-    <p class="lead">
-      The form above edits the variables this service models. Everything else in
-      the inventory is edited here, on this machine, with the same validation
-      and the same history. Saving replaces the file and makes one commit.
-    </p>
-    <details id="raw-details">
-      <summary>Edit the inventory file</summary>
-      <textarea id="raw-editor" spellcheck="false" rows="28"></textarea>
-      <p class="error" id="raw-error" hidden></p>
-      <ul class="findings" id="raw-findings" hidden></ul>
-      <div class="actions">
-        <button type="button" id="raw-check">Check without saving</button>
-        <button type="button" id="raw-save">Save the file</button>
-        <button type="button" id="raw-reload" class="secondary">
-          Discard my changes
-        </button>
-      </div>
-    </details>
-  </section>
-
-  <section class="card wide" id="folder-card">
-    <h2>The files beside it</h2>
-    <p class="lead">
-      An inventory is rarely alone. <code>upload_extra_files</code>,
-      <code>iptables</code>, <code>syslog_ng_client</code>, <code>cephadm</code>
-      and the VM roles all name a file this machine has to hold, and a run
-      mounts this folder where a checkout of <code>seapath-ansible</code> would
-      be. A path written <code>../inventories_private/quadlet.network</code>
-      means the same thing here as it does on a control machine.
-    </p>
-
-    <h3>What the inventory points at</h3>
-    <table id="references-table">
-      <thead>
-        <tr><th>Machine</th><th>Variable</th><th>Path</th><th>Where</th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <p class="help" id="references-empty" hidden>
-      This inventory names no file yet.
-    </p>
-
-    <h3>Versioned files</h3>
-    <p class="help">
-      Committed with the inventory, so <code>git log</code> answers what
-      changed and <code>git revert</code> undoes it. Configuration files:
-      quadlets, iptables rules, an snmpd.conf, a libvirt XML, a Jinja template.
-    </p>
-    <table id="files-table">
-      <thead>
-        <tr><th>Path</th><th>Size</th><th></th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <div class="grid-2">
-      <div class="field">
-        <label for="file-name">Store as</label>
-        <input id="file-name" placeholder="inventories_private/quadlet.network">
-        <p class="help">
-          The name the inventory uses, relative to this folder. Picking several
-          files at once treats it as the directory to put them in, and an
-          inventory that references <code>../inventories_private/x</code> wants
-          <code>inventories_private</code> here.
-        </p>
-      </div>
-      <div class="field">
-        <label for="file-input">File</label>
-        <input id="file-input" type="file" multiple>
-      </div>
-    </div>
-    <p class="error" id="file-error" hidden></p>
-    <div class="actions">
-      <button type="button" id="file-upload" disabled>Add to the inventory</button>
-    </div>
-
-    <h3>Artefacts</h3>
-    <p class="help" id="artefacts-help">
-      The large files, kept out of git: VM images, archives. A run mounts them
-      under the same root, so <code>vm_disk: ../files/guest.qcow2</code>
-      resolves the same way. What it costs is that a change here leaves no
-      trace in the history, and the export carries the inventory without them.
-    </p>
-    <table id="artefacts-table">
-      <thead>
-        <tr><th>Path</th><th>Size</th><th></th></tr>
-      </thead>
-      <tbody></tbody>
-    </table>
-    <div class="grid-2">
-      <div class="field">
-        <label for="artefact-name">Store as</label>
-        <input id="artefact-name" placeholder="files/guest.qcow2">
-      </div>
-      <div class="field">
-        <label for="artefact-input">File</label>
-        <input id="artefact-input" type="file" multiple>
-      </div>
-    </div>
-    <p class="error" id="artefact-error" hidden></p>
-    <div class="actions">
-      <button type="button" id="artefact-upload" disabled>Add as an artefact</button>
+    <div class="confirm-line" id="confirm-line" hidden>
+      <span id="confirm-question"></span>
+      <button type="button" id="confirm-go">Yes</button>
+      <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
     </div>
   </section>
 
-  <section class="card">
+  <section class="card wide" id="history-card">
     <h2>History</h2>
     <div class="table-scroll">
       <table id="history-table">

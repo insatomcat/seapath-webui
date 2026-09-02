@@ -126,6 +126,28 @@ def discovery(request: Request, user: User = viewer) -> Discovery:
     return _service(request).discovery()
 
 
+@router.get("/proposed")
+def proposed(request: Request, user: User = viewer) -> Response:
+    """The standalone inventory this machine would write about itself, now.
+
+    The same document the seed is rendered from, offered on demand and
+    committed by nobody. The editor opens it as a candidate, and the operator
+    is the one who saves it. Reading it changes nothing, so a viewer may.
+    """
+    document = _service(request).proposed_document()
+    if document is None:
+        raise ApiError(
+            "no_proposal",
+            (
+                "This machine could not describe itself: no interface carries "
+                "the default route, so there is no administration address to "
+                "propose. Write the file by hand."
+            ),
+            409,
+        )
+    return Response(content=document, media_type="text/yaml")
+
+
 @router.get("/history")
 def history(
     request: Request,

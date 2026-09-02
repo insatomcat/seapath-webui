@@ -36,9 +36,10 @@ tests.
 
 - The target machines are live electrical substation hypervisors. An apply can
   restart services under running VMs. Confirmations name the impacted machines.
-- Latency is the product. `isolcpus` and the tuning variables are editable but
-  live behind an expert section, and the service itself stays on housekeeping
-  CPUs.
+- Latency is the product. `isolcpus` and the tuning variables are edited in the
+  inventory like any other, and the ceremony sits where a machine actually
+  changes: the apply confirmation names the disruption and the machines. The
+  service itself stays on housekeeping CPUs.
 - The inventory is the audit trail. Every commit carries the authenticated user
   and a generated message. Never write to the repository outside the commit
   path.
@@ -71,10 +72,11 @@ requirements.txt
 
 Host access is confined to two adapters, both under `app/hosts/`: an SSH and
 `ansible-runner` adapter for everything that changes a machine, and a read only
-adapter describing what the machine **is**, which is what the inventory form is
-prefilled from. What a machine is *doing* is not read here at all: every node
-runs `prometheus-node-exporter`, and D13 in [decisions.md](docs/decisions.md)
-records why that boundary is worth defending. Both adapters have a fake
+adapter describing what the machine **is**, which is what the seed inventory is
+written from and what the node view reports. What a machine is *doing* is not
+read here at all: every node runs `prometheus-node-exporter`, and D13 in
+[decisions.md](docs/decisions.md) records why that boundary is worth
+defending. Both adapters have a fake
 implementation, and the whole test suite runs against the fakes, on a laptop,
 with no cluster and no libvirt.
 

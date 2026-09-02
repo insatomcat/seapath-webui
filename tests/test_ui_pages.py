@@ -48,36 +48,78 @@ def test_the_inventory_page_says_what_saving_does_and_does_not_do(
     assert "that is the System page" in body
 
 
-def test_the_two_ways_of_editing_are_on_the_inventory_page_and_only_there(
+def test_the_inventory_page_is_an_editor_over_the_folder(
     signed_in: TestClient,
 ) -> None:
     inventory = signed_in.get("/inventory").text
     system = signed_in.get("/system").text
 
-    # The guided form and the file, side by side, because a form that models a
-    # dozen variables cannot be the only way to change a file holding fifty.
-    assert "One machine, guided" in inventory
-    assert 'id="raw-editor"' in inventory
-    assert 'id="import-file"' in inventory
-    assert "raw-editor" not in system
-    assert "node-form" not in system
+    # The desired state of these machines is a folder, so the page is the
+    # shape of one: the files on the left, the open file on the right.
+    assert 'id="tree"' in inventory
+    assert 'id="editor"' in inventory
+    assert 'class="page split"' in inventory
+    # And editing it happens here and nowhere else.
+    assert 'id="editor"' not in system
+    assert "inventory.js" not in system
 
 
 def test_the_inventory_page_carries_the_folder_around_the_inventory(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/inventory.js").text
 
     # An inventory is rarely alone: a dozen roles name a file this machine has
     # to hold, and the page has to be a way of putting one there.
-    assert "The files beside it" in body
-    assert 'id="files-table"' in body
-    assert 'id="artefacts-table"' in body
-    # And of saying which of them a run would fail to find.
+    assert 'id="add-file"' in body
+    assert 'id="new-file"' in body
+    # The two stores are listed together, since a run overlays them in the same
+    # place, and told apart where an operator reads them, since one is in the
+    # history and the other is not.
+    assert '"Files, versioned with it"' in script
+    assert '"Artefacts, kept out of git"' in script
+    # And every path the inventory names is one click away.
     assert 'id="references-table"' in body
-    # The two stores are told apart where an operator reads them, since one is
-    # in the history and the other is not.
-    assert "kept out of git" in body
+
+
+def test_a_file_the_inventory_names_and_the_folder_lacks_is_in_the_list(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/inventory.js").text
+
+    # A missing file stops a convergence at a task that failed on every host at
+    # once. It is listed among the files that exist, where an operator is
+    # already looking, and clicking it opens it as a file to write.
+    assert '"Named by the inventory, not here"' in script
+    assert "missingEntries" in script
+    assert "tree-item.missing" in signed_in.get("/static/style.css").text
+    assert 'id="tree"' in body
+
+
+def test_the_machine_can_propose_its_own_inventory_into_the_editor(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/inventory.js").text
+
+    # The seed of first boot, on demand: a machine re-cabled since, or one
+    # whose discovery failed then, still has the file it would have written one
+    # click away. It lands in the editor, and saving it is the operator's act.
+    assert 'id="propose"' in body
+    assert "/api/v1/inventory/proposed" in script
+    assert "nothing is committed until you do" in script
+
+
+def test_the_inventory_file_is_saved_against_the_commit_it_was_read_at(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/inventory.js").text
+
+    # Two operators editing the same file from two browsers is the ordinary
+    # case, and refusing the second save beats merging it silently.
+    assert '"If-Match"' in script
 
 
 def test_the_system_page_carries_the_credentials_and_the_button(
@@ -90,7 +132,7 @@ def test_the_system_page_carries_the_credentials_and_the_button(
     assert 'id="host-keys-scan"' in body
     assert 'id="playbooks"' in body
     # And edits nothing: the desired state has one page and it is the other one.
-    assert 'id="import-file"' not in body
+    assert 'id="tree"' not in body
 
 
 def test_the_old_configuration_url_still_leads_somewhere(
@@ -100,18 +142,6 @@ def test_the_old_configuration_url_still_leads_somewhere(
 
     assert response.status_code == 308
     assert response.headers["location"] == "/inventory"
-
-
-def test_the_real_time_fields_are_behind_a_collapsed_expert_section(
-    signed_in: TestClient,
-) -> None:
-    body = signed_in.get("/inventory").text
-
-    # The rule is that the UI never makes a real time relevant change look
-    # routine.
-    assert '<details class="expert">' in body
-    assert "isolcpus" in body
-    assert "Latency is the product" in body
 
 
 def test_the_apply_confirmation_says_what_it_will_disturb(

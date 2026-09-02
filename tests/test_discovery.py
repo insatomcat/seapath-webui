@@ -116,8 +116,8 @@ def test_the_seed_is_a_starting_point_that_still_needs_the_operator(
 
     state = service.state()
 
-    # Discovery proposes. What it cannot know is exactly what the form asks
-    # for, and the warnings are what tells the operator where to look.
+    # Discovery proposes. What it cannot know is exactly what the operator has
+    # to fill in, and the warnings are what tells them where to look.
     assert state.validation.valid
     assert {finding.rule for finding in state.validation.findings} >= {
         "hypervisor_has_ptp",
@@ -135,3 +135,30 @@ def test_a_seed_commit_is_authored_by_the_service_not_by_an_operator(
 
     assert commit.author == "seapath-webui"
     assert "discovery" in commit.message
+
+
+def test_the_proposal_is_offered_on_demand_and_written_by_nobody(
+    tmp_path: Path,
+) -> None:
+    service = InventoryService(
+        InventoryRepository(tmp_path / "inventory"), FakeHostReader()
+    )
+
+    document = service.proposed_document()
+
+    assert document is not None
+    assert "seapath-machine" in document
+    assert "standalone_machine" in document
+    # Asking for it is not writing it. The editor shows it and the operator
+    # decides, which is the difference between a proposal and a decision.
+    assert service.state().seeded is False
+
+
+def test_a_machine_that_cannot_describe_itself_proposes_no_document(
+    tmp_path: Path,
+) -> None:
+    reader = FakeHostReader()
+    reader.network = lambda: NetworkReading()  # type: ignore[method-assign]
+    service = InventoryService(InventoryRepository(tmp_path / "inventory"), reader)
+
+    assert service.proposed_document() is None

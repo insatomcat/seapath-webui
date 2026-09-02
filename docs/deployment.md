@@ -106,7 +106,7 @@ Thirteen bind mounts, in four groups:
 | Group | Mounts | Why |
 |---|---|---|
 | Service state and trust | `/etc/seapath/webui`, `/etc/seapath/inventory`, `/var/lib/seapath-webui`, `/home/ansible/.ssh`, `/etc/ssh` | The configuration plane, which is SSH and nothing else |
-| Hardware and identity | `/sys`, `/dev/disk`, `/etc/hostname`, `/etc/os-release`, `/etc/corosync` | What the inventory form is prefilled from |
+| Hardware and identity | `/sys`, `/dev/disk`, `/etc/hostname`, `/etc/os-release`, `/etc/corosync` | What the seed inventory and the node view are written from |
 | Runtime plane, M2 | libvirt socket, `/etc/ceph` | Starting, stopping and migrating VMs |
 | Authentication | `/etc` at `/run/host/etc` | PAM against the machine's own accounts |
 
@@ -123,7 +123,7 @@ refuses.
 ### What the reading needs, and the reading that was removed
 
 The reading answers one question: **what is this machine?** Its hardware, its
-identity, its cluster membership. That is what the inventory form is prefilled
+identity, its cluster membership. That is what the seed inventory is written
 from at first boot, and it is the question no exporter answers.
 
 It used to answer a second one, what the machine is currently *doing*, and that

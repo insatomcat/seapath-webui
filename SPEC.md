@@ -32,7 +32,7 @@ running the playbooks, move into the cluster itself.
 Four responsibilities, and nothing else:
 
 1. **Hold and edit the inventory.** A git repository replicated across the
-   nodes, edited through guided forms, exportable at any time.
+   nodes, edited as the folder of files it is, exportable at any time.
 2. **Broker trust between nodes,** so that any node can act as the Ansible
    control machine for the others. A manual secret exchange, Proxmox style,
    bootstraps it.
@@ -60,11 +60,12 @@ Proxmox clone:
 ### In scope
 
 - Node local HTTPS service on every SEAPATH machine, shipped in the ISO.
-- A guided inventory editor, seeded by hardware discovery on first boot.
+- An editor over the inventory folder, seeded by hardware discovery on first
+  boot.
 - The trust exchange that lets nodes drive each other.
 - Running the upstream playbooks, with progress, logs, and history.
 - Read only observation of what a node **is**: its hardware, its identity and
-  its cluster membership, which is what the inventory form is prefilled from.
+  its cluster membership, which is what an inventory is written against.
 - VM runtime operations through `vm_manager`.
 
 ### Out of scope
@@ -102,8 +103,8 @@ target deployment.
 2. **First boot.** The node discovers its hardware and writes a minimal local
    inventory describing itself: admin interface and address, NICs, disks, CPU
    topology. The inventory is generated, not authored.
-3. **Configure standalone.** The operator fills the guided form, which fills the
-   `TODO` fields of the inventory, then applies. The service runs
+3. **Configure standalone.** The operator fills in the `TODO` fields of the
+   inventory the node wrote about itself, then applies. The service runs
    `seapath_setup_main.yaml` against this machine only, over the same SSH path
    it would use for any other node. A standalone machine is configured by
    Ansible, exactly like a cluster one, which is why the self trust is
@@ -225,8 +226,8 @@ Specified in [docs/cluster-join.md](docs/cluster-join.md). Summary:
 ## 7. Inventory
 
 Specified in [docs/inventory.md](docs/inventory.md). Summary: a git repository
-per node, a single writer under quorum, the commit hash as the version, guided
-forms mapping to the documented variables, and hardware discovery to seed it.
+per node, a single writer under quorum, the commit hash as the version, an
+editor over every file in the folder, and hardware discovery to seed it.
 
 The repository holds a folder rather than one file, because a dozen roles take
 a path to a file the control machine holds. A run mounts that folder where a
@@ -269,8 +270,9 @@ archives, live in a store beside the repository that git does not carry.
 only node view, container, quadlet, test harness. No writing anywhere.
 
 **M1 - standalone by inventory.** Self trust at first boot, hardware discovery,
-inventory repository, guided forms, `ansible-runner` integration, run view with
-the event stream, and `seapath_setup_main.yaml` applied to the local machine. At
+inventory repository, the folder editor, `ansible-runner` integration, run view
+with the event stream, and `seapath_setup_main.yaml` applied to the local
+machine. At
 the end of M1 the ISO produces a machine configurable from a browser with no
 fourth machine, which is the core of the request.
 

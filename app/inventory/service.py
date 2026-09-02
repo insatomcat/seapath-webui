@@ -329,8 +329,9 @@ class InventoryService:
     def _refuse_the_inventory(self, path: str) -> None:
         if tree.relative_path(path).as_posix() == INVENTORY_FILENAME:
             raise RefusedFile(
-                "The inventory itself is edited by the form or by the file "
-                "editor, where it is validated before it is committed."
+                "The inventory itself is written through the editor, where it "
+                "is parsed, checked against the rules and put to Ansible "
+                "before it is committed."
             )
 
     # The artefacts, which are the same files without the history
@@ -449,12 +450,27 @@ class InventoryService:
             )
         return edited
 
+    def proposed_document(self) -> str | None:
+        """The standalone inventory this machine would write about itself.
+
+        The seed, rendered on demand and committed by nobody: the page puts it
+        in the editor and the operator decides. A machine re-cabled after
+        installation, one whose discovery failed at first boot, and one whose
+        file somebody emptied all want the same thing, and none of them wants a
+        service that writes it for them.
+
+        None when the machine cannot describe itself, which beats a file full
+        of placeholders that look like decisions.
+        """
+        candidate = seed_inventory(self.discovery())
+        return render(candidate) if candidate is not None else None
+
     def ensure_seed(self) -> bool:
         """Write the inventory a node produces about itself at first boot.
 
         Only ever writes when the repository has none. Discovery proposes, so
-        the seed is a starting point the operator confirms through the form,
-        not a desired state anybody asked for.
+        the seed is a starting point the operator confirms in the editor,
+        rather than a desired state anybody asked for.
         """
         self._repository.initialise()
         if self._repository.read().strip():
@@ -463,7 +479,7 @@ class InventoryService:
         if candidate is None:
             logger.warning(
                 "This machine could not describe itself, so no seed inventory "
-                "was written. The form starts empty."
+                "was written. The editor starts on an empty file."
             )
             return False
         self._repository.commit(

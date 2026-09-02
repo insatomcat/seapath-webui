@@ -102,12 +102,16 @@ button:disabled {
   padding: 0.7rem;
 }
 
+/* `pre-wrap`, because the refusals worth reading in full are the ones that
+   arrive shaped: a YAML parser points at the column it stopped on with a line
+   of its own underneath, and reflowing that loses the answer. */
 .error {
   margin-top: 1rem;
   padding: 0.6rem 0.8rem;
   background: rgba(217, 83, 79, 0.12);
   border-left: 3px solid var(--bad);
   color: #f4b9b7;
+  white-space: pre-wrap;
 }
 
 .hint {
@@ -441,21 +445,6 @@ h3 {
   font-size: 0.8rem;
 }
 
-/* The expert section is collapsed by default. The rule is that the UI never
-   makes a real-time relevant change look routine. */
-.expert {
-  margin-top: 1.5rem;
-  padding: 0.75rem 1rem;
-  border: 1px solid var(--isolated);
-  border-radius: 6px;
-}
-
-.expert summary {
-  color: var(--isolated);
-  cursor: pointer;
-  font-weight: 600;
-}
-
 /* A file the inventory names and this node does not hold. A run would stop at
    the task that copies it, on every host at once, so the row says so where the
    path is. */
@@ -708,12 +697,133 @@ button.secondary {
   border-left: 3px solid var(--warn);
 }
 
-/* The raw inventory editor. Monospace and full width, because what is being
-   edited is a file whose indentation carries meaning. */
-#raw-editor {
+/* The inventory page: the folder on the left, the file open on the right.
+   The desired state of these machines is a folder, so the page is the shape of
+   one. */
+
+.tree {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree-group {
+  margin: 1rem 0 0.25rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tree-group:first-child {
+  margin-top: 0;
+}
+
+.tree-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
   width: 100%;
+  padding: 0.3rem 0.5rem;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-item:hover {
+  background: rgba(74, 158, 255, 0.07);
+}
+
+.tree-item.current {
+  background: rgba(74, 158, 255, 0.14);
+  color: var(--accent);
+}
+
+/* `anywhere`, so a path longer than the rail wraps rather than widening it. */
+.tree-name {
+  flex: 1;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
+.tree-note {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* A file the inventory names and this folder does not hold. It is listed
+   among the files that do exist, in the colour of a warning, because that is
+   where an operator is looking when they need to know. */
+.tree-item.missing .tree-name,
+.tree-item.missing .tree-note {
+  color: var(--warn);
+}
+
+.new-file,
+.pending li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.pending {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.new-file input,
+.pending input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.8rem;
+}
+
+.editor-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.editor-path {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.editor-meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* Monospace, full width and tall: what is being edited is a file whose
+   indentation carries meaning, and the page exists to edit it rather than to
+   frame it. */
+#editor {
+  width: 100%;
+  min-height: 60vh;
   margin-top: 0.75rem;
   padding: 0.6rem 0.8rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8rem;
   line-height: 1.5;
@@ -721,13 +831,24 @@ button.secondary {
   white-space: pre;
   overflow-wrap: normal;
   overflow-x: auto;
+  resize: vertical;
 }
 
-#raw-details summary,
-#import-details summary {
-  cursor: pointer;
+.confirm-line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   margin-top: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: rgba(217, 164, 65, 0.1);
+  border-left: 3px solid var(--warn);
+  color: #eccd93;
+}
+
+#references-details summary {
+  margin-top: 1rem;
   color: var(--muted);
+  cursor: pointer;
 }
 
 /* The console */

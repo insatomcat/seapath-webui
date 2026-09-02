@@ -348,7 +348,11 @@ And it does not accept a passphrase protected key: nothing here can type a
 passphrase during a run at three in the morning, and storing the passphrase next
 to the key it protects is a decision dressed as a feature.
 
-## D16 - Settled: the guided form and the file are both editors, on the same page
+## D16 - Superseded by [D20](#d20): the guided form and the file are both editors, on the same page
+
+Kept here for its reasoning, which [D20](#d20) answers point by point after the
+form met the workflow it was built for. The page split it describes still
+holds.
 
 Once the inventory could be edited as a file, the per machine form looked
 redundant, and the question was asked directly: why is there a machine section
@@ -377,7 +381,7 @@ YAML. So the page split along the line the whole design already draws:
 
 | Page | Question |
 |---|---|
-| `/inventory` | What should these machines be? The file, guided form and text area side by side, and its history |
+| `/inventory` | What should these machines be? The folder and its history |
 | `/system` | What makes it so? The site key, the host keys, and the runs |
 
 The related request was for a "system configuration" tab, for fixing a machine
@@ -549,3 +553,42 @@ says what it says.
 This decision covers the shell on **this** node. A console into a guest is
 still [D5](#d5---open-vm-console), still out of scope, and still a different
 problem: it is a proxy into a machine this service does not administer.
+## D20 - Settled: the inventory page is an editor over the folder, and the form is gone
+
+[D16](#d16) kept the guided form beside the file and argued that what it held
+could not be typed into a text area. Use answered it: the operator's whole
+workflow was "Edit the inventory file" and save. The form modelled eleven
+variables of a file that holds fifty, so the page offered two ways to change
+one file, agreeing about a fraction of it, under a heading that read like a
+machine's settings.
+
+SEAPATH configures a machine through an inventory, standalone included. The
+page is now the shape of what it edits: the folder on the left, the open file
+on the right, and the acts a folder has. Open, edit, save, add, delete, each
+one a commit.
+
+What that costs, named rather than discovered:
+
+- **Discovery no longer fills fields in.** It fills the file instead: "Propose
+  a standalone inventory" renders what this machine describes for itself,
+  through `GET /inventory/proposed`, into the editor as an unsaved candidate.
+  That is the seed of first boot offered at any time, and it covers the machine
+  re-cabled since installation as well as the one whose discovery failed then.
+  The NIC names, the disks by their stable path and the CPU count are also on
+  `/`, which is the page that answers what this machine is, and an operator
+  writing `eno12429` reads them there.
+- **`grub_password` has to be hashed elsewhere.** `grub-mkpasswd-pbkdf2`, or
+  `PATCH /inventory/hosts/{name}` with `grub_password_plain`, which hashes it
+  and commits only the hash. Typing a password into the file in clear puts it
+  in the git history for good, and the file editor cannot stop that.
+- **The expert section went with the form**, so `isolcpus` is typed like every
+  other variable. The rule it served, that the UI never makes a real time
+  relevant change look routine, now lives entirely where the machine actually
+  changes: the apply confirmation on `/system`, which names the disruption and
+  the machines before anything runs. Editing the file changes no machine.
+
+What the page gained is the folder. Every file the inventory names is listed,
+editable in place, and the ones it names that nothing here holds are listed
+too, in the colour of a warning: a missing quadlet is a convergence that stops
+at the task copying it, on every host at once, and the answer is now one click
+rather than a search.

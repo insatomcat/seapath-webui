@@ -20,9 +20,10 @@ cluster itself.
 Concretely, the service does four things:
 
 1. holds the inventory in a git repository replicated across the nodes, and
-   edits it through guided forms seeded by hardware discovery. The repository
-   holds the whole folder, meaning the quadlets, rules and templates the
-   inventory names, mounted at run time where a control machine would put them;
+   edits it as the folder of files it is, seeded by hardware discovery. The
+   repository holds the whole folder, meaning the quadlets, rules and templates
+   the inventory names, mounted at run time where a control machine would put
+   them;
 2. brokers SSH trust between nodes, bootstrapped by a manual secret exchange in
    the Proxmox style, so any node can drive the others;
 3. runs the upstream playbooks with `ansible-runner` and turns their event
@@ -37,9 +38,9 @@ the UI runs is what the CI tests.
 
 **M1**, pending validation on real hardware. A machine installed from the ISO
 provisions its own SSH trust, describes itself into a git inventory, and is
-configured from a browser with no Ansible control machine anywhere: guided
-forms edit the inventory, and the upstream playbooks are run with
-`ansible-runner` from the collection built into the image.
+configured from a browser with no Ansible control machine anywhere: the
+inventory folder is edited file by file, and the upstream playbooks are run
+with `ansible-runner` from the collection built into the image.
 
 **M0** before it: skeleton, PAM authentication with sessions and CSRF, TLS
 material generated at first boot, the read only node view and its API, the

@@ -82,7 +82,7 @@ playbook that reboots the host running it.
 | 1 | After the first start, `/home/ansible/.ssh/authorized_keys` still holds the ISO's site key, with one line appended | The suite proves the editing; only a real ISO proves the file it starts from | |
 | 2 | `ssh -i /etc/seapath/webui/ssh/id_ed25519_self ansible@<ip_addr> true` succeeds from inside the container, with no prompt | The whole self trust: the key, the `from=` restriction, and the `known_hosts` read from `/etc/ssh` | |
 | 3 | The seed inventory describes this machine correctly: address, interface, prefix, gateway | Discovery against a real `ip -j addr` and a real default route | |
-| 4 | Filling the form and saving produces a commit whose author is the operator, visible in `git -C /etc/seapath/inventory log` | | |
+| 4 | Editing the inventory in the page and saving produces a commit whose author is the operator, visible in `git -C /etc/seapath/inventory log` | | |
 | 5 | Exporting the inventory, then running `seapath_setup_main.yaml` from a conventional Ansible control machine, reports **no change** | **The acceptance criterion that matters.** If it fails, something configured a machine behind Ansible's back | |
 | 6 | A preview run (`check: true`) of `seapath_setup_main.yaml` completes and changes nothing | Check mode against real roles | |
 | 7 | A real `seapath_setup_main.yaml` with "converge without rebooting" succeeds, and the node view keeps saying the machine has not rebooted | | |
@@ -92,11 +92,11 @@ playbook that reboots the host running it.
 | 11 | After the reboot, the service marks the interrupted run closed and the run lock is free | A lock nobody releases is a node that can never converge again | |
 | 12 | Cockpit still works after the run, meaning `deploy_cockpit_plugins` found its archives | The `build_ignore` problem: without the image's restore step this task fails and takes the run with it | |
 | 13 | `GET /playbooks` marks as unavailable any entry the shipped collection does not carry, naming the collection version | Depends on what the image was built from | Passed on elabo1 on 2026-08-31, against the image built from `seapathalloc`: the thirteen entries come back available, `seapath_setup_prometheus_exporters` and `seapath_setup_deploy_seapath_alloc` included, and those two are what an image built from `main` reports unavailable |
-| 14 | The administration address changed through the form, then applied, leaves the self trust working after the reboot | The `from=` repair at startup | |
+| 14 | The administration address changed in the page, then applied, leaves the self trust working after the reboot | The `from=` repair at startup | |
 | 15 | `cyclictest` on the isolated CPUs is unchanged with a run in progress | A convergence must not disturb a running guest | |
-| 16 | On a node whose repository holds only the seed, the form saves and the file keeps its rendered shape | The editor must leave a freshly installed machine alone | Pending |
+| 16 | On a node whose repository holds only the seed, a save from the page commits the file byte for byte as it was typed, comments included | The page must leave a freshly installed machine alone | Pending |
 | 17 | The site's own inventory, imported from the browser, shows every machine with its group variables resolved, no validation finding, and `this_host` naming this machine | The read only version of this check passed on elabo1 on 2026-08-31. Re-run against the importer | Pending |
-| 18 | After 17, changing one field through the form produces a commit whose diff is that one field, with every comment and every group variable of the site file still in place | The claim the editor makes, against a file no fixture can fully stand in for | Pending |
+| 18 | After 17, changing one variable in the page produces a commit whose diff is that one line, with every comment and every group variable of the site file still in place | The claim the page makes, against a file no fixture can fully stand in for | Pending |
 | 19 | The site key uploaded through the page reports the fingerprint `ssh-keygen -lf` prints for it, and `/etc/seapath/webui/ssh/id_site` is `0600` | | Pending |
 | 20 | Scanning the inventory's machines reports fingerprints matching `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` read on each machine | The scan is over the network, and comparing it against the machine is the whole point | Pending |
 | 21 | After accepting them, a check mode run of `seapath_setup_main.yaml` reaches all three machines and reports no unreachable host | **The one that says the interim path works.** Everything before it can pass with a cluster nobody can converge | Pending |

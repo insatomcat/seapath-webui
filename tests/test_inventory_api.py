@@ -50,6 +50,22 @@ def test_the_seed_is_what_discovery_proposed(signed_in: TestClient) -> None:
     assert node["ptp_interface"] is None
 
 
+def test_the_machine_offers_the_inventory_it_would_write_about_itself(
+    signed_in: TestClient,
+) -> None:
+    before = signed_in.get("/api/v1/inventory").json()["commit"]
+
+    document = signed_in.get("/api/v1/inventory/proposed")
+    parsed = yaml.safe_load(document.text)
+
+    assert document.status_code == 200
+    assert "seapath-machine" in parsed["all"]["hosts"]
+    # Standalone, which is what a machine on its own can honestly claim to be.
+    assert "seapath-machine" in parsed["standalone_machine"]["hosts"]
+    # And nothing was committed: the operator saves it, or does not.
+    assert signed_in.get("/api/v1/inventory").json()["commit"] == before
+
+
 def test_the_raw_inventory_is_the_file_itself(signed_in: TestClient) -> None:
     raw = signed_in.get("/api/v1/inventory/raw").text
 
