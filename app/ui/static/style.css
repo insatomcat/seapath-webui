@@ -840,8 +840,11 @@ button.secondary {
   color: var(--muted);
 }
 
+/* The stream is where the detail card's height is taken from: it already
+   scrolls, and it follows its own tail, so the lines a shorter window drops
+   are the old ones. About six rows fewer, which is a tenth of the card. */
 .stream {
-  max-height: 26rem;
+  max-height: 20rem;
   margin-top: 0.5rem;
   padding: 0.6rem;
   overflow: auto;
