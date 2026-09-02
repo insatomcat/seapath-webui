@@ -18,11 +18,14 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api import v1
+from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
+from app.console.service import ConsoleService
 from app.core.auth import (
     Authenticator,
     DevAuthenticator,
     DevRoleDirectory,
     PamAuthenticator,
+    Role,
     RoleDirectory,
     UnixGroupDirectory,
 )
@@ -80,6 +83,14 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("seapath-webui stopping")
 
 
+def _default_console_adapter(settings: Settings) -> ConsoleAdapter:
+    if settings.use_fakes:
+        from app.console.fake import FakeConsoleAdapter
+
+        return FakeConsoleAdapter()
+    return SshConsoleAdapter()
+
+
 def _default_run_adapter(settings: Settings) -> RunAdapter:
     if settings.use_fakes:
         # The development switch has to cover the run adapter too. A service
@@ -98,6 +109,7 @@ def create_app(
     role_directory: RoleDirectory | None = None,
     session_secret: bytes | None = None,
     run_adapter: RunAdapter | None = None,
+    console_adapter: ConsoleAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -145,6 +157,20 @@ def create_app(
         ttl_seconds=settings.session_ttl_seconds,
     )
     app.state.node_service = NodeService(reader, settings.collection_version)
+    app.state.console_service = ConsoleService(
+        console_adapter or _default_console_adapter(settings),
+        target=settings.console_target,
+        user=settings.ansible_user,
+        # The key and the record the self trust provisions at every start. A
+        # console is the same connection a run makes, which is what keeps this
+        # from being a second way into the machine.
+        private_key_file=settings.self_private_key_file,
+        known_hosts_file=settings.known_hosts_file,
+        enabled=settings.console_enabled,
+        required_role=Role(settings.console_min_role),
+        max_sessions=settings.console_max_sessions,
+        idle_timeout_seconds=settings.console_idle_timeout_seconds,
+    )
 
     # The node's own name, from the mounted /etc/hostname rather than from this
     # container's UTS namespace. It is the inventory host key, the name in the

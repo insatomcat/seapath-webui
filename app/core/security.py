@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import HTTPConnection
 
 from app.core.auth import Role, User
 from app.core.errors import AuthenticationRequired, PermissionDenied
@@ -20,18 +21,22 @@ from app.core.settings import Settings
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 
-def get_settings_from(request: Request) -> Settings:
-    return request.app.state.settings
+def get_settings_from(connection: HTTPConnection) -> Settings:
+    return connection.app.state.settings
 
 
-def get_sessions_from(request: Request) -> SessionStore:
-    return request.app.state.sessions
+def get_sessions_from(connection: HTTPConnection) -> SessionStore:
+    return connection.app.state.sessions
 
 
-def current_session(request: Request) -> Session | None:
-    settings = get_settings_from(request)
-    cookie = request.cookies.get(settings.session_cookie_name)
-    return get_sessions_from(request).resolve(cookie)
+# An `HTTPConnection` rather than a `Request` because the console is a
+# websocket, and a websocket handshake carries the same cookies. Everything
+# these three need, the application state and the cookies, is on the base
+# class both share.
+def current_session(connection: HTTPConnection) -> Session | None:
+    settings = get_settings_from(connection)
+    cookie = connection.cookies.get(settings.session_cookie_name)
+    return get_sessions_from(connection).resolve(cookie)
 
 
 def require_user(request: Request) -> User:

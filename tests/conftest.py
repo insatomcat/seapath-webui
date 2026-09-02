@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.console.fake import FakeConsoleAdapter
 from app.core.auth import Role
 from app.core.settings import Settings
 from app.hosts.fake import FakeHostReader
@@ -103,6 +104,11 @@ def run_adapter() -> FakeRunAdapter:
 
 
 @pytest.fixture
+def console_adapter() -> FakeConsoleAdapter:
+    return FakeConsoleAdapter()
+
+
+@pytest.fixture
 def authenticator() -> FakeAuthenticator:
     return FakeAuthenticator(
         {"admin": "secret", "viewer": "secret", "nobody": "secret"}
@@ -121,6 +127,7 @@ def client(
     authenticator: FakeAuthenticator,
     directory: FakeRoleDirectory,
     run_adapter: FakeRunAdapter,
+    console_adapter: FakeConsoleAdapter,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -129,6 +136,7 @@ def client(
         role_directory=directory,
         session_secret=b"test-secret",
         run_adapter=run_adapter,
+        console_adapter=console_adapter,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client

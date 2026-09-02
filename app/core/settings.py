@@ -87,6 +87,31 @@ class Settings(BaseSettings):
     # verifies, and what the trust exchange pins, is the fingerprint.
     tls_additional_sans: str = ""
 
+    # The console. A terminal in the browser, on the machine this service runs
+    # on, over the same ssh path a run uses. A site that wants no shell served
+    # from here turns this off, which takes the endpoint away along with the
+    # button.
+    console_enabled: bool = True
+    # The loopback rather than the administration address: the quadlet puts
+    # this container in the host network namespace, so 127.0.0.1 is the host's
+    # sshd; the self trust names the loopback in its `from=` clause; and
+    # `known_hosts` records it at every start. An address change therefore
+    # cannot break the console.
+    console_target: str = "127.0.0.1"
+    # Who may open one. The default is every authenticated account, which is
+    # what a node local UI on a machine whose operators already have accounts
+    # is for. Raise it to `operator` or `admin` on a site where reading the
+    # node view and holding a shell on it are meant to be different rights:
+    # the account the console reaches has passwordless sudo, so a console is
+    # root on this machine whatever the role that opened it.
+    console_min_role: str = "viewer"
+    # Concurrent consoles. Enough for two operators and a forgotten tab, few
+    # enough that a page reloading in a loop cannot exhaust the node's sshd.
+    console_max_sessions: int = 4
+    # A console with nobody typing into it is closed. 0 disables the timeout,
+    # which is a decision a site can make and this service will not make for it.
+    console_idle_timeout_seconds: int = 900
+
     # D6: the ISO must produce a machine reachable from a browser with no prior
     # Ansible run, so root is accepted as an administrator. Sites that harden
     # further can turn this off once another account exists.

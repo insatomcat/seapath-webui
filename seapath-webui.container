@@ -92,6 +92,13 @@ Environment=PYTHONUNBUFFERED=1
 # cluster_ip_addr. Only affects how loudly the browser complains: what the
 # operator verifies is the fingerprint printed on the console.
 #Environment=SEAPATH_WEBUI_TLS_ADDITIONAL_SANS=192.168.200.121,192.168.55.1
+# The console, meaning the terminal the node view opens on this machine over
+# the same ssh path a run uses. It lands on the `ansible` account, which has
+# passwordless sudo, so a site where signing in to this UI and holding a shell
+# on the machine are meant to be different rights raises the role, and one that
+# wants no shell served from here turns it off. See D19 in docs/decisions.md.
+#Environment=SEAPATH_WEBUI_CONSOLE_MIN_ROLE=admin
+#Environment=SEAPATH_WEBUI_CONSOLE_ENABLED=0
 
 [Service]
 Restart=always

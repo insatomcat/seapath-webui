@@ -490,3 +490,53 @@ The limit between the two is a size rather than a file type. A file over the
 limit is refused by the versioned folder with the artefacts named in the
 refusal, because the alternative is an operator who cannot tell why one upload
 worked and another did not.
+
+## D19 - Settled: the shell is served here, over the connection a run makes
+
+[SPEC.md](../SPEC.md) put the shell with Cockpit, and this takes it back. The
+node view has a button that opens a terminal on the machine the service runs
+on, in the browser, beside the readings the same page shows.
+
+The reasoning is that the alternative was worse in the one way that matters
+here. Sending an operator to Cockpit for a shell means a second service, a
+second port, a second authentication and a second certificate to trust, at the
+moment when what is wanted is one command on the machine already on screen. The
+first minutes of a node are exactly when something is wrong with it, and D6
+exists because that machine must be usable from a browser before anything has
+converged.
+
+What keeps this from being a hole in [D1](#d1---settled-the-ui-edits-the-inventory-it-does-not-configure-machines):
+
+- **It opens no access this service did not already have.** The console is one
+  `ssh` to the `ansible` account with the key the self trust provisioned, over
+  the loopback, with the `known_hosts` the startup wrote. That is the
+  connection every run makes. A console gives what `ansible-runner` is given,
+  and this service holds no other credential to offer.
+- **It configures nothing.** The service still writes only the inventory and
+  the trust material. What an operator types is theirs, and the panel says, on
+  every open, that it is invisible to the inventory and undone by the next run
+  that touches it.
+- **It is bounded.** The container spawns the client the image already carries,
+  in a pseudo terminal, with `BatchMode` so a refused key cannot become a
+  prompt nobody can answer, without the multiplexed connection a run holds
+  open, and with the ssh client configuration ignored so the connection is what
+  the command line says it is. Sessions are capped and idle ones are closed.
+
+The cost, stated rather than hidden: **the `ansible` account has passwordless
+`sudo`, so a console is root on this node.** The role required to open one is
+therefore a setting, `SEAPATH_WEBUI_CONSOLE_MIN_ROLE`, and the console can be
+turned off entirely with `SEAPATH_WEBUI_CONSOLE_ENABLED=0`. The default is
+`viewer`, meaning every authenticated account: on a node local UI whose accounts
+are the machine's own Unix accounts, someone who can sign in here can already
+ssh to the machine. A site that wants those to be different rights raises the
+setting, and no release is needed to do it.
+
+The audit story is honest and thin. `git log` records who changed the desired
+state and a run record records who launched it; a shell records neither, so
+what exists is a journal line naming the account that opened the console and
+one naming its exit. That is the whole trace, which is the reason the panel
+says what it says.
+
+This decision covers the shell on **this** node. A console into a guest is
+still [D5](#d5---open-vm-console), still out of scope, and still a different
+problem: it is a proxy into a machine this service does not administer.

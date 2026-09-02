@@ -729,3 +729,87 @@ button.secondary {
   margin-top: 0.75rem;
   color: var(--muted);
 }
+
+/* The console */
+
+.card-actions {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+/* The button keeps its label on one line: the note beside it is what gives
+   way when the card is narrow. */
+.card-actions button {
+  flex: none;
+  white-space: nowrap;
+}
+
+.card-actions .legend {
+  margin: 0;
+}
+
+/* The panel fills the window rather than centring a small box: a terminal is
+   read in columns and lines, and every one the modal takes for itself is one
+   the shell does not get. */
+.console-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(100rem, 96vw);
+  height: 88vh;
+  padding: 1rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.console-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.console-head h2 {
+  margin: 0;
+  font-size: 0.95rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.console-target {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--accent);
+}
+
+.console-state {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.console-state.ok {
+  color: var(--ok);
+}
+
+.console-state.bad {
+  color: var(--bad);
+}
+
+/* xterm.js measures the element it is opened in, so it needs one with a size
+   of its own: a flex child that may shrink, and a minimum of zero so the
+   terminal decides the height rather than the other way round. */
+.console-screen {
+  flex: 1;
+  min-height: 0;
+  padding: 0.5rem;
+  background: #0b0f15;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.console-panel .legend {
+  margin-bottom: 0;
+}

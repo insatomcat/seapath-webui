@@ -204,13 +204,16 @@
     // be open when the first one arrives.
     warnings = new Set();
     try {
-      await Promise.all([
+      const [chrome] = await Promise.all([
         Chrome.load(),
         loadSummary(),
         loadCpu(),
         loadNetwork(),
         loadDisks(),
       ]);
+      // After the readings, and with the role the top bar just resolved: what
+      // the console button offers depends on who is looking at it.
+      await Console.describe(chrome.me);
     } catch (failure) {
       if (failure.status === 401) {
         window.location.assign("/login");

@@ -5,6 +5,10 @@ SPDX-License-Identifier: Apache-2.0
 {% extends "base.html" %}
 {% block title %}Node - SEAPATH{% endblock %}
 
+{% block head %}
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+{% endblock %}
+
 {% block body %}
 <main class="page">
   <p class="banner" id="banner" hidden></p>
@@ -12,6 +16,10 @@ SPDX-License-Identifier: Apache-2.0
   <section class="card" id="card-summary">
     <h2>Machine</h2>
     <dl id="summary"></dl>
+    <div class="card-actions">
+      <button id="console-open" type="button" hidden>Open a console</button>
+      <p class="legend" id="console-note"></p>
+    </div>
   </section>
 
   <section class="card" id="card-cpu">
@@ -59,9 +67,31 @@ SPDX-License-Identifier: Apache-2.0
       partition table, is not visible here and reads as available.
     </p>
   </section>
+  <div class="modal" id="console-modal" hidden>
+    <div class="console-panel">
+      <div class="console-head">
+        <h2>Console</h2>
+        <span class="console-target" id="console-target"></span>
+        <span class="console-state" id="console-state"></span>
+        <button id="console-reconnect" type="button" hidden>Reconnect</button>
+        <button id="console-close" type="button">Close</button>
+      </div>
+      <div class="console-screen" id="console-screen"></div>
+      <p class="legend">
+        This is a shell on this machine, opened over the same SSH path a run
+        uses, so it lands on the <code>ansible</code> account and that account
+        has passwordless <code>sudo</code>. Nothing typed here is part of the
+        desired state: a change made in this terminal is invisible to the
+        inventory and is undone by the next run that touches it.
+      </p>
+    </div>
+  </div>
 </main>
 {% endblock %}
 
 {% block scripts %}
+<script src="/static/vendor/xterm.js"></script>
+<script src="/static/vendor/addon-fit.js"></script>
+<script src="/static/console.js"></script>
 <script src="/static/node.js"></script>
 {% endblock %}

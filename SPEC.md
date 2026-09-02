@@ -73,7 +73,10 @@ Proxmox clone:
 - Editing files on the host outside of an Ansible run. The service writes the
   inventory and the trust material, and nothing else.
 - Fleet operations across several clusters.
-- Replacing Cockpit, which keeps shell, logs and low level access.
+- Replacing Cockpit, which keeps logs and low level access. The shell is the
+  exception, and a deliberate one: the node view opens a terminal on the
+  machine it runs on, over the same SSH path a run uses. See D19 in
+  [decisions.md](docs/decisions.md).
 - **Monitoring.** Unit states, the journal, the clock offset, load: every node
   runs `prometheus-node-exporter`, and that is where live state is read and
   alerted on. A node local UI holding a second source of truth for it earns

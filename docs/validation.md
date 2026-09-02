@@ -101,6 +101,12 @@ playbook that reboots the host running it.
 | 20 | Scanning the inventory's machines reports fingerprints matching `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` read on each machine | The scan is over the network, and comparing it against the machine is the whole point | Pending |
 | 21 | After accepting them, a check mode run of `seapath_setup_main.yaml` reaches all three machines and reports no unreachable host | **The one that says the interim path works.** Everything before it can pass with a cluster nobody can converge | Pending |
 | 22 | Removing the site key makes the same run fail on the two other machines, and only on them | A revocation that does not revoke is worse than no button | Pending |
+| 23 | The console opens from the node view, the prompt is the `ansible` account of this machine, and `hostname` in it answers the machine's name | The whole point: a pseudo terminal, a real sshd, and the key the self trust provisioned. The suite only ever spawns a fake | Pending |
+| 24 | Resizing the browser window reflows the shell, meaning `stty size` in the console reports the new geometry | `TIOCSWINSZ` on the master and the `SIGWINCH` that follows it, which only a real `ssh` acts on | Pending |
+| 25 | `sudo -n true` succeeds in the console, and the panel had already said it would | The consequence the site has to accept before enabling this, said out loud rather than discovered | Pending |
+| 26 | A run launched while a console is open is unaffected, and the console survives the run | The run holds a multiplexed connection open; the console must not join it or break it | Pending |
+| 27 | Leaving the console untouched for the idle timeout closes it, saying why, and the Reconnect button opens a new one | A timeout nobody sees firing is a timeout nobody trusts | Pending |
+| 28 | With `SEAPATH_WEBUI_CONSOLE_ENABLED=0`, the button is gone and the websocket refuses with `console_disabled` | A site that turns the shell off must find it off, endpoint included | Pending |
 
 Check 5 is the one that decides whether the milestone is real. Everything else
 can pass while the product claim is false.

@@ -64,6 +64,7 @@ node can run it right now.
 | Action | Role |
 |---|---|
 | Read anything: node, inventory, history, runs, catalogue, trust relations | `viewer` |
+| Open a console on this node | `viewer`, raised with `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` |
 | Cancel a run | `operator` |
 | Commit an inventory change, revert, launch a run, revoke a trust relation | `admin` |
 
@@ -203,6 +204,8 @@ reboot a machine whose run asked for `skip_reboot_setup`, and would send
 | GET | `/node/cpu` | Topology, isolated set, per core busy ratio |
 | GET | `/node/network` | Interfaces, addresses, link state, default route |
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |
+| GET | `/node/console` | Whether a console can be opened here, on which account, and how many are open |
+| WS | `/node/console/ws` | The console itself: a shell on this machine |
 | GET | `/cluster` | Corosync ring, quorum, Pacemaker nodes, configuration lead, stale copies |
 | GET | `/cluster/resources` | Pacemaker resources and their placement |
 | GET | `/conformance` | Result of the last check run per host, and its age |
@@ -236,6 +239,45 @@ the table would be wrong:
 `/node/cpu` reports a busy ratio per CPU measured between two polls, not an
 average since boot. The first call after a start returns `null`, which is
 honest: on a machine up for months the since-boot average says nothing.
+
+### The console
+
+`GET /node/console` describes what the console would be: whether it is enabled,
+which account it lands on, the role it requires, the idle timeout, and how many
+of the allowed sessions are open. The page reads it before showing the button,
+so a console that is turned off or already at its limit is visible rather than
+discovered on click.
+
+The session itself is the websocket at `/node/console/ws`, the one endpoint in
+this API that is a stream.
+
+- The browser sends JSON text frames, `{"type": "input", "data": "..."}` and
+  `{"type": "resize", "columns": n, "lines": n}`. The node sends the terminal's
+  bytes as **binary** frames, and JSON text frames for the events around them:
+  `ready` once the terminal is open, `error` when it will not be.
+- Binary rather than JSON escaped text because a terminal stream is not text
+  until an emulator has decoded it, and a UTF-8 sequence split across two reads
+  must stay split.
+- A refusal is a close code, since there is no envelope to put it in:
+  `4401` unauthenticated, `4403` role, `4409` disabled, busy, or trust not
+  provisioned, `4408` idle timeout, `1008` an origin that is not this page's.
+  The close reason carries the operator facing message, and the panel prints it.
+- The `Origin` header is checked before the socket is accepted. A websocket
+  handshake is not subject to the same origin policy and carries the session
+  cookie whatever page opened it, so this check is what the CSRF middleware
+  does for every other unsafe request.
+
+The console reaches the `ansible` account with the key the self trust
+provisioned, over the loopback, which is the connection a run makes. It opens
+exactly the access the configuration plane already has, and that account has
+passwordless `sudo`: a console is root on this node whatever role opened it.
+`SEAPATH_WEBUI_CONSOLE_MIN_ROLE` raises the bar for a site that wants reading
+the node view and holding a shell on it to be different rights, and
+`SEAPATH_WEBUI_CONSOLE_ENABLED=0` turns the endpoint off.
+
+Nothing typed there is part of the desired state. The journal records who
+opened a console and when, and that is the whole audit trail a shell can have,
+which is why the panel says so every time it opens.
 
 OVS bridge topology is not in `/node/network`. Listing it means talking to the
 Open vSwitch database socket, which the quadlet does not mount, so the view

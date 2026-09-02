@@ -233,3 +233,22 @@ def test_a_static_asset_is_revalidated_rather_than_held(
         "/static/runs.js", headers={"If-None-Match": response.headers["etag"]}
     )
     assert unchanged.status_code == 304
+
+
+def test_the_node_page_carries_the_terminal_and_says_what_it_is(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/").text
+
+    # The emulator and its stylesheet are served from this node, because a
+    # substation hypervisor has no route to a CDN.
+    assert "/static/vendor/xterm.js" in body
+    assert "/static/vendor/xterm.css" in body
+    assert "/static/console.js" in body
+    assert signed_in.get("/static/vendor/xterm.js").status_code == 200
+
+    # A shell is the one place in this UI where what an operator does is
+    # neither recorded nor part of the desired state, and the panel says so
+    # every time it opens.
+    assert "passwordless <code>sudo</code>" in body
+    assert "undone by the next run that touches it" in body
