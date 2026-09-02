@@ -85,9 +85,14 @@ Volume=/etc/ceph:/etc/ceph:ro
 Volume=/etc:/run/host/etc:ro
 
 Environment=PYTHONUNBUFFERED=1
-# Administration address, from ip_addr in the inventory. Substituted by the
-# role, and left unset here so a fresh ISO listens on every address.
-#Environment=SEAPATH_WEBUI_BIND_ADDRESS=192.168.200.121
+# Administration address, from ip_addr in the inventory, substituted by the
+# role. `auto` is what a fresh ISO boots with, and the service resolves it to
+# the address of the interface carrying the default route, which is the same
+# address the inventory form proposes. A hypervisor also sits on the networks
+# carrying sampled values and storage traffic, and the socket is never opened
+# on those: the wildcard is what a security review flags, and it would be
+# flagging something real here.
+Environment=SEAPATH_WEBUI_BIND_ADDRESS=auto
 # Extra names in the self signed certificate, from ip_addr and, in a cluster,
 # cluster_ip_addr. Only affects how loudly the browser complains: what the
 # operator verifies is the fingerprint printed on the console.

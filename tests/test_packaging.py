@@ -122,3 +122,13 @@ def test_the_controller_dependencies_are_all_in_one_file() -> None:
     # filter roles/cephadm uses to read the ceph-volume inventory.
     assert "jmespath==" in requirements
     assert "pip install --no-cache-dir jmespath" not in dockerfile
+
+
+def test_the_listen_socket_is_never_the_wildcard() -> None:
+    # A hypervisor also sits on the networks carrying sampled values and the
+    # storage traffic, and this UI has no business answering on those. The
+    # quadlet ships the setting active so a fresh ISO resolves the
+    # administration address instead of falling back to every address.
+    setting = "Environment=SEAPATH_WEBUI_BIND_ADDRESS="
+    active = [line for line in _QUADLET.splitlines() if line.startswith(setting)]
+    assert active == [setting + "auto"]

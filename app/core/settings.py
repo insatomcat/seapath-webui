@@ -21,8 +21,14 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Listen socket. The Ansible role binds this to the administration address.
-    bind_address: str = "0.0.0.0"
+    # Listen socket. `auto` binds the address of the interface carrying the
+    # default route, which is the administration address the inventory calls
+    # `ip_addr`. A substation hypervisor also sits on the networks that carry
+    # sampled values and the storage traffic, and this UI has no business
+    # answering on those, so the wildcard is never the default: a fresh ISO
+    # resolves the address at start, and the Ansible role substitutes the one
+    # the inventory holds once it exists.
+    bind_address: str = "auto"
     port: int = 8006
 
     # Service state. This directory and the inventory repository are the only

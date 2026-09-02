@@ -68,8 +68,9 @@ def _subject_alt_names(settings: Settings, hostname: str) -> list[x509.GeneralNa
     add("localhost")
     add("127.0.0.1")
     add("::1")
-    # A wildcard bind address names no host, so it is not a usable name.
-    if settings.bind_address not in ("0.0.0.0", "::", ""):
+    # A wildcard bind address names no host, so it is not a usable name, and
+    # neither does `auto` before the entry point has resolved it.
+    if settings.bind_address not in ("0.0.0.0", "::", "", "auto"):
         add(settings.bind_address)
     for extra in settings.tls_additional_sans.split(","):
         add(extra)

@@ -15,7 +15,12 @@ from pathlib import Path
 
 import pytest
 
-from app.hosts.local import LocalHostReader, parse_cpu_list, read_hostname
+from app.hosts.local import (
+    LocalHostReader,
+    parse_cpu_list,
+    read_admin_address,
+    read_hostname,
+)
 from app.hosts.models import NodeMode
 from app.hosts.reader import CommandResult
 from tests.fakes import FakeCommandRunner
@@ -280,3 +285,20 @@ def test_the_seapath_distribution_is_read_from_os_release(tmp_path: Path) -> Non
         identity = LocalHostReader(root=root).node_identity()
 
         assert identity.seapath_distro == expected, content
+
+
+def test_the_administration_address_is_the_one_on_the_default_route(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    # The address the listening socket is bound to at first boot, and the same
+    # one the inventory form proposes as ip_addr.
+    assert read_admin_address(host, runner) == "192.168.200.121"
+
+
+def test_no_administration_address_without_a_default_route(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    (host / "proc/net/route").write_text(
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+    )
+    assert read_admin_address(host, runner) is None

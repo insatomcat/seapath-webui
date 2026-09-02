@@ -473,6 +473,26 @@ def read_hostname(root: Path) -> str:
     return hostname or socket.gethostname()
 
 
+def read_admin_address(root: Path, runner: CommandRunner | None = None) -> str | None:
+    """The administration address of this machine, or None if it has none.
+
+    Defined exactly as the inventory form defines `ip_addr`: the IPv4 address
+    of the interface carrying the default route. Reading it here rather than
+    from the inventory is what lets a fresh ISO bind a precise address at first
+    boot, when no inventory exists yet and the machine still has to be reached.
+    """
+    network = LocalHostReader(root=root, runner=runner).network()
+    if not network.default_route_interface:
+        return None
+    for interface in network.interfaces:
+        if interface.name != network.default_route_interface:
+            continue
+        for address in interface.addresses:
+            if address.family == "inet" and address.address:
+                return address.address
+    return None
+
+
 def parse_cpu_list(raw: str | None) -> list[int]:
     """Parse the kernel's `0-3,8` CPU list syntax."""
     if not raw:

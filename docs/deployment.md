@@ -114,6 +114,22 @@ The file itself is [`seapath-webui.container`](../seapath-webui.container) at th
 root of the repository, kept there rather than copied here so the two cannot
 drift apart.
 
+### The listen socket
+
+`Network=host` puts the service on every network the hypervisor is cabled to,
+including the ones carrying sampled values and the storage traffic, so the
+socket is bound to a single address: `SEAPATH_WEBUI_BIND_ADDRESS`, which the
+Ansible role substitutes with `ip_addr` from the inventory.
+
+That address is not known on a machine that has never converged, and a fresh
+ISO is exactly the case where the UI has to be reachable. The quadlet ships the
+value `auto`, which the entry point resolves to the IPv4 address of the
+interface carrying the default route, the same address the inventory form
+proposes as `ip_addr`. It ends up in the certificate too, since it is the name
+the operator types. A machine with no default route has no administration
+network to resolve, and refusing to serve there would leave no way in at all,
+so that case falls back to the wildcard and says so on the console.
+
 No `--privileged`, no host podman socket, no `--pid=host`, and no route to the
 host's systemd, its bus or its journal. If an implementation finds itself
 needing one of those, that is the signal that it is about to configure the host
@@ -372,7 +388,7 @@ conventions.
 |---|---|---|---|
 | `seapath_webui_enabled` | no | `true` | Deploy and enable |
 | `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:latest` | Image reference |
-| `seapath_webui_bind_address` | no | `{{ ip_addr }}` | Listen address, administration network |
+| `seapath_webui_bind_address` | no | `{{ ip_addr }}` | Listen address, administration network. `auto` resolves it from the default route, which is what a fresh ISO boots with |
 | `seapath_webui_port` | no | `8006` | Listen port |
 | `seapath_webui_admin_group` | no | `seapath-admin` | Unix group granting the admin role |
 | `seapath_webui_cpu_affinity` | no | computed from `isolcpus` | Housekeeping CPUs |
