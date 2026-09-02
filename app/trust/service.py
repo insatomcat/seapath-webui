@@ -82,6 +82,10 @@ class TrustService:
                 comment=comment,
                 public_key=key_pair.public_key,
                 from_addresses=from_addresses,
+                # The console connects over this relation, and a terminal is
+                # what `restrict` forbids first. A peer relation carries runs
+                # and stays without one.
+                allow_pty=True,
             ),
         )
         if changed:

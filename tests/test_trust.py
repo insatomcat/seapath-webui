@@ -76,10 +76,12 @@ def test_the_installed_line_byte_for_byte(
 
     # from= sorted so the line is stable between two starts, loopback always
     # present because a connection a node makes to itself may leave from there,
-    # and no `pty` exception because the ISO sets `Defaults:ansible
-    # !requiretty` in sudoers.
+    # and `pty` after `restrict` because the console connects over this
+    # relation. Without it sshd refuses the terminal and the console closes as
+    # it opens. A run needs none: the ISO sets `Defaults:ansible !requiretty`
+    # in sudoers.
     assert line == (
-        'from="127.0.0.1,192.168.200.121,::1",restrict '
+        'from="127.0.0.1,192.168.200.121,::1",restrict,pty '
         f"{public_key} seapath-webui:node1->node1"
     )
 
@@ -95,6 +97,22 @@ def test_there_is_no_command_restriction_and_that_is_deliberate(
     # a limit and be none.
     assert "command=" not in line
     assert "restrict" in line
+
+
+def test_a_peer_relation_gets_no_terminal(ssh_home: Path) -> None:
+    # The console only ever connects to this machine, so the exception stops
+    # at the relation a node has with itself. A key that carries runs to
+    # another node keeps `restrict` whole.
+    line = AuthorizedKey(
+        comment="seapath-webui:node1->node2",
+        public_key="ssh-ed25519 AAAAkey",
+        from_addresses=("192.168.200.122",),
+    ).render()
+
+    assert line == (
+        'from="192.168.200.122",restrict ssh-ed25519 AAAAkey '
+        "seapath-webui:node1->node2"
+    )
 
 
 def test_provisioning_twice_does_not_rewrite_the_file(

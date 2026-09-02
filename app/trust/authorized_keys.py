@@ -31,13 +31,25 @@ class AuthorizedKey:
     comment: str
     public_key: str
     from_addresses: tuple[str, ...] = ()
+    # A terminal, which `restrict` forbids by default. Set on the relation a
+    # node has with itself, because that is the one the console connects over.
+    # A run needs no terminal: the ISO sets `Defaults:ansible !requiretty` in
+    # sudoers, so `become` never asks for one.
+    allow_pty: bool = False
 
     def render(self) -> str:
         """The line exactly as it is written to the file.
 
-        `restrict` disables forwarding, agent, X11 and tunnelling. No `pty`
-        exception is added: the ISO sets `Defaults:ansible !requiretty` in
-        sudoers, so `become` does not need a terminal.
+        `restrict` disables forwarding, agent, X11 and tunnelling, and `pty`
+        after it puts back exactly one of the things it turned off. Without it
+        `sshd` answers "PTY allocation request failed on channel 0" and the
+        console closes on the spot, since a terminal is the whole point of one.
+        Re-enabling options must come after `restrict`, which is why the order
+        below is the order it is.
+
+        What `pty` grants is worth stating: nothing this key could not already
+        do. It carries no `command=` restriction, so it can run
+        `python3 -c "import pty; pty.spawn(...)"` and have a terminal anyway.
 
         There is no `command=` restriction, and that is honest rather than
         lazy. The sudoers rule the ISO ships grants `NOPASSWD:EXEC:SETENV:
@@ -49,6 +61,8 @@ class AuthorizedKey:
         if self.from_addresses:
             options.append('from="' + ",".join(self.from_addresses) + '"')
         options.append("restrict")
+        if self.allow_pty:
+            options.append("pty")
         return f"{','.join(options)} {self.public_key} {self.comment}"
 
 

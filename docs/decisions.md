@@ -53,8 +53,10 @@ constantly, and a cleanup that fails leaves exactly the state it was meant to
 avoid. Permanent and visible beats ephemeral and unreliable.
 
 Restriction means `from=` bound to the peer's administration and cluster
-addresses, `restrict` with `pty` added back for sudo, one key pair per
-direction, and revocation from the UI. It does not mean a command restriction,
+addresses, `restrict`, one key pair per direction, and revocation from the UI.
+The only exception is `pty` on the relation a node has with itself, which the
+console needs and D19 explains; sudo needs none, the ISO sets
+`Defaults:ansible !requiretty`. It does not mean a command restriction,
 because Ansible needs arbitrary root and pretending otherwise would be theatre.
 Say so in the security documentation rather than implying a limit that is not
 there.
@@ -512,6 +514,13 @@ What keeps this from being a hole in [D1](#d1---settled-the-ui-edits-the-invento
   the loopback, with the `known_hosts` the startup wrote. That is the
   connection every run makes. A console gives what `ansible-runner` is given,
   and this service holds no other credential to offer.
+- **It costs one option on one line.** `restrict` forbids a terminal, so the
+  self relation carries `pty` after it and a peer relation does not. That was
+  found the way these things are found: the first console on a real machine
+  answered "PTY allocation request failed on channel 0". The option grants
+  nothing that key could not already do, since it carries no `command=` and
+  can spawn a pty of its own, and the startup rewrites the line, so an
+  existing node picks it up when the service restarts.
 - **It configures nothing.** The service still writes only the inventory and
   the trust material. What an operator types is theirs, and the panel says, on
   every open, that it is invisible to the inventory and undone by the next run

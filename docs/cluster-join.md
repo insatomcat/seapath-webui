@@ -191,9 +191,15 @@ from="192.168.200.121,192.168.55.1",restrict ssh-ed25519 AAAA... seapath-webui:n
 
 - `from=` limits the source to the administration and cluster addresses of the
   peer, which are known because they are in the inventory.
-- `restrict` disables forwarding, agent, X11 and tunnelling. No `pty` exception
-  is needed: the ISO sets `Defaults:ansible !requiretty` in `sudoers`, so sudo
-  does not ask for a terminal.
+- `restrict` disables forwarding, agent, X11 and tunnelling. A peer key keeps
+  all of that off, runs included: the ISO sets `Defaults:ansible !requiretty`
+  in `sudoers`, so sudo never asks for a terminal.
+- The relation a node has with **itself** adds `pty` after `restrict`, and only
+  that one. It is the relation the console connects over, and without it
+  `sshd` answers "PTY allocation request failed on channel 0" and the terminal
+  closes as it opens. The option grants nothing the key could not already do,
+  since it carries no `command=` and can therefore spawn a pty of its own. See
+  [D19](decisions.md#d19---settled-the-shell-is-served-here-over-the-connection-a-run-makes).
 - The trailing comment is the relation identifier, and it is how the service
   finds its own lines in a file it shares with the ISO's site key.
 - One key pair per direction and per pair of nodes, so revoking one relation
