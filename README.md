@@ -34,6 +34,41 @@ Concretely, the service does four things:
 No SEAPATH role is rewritten, and no configuration file is rendered twice. What
 the UI runs is what the CI tests.
 
+## The pages
+
+![The Node page: machine, CPU and isolation, disks, network](img/node.png)
+
+**Node** describes what the machine is. The hostname and the distribution, the
+isolated and housekeeping CPUs as the kernel command line and `sysfs` report
+them, the disks under the stable `by-path` name Ceph wants, and the interfaces.
+It is read only, and the console button opens a shell on the `ansible` account
+for the times a page is not enough.
+
+![The Inventory page: the folder on the left, the file being edited on the right](img/inventory.png)
+
+**Inventory** is the desired state, edited as the folder of files it is. The
+left column lists what the repository carries, meaning the inventory and every
+quadlet, rule and template it names, with the history of who changed what. The
+editor parses, checks the rules and asks `ansible-inventory` about the result
+before committing anything.
+
+![The System page: the playbooks, and the SSH trust to the other machines](img/system.png)
+
+**System** is where a machine actually changes. Commissioning runs the full
+convergence; the picker beside it runs a single playbook when a single thing
+was edited, and every entry says what it plays, what it will restart, and why
+this node may not be allowed to run it. The lower half is the SSH trust: the
+site key this node holds, and the host keys it has accepted, both undone in one
+click.
+
+![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)
+
+**Runs** is what happened. Every run keeps the playbook, who launched it, the
+inventory commit it ran against and the exact `ansible-playbook` command, so a
+run can be read months later or replayed from a control machine. The event
+stream becomes the per host recap Ansible prints at the end, the task stream as
+it arrives, and where the time went. The log is downloadable whole.
+
 ## Status
 
 **M1**, pending validation on real hardware. A machine installed from the ISO
