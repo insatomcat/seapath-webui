@@ -112,8 +112,20 @@
   // host, and the zeroes are kept: "failed=0" is the sentence an operator is
   // looking for.
   function recapLine(stats) {
-    const outcomes = ["ok", "changed", "skipped", "failures", "dark", "rescued"];
+    const outcomes = [
+      "ok",
+      "changed",
+      "skipped",
+      "failures",
+      "dark",
+      "rescued",
+      "ignored",
+    ];
     const labels = { failures: "failed", dark: "unreachable" };
+    // Ansible prints these two only when they happened, and so does this. A
+    // recap ending in "rescued=0 ignored=0" on every run trains an operator to
+    // stop reading the end of the line.
+    const whenNonZero = ["rescued", "ignored"];
     const hosts = [
       ...new Set(outcomes.flatMap((key) => Object.keys(stats[key] || {}))),
     ].sort();
@@ -126,7 +138,9 @@
           host +
           " " +
           outcomes
-            .filter((key) => key !== "rescued" || (stats[key] || {})[host])
+            .filter(
+              (key) => !whenNonZero.includes(key) || (stats[key] || {})[host]
+            )
             .map((key) => (labels[key] || key) + "=" + ((stats[key] || {})[host] || 0))
             .join(" ")
       )
@@ -181,11 +195,13 @@
         counts.changed,
         counts.skipped,
         counts.failed,
+        counts.ignored,
         counts.unreachable,
       ].forEach((value, index) => {
         const cell = document.createElement("td");
         cell.textContent = value;
         if (index === 4 && counts.failed) cell.className = "state-failed";
+        if (index === 5 && counts.ignored) cell.className = "outcome-ignored";
         row.append(cell);
       });
       body.append(row);

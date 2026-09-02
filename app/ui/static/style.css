@@ -674,6 +674,16 @@ button.secondary {
   color: var(--muted);
 }
 
+/* A failure the playbook was told to ignore. Not red: the recap will not
+   count it, and the run can still end green. */
+.outcome-ignored {
+  color: var(--warn);
+}
+
+.outcome-ignored .stream-reason {
+  color: var(--warn);
+}
+
 .stream-reason {
   padding-left: 2rem;
   color: var(--bad);

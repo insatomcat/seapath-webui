@@ -301,6 +301,38 @@ def test_events_become_progress() -> None:
     assert (host.ok, host.changed, host.failed) == (2, 1, 0)
 
 
+def test_an_ignored_failure_is_not_counted_as_one() -> None:
+    # Ansible counts a failure under `ignore_errors` in `ok` and in `ignored`,
+    # and the recap says `failed=0`. The host table used to say `failed=1`
+    # beside it, because the running tally counted the event as a failure and
+    # the recap, carrying no `failures` entry for the host, never corrected it.
+    run_progress = RunProgress()
+    for event in fake.ignored_run():
+        apply_event(run_progress, event)
+
+    host = run_progress.hosts["seapath-machine"]
+    assert (host.ok, host.failed, host.ignored) == (1, 0, 1)
+
+    summaries = [summarise(event) for event in fake.ignored_run()]
+    result = next(s for s in summaries if s and s["kind"] == "result")
+    assert result["outcome"] == "ignored"
+    # Still worth saying why, which is the whole reason to read the line.
+    assert result["message"] == "eno1 does not exist"
+
+
+def test_the_recap_overrules_the_running_tally() -> None:
+    # Whatever the stream counted, the recap is what the run view prints, and
+    # the host table has to agree with it counter by counter.
+    run_progress = RunProgress()
+    apply_event(run_progress, fake.failed("node1", "Apply the network", "no eno1"))
+    assert run_progress.hosts["node1"].failed == 1
+
+    apply_event(run_progress, fake.stats("node1", ok_count=286, changed=27))
+
+    host = run_progress.hosts["node1"]
+    assert (host.ok, host.changed, host.failed) == (286, 27, 0)
+
+
 def test_a_failure_keeps_the_reason() -> None:
     summaries = [summarise(event) for event in fake.failed_run()]
     failure = next(s for s in summaries if s and s.get("outcome") == "failed")

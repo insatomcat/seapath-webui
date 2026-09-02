@@ -46,6 +46,23 @@ def failed(host: str, task: str, message: str) -> dict:
     }
 
 
+def ignored(host: str, task: str, message: str) -> dict:
+    """A task that failed under `ignore_errors`.
+
+    The same event as a failure, with the flag Ansible sets beside it. The
+    recap that follows counts it in `ok` and in `ignored`, never in `failures`.
+    """
+    return {
+        "event": "runner_on_failed",
+        "event_data": {
+            "host": host,
+            "task": task,
+            "res": {"msg": message},
+            "ignore_errors": True,
+        },
+    }
+
+
 def unreachable(host: str, task: str) -> dict:
     return {
         "event": "runner_on_unreachable",
@@ -57,7 +74,16 @@ def unreachable(host: str, task: str) -> dict:
     }
 
 
-def stats(host: str, ok_count: int = 2, changed: int = 1, failures: int = 0) -> dict:
+def stats(
+    host: str,
+    ok_count: int = 2,
+    changed: int = 1,
+    failures: int = 0,
+    ignored_count: int = 0,
+) -> dict:
+    # A recap mapping carries only the hosts with a non-zero count, which is
+    # the shape that makes the recap the authority: a host missing from
+    # `failures` did not fail, whatever the running tally says.
     return {
         "event": "playbook_on_stats",
         "event_data": {
@@ -67,6 +93,7 @@ def stats(host: str, ok_count: int = 2, changed: int = 1, failures: int = 0) -> 
             "dark": {},
             "skipped": {},
             "rescued": {},
+            "ignored": {host: ignored_count} if ignored_count else {},
         },
     }
 
@@ -89,6 +116,19 @@ def failed_run(host: str = "seapath-machine") -> list[dict]:
         task_start("Apply the network configuration"),
         failed(host, "Apply the network configuration", "eno1 does not exist"),
         stats(host, ok_count=0, changed=0, failures=1),
+    ]
+
+
+def ignored_run(host: str = "seapath-machine") -> list[dict]:
+    """A run whose only failure was one the playbook told Ansible to ignore.
+
+    It ends green, and the recap says `failed=0`.
+    """
+    return [
+        play_start(),
+        task_start("Read the current network configuration"),
+        ignored(host, "Read the current network configuration", "eno1 does not exist"),
+        stats(host, ok_count=1, changed=0, ignored_count=1),
     ]
 
 

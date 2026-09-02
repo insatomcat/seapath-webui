@@ -43,6 +43,10 @@ class HostProgress(BaseModel):
     failed: int = 0
     skipped: int = 0
     unreachable: int = 0
+    # A task that failed under `ignore_errors`. Ansible counts it in `ok` and
+    # not in `failed`, and it is worth a column of its own: without one the
+    # host table has no answer for the red line the stream just printed.
+    ignored: int = 0
     last_task: str | None = None
 
     @property

@@ -40,11 +40,14 @@ def apply_event(progress: RunProgress, event: dict[str, Any]) -> RunProgress:
         host = data.get("host")
         if host:
             state = _host(progress, host)
-            outcome = _HOST_RESULTS[name]
-            if outcome == "ok" and (data.get("res") or {}).get("changed"):
-                state.changed += 1
-            else:
-                setattr(state, outcome, getattr(state, outcome) + 1)
+            outcome = _outcome(name, data)
+            # Ansible counts an ignored failure in `ok` as well as in
+            # `ignored`, and the running tally has to count it the same way or
+            # it contradicts the recap that lands a moment later.
+            field = "ok" if outcome == "ignored" else outcome
+            setattr(state, field, getattr(state, field) + 1)
+            if outcome == "ignored":
+                state.ignored += 1
             state.last_task = data.get("task") or progress.task
 
         task = _qualified(data)
@@ -60,16 +63,35 @@ def apply_event(progress: RunProgress, event: dict[str, Any]) -> RunProgress:
     return progress
 
 
+# The recap field a host counter is read from. Ansible names two of them
+# differently on the wire.
+_STATS_FIELDS = (
+    ("ok", "ok"),
+    ("changed", "changed"),
+    ("failed", "failures"),
+    ("skipped", "skipped"),
+    ("unreachable", "dark"),
+    ("ignored", "ignored"),
+)
+
+
 def _apply_stats(progress: RunProgress, data: dict[str, Any]) -> None:
-    for field, key in (
-        ("ok", "ok"),
-        ("changed", "changed"),
-        ("failed", "failures"),
-        ("skipped", "skipped"),
-        ("unreachable", "dark"),
-    ):
-        for host, count in (data.get(key) or {}).items():
-            setattr(_host(progress, host), field, count)
+    """Replace the running tally with the recap, counter by counter.
+
+    Every counter of every host, including the ones the recap leaves out. A
+    recap mapping only carries the hosts with a non-zero count, so walking the
+    mapping alone left a stale tally in place where Ansible reported nothing:
+    an ignored or rescued failure showed as `failed=1` in the host table beside
+    a recap saying `failed=0`.
+    """
+    mappings = {field: data.get(key) or {} for field, key in _STATS_FIELDS}
+    hosts = set(progress.hosts) | {
+        host for counts in mappings.values() for host in counts
+    }
+    for host in hosts:
+        state = _host(progress, host)
+        for field, counts in mappings.items():
+            setattr(state, field, counts.get(host, 0))
 
 
 def _host(progress: RunProgress, host: str) -> HostProgress:
@@ -97,9 +119,7 @@ def summarise(event: dict[str, Any]) -> dict[str, Any] | None:
             "play": data.get("play"),
         }
     if name in _HOST_RESULTS:
-        outcome = _HOST_RESULTS[name]
-        if outcome == "ok" and (data.get("res") or {}).get("changed"):
-            outcome = "changed"
+        outcome = _outcome(name, data)
         return {
             "kind": "result",
             "host": data.get("host"),
@@ -108,12 +128,29 @@ def summarise(event: dict[str, Any]) -> dict[str, Any] | None:
             "seconds": data.get("duration"),
             # The operator needs to know why a task failed, and nothing else
             # from the result payload.
-            "message": _failure_message(data) if outcome == "failed" else None,
+            "message": (
+                _failure_message(data) if outcome in ("failed", "ignored") else None
+            ),
             "output": _debug_output(data),
         }
     if name == "playbook_on_stats":
         return {"kind": "stats", "stats": _stats(data)}
     return None
+
+
+def _outcome(name: str, data: dict[str, Any]) -> str:
+    """What a host result is, in the words the recap uses.
+
+    Two of them are not in the event name. A changed task is a `runner_on_ok`
+    whose result says so, and a failure the playbook was told to ignore is a
+    `runner_on_failed` that Ansible does not count as a failure.
+    """
+    outcome = _HOST_RESULTS[name]
+    if outcome == "ok" and (data.get("res") or {}).get("changed"):
+        return "changed"
+    if outcome == "failed" and data.get("ignore_errors"):
+        return "ignored"
+    return outcome
 
 
 def _qualified(data: dict[str, Any]) -> str | None:
@@ -175,5 +212,13 @@ def _failure_message(data: dict[str, Any]) -> str | None:
 def _stats(data: dict[str, Any]) -> dict[str, dict[str, int]]:
     return {
         key: dict(data.get(key) or {})
-        for key in ("ok", "changed", "failures", "dark", "skipped", "rescued")
+        for key in (
+            "ok",
+            "changed",
+            "failures",
+            "dark",
+            "skipped",
+            "rescued",
+            "ignored",
+        )
     }
