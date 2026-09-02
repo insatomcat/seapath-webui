@@ -173,12 +173,63 @@ _SKIP_REBOOT = VariableSpec(
 
 _MACHINE_TARGETS = ["cluster_machines", "standalone_machine"]
 
+# The prerequisites, one playbook per distribution. `seapath_setup_main` picks
+# between them after `detect_seapath_distro`, and that choice is the only thing
+# standing between a machine and the wrong one: launched on its own, none of
+# these five checks what it landed on. The Debian playbook runs
+# `configure_seapath_distro` with `update-grub` and `/etc/vim` wherever it is
+# sent. Every entry says so, because the operator launching one directly is
+# exactly the operator who has bypassed the choice.
+_WRONG_DISTRIBUTION = (
+    "This playbook does not check the distribution it lands on. It applies its "
+    "roles to every machine the inventory declares, so an inventory that mixes "
+    "distributions needs Configure every machine, which picks the right one per "
+    "machine."
+)
+
+
+def _prerequisites(
+    distribution: str,
+    playbook_id: str,
+    targets: list[str],
+    disruption: str,
+    reboots: Reboots = Reboots.NO,
+    notes: str = "",
+) -> PlaybookEntry:
+    """One of the five prerequisites entries.
+
+    They differ by distribution and by which of the roles the distribution has,
+    and they share what an operator has to be told: the machines they play, the
+    fact that check mode reads only part of them, and that nothing in them
+    looks at what the machine actually runs.
+    """
+    return PlaybookEntry(
+        id=playbook_id,
+        playbook=f"{COLLECTION}.{playbook_id}",
+        title=f"Prepare the {distribution} machines",
+        targets=targets,
+        # `configure_seapath_distro` and `configure_physical_machine` both run
+        # commands, so check mode reports the templates and the packages and
+        # skips those.
+        preview=Preview.PARTIAL,
+        reboots=reboots,
+        disruption=disruption,
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
+        notes=" ".join(part for part in (_WRONG_DISTRIBUTION, notes) if part),
+    )
+
+
 CATALOGUE: tuple[PlaybookEntry, ...] = (
     PlaybookEntry(
         id="seapath_setup_main",
         playbook=f"{COLLECTION}.seapath_setup_main",
         title="Configure every machine",
-        targets=[*_MACHINE_TARGETS, "VMs"],
+        # It imports every other playbook, so it plays every group they play.
+        targets=[*_MACHINE_TARGETS, "VMs", "hypervisors"],
         preview=Preview.PARTIAL,
         reboots=Reboots.GATED,
         reboot_variable="skip_reboot_setup",
@@ -199,11 +250,86 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "it the granularity with evidence behind it."
         ),
     ),
+    _prerequisites(
+        "Debian",
+        "seapath_setup_prerequisitesdebian",
+        ["cluster_machines", "standalone_machine", "VMs", "hypervisors"],
+        (
+            "The base a SEAPATH machine is built on: syslog, the distribution "
+            "configuration, the kernel modules and the initramfs, tuned on the "
+            "hypervisors, and vm_manager. It also uninstalls packages the "
+            "installation left behind, ceph and ifupdown among them, and stops "
+            "the apt timers. On a live machine that is a package removal and "
+            "several service restarts."
+        ),
+        notes=(
+            "The only one of the five that removes packages. `ceph`, `fdisk`, "
+            "`ifupdown` and, on trixie, four libraries are purged with "
+            "`autoremove`, which is what the ISO expects and what a machine "
+            "installed some other way may not survive unexamined."
+        ),
+    ),
+    _prerequisites(
+        "CentOS",
+        "seapath_setup_prerequisitescentos",
+        ["cluster_machines", "standalone_machine", "VMs", "hypervisors"],
+        (
+            "Syslog, the distribution configuration with `grub2-mkconfig` and "
+            "dracut, tuned on the hypervisors, and vm_manager. Restarts "
+            "whatever those roles restart, and removes nothing."
+        ),
+    ),
+    _prerequisites(
+        "OracleLinux",
+        "seapath_setup_prerequisitesoraclelinux",
+        ["cluster_machines", "standalone_machine", "VMs"],
+        (
+            "Syslog, the distribution configuration with `grub2-mkconfig`, the "
+            "kernel modules and vm_manager."
+        ),
+        notes=(
+            "The one that plays no hypervisor group: it configures no tuned "
+            "profile, so a machine prepared with it has had none of the "
+            "hypervisor tuning applied."
+        ),
+    ),
+    _prerequisites(
+        "SLES",
+        "seapath_setup_prerequisitessles",
+        ["cluster_machines", "standalone_machine", "VMs", "hypervisors"],
+        (
+            "Syslog, the distribution configuration with `grub2-mkconfig` and "
+            "dracut, tuned on the hypervisors, and vm_manager."
+        ),
+    ),
+    _prerequisites(
+        "Yocto",
+        "seapath_setup_prerequisitesyocto",
+        ["cluster_machines", "standalone_machine", "hypervisors", "VMs"],
+        (
+            "A different playbook from the other four: kernel command line, "
+            "hugepages and SR-IOV, with none of the package or syslog work. It "
+            "mounts the boot partition to edit the kernel parameters, and "
+            "reboots when they changed."
+        ),
+        reboots=Reboots.YES,
+        notes=(
+            "The reboot happens only if the kernel parameters actually changed "
+            "and `kernel_parameters_restart` is set in the inventory. Declared "
+            "here as a reboot rather than as a gated one, because the "
+            "confirmation has to name the worse of the two outcomes: on a "
+            "machine whose parameters are already right, nothing restarts."
+        ),
+    ),
     PlaybookEntry(
         id="seapath_setup_network",
         playbook=f"{COLLECTION}.seapath_setup_network",
         title="Apply the network configuration",
-        targets=list(_MACHINE_TARGETS),
+        # `hypervisors` is in the list because two of the plays are: the SR-IOV
+        # network pools and `configure_nic_irq_affinity`. The entry said
+        # cluster and standalone alone until the collection was read, and the
+        # scope line an operator reads before an apply was wrong by two plays.
+        targets=[*_MACHINE_TARGETS, "hypervisors"],
         preview=Preview.PARTIAL,
         reboots=Reboots.YES,
         disruption=(

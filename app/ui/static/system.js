@@ -328,7 +328,7 @@
 
     const detail = document.createElement("p");
     detail.className = item.available ? "help" : "warning";
-    detail.textContent = item.available ? entry.disruption : item.unmet.join(" ");
+    withCode(detail, item.available ? entry.disruption : item.unmet.join(" "));
 
     container.append(title, name, scope, detail);
 
@@ -363,7 +363,7 @@
     if (entry.notes) {
       const notes = document.createElement("p");
       notes.className = "help";
-      notes.textContent = entry.notes;
+      withCode(notes, entry.notes);
       container.append(notes);
     }
 
@@ -386,6 +386,24 @@
       actions.append(apply);
     }
     container.append(actions);
+  }
+
+  // Catalogue prose names commands and variables in backticks, the way the
+  // documents it was written alongside do. Rendered as text they show as
+  // literal backticks, and these sentences are read right before an apply.
+  // Split rather than parsed: this is the only markup the strings carry, and
+  // every piece still goes in as text, so nothing here can inject markup.
+  function withCode(target, text) {
+    text.split("`").forEach((piece, index) => {
+      if (index % 2) {
+        const code = document.createElement("code");
+        code.textContent = piece;
+        target.append(code);
+      } else if (piece) {
+        target.append(document.createTextNode(piece));
+      }
+    });
+    return target;
   }
 
   function isCluster(item) {

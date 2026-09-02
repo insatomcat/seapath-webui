@@ -132,8 +132,13 @@ no preview button at all rather than a button that lies.
 
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
-| `seapath_setup_main.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | yes, gated by `skip_reboot_setup` | The full convergence. Imports prerequisites, network, timemaster, libvirt, snmp, exporters, the cluster playbooks and `deploy_seapath_alloc`. This is the commissioning path and what the CI runs. |
-| `seapath_setup_network.yaml` | `cluster_machines`, `standalone_machine` | partial | yes | Applies only when `apply_network_config` is true. The playbook most likely to cut the connection under the run. Warn hard when launched from a target machine. |
+| `seapath_setup_main.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | yes, gated by `skip_reboot_setup` | The full convergence. Imports prerequisites, network, timemaster, libvirt, snmp, exporters, the cluster playbooks and `deploy_seapath_alloc`. This is the commissioning path and what the CI runs. |
+| `seapath_setup_prerequisitesdebian.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | no | Syslog, the distribution configuration, kernel modules, initramfs, tuned, `vm_manager`. The only one of the five that **removes packages**: `ceph`, `fdisk`, `ifupdown` and four trixie libraries, purged with `autoremove`. |
+| `seapath_setup_prerequisitescentos.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | no | Same shape, `grub2-mkconfig` and dracut. Removes nothing. |
+| `seapath_setup_prerequisitesoraclelinux.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | no | The one with **no hypervisor play**, so no tuned profile is applied. |
+| `seapath_setup_prerequisitessles.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | no | Same shape as CentOS. |
+| `seapath_setup_prerequisitesyocto.yaml` | `cluster_machines`, `standalone_machine`, `hypervisors`, `VMs` | partial | yes | A different playbook from the other four: kernel command line, hugepages, SR-IOV, and none of the package or syslog work. Reboots when the kernel parameters changed and `kernel_parameters_restart` is set. |
+| `seapath_setup_network.yaml` | `cluster_machines`, `standalone_machine`, `hypervisors` | partial | yes | Applies only when `apply_network_config` is true. The playbook most likely to cut the connection under the run. Warn hard when launched from a target machine. |
 | `seapath_setup_timemaster.yaml` | `cluster_machines`, `standalone_machine` | full | no | PTP and NTP, plus `ptp_status_vsock` unless `disable_vsock`. |
 | `seapath_setup_libvirt.yaml` | `hypervisors` | full | no | Writes `libvirtd.conf` and restarts `libvirtd`. The daemon's own configuration, on every hypervisor, cluster or not. |
 | `seapath_setup_prometheus_exporters.yaml` | `cluster_machines`, `standalone_machine` | full | no | |
@@ -179,11 +184,6 @@ its own heading. They are launchable, described by what the reader counted, and
 carry no sentence a human wrote. Several deserve a reviewed entry and have not
 had one yet:
 
-- `seapath_setup_prerequisites{debian,centos,oraclelinux,sles,yocto}.yaml`.
-  Five playbooks, one per distribution, and `seapath_setup_main` picks between
-  them after `detect_seapath_distro`. Launched directly, none of them checks
-  what it landed on: the Debian one applies its roles on a Yocto machine. A
-  reviewed entry would say so.
 - `seapath_update_debian.yaml`. It snapshots the root LVM, temporarily disables
   the GRUB password, arms a boot counter and reboots. That sequence deserves
   its own screen with its own rollback story.
@@ -345,3 +345,20 @@ Where the reviewed value and the derived value disagree, the reviewed one wins
 whole and the counts are shown beside it. `seapath_setup_snmp` is the example:
 reviewed `full`, derived `partial`, and the human is right because the single
 command in its chain detects a distribution and writes nothing.
+
+### The five prerequisites, and what none of them checks
+
+`seapath_setup_main.yaml` imports one of the five after `detect_seapath_distro`,
+and that choice is the only thing standing between a machine and the wrong
+playbook. Launched on its own, none of the five looks at what it landed on:
+`seapath_setup_prerequisitesdebian.yaml` runs `configure_seapath_distro` with
+`update-grub` and `/etc/vim` wherever it is sent, and the Debian and SLES
+playbooks call `detect_seapath_distro` without ever reading its answer. Each
+entry says so, because the operator launching one directly is exactly the
+operator who has bypassed the choice.
+
+They differ by more than the package manager. OracleLinux has no hypervisor
+play at all, so a machine prepared with it has had no tuned profile applied,
+which stays invisible until the latency is measured. Debian is the only one
+that removes packages. Yocto shares nothing with the other four: kernel command
+line, hugepages and SR-IOV, and a reboot when the parameters changed.

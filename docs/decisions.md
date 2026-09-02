@@ -640,4 +640,16 @@ An entry nobody reviewed is marked as such in the list, under its own heading,
 and its description says in its first sentence that it was counted rather than
 written. The way to promote one is to read the playbook and add it to
 `CATALOGUE`, which is the same deliberate act it always was. What changed is
-that not having done it yet no longer hides the playbook.
+that not having done it yet no longer hides the playbook. The five
+`prerequisites` playbooks were promoted that way, and section 4 of
+[playbooks.md](playbooks.md) carries what reading them found.
+
+The reader turned out to be worth having as a second opinion on the reviewed
+entries too. `seapath_setup_network` was described as playing cluster and
+standalone machines; it also plays `hypervisors`, for the SR-IOV pools and the
+NIC IRQ affinity, and the scope line an operator read before confirming an
+apply was wrong by two plays. Two tests now hold that line, skipped where no
+collection is installed and run where one is: no reviewed entry may understate
+the machines it plays, and none may say a playbook does not reboot when it
+does. Both are the dangerous direction, and both are exactly what a human
+writing thirteen entries by hand gets wrong.

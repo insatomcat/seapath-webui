@@ -331,3 +331,101 @@ def test_every_playbook_of_the_collection_is_in_the_list(collection: Path) -> No
     assert ids[: len(catalogue.CATALOGUE)] == [e.id for e in catalogue.CATALOGUE]
     assert "site_main" in ids
     assert "ci_reinstall" not in ids
+
+
+PREREQUISITES = (
+    "seapath_setup_prerequisitesdebian",
+    "seapath_setup_prerequisitescentos",
+    "seapath_setup_prerequisitesoraclelinux",
+    "seapath_setup_prerequisitessles",
+    "seapath_setup_prerequisitesyocto",
+)
+
+
+def test_every_prerequisites_entry_says_it_checks_no_distribution() -> None:
+    # `seapath_setup_main` picks between the five after `detect_seapath_distro`,
+    # and that choice is the only thing standing between a machine and the
+    # wrong one. Launched on its own, the Debian playbook runs
+    # `configure_seapath_distro` with `update-grub` wherever it is sent.
+    for playbook_id in PREREQUISITES:
+        entry = catalogue.BY_ID[playbook_id]
+
+        assert entry.reviewed is True
+        assert "does not check the distribution it lands on" in entry.notes
+
+
+def test_the_yocto_prerequisites_are_declared_as_rebooting() -> None:
+    entry = catalogue.BY_ID["seapath_setup_prerequisitesyocto"]
+
+    # It reboots only when the kernel parameters actually changed and
+    # `kernel_parameters_restart` is set. Declared as a plain reboot, because
+    # the confirmation has to name the worse of the two outcomes.
+    assert entry.reboots.value == "yes"
+    assert entry.reboot_variable is None
+
+
+def test_the_prerequisites_that_configures_no_hypervisor_says_so() -> None:
+    # OracleLinux is the one with no hypervisor play, so a machine prepared
+    # with it has had no tuned profile applied. That is invisible until the
+    # latency is measured.
+    entry = catalogue.BY_ID["seapath_setup_prerequisitesoraclelinux"]
+
+    assert "hypervisors" not in entry.targets
+    assert "no tuned" in entry.notes
+
+
+REAL_COLLECTION = (
+    Path.home() / ".ansible/collections/ansible_collections/seapath/ansible"
+)
+
+# The reviewed entries were written by reading the playbooks, and the playbooks
+# move. This test is the second opinion: it runs only where a real collection
+# is installed, so the suite still passes on a laptop with none, and it fails
+# on the machine that has one when an entry drifts from what it describes.
+real_collection = pytest.mark.skipif(
+    not (REAL_COLLECTION / "playbooks").is_dir(),
+    reason="no seapath.ansible collection installed",
+)
+
+
+@real_collection
+def test_no_reviewed_entry_understates_the_machines_it_plays() -> None:
+    # Understating is the dangerous direction. The scope line is what an
+    # operator reads before confirming an apply, and a group missing from it is
+    # a set of machines they did not know they were about to converge. This
+    # found `hypervisors` missing from `seapath_setup_network`, which plays the
+    # SR-IOV pools and the NIC IRQ affinity there.
+    missing = {}
+    for entry in catalogue.CATALOGUE:
+        facts = analysis.read(REAL_COLLECTION, entry.id)
+        if not facts.play_count:
+            continue  # not in this collection, which is its own precondition
+        unlisted = [
+            target
+            for target in facts.targets
+            # An intersection is covered by the group it narrows, and the
+            # upstream `standalone` in seapath_setup_vmmgrapi.yaml is a typo
+            # for `standalone_machine` that matches no group of any inventory.
+            if ":" not in target
+            and target != "standalone"
+            and target not in entry.targets
+        ]
+        if unlisted:
+            missing[entry.id] = unlisted
+
+    assert missing == {}
+
+
+@real_collection
+def test_no_reviewed_entry_understates_a_reboot() -> None:
+    # The other dangerous direction. An entry saying a playbook does not
+    # reboot, on a machine running virtual machines in a substation, is the
+    # worst sentence this catalogue can carry.
+    silent = [
+        entry.id
+        for entry in catalogue.CATALOGUE
+        if analysis.read(REAL_COLLECTION, entry.id).reboots
+        and entry.reboots.value == "no"
+    ]
+
+    assert silent == []

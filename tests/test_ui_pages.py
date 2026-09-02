@@ -169,6 +169,10 @@ def test_the_list_says_which_entries_nobody_reviewed(
     assert "entry.reviewed" in script
     assert '"not reviewed"' in script
     assert "playbook-counts" in script
+    # Catalogue prose names commands and variables in backticks, the way the
+    # documents it was written alongside do, and those sentences are read right
+    # before an apply. Rendered as text they showed as literal backticks.
+    assert "withCode" in script
 
 
 def test_the_ssh_credentials_are_a_state_line_once_they_hold(
