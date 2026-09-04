@@ -21,7 +21,11 @@ After=network-online.target libvirtd.service
 Wants=network-online.target
 
 [Container]
-Image=docker.io/insatomcat/seapath-webui:latest
+# An exact tag, never `latest`. What a run records about itself is the pair
+# "inventory commit, collection version", and a machine that cannot say which
+# image is answering on it cannot answer the other half of the question either.
+# The tag follows `__version__`, and a test holds the two together.
+Image=docker.io/insatomcat/seapath-webui:0.1.0
 ContainerName=seapath-webui
 Network=host
 
@@ -33,6 +37,12 @@ Network=host
 Volume=/etc/seapath/webui:/etc/seapath/webui:rw
 Volume=/etc/seapath/inventory:/etc/seapath/inventory:rw
 Volume=/var/lib/seapath-webui:/var/lib/seapath-webui:rw
+# The site's own seapath.ansible collection lives in that same volume, under
+# `collections/`, and it takes over from the one the image ships as soon as it
+# holds one. No mount of its own and no new host surface: a corrected playbook
+# reaches a node as a file, with no registry to reach and no image to build.
+# The root is chosen at start, so installing one takes a restart of this
+# service. See D23 in docs/decisions.md.
 
 # Trust material, from M1: where this node's own key and the peer keys are
 # installed for the `ansible` account. Templated by the role from the account's

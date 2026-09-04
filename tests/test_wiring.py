@@ -83,3 +83,61 @@ def test_a_node_with_the_collection_says_nothing(tmp_path: Path, caplog) -> None
         assert check_collection(settings) is True
 
     assert "collection" not in caplog.text
+
+
+def test_the_site_collection_wins_over_the_one_the_image_ships(
+    tmp_path: Path, caplog
+) -> None:
+    # The point of D23: a corrected playbook reaches a node as a file in the
+    # state volume, with no image build and no registry to reach.
+    from app.core.bootstrap import check_collection, collections_root
+    from app.core.settings import Settings
+
+    image = write_fake_collection(tmp_path / "image", contents="---\n# image\n")
+    site = write_fake_collection(tmp_path / "site", contents="---\n# site\n")
+    settings = Settings(collections_path=image, site_collections_dir=site)
+
+    assert collections_root(settings) == site
+
+    # And the boot that starts applying it says so, because that code arrived
+    # outside an image release.
+    with caplog.at_level(logging.INFO):
+        assert check_collection(settings) is True
+    assert str(site) in caplog.text
+
+
+def test_an_empty_site_directory_does_not_shadow_the_image_collection(
+    tmp_path: Path,
+) -> None:
+    # The quadlet creates the state volume, so an empty `collections/` in it is
+    # the ordinary shape of a node nobody has updated. Choosing on the
+    # directory existing would leave every one of those nodes with no playbook
+    # at all.
+    from app.core.bootstrap import collections_root
+    from app.core.settings import Settings
+
+    image = write_fake_collection(tmp_path / "image")
+    site = tmp_path / "site"
+    site.mkdir()
+    (site / "ansible_collections").mkdir()
+
+    settings = Settings(collections_path=image, site_collections_dir=site)
+
+    assert collections_root(settings) == image
+
+
+def test_the_run_service_and_the_inventory_read_the_same_collection(
+    settings: Settings, tmp_path: Path
+) -> None:
+    # One root for the whole service. The inventory reads it to tell a file the
+    # site owes a run from one the collection already ships, and a run executes
+    # it: the two disagreeing would be a file resolved against a collection
+    # nothing runs.
+    site = write_fake_collection(tmp_path / "site", contents="---\n# site\n")
+    settings = settings.model_copy(update={"site_collections_dir": site})
+
+    application = create_app(settings=settings, session_secret=b"test-secret")
+
+    assert application.state.collections_path == site
+    assert application.state.run_service._paths.collections_path == site
+    assert application.state.inventory_service._collections_path == site

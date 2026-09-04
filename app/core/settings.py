@@ -57,8 +57,16 @@ class Settings(BaseSettings):
     max_inventory_file_bytes: int = 4 * 1024 * 1024
     # Run artefacts, written as a run progresses.
     runs_dir: Path = Path("/var/lib/seapath-webui/runs")
-    # Where the image installed the seapath.ansible collection.
+    # Where the image installed the seapath.ansible collection, and what a
+    # source checkout is pointed at.
     collections_path: Path = Path("/opt/ansible/collections")
+    # The site's own collection, under the state volume the quadlet already
+    # mounts, so a corrected playbook reaches a node without an image build.
+    # It wins whole over the one the image ships, and the two are never
+    # stacked: a run records one fingerprint, and a tree assembled from two
+    # installs is one no CI has executed. Empty on a node nobody has updated,
+    # which is the ordinary case. See D23 in docs/decisions.md.
+    site_collections_dir: Path = Path("/var/lib/seapath-webui/collections")
     # The host's sshd configuration, read only, for its public host keys.
     ssh_config_dir: Path = Path("/etc/ssh")
     # The ssh client configuration this service writes for its own runs, so

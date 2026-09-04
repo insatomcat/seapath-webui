@@ -79,6 +79,18 @@ def check_account_files() -> list[str]:
     return missing
 
 
+def collections_root(settings) -> Path:
+    """The collection root this service runs playbooks from.
+
+    Resolved once at start rather than at every run: a collection installed in
+    the volume while a convergence is going must not change what that run is
+    halfway through executing, since a run is identified by the code it ran.
+    """
+    return catalogue.select_root(
+        settings.site_collections_dir, settings.collections_path
+    )
+
+
 def check_collection(settings) -> bool:
     """Say in the journal when there is no collection to run playbooks from.
 
@@ -86,11 +98,23 @@ def check_collection(settings) -> bool:
     Apply section with no buttons, which reads as a broken page rather than as
     a missing directory. Reported here so the answer is in the log before
     anyone opens the page.
+
+    Which of the two roots was chosen is said here too. A node running the
+    site's collection rather than the image's is running code that arrived
+    outside an image release, and that belongs in the log of the boot it
+    started applying with.
     """
+    collections_path = collections_root(settings)
+    if collections_path == settings.site_collections_dir:
+        logger.info(
+            "Running the collection installed under %s (%s) rather than the "
+            "one the image ships.",
+            collections_path,
+            catalogue.identity(collections_path),
+        )
+
     derived = [
-        entry
-        for entry in catalogue.resolve(settings.collections_path)
-        if not entry.reviewed
+        entry for entry in catalogue.resolve(collections_path) if not entry.reviewed
     ]
     if derived:
         # The collection moved past the catalogue, which is the ordinary state
@@ -100,11 +124,11 @@ def check_collection(settings) -> bool:
             "%d playbooks of the collection under %s have no reviewed entry "
             "and are offered as read from the collection: %s",
             len(derived),
-            settings.collections_path,
+            collections_path,
             ", ".join(entry.id for entry in derived),
         )
 
-    missing = catalogue.missing_from(settings.collections_path)
+    missing = catalogue.missing_from(collections_path)
     if not missing:
         return True
     if len(missing) == len(catalogue.CATALOGUE):
@@ -113,7 +137,7 @@ def check_collection(settings) -> bool:
             "from this node. The image installs the collection there; a "
             "service started from a source checkout has to be pointed at one "
             "with SEAPATH_WEBUI_COLLECTIONS_PATH.",
-            settings.collections_path,
+            collections_path,
         )
     else:
         logger.warning(
@@ -121,7 +145,7 @@ def check_collection(settings) -> bool:
             "%s, and are offered as unavailable.",
             len(missing),
             len(catalogue.CATALOGUE),
-            settings.collections_path,
+            collections_path,
         )
     return False
 

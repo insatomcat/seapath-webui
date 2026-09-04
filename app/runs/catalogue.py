@@ -664,6 +664,29 @@ def identity(collections_path: Path) -> str | None:
     return f"{version}+{digest[:12]}"
 
 
+def installed_in(collections_path: Path) -> bool:
+    """Whether this root carries an installed seapath.ansible collection."""
+    return identity(collections_path) is not None
+
+
+def select_root(site: Path, image: Path) -> Path:
+    """Which of the two roots this service runs playbooks from.
+
+    The site's collection is the one an administrator installed on the node, in
+    the state volume, so that a corrected playbook does not wait for an image
+    build. The image's is the fallback, and it is what a node nobody has
+    updated runs.
+
+    The choice is on the manifest rather than on the directory existing: the
+    quadlet creates the state volume, so an empty `collections/` in it is the
+    ordinary shape of a node nobody has updated, and it must never shadow the
+    collection the image ships. Whichever root wins, wins whole. See D23.
+    """
+    if installed_in(site):
+        return Path(site)
+    return Path(image)
+
+
 def missing_from(collections_path: Path) -> set[str]:
     """The entries this image's collection does not actually carry."""
     return {

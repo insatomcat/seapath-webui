@@ -90,6 +90,44 @@ The image must therefore be released in step with SEAPATH. An image carrying a
 collection newer than the machines is how a playbook meets a host it was not
 written for.
 
+That coupling is what makes a corrected playbook wait for an image build, and
+[D23](decisions.md#d23) is where the way out is written down: the collection
+moves to a volume fed by the artefact store, and the image is updated by a
+playbook this service runs against its own machine.
+
+### The collection the node runs, which is not always the image's
+
+The service reads two roots and picks one whole:
+
+| Root | What it is |
+|---|---|
+| `/var/lib/seapath-webui/collections` | The site's own, installed on the node. Empty on a machine nobody has updated |
+| `/opt/ansible/collections` | What the image built, and the fallback. `SEAPATH_WEBUI_COLLECTIONS_PATH` names it, which is what a source checkout is pointed at |
+
+The first wins as soon as it holds an installed collection, meaning a
+`MANIFEST.json` under `ansible_collections/seapath/ansible`. The directory
+existing is not enough: the quadlet creates the state volume, so an empty
+`collections/` in it is the ordinary shape of every node, and choosing on it
+would leave those nodes with no playbook at all.
+
+The two are never stacked. A run records one fingerprint, and a tree assembled
+from two installs is one no CI has ever executed. The root is resolved once, at
+start, for the same reason: a collection dropped in the volume while a
+convergence is going must not change what that run is halfway through
+executing.
+
+The choice lands in the journal at every boot, with the fingerprint, whenever
+it is the site's collection that is running. That is code which arrived outside
+an image release, and the boot that starts applying it is where an operator
+looks for it.
+
+The volume is the one the quadlet already mounts, so this asks for no new mount
+and no new host surface. What is not written yet is the installer, meaning the
+upload that verifies a tarball and unpacks it there. Until it lands, a site
+installs the collection with `ansible-galaxy collection install
+--collections-path=/var/lib/seapath-webui/collections` and restarts the
+service.
+
 ## 2. Quadlet
 
 `seapath-webui.container`, installed to `/etc/containers/systemd/`.
@@ -113,6 +151,16 @@ Thirteen bind mounts, in four groups:
 The file itself is [`seapath-webui.container`](../seapath-webui.container) at the
 root of the repository, kept there rather than copied here so the two cannot
 drift apart.
+
+### The image reference
+
+`Image=` names an exact tag, and it follows this service's `__version__`.
+`latest` would leave a machine unable to say which code is answering on it,
+which is the half of "which code, against which desired state" that the run
+record cannot supply on its own. Releasing is therefore: bump `__version__`,
+run `buildpush.sh`, which reads the version from the source rather than
+repeating it, and install the quadlet. A test in `tests/test_packaging.py`
+holds the tag and the version together.
 
 ### The listen socket
 
@@ -256,7 +304,10 @@ that is already running. Both come later than the first real deployments, so
 here is the same thing by hand, and it is short on purpose:
 
 ```bash
-podman pull docker.io/insatomcat/seapath-webui:latest
+# The exact tag the quadlet pins, which is this service's own version. The
+# quadlet never says `latest`: a machine has to be able to say which code is
+# answering on it.
+podman pull docker.io/insatomcat/seapath-webui:0.1.0
 install -m 0644 seapath-webui.container /etc/containers/systemd/
 systemctl daemon-reload
 systemctl start seapath-webui
@@ -387,7 +438,7 @@ conventions.
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `seapath_webui_enabled` | no | `true` | Deploy and enable |
-| `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:latest` | Image reference |
+| `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:0.1.0` | Image reference, an exact tag. This is the variable [D23](decisions.md#d23) turns into the update lever: editing it in the inventory and applying is how the service replaces itself |
 | `seapath_webui_bind_address` | no | `{{ ip_addr }}` | Listen address, administration network. `auto` resolves it from the default route, which is what a fresh ISO boots with |
 | `seapath_webui_port` | no | `8006` | Listen port |
 | `seapath_webui_admin_group` | no | `seapath-admin` | Unix group granting the admin role |

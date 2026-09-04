@@ -29,7 +29,7 @@ from app.core.auth import (
     RoleDirectory,
     UnixGroupDirectory,
 )
-from app.core.bootstrap import run_startup_tasks
+from app.core.bootstrap import collections_root, run_startup_tasks
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.core.security import CsrfMiddleware
@@ -183,6 +183,11 @@ def create_app(
         authorized_keys_file=settings.authorized_keys_file,
         ansible_user=settings.ansible_user,
     )
+    # The site's collection where one is installed, the image's otherwise,
+    # decided once here so the whole service reads the same tree.
+    collections_path = collections_root(settings)
+    app.state.collections_path = collections_path
+
     app.state.inventory_service = InventoryService(
         InventoryRepository(settings.inventory_dir),
         reader,
@@ -191,7 +196,7 @@ def create_app(
         artefacts=ArtefactStore(settings.artefacts_dir),
         # Read to tell a file the site owes the run from one the collection
         # already ships, such as the syslog template a role defaults to.
-        collections_path=settings.collections_path,
+        collections_path=collections_path,
         max_file_bytes=settings.max_inventory_file_bytes,
     )
     app.state.run_service = RunService(
@@ -200,7 +205,7 @@ def create_app(
         inventory=app.state.inventory_service,
         trust=app.state.trust_service,
         paths=RunPaths(
-            collections_path=settings.collections_path,
+            collections_path=collections_path,
             private_key_file=settings.self_private_key_file,
             known_hosts_file=settings.known_hosts_file,
             ssh_config_file=settings.client_ssh_config_file,

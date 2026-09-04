@@ -12,7 +12,9 @@ set -euo pipefail
 
 REGISTRY_USER="${REGISTRY_USER:-insatomcat}"
 IMAGE_NAME="seapath-webui"
-VERSION="${VERSION:-0.1.0}"
+# Read from the source rather than repeated here, because the quadlet pins this
+# exact tag and a test holds the two together.
+VERSION="${VERSION:-$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' app/__init__.py)}"
 # The branch of seapath/ansible the collection comes from, and the label the
 # service reports for it. `galaxy.yml` says 2.0.0 on every branch, so the branch
 # is the part of the label that says which code the machines get.

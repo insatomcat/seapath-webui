@@ -132,3 +132,39 @@ def test_the_listen_socket_is_never_the_wildcard() -> None:
     setting = "Environment=SEAPATH_WEBUI_BIND_ADDRESS="
     active = [line for line in _QUADLET.splitlines() if line.startswith(setting)]
     assert active == [setting + "auto"]
+
+
+def test_the_image_reference_is_pinned_to_this_version() -> None:
+    # `latest` on a substation hypervisor means the machine cannot say which
+    # code is answering on it, and a run identified by "inventory commit,
+    # collection version" is only half an answer if the service itself is
+    # unnamed. Releasing is then: bump __version__, build, install the quadlet.
+    from app import __version__
+
+    references = [
+        line.split("=", 1)[1]
+        for line in _QUADLET.splitlines()
+        if line.startswith("Image=")
+    ]
+    assert len(references) == 1
+    repository, _, tag = references[0].rpartition(":")
+    assert repository and tag != "latest"
+    assert tag == __version__
+
+    # And the build publishes that tag, without it being written twice.
+    buildpush = (_ROOT / "buildpush.sh").read_text()
+    assert "app/__init__.py" in buildpush
+
+
+def test_the_site_collection_rides_in_the_state_volume() -> None:
+    # A collection installed on the node has to reach the container, and the
+    # cheapest way to reach it is to need no new mount at all. D23 puts it
+    # under the state volume for exactly that reason, so the day the installer
+    # lands there is nothing to add to the quadlet and nothing new to review.
+    from app.core.settings import Settings
+
+    site = Settings().site_collections_dir
+    assert str(site) not in _SOURCES
+    assert any(
+        site.is_relative_to(Path(source)) for source in _SOURCES
+    ), f"{site} is under no mount the quadlet gives the container"
