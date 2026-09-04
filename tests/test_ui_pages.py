@@ -451,25 +451,42 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     assert "undone by the next run that touches it" in body
 
 
-def test_the_real_time_page_separates_conformance_from_advice(
+def test_the_real_time_page_says_which_checks_the_inventory_backs(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/realtime").text
 
-    # The two kinds of check answer different questions, and only one of them
-    # has an action behind it. A page that presented them alike would read as
-    # this service having an opinion about a site's own decisions.
-    assert "conformance" in body
-    assert "advice" in body
-    assert "Neither kind is fixed from this page" in body
+    # The two kinds of check answer different questions, and only one has an
+    # action behind it. Naming them "conformance" and "advice" was how this
+    # page said so at first, and neither word survived contact with a reader.
+    # The column does the work instead: a value there is something to converge
+    # towards, a dash is something nobody declared.
+    assert "The inventory asks for" in body
+    assert "nothing in the inventory declares that" in body
 
 
-def test_the_real_time_page_says_where_the_measurement_runs(
+def test_the_real_time_page_offers_both_measurements(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/realtime").text
 
-    # The one thing an operator has to understand about this page: cyclictest
-    # runs on the machines, through Ansible, and not inside this container.
+    # Both, on one pane, because they answer complementary questions: what the
+    # scheduler delivered and what the firmware took without telling the
+    # kernel. Each is launched behind a confirmation, since both load every
+    # machine the inventory declares.
+    assert 'data-kind="cyclictest"' in body
+    assert 'data-kind="hwlatdetect"' in body
     assert 'id="measure-confirm"' in body
-    assert 'id="measure-form"' in body
+
+
+def test_the_real_time_page_is_laid_out_as_one_screen(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/realtime").text
+
+    # An application layout rather than a document. The page answers one
+    # question at a glance, and an answer that has to be scrolled for is one an
+    # operator stops reading, so the panes are placed and each scrolls inside
+    # itself.
+    assert 'class="page realtime"' in body
+    assert body.count('class="card pane"') == 3

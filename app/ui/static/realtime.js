@@ -25,23 +25,19 @@
       panel: "latency",
       picker: "measure-picker",
       body: "latency-body",
-      lead: "latency-lead",
       button: "measure-go",
       results: (item) => item.latency,
       absent:
         "The collection installed on this node has no test_run_cyclictest " +
         "playbook, so the latency cannot be measured from here. Past " +
         "measurements are still listed below.",
-      done:
-        "cyclictest, run through Ansible on the machines the inventory " +
-        "declares. Every measurement carries the inventory commit it was " +
-        "taken under, because a latency figure without the isolation behind " +
-        "it is an anecdote.",
       empty:
         "No latency has been measured from this node yet. cyclictest runs on " +
         "the machines over the same SSH path a convergence uses, so nothing " +
         "measures inside this container and nothing here runs at real time " +
         "priority.",
+      note:
+        "what the scheduler delivered, which the tuning above can change",
       fields: {
         cyclictest_duration: "measure-duration",
         cyclictest_priority: "measure-priority",
@@ -56,20 +52,19 @@
       panel: "hwlat",
       picker: "hwlat-picker",
       body: "hwlat-body",
-      lead: "hwlat-lead",
       button: "hwlat-go",
       results: (item) => item.interruptions,
       absent:
         "The collection installed on this node has no test_run_hwlatdetect " +
         "playbook, so the hardware cannot be measured from here. Past " +
         "measurements are still listed below.",
-      done:
-        "hwlatdetect, run through Ansible on the machines the inventory " +
-        "declares.",
       empty:
         "The firmware has not been measured from this node yet. A machine " +
         "that passes every check above and still misses its deadline is the " +
         "case this answers.",
+      note:
+        "what the firmware took without telling the kernel, which no " +
+        "inventory variable reaches",
       fields: {
         hwlatdetect_duration: "hwlat-duration",
         hwlatdetect_threshold: "hwlat-threshold",
@@ -85,6 +80,7 @@
     selected: { cyclictest: null, hwlatdetect: null },
     canLaunch: false,
     machines: [],
+    isolated: [],
   };
 
   // Enough for a machine with more threads than anyone measures at once, and
@@ -104,14 +100,16 @@
     return document.getElementById(id);
   }
 
+  // Warnings accumulate for the load, and a later success never clears them.
+  // The panels load in parallel, so a card that failed had its message wiped
+  // by the next card that succeeded, and the page looked merely empty.
+  let banners = [];
+
   function showBanner(messages) {
+    banners = banners.concat(messages.filter((m) => !banners.includes(m)));
     const banner = element("banner");
-    if (!messages.length) {
-      banner.hidden = true;
-      return;
-    }
-    banner.textContent = messages.join(" ");
-    banner.hidden = false;
+    banner.textContent = banners.join(" ");
+    banner.hidden = !banners.length;
   }
 
   // Conformance
@@ -119,66 +117,93 @@
   async function loadChecks() {
     const report = await API.get("/realtime");
     element("checks-loading").hidden = true;
-    const container = element("checks");
-    container.hidden = false;
-    container.replaceChildren();
+    element("checks").hidden = false;
+    const rows = element("check-rows");
+    rows.replaceChildren();
+    report.checks.forEach((check) => rows.append(renderCheck(check)));
 
-    report.checks.forEach((check) => {
-      container.append(renderCheck(check));
-    });
-
-    const warnings = report.checks.filter(
+    const wanting = report.checks.filter(
       (check) => check.status === "warning"
     ).length;
     element("checks-lead").textContent = report.this_host
-      ? "Checked against " +
+      ? (wanting
+          ? wanting + " of " + report.checks.length + " worth a look"
+          : "nothing worth a look") +
+        ", against " +
         report.this_host +
-        " in the inventory" +
         (report.inventory_commit
           ? " at " + report.inventory_commit.slice(0, 8)
-          : "") +
-        ". " +
-        (warnings
-          ? warnings + " of " + report.checks.length + " want attention."
-          : "Nothing wants attention.")
-      : "No inventory entry describes this machine yet, so every check below " +
-        "is advice. Write the inventory first: the comparison is what makes " +
-        "this page worth reading.";
+          : "")
+      : "no inventory entry describes this machine yet";
 
     showBanner(report.warnings || []);
     return report;
   }
 
+  // One row per check, and the detail only when asked for. Ten checks with
+  // their reasoning always on screen is the page an operator has to scroll,
+  // and scrolling is what this layout exists to avoid.
   function renderCheck(check) {
-    const row = document.createElement("div");
-    row.className = "check " + check.status;
-
-    const title = document.createElement("span");
-    title.className = "check-title";
-    title.textContent = check.title;
-
-    const kind = document.createElement("span");
-    kind.className = "check-kind";
-    kind.textContent = check.kind;
-
-    const values = document.createElement("div");
-    values.className = "check-values";
-    values.textContent = check.observed;
-    if (check.declared !== null && check.declared !== undefined) {
-      const declared = document.createElement("span");
-      declared.className = "check-declared";
-      declared.textContent = "  declared: " + check.declared;
-      values.append(declared);
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "check-row";
+    if (check.declared && check.declared !== check.observed) {
+      row.classList.add("differs");
     }
 
-    row.append(title, kind, values);
-    if (check.detail) {
-      const detail = document.createElement("p");
-      detail.className = "check-detail";
-      detail.textContent = check.detail;
-      row.append(detail);
+    const dot = document.createElement("span");
+    dot.className = "dot status-" + check.status;
+
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = check.title;
+
+    const observed = document.createElement("span");
+    observed.className = "observed";
+    observed.textContent = check.observed;
+
+    const declared = document.createElement("span");
+    declared.className = "declared";
+    if (check.declared === null || check.declared === undefined) {
+      // A dash rather than an empty cell: the column reads as answered, and
+      // the answer is that nothing in the inventory has an opinion here.
+      declared.classList.add("none");
+      declared.textContent = "\u2013";
+    } else {
+      declared.textContent = check.declared;
+    }
+
+    row.append(dot, name, observed, declared);
+
+    const detail = check.detail || defaultDetail(check);
+    if (detail) {
+      const note = document.createElement("p");
+      note.className = "check-detail";
+      note.textContent = detail;
+      note.hidden = true;
+      row.append(note);
+      row.addEventListener("click", () => {
+        note.hidden = !note.hidden;
+      });
     }
     return row;
+  }
+
+  // Something to say on a row that passed. A check with no detail would open
+  // to nothing, which reads as a page that failed rather than as a machine
+  // that is fine.
+  function defaultDetail(check) {
+    if (check.declared !== null && check.declared !== undefined) {
+      return (
+        "This machine matches what the inventory declares for it. A " +
+        "difference here would be fixed by editing the inventory and " +
+        "converging, never from this page."
+      );
+    }
+    return (
+      "Reported for information. Nothing in the inventory declares this, so " +
+      "there is nothing to compare it against and no run that would change it."
+    );
   }
 
   // The CPU map, grouped by physical core so hyperthread siblings sit
@@ -218,37 +243,123 @@
           entry.socket +
           ", core " +
           entry.core;
-        map.append();
         box.append(cell);
       });
       map.append(box);
     });
 
-    fillList(element("map-summary"), [
-      ["Isolated", cpu.isolated.length ? cpu.isolated.join(",") : "none"],
-      [
-        "Housekeeping",
-        cpu.housekeeping.length ? cpu.housekeeping.join(",") : "unknown",
-      ],
-      ["nohz_full", cpu.nohz_full.length ? cpu.nohz_full.join(",") : "none"],
-      ["Cores", String(cores.size)],
-      [
-        "Cores split across the isolation",
-        split ? String(split) + " - see the outlined ones" : "none",
-      ],
-    ]);
+    state.isolated = cpu.isolated;
+    renderAffinity();
+
+    // The summary as one line in the heading rather than as a list of five.
+    // The grid below already shows which CPUs are isolated; what it cannot
+    // show is the count of cores split across the isolation, which is the one
+    // number worth a sentence.
+    element("map-note").textContent =
+      cores.size +
+      " cores, " +
+      (cpu.isolated.length
+        ? ranges(cpu.isolated) + " isolated"
+        : "none isolated") +
+      (split ? ", " + split + " split across the isolation" : "");
   }
 
-  function fillList(list, pairs) {
-    list.replaceChildren();
-    pairs.forEach(([label, value]) => {
-      const term = document.createElement("dt");
-      term.textContent = label;
-      const definition = document.createElement("dd");
-      definition.textContent = value;
-      list.append(term, definition);
+
+  // The kernel's own range notation, `4-7` rather than `4,5,6,7`. The same
+  // shape the inventory writes, so what the operator picks here reads like
+  // what they declared there.
+  function ranges(cpus) {
+    if (!cpus.length) {
+      return "";
+    }
+    const ordered = cpus.slice().sort((a, b) => a - b);
+    const parts = [];
+    let start = ordered[0];
+    let previous = start;
+    ordered.slice(1).forEach((cpu) => {
+      if (cpu === previous + 1) {
+        previous = cpu;
+        return;
+      }
+      parts.push(start === previous ? String(start) : start + "-" + previous);
+      start = cpu;
+      previous = cpu;
     });
+    parts.push(start === previous ? String(start) : start + "-" + previous);
+    return parts.join(",");
   }
+
+  // What "CPUs to measure" offers. `smp` is the upstream role's word for every
+  // online CPU and says nothing to a reader, so it is spelled out and kept as
+  // the value behind the label. The isolated set is offered by name and comes
+  // first, because it is the set a real time guest runs on and the answer this
+  // page is usually being asked for.
+  function renderAffinity() {
+    const choice = element("measure-affinity-choice");
+    const value = element("measure-affinity");
+    const help = element("measure-affinity-help");
+    const isolated = ranges(state.isolated);
+
+    const options = [];
+    if (isolated) {
+      options.push({ value: isolated, label: "The isolated set, " + isolated });
+    }
+    options.push({ value: "smp", label: "Every online CPU" });
+    options.push({ value: "", label: "A list I type" });
+
+    choice.replaceChildren();
+    options.forEach((option) => {
+      const node = document.createElement("option");
+      node.value = option.value;
+      node.textContent = option.label;
+      choice.append(node);
+    });
+
+    const apply = () => {
+      const custom = choice.value === "";
+      value.hidden = !custom;
+      if (custom) {
+        value.focus();
+      } else {
+        value.value = choice.value;
+      }
+      help.textContent = custom
+        ? "A CPU list in the kernel notation, such as 4-7 or 2,4-6."
+        : choice.value === "smp"
+          ? "One thread per online CPU, the housekeeping ones included, which " +
+            "is where this service itself runs."
+          : "One thread per isolated CPU, which is what a real time guest " +
+            "runs on.";
+    };
+    choice.onchange = apply;
+    apply();
+  }
+
+  // Width over window is the fraction of wall clock time the hardware is
+  // actually watched, and it is what an operator is really choosing with those
+  // two numbers. Shown as they type, because nobody divides 500000 by 1000000
+  // in their head while deciding how hard to load a substation.
+  function renderShare() {
+    const width = Number(element("hwlat-width").value);
+    const window_ = Number(element("hwlat-window").value);
+    const help = element("hwlat-share");
+    if (!width || !window_ || width > window_) {
+      help.textContent =
+        "The width has to fit inside the window: it is the part of each " +
+        "window spent watching.";
+      return;
+    }
+    help.textContent =
+      "Watching " +
+      Math.round((width / window_) * 100) +
+      "% of the time. Raising it finds rarer events by taking more of the CPU " +
+      "it is watching.";
+  }
+
+  ["hwlat-width", "hwlat-window"].forEach((id) => {
+    element(id).addEventListener("input", renderShare);
+  });
+  renderShare();
 
   // Measurement
 
@@ -300,7 +411,9 @@
     element(spec.loading).hidden = true;
     element(spec.panel).hidden = false;
     const done = items.filter((item) => spec.results(item).length);
-    element(spec.lead).textContent = done.length ? spec.done : spec.empty;
+    // The empty sentence goes where the results would be, so a panel with no
+    // history says why rather than showing a blank rectangle.
+    element(spec.body).textContent = done.length ? "" : spec.empty;
     state.selected[kind] = done.length ? done[0].run_id : null;
     renderPicker(kind);
     renderMeasurement(kind);
@@ -339,18 +452,28 @@
       return;
     }
 
-    const meta = document.createElement("dl");
-    fillList(meta, [
-      ["Run", measurement.run_id],
-      ["Launched by", measurement.launched_by],
-      ["Inventory", measurement.inventory_commit || "unknown"],
-      [
-        "Parameters",
-        Object.entries(measurement.variables)
-          .map(([name, value]) => name + "=" + value)
-          .join(", ") || "the upstream defaults",
-      ],
-    ]);
+    // One wrapped line rather than a four row list. Every value here is
+    // provenance, read once when an operator wonders where a number came
+    // from, and it was costing four lines of a pane that has to fit.
+    const meta = document.createElement("p");
+    meta.className = "measure-meta";
+    const parameters =
+      Object.entries(measurement.variables)
+        .map(([name, value]) => name.split("_").slice(1).join(" ") + " " + value)
+        .join(", ") || "upstream defaults";
+    [
+      "by " + measurement.launched_by,
+      "inventory " + (measurement.inventory_commit || "unknown").slice(0, 8),
+      parameters,
+    ].forEach((text) => {
+      const item = document.createElement("span");
+      item.textContent = text;
+      meta.append(item);
+    });
+    const anchor = document.createElement("a");
+    anchor.href = "/runs?run=" + encodeURIComponent(measurement.run_id);
+    anchor.textContent = "open the run";
+    meta.append(anchor);
     body.append(meta);
 
     const render =
@@ -359,13 +482,6 @@
       body.append(render(result));
     });
 
-    const link = document.createElement("p");
-    link.className = "legend";
-    const anchor = document.createElement("a");
-    anchor.href = "/runs?run=" + encodeURIComponent(measurement.run_id);
-    anchor.textContent = "Open the run";
-    link.append(anchor, document.createTextNode(" to read its event stream."));
-    body.append(link);
   }
 
   // hwlatdetect returns a list of gaps rather than a distribution, and usually
@@ -491,18 +607,57 @@
       return section;
     }
 
-    section.append(renderSummary(result), chart(result), legend(result));
+    // The answer first, in one line. A latency measurement is read for its
+    // worst case, and a seven column table of every thread was burying it
+    // under numbers that agree with each other.
+    const worst = result.threads.reduce(
+      (found, thread) =>
+        thread.max_us !== null && (found === null || thread.max_us > found.max_us)
+          ? thread
+          : found,
+      null
+    );
+    const overflows = result.threads.reduce(
+      (total, thread) => total + thread.overflows,
+      0
+    );
+    const verdict = document.createElement("p");
+    verdict.className = "verdict";
+    verdict.textContent = worst
+      ? "Worst " +
+        worst.max_us +
+        "us, on " +
+        (worst.cpu === null ? "thread " + worst.thread : "CPU " + worst.cpu) +
+        " of " +
+        result.threads.length +
+        " measured" +
+        (overflows
+          ? ". " + overflows + " samples ran off the end of the histogram."
+          : ".")
+      : "No thread reported a latency.";
+    section.append(verdict, chart(result), legend(result));
+
+    // Every thread, for the operator who wants to see them agree. Folded away,
+    // because on a 32 CPU machine it is 32 rows of a pane that has to fit.
+    const details = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Per thread, and the command";
+    details.append(summary, renderSummary(result));
     if (result.command) {
       const command = document.createElement("p");
       command.className = "legend";
       const code = document.createElement("code");
       code.textContent = result.command;
       command.append(code);
-      section.append(command);
+      details.append(command);
     }
+    section.append(details);
     return section;
   }
 
+  // Every measuring thread, folded behind a disclosure on the panel. It is the
+  // evidence behind the one line verdict rather than the answer itself, and on
+  // a machine with many isolated CPUs it is one row each.
   function renderSummary(result) {
     const wrapper = document.createElement("div");
     wrapper.className = "table-scroll";
@@ -562,10 +717,10 @@
   // single sample at 341us is the whole reason for looking at this chart, and
   // a zero length line segment draws nothing.
   function chart(result) {
-    const width = 720;
-    const height = 240;
-    const left = 44;
-    const bottom = 26;
+    const width = 900;
+    const height = 170;
+    const left = 40;
+    const bottom = 22;
     // The plot stops short of the right edge so the last x label, which is
     // anchored to its end, has somewhere to sit.
     const right = 14;
@@ -608,11 +763,11 @@
         ? height - bottom
         : height -
           bottom -
-          (Math.log10(count) / decades) * (height - bottom - 10);
+          (Math.log10(count) / decades) * (height - bottom - 8);
 
     svg.append(
       line(left, height - bottom, width - right, height - bottom),
-      line(left, 10, left, height - bottom)
+      line(left, 8, left, height - bottom)
     );
 
     for (let decade = 0; decade <= decades; decade += 1) {
@@ -624,7 +779,7 @@
       // The last label is anchored to its end and the first to its start, so
       // neither runs off the side of the viewBox.
       const anchor = step === 4 ? "end" : step === 0 ? "start" : "middle";
-      svg.append(text(x(us), height - bottom + 14, us + "us", anchor));
+      svg.append(text(x(us), height - bottom + 15, us + "us", anchor));
     }
 
     counts.forEach((series, index) => {
@@ -816,6 +971,22 @@
     );
   }
 
+  // The two measurements share the pane. Switching is local: both histories
+  // are already loaded, so a tab is a show and a hide rather than a fetch.
+  function showTab(kind) {
+    document.querySelectorAll("#measure-tabs .tab").forEach((tab) => {
+      tab.classList.toggle("current", tab.dataset.kind === kind);
+    });
+    Object.keys(MEASUREMENTS).forEach((name) => {
+      element("panel-" + name).hidden = name !== kind;
+    });
+    element("measure-note").textContent = MEASUREMENTS[kind].note;
+  }
+
+  document.querySelectorAll("#measure-tabs .tab").forEach((tab) => {
+    tab.addEventListener("click", () => showTab(tab.dataset.kind));
+  });
+
   element("measure-cancel").addEventListener("click", () => {
     element("measure-confirm").hidden = true;
   });
@@ -834,6 +1005,7 @@
     // priority for as long as the operator asked, on a live substation. That
     // is a run like any other, and POST /runs asks for the admin role.
     state.canLaunch = Chrome.isAdmin(me);
+    showTab("cyclictest");
     await Promise.all([
       loadChecks(),
       loadMap(),

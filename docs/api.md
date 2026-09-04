@@ -306,19 +306,20 @@ honest: on a machine up for months the since-boot average says nothing.
 
 Open to the `viewer` role. Nothing here writes anything.
 
-Every check carries a `kind`, and the difference is the whole content of the
-page:
+Every check carries a `kind`, `conformance` where the inventory declares a
+value and `advice` where nothing does. `isolcpus` and the tuned profile it
+selects are the two conformance checks: the comparison has an action behind it,
+edit the inventory and converge, and the commonest finding is a machine
+converged and never rebooted, since the kernel reads `isolcpus` at boot. The
+rest report what the machine came out with and say what it costs, because a
+site is entitled to its own answer about SMT and presenting one as a failure
+would be this service voting on it.
 
-- **`conformance`** where the inventory declares a value. `isolcpus` and the
-  tuned profile it selects are the two. The check compares, and a mismatch has
-  an action behind it: edit the inventory and converge. The commonest one is a
-  machine converged and never rebooted, since the kernel reads `isolcpus` at
-  boot and a machine that ignored the change reads exactly like one where it
-  never happened.
-- **`advice`** where nothing declares one. SMT, transparent hugepages,
-  interrupt affinity, the preemption model. These report what the machine came
-  out with and say what it costs. A site is entitled to its own answer, and
-  presenting one of them as a failure would be this service voting on it.
+**The two words are for API clients.** The page does not print them: neither
+survived contact with a reader, and `declared` already carries the same
+information. A check with a value there is one to converge towards, and a check
+without is one nobody declared, which the page shows as a dash under a column
+headed "The inventory asks for".
 
 A reading that failed is `unknown`, never a pass and never a failure: on a
 substation hypervisor "unreadable" and "correct" must never look alike.

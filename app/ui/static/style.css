@@ -14,6 +14,10 @@
   --warn: #d9a441;
   --bad: #d9534f;
   --isolated: #7a5cd6;
+  /* The top bar plus the footer plus the page's own padding, which is what a
+     full height page has to subtract from the viewport to fit without a
+     scrollbar. Written once here because three rules need the same number. */
+  --chrome: 8.5rem;
 }
 
 * {
@@ -1164,103 +1168,224 @@ button.secondary {
   margin-bottom: 0;
 }
 
-/* Real time */
+/* Real time.
 
-.checks {
-  display: grid;
-  gap: 0.5rem;
+   An application layout: the shell is the viewport and each pane scrolls
+   inside itself, so the answer to "is this machine tuned the way it was told"
+   is on screen without a scrollbar between its halves. The other pages are
+   documents and keep flowing. */
+
+/* Every panel is placed explicitly. Left to auto-placement the banner took
+   the first row when it appeared, and one warning pushed the whole layout down
+   a track: the checks pane collapsed to a single visible row. A hidden banner
+   is `display: none` and its track collapses to nothing, so the same rules
+   hold whether or not there is something to warn about. */
+.page.realtime {
+  height: calc(100vh - var(--chrome));
+  grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, auto) minmax(0, 1fr);
+  overflow: hidden;
 }
 
-.check {
-  display: grid;
-  grid-template-columns: 0.6rem 1fr auto;
-  gap: 0.25rem 0.75rem;
+.page.realtime > .banner {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+#card-checks {
+  grid-column: 1;
+  grid-row: 2 / 4;
+}
+
+#card-map {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+#card-measure {
+  grid-column: 2;
+  grid-row: 3;
+  min-height: 0;
+}
+
+/* A pane is a card that owns its height: the heading and the footnote stay
+   put, and only the middle scrolls. */
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0.75rem 1rem;
+}
+
+.pane > h2 {
+  display: flex;
   align-items: baseline;
-  padding: 0.6rem 0.75rem;
-  background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  gap: 0.75rem;
+  margin: 0 0 0.5rem;
+  flex: 0 0 auto;
 }
 
-/* The status is a bar down the left rather than a coloured word, so a page of
-   ten checks is scanned by looking at one column. */
-.check::before {
-  content: "";
-  grid-row: 1 / -1;
-  align-self: stretch;
-  border-radius: 2px;
-  background: var(--muted);
+.pane-note {
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+  margin-left: auto;
 }
 
-.check.ok::before {
-  background: var(--ok);
+.pane-foot {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+  margin: 0.5rem 0 0;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
-.check.warning::before {
-  background: var(--warn);
+.pane-foot-note {
+  flex: 1 1 100%;
+  line-height: 1.4;
 }
 
-.check.info::before {
-  background: var(--accent);
+/* The conformance list, as a table rather than as ten cards. The old shape
+   spent a line per check on a CONFORMANCE / ADVICE label nobody could read,
+   and the label was saying what the last column already shows: a check with a
+   declared value is a comparison, one with a dash is a reading. */
+.checks {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
-.check-title {
+.check-head,
+.check-row {
+  display: grid;
+  grid-template-columns: 0.9rem minmax(9rem, 1.2fr) minmax(6rem, 1fr) minmax(4.5rem, 0.9fr);
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.3rem 0.25rem;
+}
+
+.check-head {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--line);
+}
+
+#check-rows {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.check-row {
+  width: 100%;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(38, 49, 64, 0.5);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.check-row:hover {
+  background: rgba(74, 158, 255, 0.06);
+}
+
+.check-row .name {
   font-weight: 600;
 }
 
-.check-kind {
-  color: var(--muted);
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.check-values {
-  grid-column: 2 / -1;
+.check-row .observed,
+.check-row .declared {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
-/* What the inventory asked for, where the two differ. Rendered next to the
-   observed value rather than under it, because the comparison is the whole
-   content of a conformance check. */
-.check-declared {
+.check-row .declared {
   color: var(--isolated);
+}
+
+/* Nothing declares this one. A dash rather than an empty cell, so the column
+   reads as answered rather than as unfinished. */
+.check-row .declared.none {
+  color: var(--muted);
+}
+
+.check-row.differs .observed {
+  color: var(--warn);
 }
 
 .check-detail {
   grid-column: 2 / -1;
-  margin: 0.25rem 0 0;
+  margin: 0.15rem 0 0.2rem;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
-/* The summary beside the cores rather than above them. The card spans the
-   page, because a narrow card in a three column grid leaves two empty ones,
-   and the cores are what the reader came for. */
-.map-body {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem 3rem;
-  align-items: flex-start;
+/* The status, as a dot with a legend under the list. A bar down the side of a
+   card carried the same information and named none of it. */
+/* The status modifiers carry a `status-` prefix so `warning` cannot pick up
+   the page-wide banner rule, which has padding and turned the dot into an
+   ellipse.
+   Pinned rather than baseline aligned. A dot has no text and therefore no
+   baseline, so on a row whose name wraps to three lines it drifted over the
+   name instead of staying in its own column. */
+.dot {
+  display: block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--muted);
+  align-self: center;
+  justify-self: center;
 }
 
-.map-body dl {
-  flex: 0 0 auto;
-  margin: 0;
+/* One legend entry is a dot and its words, and they must break together. */
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+}
+
+.dot.status-ok {
+  background: var(--ok);
+}
+
+.dot.status-warning {
+  background: var(--warn);
+}
+
+.dot.status-info {
+  background: var(--accent);
+}
+
+.dot.status-unknown {
+  background: var(--muted);
 }
 
 .core-map {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  flex: 1 1 20rem;
+  gap: 0.4rem;
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .core {
   display: flex;
   gap: 0.15rem;
-  padding: 0.25rem;
+  padding: 0.2rem;
   border: 1px solid var(--line);
   border-radius: 5px;
 }
@@ -1271,34 +1396,99 @@ button.secondary {
   border-color: var(--warn);
 }
 
-.measure-form {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 0 1rem;
-  align-items: end;
-  margin-bottom: 1rem;
+/* The two measurements as tabs rather than as two stacked cards. They answer
+   complementary questions and an operator reads one at a time, so stacking
+   them cost a screen height to show a panel nobody was looking at. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
 }
 
-/* The button keeps its own column so the three fields stay aligned, and it
-   sits at its natural width inside it: a full width blue bar reads as the
-   page's main action, and on this page that is the conformance report. */
+.tab {
+  padding: 0.2rem 0.6rem;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.tab.current {
+  border-color: var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.measure {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.measure-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 0.75rem;
+  flex: 0 0 auto;
+}
+
+.measure-form .field {
+  flex: 1 1 7rem;
+  margin-bottom: 0.5rem;
+}
+
+.measure-form .field > span {
+  font-size: 0.75rem;
+  margin-bottom: 0.15rem;
+}
+
+.measure-form input,
+.measure-form select {
+  padding: 0.3rem 0.4rem;
+}
+
+.measure-action {
+  flex: 0 0 auto;
+}
+
 .measure-action button {
   width: auto;
+}
+
+.measure-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.measure-result {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 auto;
 }
 
 .measure-picker {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
-  margin-bottom: 1rem;
+  gap: 0.3rem;
+  margin-bottom: 0.5rem;
+  flex: 0 0 auto;
 }
 
 .measure-picker button {
-  padding: 0.3rem 0.6rem;
+  padding: 0.2rem 0.5rem;
   background: transparent;
   border: 1px solid var(--line);
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
 
 .measure-picker button.current {
@@ -1306,10 +1496,35 @@ button.secondary {
   color: var(--text);
 }
 
+.measure-result h3 {
+  margin: 0.4rem 0 0.3rem;
+}
+
+.measure-result table {
+  font-size: 0.78rem;
+}
+
+.measure-result td,
+.measure-result th {
+  padding: 0.15rem 0.5rem 0.15rem 0;
+}
+
+.measure-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 1rem;
+  margin: 0 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+/* The chart is a shape, read at a glance: where the bulk sits and how far the
+   tail runs. It was rendered at the full width of the pane and took half a
+   screen to say it. */
 .chart {
   width: 100%;
-  height: auto;
-  margin-top: 0.5rem;
+  max-height: 11rem;
+  margin-top: 0.25rem;
 }
 
 .chart .axis {
@@ -1319,7 +1534,7 @@ button.secondary {
 
 .chart .tick {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .chart .series {
@@ -1330,9 +1545,10 @@ button.secondary {
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 .chart-legend span {
@@ -1349,5 +1565,43 @@ button.secondary {
 
 .chart-axes {
   margin-right: 0.5rem;
+}
+
+@media (max-width: 70rem) {
+  /* Below this the two columns cannot both be useful, so the page goes back to
+     being a document and scrolls like the others. */
+  .page.realtime {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  #card-checks,
+  #card-map,
+  #card-measure {
+    grid-row: auto;
+    grid-column: auto;
+  }
+
+  .page.realtime .pane {
+    max-height: none;
+  }
+}
+
+/* The one line an operator reads first: the worst case and where it happened.
+   It sits above the chart because the chart is the shape and this is the
+   number, and a measurement is quoted by its number. */
+.verdict {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+}
+
+.measure-result details {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.measure-result summary {
   color: var(--muted);
+  cursor: pointer;
 }

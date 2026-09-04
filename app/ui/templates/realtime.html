@@ -1,6 +1,11 @@
 {#
 Copyright (C) 2026, RTE (http://www.rte-france.com)
 SPDX-License-Identifier: CC-BY-4.0
+
+An application layout rather than a document: the shell is the viewport, and
+what overflows scrolls inside its own panel. The page answers one question at a
+glance, "is this machine tuned the way it was told, and what does it deliver",
+and an answer that has to be scrolled for is one an operator stops reading.
 #}
 {% extends "base.html" %}
 {% block title %}Real time - SEAPATH{% endblock %}
@@ -9,106 +14,128 @@ SPDX-License-Identifier: CC-BY-4.0
 <main class="page realtime">
   <p class="banner" id="banner" hidden></p>
 
-  <section class="card wide" id="card-checks">
-    <h2>Real time conformance</h2>
-    <p class="lead" id="checks-lead"></p>
+  <section class="card pane" id="card-checks">
+    <h2>
+      Conformance
+      <span class="pane-note" id="checks-lead"></span>
+    </h2>
     <div class="loading" id="checks-loading">Reading this machine</div>
-    <div class="checks" id="checks" hidden></div>
-    <p class="legend">
-      A <strong>conformance</strong> check compares the machine with the value
-      the inventory declares for it, and the fix for a mismatch is an inventory
-      edit followed by a run. An <strong>advice</strong> check has nothing to
-      compare against: it reports what the machine came out with and says what
-      it costs. Neither kind is fixed from this page, because nothing here
-      writes to a host.
-    </p>
-  </section>
-
-  <section class="card wide" id="card-map">
-    <h2>CPU map</h2>
-    <div class="map-body">
-      <dl id="map-summary"></dl>
-      <div class="core-map" id="core-map"></div>
+    <div class="checks" id="checks" hidden>
+      <div class="check-head">
+        <span></span>
+        <span>Check</span>
+        <span>On this machine</span>
+        <span>The inventory asks for</span>
+      </div>
+      <div id="check-rows"></div>
     </div>
-    <p class="legend">
-      Grouped by physical core, so the two threads of one core sit together.
-      An isolated CPU whose sibling is not isolated shares its execution units
-      with whatever the scheduler puts there, which is the case the outline
-      marks.
+    <p class="pane-foot">
+      <span class="legend-item"><span class="dot status-ok"></span> as expected</span>
+      <span class="legend-item"><span class="dot status-warning"></span> worth a look</span>
+      <span class="legend-item"><span class="dot status-info"></span> nothing to compare</span>
+      <span class="legend-item"><span class="dot status-unknown"></span> unreadable</span>
+      <span class="pane-foot-note">
+        A dash in the last column means nothing in the inventory declares that
+        value, so there is nothing to converge towards. Click a row for what it
+        means.
+      </span>
     </p>
   </section>
 
-  <section class="card wide" id="card-latency">
-    <h2>Measured latency</h2>
-    <p class="lead" id="latency-lead"></p>
+  <section class="card pane" id="card-map">
+    <h2>
+      CPU map
+      <span class="pane-note" id="map-note"></span>
+    </h2>
+    <div class="core-map" id="core-map"></div>
+    <p class="pane-foot">
+      <span class="legend-item"><span class="swatch isolated"></span> isolated</span>
+      <span class="legend-item"><span class="swatch housekeeping"></span> housekeeping</span>
+      <span class="pane-foot-note">
+        Grouped by physical core. An outlined core has one thread isolated and
+        one not, so the isolated one shares its execution units with whatever
+        the scheduler puts on the other.
+      </span>
+    </p>
+  </section>
 
-    <div class="measure-form" id="measure-form" hidden>
-      <label class="field">
-        <span>Duration, in seconds</span>
-        <input type="number" id="measure-duration" min="1" max="86400" value="20">
-      </label>
-      <label class="field">
-        <span>Real time priority</span>
-        <input type="number" id="measure-priority" min="1" max="98" value="90">
-      </label>
-      <label class="field">
-        <span>CPUs to measure</span>
-        <input type="text" id="measure-affinity" value="smp">
-      </label>
-      <div class="field measure-action">
-        <button id="measure-go" type="button">Measure</button>
+  <section class="card pane" id="card-measure">
+    <h2>
+      <span class="tabs" id="measure-tabs">
+        <button type="button" class="tab current" data-kind="cyclictest">
+          Latency
+        </button>
+        <button type="button" class="tab" data-kind="hwlatdetect">
+          Firmware
+        </button>
+      </span>
+      <span class="pane-note" id="measure-note"></span>
+    </h2>
+
+    <div class="measure" id="panel-cyclictest">
+      <div class="measure-form" id="measure-form" hidden>
+        <label class="field">
+          <span>Duration, in seconds</span>
+          <input type="number" id="measure-duration" min="1" max="86400" value="20">
+        </label>
+        <label class="field">
+          <span>Real time priority</span>
+          <input type="number" id="measure-priority" min="1" max="98" value="90">
+        </label>
+        <label class="field">
+          <span>CPUs to measure</span>
+          {#
+          A list rather than a text field. The upstream role spells "every
+          online CPU" as the word `smp`, which is its own convention and means
+          nothing in a field asking for CPUs. The isolated set is offered by
+          name because that is the set a real time guest runs on.
+          #}
+          <select id="measure-affinity-choice"></select>
+          <input type="text" id="measure-affinity" hidden>
+        </label>
+        <div class="field measure-action">
+          <button id="measure-go" type="button">Measure</button>
+        </div>
+      </div>
+      <p class="help" id="measure-affinity-help"></p>
+      <p class="warning" id="measure-blocked" hidden></p>
+      <div class="loading" id="latency-loading">Reading past measurements</div>
+      <div class="measure-body" id="latency" hidden>
+        <div class="measure-picker" id="measure-picker"></div>
+        <div class="measure-result" id="latency-body"></div>
       </div>
     </div>
-    <p class="warning" id="measure-blocked" hidden></p>
-    <p class="warning" id="measure-error" hidden></p>
 
-    <div class="loading" id="latency-loading">Reading past measurements</div>
-    <div id="latency" hidden>
-      <div class="measure-picker" id="measure-picker"></div>
-      <div id="latency-body"></div>
-    </div>
-  </section>
-
-  <section class="card wide" id="card-interruptions">
-    <h2>Hardware interruptions</h2>
-    <p class="lead" id="hwlat-lead"></p>
-
-    <div class="measure-form" id="hwlat-form" hidden>
-      <label class="field">
-        <span>Duration, in seconds</span>
-        <input type="number" id="hwlat-duration" min="1" max="86400" value="120">
-      </label>
-      <label class="field">
-        <span>Threshold, in microseconds</span>
-        <input type="number" id="hwlat-threshold" min="1" max="1000000" value="10">
-      </label>
-      <label class="field">
-        <span>Sample width, in microseconds</span>
-        <input type="number" id="hwlat-width" min="1" max="1000000" value="500000">
-      </label>
-      <label class="field">
-        <span>Sample every, in microseconds</span>
-        <input type="number" id="hwlat-window" min="1" max="1000000" value="1000000">
-      </label>
-      <div class="field measure-action">
-        <button id="hwlat-go" type="button">Measure</button>
+    <div class="measure" id="panel-hwlatdetect" hidden>
+      <div class="measure-form" id="hwlat-form" hidden>
+        <label class="field">
+          <span>Duration, in seconds</span>
+          <input type="number" id="hwlat-duration" min="1" max="86400" value="120">
+        </label>
+        <label class="field">
+          <span>Threshold, in us</span>
+          <input type="number" id="hwlat-threshold" min="1" max="1000000" value="10">
+        </label>
+        <label class="field">
+          <span>Sample width, in us</span>
+          <input type="number" id="hwlat-width" min="1" max="1000000" value="500000">
+        </label>
+        <label class="field">
+          <span>Sample every, in us</span>
+          <input type="number" id="hwlat-window" min="1" max="1000000" value="1000000">
+        </label>
+        <div class="field measure-action">
+          <button id="hwlat-go" type="button">Measure</button>
+        </div>
+      </div>
+      <p class="help" id="hwlat-share"></p>
+      <p class="warning" id="hwlat-blocked" hidden></p>
+      <div class="loading" id="hwlat-loading">Reading past measurements</div>
+      <div class="measure-body" id="hwlat" hidden>
+        <div class="measure-picker" id="hwlat-picker"></div>
+        <div class="measure-result" id="hwlat-body"></div>
       </div>
     </div>
-    <p class="warning" id="hwlat-blocked" hidden></p>
-
-    <div class="loading" id="hwlat-loading">Reading past measurements</div>
-    <div id="hwlat" hidden>
-      <div class="measure-picker" id="hwlat-picker"></div>
-      <div id="hwlat-body"></div>
-    </div>
-    <p class="legend">
-      This is the one measurement no check above can make. A System Management
-      Interrupt takes the CPU into firmware without telling the kernel, so the
-      time is missing from the kernel's own accounting and from the cyclictest
-      figures. A machine correctly isolated that still misses its deadline is
-      either a firmware problem or a configuration one, and this separates
-      them. Nothing in the inventory reaches it: the fix is in the BIOS.
-    </p>
   </section>
 
   <div class="modal" id="measure-confirm" hidden>

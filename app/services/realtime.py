@@ -378,7 +378,7 @@ def _preemption(reading: RealtimeReading) -> Check:
     if reading.preemption is None:
         return Check(
             id="preemption",
-            title="Kernel preemption",
+            title="Preemption",
             kind=Kind.ADVICE,
             status=Status.UNKNOWN,
             observed="unknown",
@@ -387,14 +387,14 @@ def _preemption(reading: RealtimeReading) -> Check:
     if reading.preemption == "PREEMPT_RT":
         return Check(
             id="preemption",
-            title="Kernel preemption",
+            title="Preemption",
             kind=Kind.ADVICE,
             status=Status.OK,
             observed="PREEMPT_RT",
         )
     return Check(
         id="preemption",
-        title="Kernel preemption",
+        title="Preemption",
         kind=Kind.ADVICE,
         status=Status.WARNING,
         observed=reading.preemption,
@@ -466,7 +466,7 @@ def _sched_rt(reading: RealtimeReading) -> Check:
     if runtime is None or period is None:
         return Check(
             id="sched_rt",
-            title="Real time scheduler throttling",
+            title="RT throttling",
             kind=Kind.ADVICE,
             status=Status.UNKNOWN,
             observed="unknown",
@@ -475,17 +475,21 @@ def _sched_rt(reading: RealtimeReading) -> Check:
     if runtime < 0:
         return Check(
             id="sched_rt",
-            title="Real time scheduler throttling",
+            title="RT throttling",
             kind=Kind.ADVICE,
             status=Status.OK,
-            observed="disabled (sched_rt_runtime_us=-1)",
+            observed="disabled",
+            detail=(
+                "sched_rt_runtime_us is -1, so a real time task may use a "
+                "whole CPU. This is what the realtime tuned profile sets."
+            ),
         )
     return Check(
         id="sched_rt",
-        title="Real time scheduler throttling",
+        title="RT throttling",
         kind=Kind.ADVICE,
         status=Status.WARNING,
-        observed=f"{runtime}us out of every {period}us",
+        observed=f"{runtime}/{period}us",
         detail=(
             "Real time tasks are throttled, so a busy guest is preempted by "
             "the scheduler rather than by anything it can be tuned around. "
@@ -558,7 +562,7 @@ def _smt(reading: RealtimeReading, cpu: CpuReading) -> Check:
     if reading.smt_active is None:
         return Check(
             id="smt",
-            title="Simultaneous multithreading",
+            title="Hyperthreading",
             kind=Kind.ADVICE,
             status=Status.INFO,
             observed="unknown",
@@ -568,14 +572,14 @@ def _smt(reading: RealtimeReading, cpu: CpuReading) -> Check:
     if not reading.smt_active:
         return Check(
             id="smt",
-            title="Simultaneous multithreading",
+            title="Hyperthreading",
             kind=Kind.ADVICE,
             status=Status.OK,
             observed="off",
         )
     return Check(
         id="smt",
-        title="Simultaneous multithreading",
+        title="Hyperthreading",
         kind=Kind.ADVICE,
         status=Status.WARNING,
         observed="on",
@@ -625,7 +629,7 @@ def _irq_affinity(reading: RealtimeReading) -> Check:
     if reading.irq_count is None:
         return Check(
             id="irq_affinity",
-            title="Interrupt affinity",
+            title="IRQ affinity",
             kind=Kind.ADVICE,
             status=Status.UNKNOWN,
             observed="unknown",
@@ -635,7 +639,7 @@ def _irq_affinity(reading: RealtimeReading) -> Check:
     if not offenders:
         return Check(
             id="irq_affinity",
-            title="Interrupt affinity",
+            title="IRQ affinity",
             kind=Kind.ADVICE,
             status=Status.OK,
             observed=f"none of {reading.irq_count} reaches an isolated CPU",
@@ -648,7 +652,7 @@ def _irq_affinity(reading: RealtimeReading) -> Check:
         named += f", and {len(offenders) - 4} more"
     return Check(
         id="irq_affinity",
-        title="Interrupt affinity",
+        title="IRQ affinity",
         kind=Kind.ADVICE,
         status=Status.WARNING,
         observed=f"{len(offenders)} of {reading.irq_count} reach an isolated CPU",

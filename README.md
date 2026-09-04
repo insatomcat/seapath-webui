@@ -61,21 +61,23 @@ this node may not be allowed to run it. The lower half is the SSH trust: the
 site key this node holds, and the host keys it has accepted, both undone in one
 click.
 
-![The Real time page: the conformance checks, each marked conformance or advice](img/realtime.png)
+![The Real time page: the conformance checks beside the CPU map and the measurements](img/realtime.png)
 
 **Real time** answers whether a machine came out of a convergence with the
-tuning it was told to have. `isolcpus` and the tuned profile it selects are
-declared in the inventory, so those two are compared against it, and the
-commonest finding is a machine converged and never rebooted, which the kernel's
-boot-time reading of `isolcpus` hides from every other view. The rest, SMT,
-transparent hugepages, interrupt affinity, is reported with what it costs and
-never as a failure: a site is entitled to its own answer there. Below the
-checks, two measurements, both running on the machines through Ansible rather
-than inside this container: `cyclictest` for what the scheduler delivered, and
-`hwlatdetect` for what the firmware took without telling the kernel. A machine
-that passes every check above and still misses its deadline is either a
-firmware problem or a configuration one, and the second measurement is the only
-thing that separates them. See D24 and D25 in
+tuning it was told to have. Every check names what is on the machine beside
+what the inventory asks for, and a dash in that column means nothing declares
+the value, so there is nothing to converge towards. The commonest finding is a
+machine converged and never rebooted, which the kernel's boot-time reading of
+`isolcpus` hides from every other view. Beside the checks, two measurements,
+both running on the machines through Ansible rather than inside this container:
+`cyclictest` for what the scheduler delivered, and `hwlatdetect` for what the
+firmware took without telling the kernel. A machine that passes every check and
+still misses its deadline is either a firmware problem or a configuration one,
+and the second measurement is the only thing that separates them.
+
+It is the one page laid out as an application rather than as a document: the
+panes are placed and each scrolls inside itself, because an answer that has to
+be scrolled for is one an operator stops reading. See D24 and D25 in
 [docs/decisions.md](docs/decisions.md).
 
 ![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)
