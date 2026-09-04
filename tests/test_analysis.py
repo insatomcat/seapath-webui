@@ -436,6 +436,24 @@ def test_every_prerequisites_entry_says_it_checks_no_distribution() -> None:
         assert "does not check the distribution it lands on" in entry.notes
 
 
+def test_every_reboot_switch_an_entry_names_is_a_variable_it_accepts() -> None:
+    """The checkbox sets them, and `_accepted_variables` refuses the rest.
+
+    `seapath_setup_network` named `skip_reboot_setup_network` as its switch and
+    declared no variables at all, so the box the operator ticked produced
+    "Apply the network configuration accepts no variables, not
+    skip_reboot_setup_network" and no run.
+    """
+    undeclared = {}
+    for entry in catalogue.CATALOGUE:
+        declared = {spec.name for spec in entry.variables}
+        missing = [name for name in entry.reboot_variables if name not in declared]
+        if missing:
+            undeclared[entry.id] = missing
+
+    assert undeclared == {}
+
+
 def test_the_yocto_prerequisites_are_declared_as_rebooting() -> None:
     entry = catalogue.BY_ID["seapath_setup_prerequisitesyocto"]
 

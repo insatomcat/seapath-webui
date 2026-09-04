@@ -394,6 +394,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.SELF_TRUST,
             Precondition.PEER_REACHABLE,
         ],
+        variables=[_SKIP_REBOOT_NETWORK],
         notes=(
             "Run from another node when there is one. Launched from the "
             "machine it reconfigures, the run will very likely be interrupted."
