@@ -160,7 +160,13 @@ class PlaybookEntry(BaseModel):
     targets: list[str]
     preview: Preview
     reboots: Reboots
-    reboot_variable: str | None = None
+    reboot_variables: list[str] = Field(default_factory=list)
+    """Every switch that has to be set for `gated` to mean what it says.
+
+    A list because `seapath_setup_main` reboots in two places, its own last
+    play and the network playbook it imports, and each has a switch of its own.
+    Setting one alone reboots the machine after the operator declined it.
+    """
     disruption: str
     requires: list[Precondition] = Field(default_factory=list)
     variables: list[VariableSpec] = Field(default_factory=list)
@@ -182,14 +188,24 @@ class PlaybookEntry(BaseModel):
         return self.preview is not Preview.NONE
 
 
-_SKIP_REBOOT = VariableSpec(
-    name="skip_reboot_setup",
-    type=VariableType.BOOLEAN,
-    description=(
-        "Converge without rebooting. The configuration is not fully applied "
-        "until a reboot happens, and the node view keeps saying so."
-    ),
-)
+def _skip_reboot(name: str) -> VariableSpec:
+    return VariableSpec(
+        name=name,
+        type=VariableType.BOOLEAN,
+        description=(
+            "Converge without rebooting. The configuration is not fully "
+            "applied until a reboot happens, and the node view keeps saying so."
+        ),
+    )
+
+
+# The two switches `seapath_setup_main` reboots behind. The first holds back
+# its own last play, the second the reboot of the network playbook it imports,
+# which fires whenever a role decided the new configuration needs a boot to
+# take effect. Upstream sets both together in `ci_configure.yaml`, which is
+# where the pair was confirmed.
+_SKIP_REBOOT_SETUP = _skip_reboot("skip_reboot_setup")
+_SKIP_REBOOT_NETWORK = _skip_reboot("skip_reboot_setup_network")
 
 _MACHINE_TARGETS = ["cluster_machines", "standalone_machine"]
 
@@ -254,22 +270,28 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         targets=[*_MACHINE_TARGETS, "VMs", "hypervisors"],
         preview=Preview.PARTIAL,
         reboots=Reboots.GATED,
-        reboot_variable="skip_reboot_setup",
+        reboot_variables=["skip_reboot_setup", "skip_reboot_setup_network"],
         disruption=(
             "The full convergence: prerequisites, network, time, libvirt, "
             "monitoring and real time tuning. On a live machine it restarts "
-            "whatever the roles decide to restart, and it reboots at the end "
-            "unless you ask it not to."
+            "whatever the roles decide to restart, and it reboots unless you "
+            "ask it not to: once in the network playbook it imports, when a "
+            "role decided the new configuration needs a boot, and once at the "
+            "end."
         ),
         requires=[
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
             Precondition.PEER_REACHABLE,
         ],
-        variables=[_SKIP_REBOOT],
+        variables=[_SKIP_REBOOT_SETUP, _SKIP_REBOOT_NETWORK],
         notes=(
             "This is the commissioning path and what the CI runs, which makes "
-            "it the granularity with evidence behind it."
+            "it the granularity with evidence behind it. Declining the reboot "
+            "sets both switches, and one case survives it: a Yocto machine "
+            "whose inventory carries kernel_parameters_restart reboots from "
+            "the kernel parameters role when those parameters changed, which "
+            "is a reboot the inventory asked for."
         ),
     ),
     _prerequisites(
@@ -353,10 +375,19 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         # scope line an operator reads before an apply was wrong by two plays.
         targets=[*_MACHINE_TARGETS, "hypervisors"],
         preview=Preview.PARTIAL,
-        reboots=Reboots.YES,
+        # The reboot sits in a block, and the switch that declines it sits on
+        # the block. It fires only when a role set `need_reboot`, which is what
+        # the roles do when they wrote a configuration they could not apply to
+        # the running machine.
+        reboots=Reboots.GATED,
+        reboot_variables=["skip_reboot_setup_network"],
         disruption=(
-            "The playbook most likely to cut the connection under the run. "
-            "Applies only when apply_network_config is true."
+            "The playbook most likely to cut the connection under the run. It "
+            "always writes the network configuration. apply_network_config, "
+            "which every inventory this service writes carries as true, is "
+            "what decides whether the roles apply it to the running machine, "
+            "restarting OVS and systemd-networkd under whatever is using them, "
+            "or leave it for the next boot and ask for one at the end."
         ),
         requires=[
             Precondition.INVENTORY_VALID,
@@ -699,10 +730,11 @@ def _derived_disruption(facts: analysis.PlaybookFacts) -> str:
     if facts.reboots:
         parts.append(
             "It reboots the machines it plays."
-            if not facts.reboot_variable
+            if facts.reboot_state != "gated"
             else (
                 "It reboots the machines it plays unless "
-                f"{facts.reboot_variable} says otherwise."
+                + " and ".join(facts.reboot_variables)
+                + " say otherwise."
             )
         )
     parts.append(
@@ -731,18 +763,11 @@ def _derived_notes(facts: analysis.PlaybookFacts) -> str:
 
 def derive(facts: analysis.PlaybookFacts) -> PlaybookEntry:
     """A catalogue entry for a playbook nobody has reviewed."""
-    variables = []
-    if facts.reboot_variable:
-        variables.append(
-            VariableSpec(
-                name=facts.reboot_variable,
-                type=VariableType.BOOLEAN,
-                description=(
-                    "Converge without rebooting. The configuration is not "
-                    "fully applied until a reboot happens."
-                ),
-            )
-        )
+    # Only offered where every reboot of the chain is behind one of them.
+    # Half the switches of a playbook that reboots twice is a checkbox that
+    # reboots the machine anyway.
+    switches = facts.reboot_variables if facts.reboot_state == "gated" else []
+    variables = [_skip_reboot(name) for name in switches]
     variables.extend(
         VariableSpec(
             name=name,
@@ -751,7 +776,7 @@ def derive(facts: analysis.PlaybookFacts) -> PlaybookEntry:
             required=True,
         )
         for name in facts.required_variables
-        if name != facts.reboot_variable
+        if name not in switches
     )
 
     requires = [
@@ -769,7 +794,7 @@ def derive(facts: analysis.PlaybookFacts) -> PlaybookEntry:
         targets=list(facts.targets),
         preview=Preview(facts.preview),
         reboots=Reboots(facts.reboot_state),
-        reboot_variable=facts.reboot_variable,
+        reboot_variables=list(switches),
         disruption=_derived_disruption(facts),
         requires=requires,
         variables=variables,

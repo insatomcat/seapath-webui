@@ -35,7 +35,12 @@ def test_the_catalogue_says_what_each_playbook_disrupts(
     assert main["available"] is True
     assert main["entry"]["preview"] == "partial"
     assert main["entry"]["reboots"] == "gated"
-    assert main["entry"]["reboot_variable"] == "skip_reboot_setup"
+    # Both switches, since main reboots in two places: the network playbook it
+    # imports, and its own last play.
+    assert main["entry"]["reboot_variables"] == [
+        "skip_reboot_setup",
+        "skip_reboot_setup_network",
+    ]
     assert "restarts whatever the roles decide" in main["entry"]["disruption"]
 
     # Listed so an operator can see what exists, and unavailable with the
@@ -153,22 +158,23 @@ def test_launching_returns_the_run_and_its_preview_quality(
     assert record["collection_version"].endswith("(build test)")
 
 
-def test_the_reboot_can_be_declined_and_the_variable_reaches_the_run(
+def test_the_reboot_can_be_declined_and_the_variables_reach_the_run(
     signed_in: TestClient, run_adapter
 ) -> None:
+    # Both switches, which is what declining a reboot on this playbook means:
+    # one holds back its own last play, the other the reboot of the network
+    # playbook it imports.
+    declined = {"skip_reboot_setup": True, "skip_reboot_setup_network": True}
     run_id = signed_in.post(
         "/api/v1/runs",
-        json={
-            "playbook": "seapath_setup_main",
-            "variables": {"skip_reboot_setup": True},
-        },
+        json={"playbook": "seapath_setup_main", "variables": declined},
     ).json()["run_id"]
     record = wait_for(signed_in, run_id)
 
-    assert run_adapter.requests[0].extra_vars == {"skip_reboot_setup": True}
+    assert run_adapter.requests[0].extra_vars == declined
     # And the record keeps them, so relaunching repeats this run rather than
     # the one that reboots.
-    assert record["variables"] == {"skip_reboot_setup": True}
+    assert record["variables"] == declined
 
 
 def test_an_undeclared_variable_is_refused(signed_in: TestClient) -> None:

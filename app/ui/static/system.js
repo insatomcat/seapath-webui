@@ -606,7 +606,7 @@
     const container = element("confirm-variables");
     container.replaceChildren();
     const asked = entry.variables.filter(
-      (spec) => spec.name !== entry.reboot_variable
+      (spec) => !entry.reboot_variables.includes(spec.name)
     );
     asked.forEach((spec) => {
       if (spec.type === "machine") {
@@ -664,13 +664,21 @@
     });
     go.disabled = !satisfied(asked, values);
 
-    let skipReboot = false;
+    // Checked by default whenever this node is one of the machines the run
+    // plays, which is the ordinary deployment: the service is served by a
+    // machine it is about to converge, and a reboot there takes the page, the
+    // run and the operator's way back in with it. Where the service runs on a
+    // control machine outside the inventory, nothing here is at stake and the
+    // upstream default stands.
+    const playsThisNode = Boolean(state.thisHost);
+    let skipReboot = entry.reboots === "gated" && playsThisNode;
     reboot.hidden = check || entry.reboots === "no";
     if (!reboot.hidden) {
       reboot.replaceChildren();
       const label = document.createElement("label");
       const box = document.createElement("input");
       box.type = "checkbox";
+      box.checked = skipReboot;
       box.addEventListener("change", () => {
         skipReboot = box.checked;
       });
@@ -679,7 +687,12 @@
         document.createTextNode(
           entry.reboots === "gated"
             ? " Converge without rebooting. The configuration is not fully " +
-              "applied until a reboot happens."
+              "applied until a reboot happens." +
+              (playsThisNode
+                ? " Checked because this run plays " +
+                  state.thisHost +
+                  ", the machine serving this page."
+                : "")
             : " This playbook reboots every machine it plays, and cannot " +
               "be told not to."
         )
@@ -695,8 +708,11 @@
       go.setAttribute("aria-busy", "true");
       try {
         const variables = { ...values };
-        if (skipReboot && entry.reboot_variable) {
-          variables[entry.reboot_variable] = true;
+        if (skipReboot) {
+          // Every switch, since a playbook that reboots twice needs both.
+          entry.reboot_variables.forEach((name) => {
+            variables[name] = true;
+          });
         }
         const started = await API.post("/runs", {
           playbook: entry.id,

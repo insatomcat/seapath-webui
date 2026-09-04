@@ -20,11 +20,15 @@ import pytest
 from app.runs import analysis, catalogue
 
 PLAYBOOKS: dict[str, str] = {
-    # The shape of seapath_setup_main: a chain of imports, and a reboot at the
-    # end that a variable holds back.
+    # The shape of seapath_setup_main: a chain of imports, a reboot at the end
+    # that a variable holds back, and an imported playbook that reboots behind
+    # a switch of its own.
     "site_main.yaml": """---
 - name: Import the prerequisites
   import_playbook: site_prerequisites.yaml
+
+- name: Import the network
+  import_playbook: site_network.yaml
 
 - name: Restart everything
   hosts:
@@ -45,6 +49,39 @@ PLAYBOOKS: dict[str, str] = {
   become: true
   roles:
     - write_files
+""",
+    # The shape of seapath_setup_network: the reboot is in a block, and the
+    # switch that declines it is on the block rather than on the task.
+    "site_network.yaml": """---
+- name: Restart machine if needed
+  hosts:
+    - cluster_machines
+    - standalone_machine
+  become: true
+  tasks:
+    - name: Reboot system to apply network configuration
+      when:
+        - need_reboot is defined and need_reboot
+        - skip_reboot_setup_network is not defined or not skip_reboot_setup_network
+      block:
+        - name: Restart
+          ansible.builtin.reboot:
+        - name: Wait for host to be online
+          ansible.builtin.wait_for_connection:
+""",
+    # A reboot nothing holds back, beside one that a switch does. The switch
+    # covers half the playbook, which is worth nothing to an operator who
+    # ticked a box.
+    "site_two_reboots.yaml": """---
+- name: Restart twice
+  hosts: standalone_machine
+  tasks:
+    - name: Restart
+      ansible.builtin.reboot:
+      when:
+        - skip_reboot_setup is not defined or not skip_reboot_setup
+    - name: Restart again
+      ansible.builtin.reboot:
 """,
     # Command driven from end to end: nothing here writes through a module, so
     # check mode has nothing at all to report.
@@ -195,15 +232,59 @@ def test_the_machines_a_run_reaches_are_read_off_the_plays(collection: Path) -> 
     # are, and localhost is never one of them: it is where a playbook checks
     # its own inputs.
     assert facts.targets == ["cluster_machines", "standalone_machine"]
-    assert facts.imports == ["site_prerequisites"]
+    assert facts.imports == ["site_prerequisites", "site_network"]
 
 
 def test_a_reboot_behind_a_skip_switch_is_gated(collection: Path) -> None:
-    facts = analysis.read(collection, "site_main")
+    facts = analysis.read(collection, "site_network")
 
     assert facts.reboots
-    assert facts.reboot_variable == "skip_reboot_setup"
+    assert facts.reboot_variables == ["skip_reboot_setup_network"]
     assert facts.reboot_state == "gated"
+
+
+def test_the_switch_is_found_where_it_is_written_on_the_block(
+    collection: Path,
+) -> None:
+    """The reboot is in the block, the switch is on it, and Ansible ands both.
+
+    Read task by task, the reboot carries no condition at all, and the run view
+    said the playbook reboots and cannot be told not to. The checkbox that
+    declines it was greyed out on the one playbook most likely to cut the
+    connection under the run.
+    """
+    facts = analysis.read(collection, "site_network")
+
+    assert not facts.ungated_reboot
+    assert facts.reboot_variables == ["skip_reboot_setup_network"]
+
+
+def test_a_playbook_reboots_behind_every_switch_of_its_chain(
+    collection: Path,
+) -> None:
+    # The shape of seapath_setup_main: its own last play, and the network
+    # playbook it imports. Declining means setting both, and an entry that
+    # named one alone rebooted the machine after the operator said no.
+    facts = analysis.read(collection, "site_main")
+
+    assert facts.reboot_state == "gated"
+    assert sorted(facts.reboot_variables) == [
+        "skip_reboot_setup",
+        "skip_reboot_setup_network",
+    ]
+
+
+def test_one_reboot_nothing_holds_back_makes_the_whole_playbook_reboot(
+    collection: Path,
+) -> None:
+    # Half the reboots gated is a playbook that reboots. The confirmation names
+    # the worse of the two outcomes, and offers no switch that cannot deliver.
+    facts = analysis.read(collection, "site_two_reboots")
+
+    assert facts.ungated_reboot
+    assert facts.reboot_variables == ["skip_reboot_setup"]
+    assert facts.reboot_state == "yes"
+    assert catalogue.derive(facts).reboot_variables == []
 
 
 def test_a_playbook_that_only_runs_commands_has_no_preview(collection: Path) -> None:
@@ -291,12 +372,13 @@ def test_the_derived_entry_carries_what_was_counted(collection: Path) -> None:
     assert entry.playbook == "seapath.ansible.site_main"
     assert "not reviewed by anyone here" in entry.disruption
     assert entry.derivation is not None
-    assert entry.derivation.plays == 2
+    assert entry.derivation.plays == 3
     assert entry.reboots.value == "gated"
-    # The reboot switch is a variable the page can offer, since its name says
-    # which way it points.
+    # Both reboot switches are variables the page can offer, since the shape of
+    # the condition each is written in says which way it points.
     assert [(v.name, v.type.value) for v in entry.variables] == [
-        ("skip_reboot_setup", "boolean")
+        ("skip_reboot_setup_network", "boolean"),
+        ("skip_reboot_setup", "boolean"),
     ]
 
 
@@ -361,7 +443,7 @@ def test_the_yocto_prerequisites_are_declared_as_rebooting() -> None:
     # `kernel_parameters_restart` is set. Declared as a plain reboot, because
     # the confirmation has to name the worse of the two outcomes.
     assert entry.reboots.value == "yes"
-    assert entry.reboot_variable is None
+    assert entry.reboot_variables == []
 
 
 def test_the_prerequisites_that_configures_no_hypervisor_says_so() -> None:
@@ -414,6 +496,44 @@ def test_no_reviewed_entry_understates_the_machines_it_plays() -> None:
             missing[entry.id] = unlisted
 
     assert missing == {}
+
+
+@real_collection
+def test_every_switch_a_reviewed_entry_offers_is_one_the_playbooks_carry() -> None:
+    # The third dangerous direction, and the one the network entry was wrong
+    # in: a checkbox that reads "converge without rebooting" and sets a
+    # variable no reboot of the chain is behind. The operator declines, the run
+    # accepts, the machine restarts.
+    wrong = {}
+    for entry in catalogue.CATALOGUE:
+        facts = analysis.read(REAL_COLLECTION, entry.id)
+        if not facts.play_count:
+            continue  # not in this collection, which is its own precondition
+        unknown = [
+            name
+            for name in entry.reboot_variables
+            if name not in facts.reboot_variables
+        ]
+        if unknown:
+            wrong[entry.id] = unknown
+
+    assert wrong == {}
+
+
+@real_collection
+def test_no_reviewed_entry_refuses_a_reboot_the_playbook_accepts() -> None:
+    # The other way an entry can be wrong about a reboot. Declaring `yes` where
+    # every reboot of the chain is behind a switch greys out the checkbox and
+    # tells the operator the reboot cannot be declined, which sends them to
+    # relaunch from another machine for nothing.
+    greyed = [
+        entry.id
+        for entry in catalogue.CATALOGUE
+        if analysis.read(REAL_COLLECTION, entry.id).reboot_state == "gated"
+        and entry.reboots.value == "yes"
+    ]
+
+    assert greyed == []
 
 
 @real_collection

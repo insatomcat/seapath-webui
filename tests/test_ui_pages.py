@@ -268,6 +268,25 @@ def test_the_apply_confirmation_says_what_it_will_disturb(
     assert "confirm-input" not in body
 
 
+def test_the_reboot_is_declined_by_default_on_a_node_the_run_plays(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/system.js").text
+
+    # The service usually runs on one of the machines it converges, and a
+    # reboot there takes the page, the run and the operator's way back in with
+    # it. So the box starts checked whenever this node is in the inventory, and
+    # an operator who wants the reboot unchecks it. On a control machine
+    # outside the inventory nothing here is at stake, and the upstream default
+    # stands.
+    assert "const playsThisNode = Boolean(state.thisHost);" in script
+    assert 'let skipReboot = entry.reboots === "gated" && playsThisNode;' in script
+    assert "box.checked = skipReboot;" in script
+    # And every switch is set, since a playbook that reboots in two places
+    # needs both. One of them alone reboots the machine anyway.
+    assert "entry.reboot_variables.forEach" in script
+
+
 def test_relaunching_asks_no_more_than_applying_does(
     signed_in: TestClient,
 ) -> None:

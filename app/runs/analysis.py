@@ -10,7 +10,7 @@ ask before it may offer a button:
 
 - **which machines a run reaches**, read off the `hosts:` lines of the plays;
 - **what check mode is worth**, read off the modules the tasks use;
-- **whether it reboots**, and whether a variable holds the reboot back;
+- **whether it reboots**, and which variables hold every reboot back;
 - **which variables the playbook refuses to start without**, read off the
   `fail` tasks guarded by `... is undefined` and off a `hosts:` line built from
   a variable, which are the two ways this collection asks for an input.
@@ -162,6 +162,9 @@ _UNDEFINED = re.compile(
     r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s+is\s+(?:not\s+defined|undefined)\b"
 )
 _IDENTIFIER = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
+# `skip_reboot_setup is not defined or not skip_reboot_setup`, which is how
+# this collection lets an operator decline what a task would do.
+_DECLINE_SWITCH = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*) is not defined or not \1")
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 _TEMPLATE = re.compile(r"{{(.*?)}}", re.DOTALL)
 
@@ -196,7 +199,9 @@ class PlaybookFacts:
     command_tasks: int = 0
     writing_tasks: int = 0
     reboots: bool = False
-    reboot_variable: str | None = None
+    reboot_variables: list[str] = field(default_factory=list)
+    ungated_reboot: bool = False
+    """A reboot no variable of this playbook holds back."""
     required_variables: list[str] = field(default_factory=list)
     parsed: bool = True
 
@@ -216,7 +221,14 @@ class PlaybookFacts:
     def reboot_state(self) -> str:
         if not self.reboots:
             return "no"
-        return "gated" if self.reboot_variable else "yes"
+        # Gated only when every reboot in the chain can be declined.
+        # `seapath_setup_main` reboots in two places, its own last play and the
+        # network playbook it imports, behind two different switches. One of
+        # them left out is a machine that restarts after the operator was told
+        # it would not.
+        if self.ungated_reboot or not self.reboot_variables:
+            return "yes"
+        return "gated"
 
     @property
     def needs_cluster(self) -> bool:
@@ -241,16 +253,32 @@ def _documents(path: Path) -> tuple[list[Any], bool]:
         return [], False
 
 
-def _flatten(tasks: Any) -> Iterator[dict]:
-    """Every task of a list, `block`, `rescue` and `always` included."""
+def _clauses(when: Any) -> tuple[str, ...]:
+    """A `when:` as the list of conditions Ansible ands together."""
+    if isinstance(when, list):
+        return tuple(_text(item) for item in when if _text(item))
+    text = _text(when)
+    return (text,) if text else ()
+
+
+def _flatten(tasks: Any, inherited: tuple[str, ...] = ()) -> Iterator[dict]:
+    """Every task of a list, `block`, `rescue` and `always` included.
+
+    A nested task is yielded carrying the conditions of the blocks around it as
+    well as its own, which is how Ansible runs it. `seapath_setup_network.yaml`
+    is why: its reboot sits in a block, and the switch an operator declines it
+    with sits on the block. Dropping that switch described a reboot nobody can
+    hold back, and the confirmation offered no way to decline it.
+    """
     if not isinstance(tasks, list):
         return
     for task in tasks:
         if not isinstance(task, dict):
             continue
-        yield task
+        conditions = inherited + _clauses(task.get("when"))
+        yield task if not inherited else {**task, "when": list(conditions)}
         for section in ("block", "rescue", "always"):
-            yield from _flatten(task.get(section))
+            yield from _flatten(task.get(section), conditions)
 
 
 def _module(task: dict) -> tuple[str, str]:
@@ -318,12 +346,22 @@ def _template_variables(text: str) -> list[str]:
     return names
 
 
-def _gating_variable(condition: str) -> str | None:
-    """The variable a reboot is held back by, if it is held back at all."""
-    for name in _IDENTIFIER.findall(_QUOTED.sub(" ", condition)):
-        if name.lower() not in _CONDITION_WORDS:
-            return name
-    return None
+def _decline_switches(when: Any) -> list[str]:
+    """The variables a task can be declined with, if it can be declined.
+
+    Only a whole clause of the shape `X is not defined or not X` counts, since
+    the clauses of a `when:` are anded: setting X there drops the task whatever
+    the other clauses say, so the polarity is proven rather than inferred from
+    the name. A condition that mentions the same variable in any
+    other shape is left alone: guessing wrong here means a checkbox reading
+    "converge without rebooting" that reboots a substation hypervisor.
+    """
+    found: list[str] = []
+    for clause in _clauses(when):
+        match = _DECLINE_SWITCH.fullmatch(" ".join(clause.split()))
+        if match and match.group(1) not in found:
+            found.append(match.group(1))
+    return found
 
 
 def _role_task_files(roles_dir: Path, role: str) -> list[Path]:
@@ -451,15 +489,14 @@ class _Reader:
 
             if short == "reboot":
                 facts.reboots = True
-                gate = _gating_variable(when)
-                # Only a switch that says "skip" is offered as a gate. The
-                # polarity of any other name is a guess, and guessing wrong
-                # here means a checkbox that reads "converge without
-                # rebooting" and reboots a substation hypervisor. A reboot
-                # behind a condition this reader does not understand is
-                # reported as a reboot.
-                if gate and gate.lower().startswith("skip"):
-                    facts.reboot_variable = gate
+                switches = _decline_switches(task.get("when"))
+                for switch in switches:
+                    if switch not in facts.reboot_variables:
+                        facts.reboot_variables.append(switch)
+                # A reboot behind a condition this reader does not understand
+                # is reported as a reboot that happens.
+                if not switches:
+                    facts.ungated_reboot = True
 
             if own and short == "fail":
                 for name in _UNDEFINED.findall(when):

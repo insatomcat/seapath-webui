@@ -183,9 +183,17 @@ and would be meaningless.
 
 The only accepted variables are the ones the catalogue entry declares, each with
 a type and a validation rule. Today that is `machine_to_remove` for
-`cluster_remove_machine.yaml` and `skip_reboot_setup` for
-`seapath_setup_main.yaml`. Anything else is rejected, because an extra vars
-field is a tag selector wearing a different hat.
+`cluster_remove_machine.yaml`, `skip_reboot_setup_network` for
+`seapath_setup_network.yaml`, and both of those reboot switches for
+`seapath_setup_main.yaml`, which reboots in two places. Anything else is
+rejected, because an extra vars field is a tag selector wearing a different hat.
+
+An entry carries `reboots` (`no`, `gated`, `yes`) and `reboot_variables`, the
+switches that all have to be set for `gated` to mean what it says. A list
+rather than one name: half the switches of a playbook that reboots twice is a
+checkbox that reboots the machine anyway. The UI ticks that box by default
+whenever the inventory describes the node serving the page, since a reboot
+there takes the run and the page with it.
 
 A variable of type `machine` carries a machine name, and the API checks it
 against the inventory: a name the file does not declare, or the name of the node
