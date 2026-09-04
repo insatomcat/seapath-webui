@@ -261,6 +261,29 @@ class InventoryRepository:
         )
         return commit
 
+    def record(self, message: str, author: str) -> Commit:
+        """Write an event that changed no file into the audit trail.
+
+        A commit with no diff, which is exactly what it describes: the desired
+        state did not move, and something else did. Installing a collection is
+        the case it exists for. That changes the code the next apply runs
+        without touching a single variable, and the repository is where this
+        service already answers "who changed what, and when", so it is where an
+        operator will look for it.
+        """
+        self.initialise()
+        self._git(
+            "commit",
+            "--allow-empty",
+            "--message",
+            message,
+            "--author",
+            f"{author} <{author}@{_COMMITTER_NAME}>",
+        )
+        commit = self.history(limit=1)[0]
+        logger.info("Inventory event %s by %s: %s", commit.hash[:12], author, message)
+        return commit
+
     def revert(self, commit: str, author: str) -> Commit:
         """Create a revert commit. It is not applied: that is a separate act."""
         self._git(

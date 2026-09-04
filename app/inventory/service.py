@@ -9,7 +9,7 @@ import logging
 import shutil
 import subprocess
 import tempfile
-from collections.abc import AsyncIterable, Iterable
+from collections.abc import AsyncIterable, Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -101,7 +101,9 @@ class InventoryService:
         repository: InventoryRepository,
         reader: HostReader,
         artefacts: ArtefactStore | None = None,
-        collections_path: Path | None = None,
+        # The path, or a callable resolving it at each access: which collection
+        # the node runs can change while the service is up. See D23.
+        collections_path: Path | Callable[[], Path] | None = None,
         max_file_bytes: int = 4 * 1024 * 1024,
     ) -> None:
         self._repository = repository
@@ -383,11 +385,18 @@ class InventoryService:
         )
 
     def _collection_root(self) -> Path | None:
-        if self._collections_path is None:
+        root = self._collections_path
+        if callable(root):
+            root = root()
+        if root is None:
             return None
-        return self._collections_path / "ansible_collections/seapath/ansible"
+        return root / "ansible_collections/seapath/ansible"
 
     # Writing
+
+    def record_event(self, message: str, author: str) -> Commit:
+        """An empty commit, for a change to the node that is not the inventory."""
+        return self._repository.record(message, author)
 
     def validate(self, candidate: Inventory) -> ValidationResult:
         return validate(candidate)

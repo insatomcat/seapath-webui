@@ -5,12 +5,13 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, console, inventory, node, runs, trust
+from app.api.v1 import auth, collection, console, inventory, node, runs, trust
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth.router)
 router.include_router(node.router)
 router.include_router(console.router)
+router.include_router(collection.router)
 router.include_router(inventory.router)
 router.include_router(runs.router)
 router.include_router(trust.router)

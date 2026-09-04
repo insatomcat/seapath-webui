@@ -734,12 +734,16 @@ itself, meaning who replaced the collection and when. The inventory repository
 is the audit trail of this service, so an empty commit there is the cheapest
 answer that keeps one place to look.
 
-*Recommendation followed, for the reading half.* The service resolves the two
-roots at start, whole, and says in the journal when it is the site's collection
-that runs. The volume it reads is the state volume the quadlet already mounts,
-so this asked for no new mount. The upload that verifies a tarball and installs
-it is not written: until it is, a site installs the collection with
-`ansible-galaxy` and restarts the service.
+*Recommendation followed.* The service reads two roots and runs one whole, the
+site's where it holds a collection, and says in the journal when that is what
+is running. `PUT /api/v1/collection` takes the archive, inspects it, seeds the
+new tree from the image's so it stays self contained, unpacks with
+`ansible-galaxy` and renames it over the live one. It takes the run lock, so
+nothing is swapped under a convergence, and the root is resolved at every
+access, so the next run executes what just landed with no restart. `DELETE`
+falls back to the image's collection, which is the undo that makes installing
+on a live node safe to attempt. The volume is the state volume the quadlet
+already mounts, so this asked for no new mount and no new host surface.
 
 ### The image: a playbook, over the SSH path that already exists
 

@@ -53,6 +53,9 @@ Implemented at **M1**: the whole of `/inventory`, `/playbooks`, `/runs`, and
 is specified here and arrives with the milestone that needs it, so the shape is
 settled before the code.
 
+`/collection` arrives with M1 as well, once the collection stopped being
+something only an image could carry.
+
 Two endpoints exist that this document did not list, both added because the UI
 needed them and both read only: `POST /inventory/preview`, which returns the
 diff committing a candidate would produce without committing it, and
@@ -214,6 +217,35 @@ A record carries the variables the run was launched with, and relaunching posts
 them again. A relaunch has to repeat the run it relaunches: dropping them would
 reboot a machine whose run asked for `skip_reboot_setup`, and would send
 `cluster_remove_machine.yaml` off without the machine to remove.
+
+## Collection
+
+The `seapath.ansible` collection every run executes, and replacing it on the
+node. See [D23](decisions.md#d23).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/collection` | Which collection the next run will execute: `source` (`site` or `image`), its root, the version and fingerprint a run records, and what the image was built with. Open to viewers |
+| PUT | `/collection` | Install an uploaded `seapath.ansible` archive on this node, admin only. The body is the tarball `ansible-galaxy collection build` writes, streamed as `application/octet-stream` |
+| DELETE | `/collection` | Fall back to the collection the image ships, admin only |
+
+A collection installed here wins over the one the image ships, whole, and the
+next run executes it with no restart of the service. The installed tree seeds
+from the image's, so the dependency collections the roles call (`community.general`,
+`ansible.posix`) are there whatever the archive carries.
+
+The install is refused while a run is going, with `409 run_in_progress`: a run
+stages a mirror of symlinks into the collection tree, and replacing that tree
+mid convergence breaks it on a live hypervisor. An archive of another
+collection, a file that is not a gzipped tar, one with no `MANIFEST.json`, or
+one holding a member that would be written outside its directory comes back as
+`400 refused_archive` naming what was wrong with it. The tree is built beside
+the live one and renamed over it, so a refusal leaves the node running exactly
+what it ran before.
+
+Both writes leave a commit with no diff in the inventory repository. The
+desired state did not move and the code that applies it did, and the repository
+is where this service answers "who changed what, and when".
 
 ## Node and cluster, read only
 

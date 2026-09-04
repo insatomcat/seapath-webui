@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tarfile
 from pathlib import Path
 
 from app.core.auth import Role
@@ -35,7 +36,18 @@ def write_fake_collection(
     playbooks = root / "playbooks"
     playbooks.mkdir(parents=True, exist_ok=True)
     (root / "MANIFEST.json").write_text(
-        json.dumps({"collection_info": {"name": "ansible", "version": version}})
+        # The namespace matters to more than this service: `ansible-galaxy`
+        # reads every collection already under the path it installs into, and
+        # a manifest missing it takes the whole install down.
+        json.dumps(
+            {
+                "collection_info": {
+                    "namespace": "seapath",
+                    "name": "ansible",
+                    "version": version,
+                }
+            }
+        )
     )
     # ansible-galaxy records a checksum per file, so two collections holding
     # different code have different FILES.json. The fake has to have that
@@ -61,6 +73,80 @@ def write_fake_collection(
     for name, body in (extras or {}).items():
         (playbooks / f"{name}.yaml").write_text(body)
     return collections_path
+
+
+def build_collection_archive(
+    directory: Path,
+    version: str = "2.0.1",
+    namespace: str = "seapath",
+    name: str = "ansible",
+    contents: str = "---\n# the site's own\n",
+    entries: list[str] | None = None,
+) -> Path:
+    """The tarball `ansible-galaxy collection build` writes, by hand.
+
+    Written rather than built from a `galaxy.yml` so a test needs no source
+    collection anywhere, and laid out exactly as `ansible-galaxy` expects it:
+    the installer this exercises is the real one, and it reads both manifests.
+    """
+    source = directory / "source"
+    playbooks = source / "playbooks"
+    playbooks.mkdir(parents=True, exist_ok=True)
+    (source / "README.md").write_text("A collection for the tests.\n")
+    wanted = entries if entries is not None else [e.id for e in catalogue.CATALOGUE]
+    for entry in catalogue.CATALOGUE:
+        if entry.id in wanted:
+            (playbooks / f"{entry.playbook.rsplit('.', 1)[-1]}.yaml").write_text(
+                contents
+            )
+
+    listing = []
+    for path in sorted(source.rglob("*")):
+        relative = path.relative_to(source).as_posix()
+        if path.is_dir():
+            listing.append({"name": relative, "ftype": "dir", "format": 1})
+        else:
+            listing.append(
+                {
+                    "name": relative,
+                    "ftype": "file",
+                    "chksum_type": "sha256",
+                    "chksum_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "format": 1,
+                }
+            )
+    (source / "FILES.json").write_text(json.dumps({"files": listing, "format": 1}))
+    (source / "MANIFEST.json").write_text(
+        json.dumps(
+            {
+                "collection_info": {
+                    "namespace": namespace,
+                    "name": name,
+                    "version": version,
+                    "dependencies": {},
+                    "license": ["Apache-2.0"],
+                    "authors": ["the tests"],
+                    "readme": "README.md",
+                },
+                "file_manifest_file": {
+                    "name": "FILES.json",
+                    "ftype": "file",
+                    "chksum_type": "sha256",
+                    "chksum_sha256": hashlib.sha256(
+                        (source / "FILES.json").read_bytes()
+                    ).hexdigest(),
+                    "format": 1,
+                },
+                "format": 1,
+            }
+        )
+    )
+
+    archive = directory / f"{namespace}-{name}-{version}.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        for path in sorted(source.rglob("*")):
+            tar.add(path, arcname=path.relative_to(source).as_posix())
+    return archive
 
 
 class FakeAuthenticator:

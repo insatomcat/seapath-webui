@@ -87,6 +87,9 @@ def settings(tmp_path: Path, host_tree: Path, collections_path: Path) -> Setting
         artefacts_dir=tmp_path / "artefacts",
         runs_dir=tmp_path / "runs",
         collections_path=collections_path,
+        # Never the default here: it is a path on a real node, and a test that
+        # installed a collection would install it there.
+        site_collections_dir=tmp_path / "site-collections",
         ssh_config_dir=host_tree / "etc/ssh",
         ansible_ssh_dir=host_tree / "home/ansible/.ssh",
         client_ssh_config_file=tmp_path / "root/.ssh/config",

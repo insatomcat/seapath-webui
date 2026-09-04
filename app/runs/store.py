@@ -146,29 +146,49 @@ class RunStore:
 
     # The run lock
 
-    def acquire(self, run_id: str) -> None:
+    def acquire(self, run_id: str, description: str | None = None) -> None:
+        """Take the one lock, or say what is holding it.
+
+        `description` is what the refusal calls the holder. A run is named by
+        its id, and installing a collection takes this same lock, because
+        replacing the tree a run is reading from is the one way to break a
+        convergence that is already going.
+        """
         self._root.mkdir(parents=True, exist_ok=True)
         path = self._root / _LOCK
         try:
             descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         except FileExistsError:
-            holder = self._lock_holder()
             raise RunLocked(
-                f"Run {holder} is already going. Two operators must not "
-                "converge the same machines at once."
+                f"{self.lock_description()} is already going. Two operators "
+                "must not converge the same machines at once."
             ) from None
         with os.fdopen(descriptor, "w") as handle:
-            handle.write(run_id)
+            handle.write(f"{run_id}\n{description or f'Run {run_id}'}\n")
 
     def release(self, run_id: str) -> None:
         if self._lock_holder() in (run_id, None):
             (self._root / _LOCK).unlink(missing_ok=True)
 
+    def locked(self) -> bool:
+        return (self._root / _LOCK).exists()
+
+    def lock_description(self) -> str:
+        """What the lock holder calls itself, for a refusal to name it."""
+        lines = self._lock_lines()
+        if len(lines) > 1 and lines[1]:
+            return lines[1]
+        return f"Run {lines[0]}" if lines else "Another operation"
+
     def _lock_holder(self) -> str | None:
+        lines = self._lock_lines()
+        return lines[0] if lines and lines[0] else None
+
+    def _lock_lines(self) -> list[str]:
         try:
-            return (self._root / _LOCK).read_text().strip() or None
+            return (self._root / _LOCK).read_text().splitlines()
         except OSError:
-            return None
+            return []
 
     # Recovery
 
@@ -194,6 +214,10 @@ class RunStore:
             self.save(record)
             recovered.append(record)
             logger.warning("Marked run %s as interrupted after a restart", record.id)
-        if recovered:
-            (self._root / _LOCK).unlink(missing_ok=True)
+        # Nothing can legitimately hold the lock at a start: a run does not
+        # survive the process, and neither does a collection being installed.
+        # A lock left behind by a service that died is a node that refuses
+        # every run until someone deletes a file, which is a worse failure
+        # than the concurrency it guards against.
+        (self._root / _LOCK).unlink(missing_ok=True)
         return recovered

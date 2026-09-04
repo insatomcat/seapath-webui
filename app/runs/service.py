@@ -47,7 +47,11 @@ class PlaybookAvailability(BaseModel):
 
 
 class RunPaths(BaseModel):
-    collections_path: Path
+    # A callable, or the path itself in a test. Resolved at each access rather
+    # than held, so a collection installed on the node takes effect on the next
+    # run without a restart. Never during a run: installing takes the run lock,
+    # and a mirror already staged is symlinks into the tree it would replace.
+    collections_root: Callable[[], Path] | Path
     private_key_file: Path
     known_hosts_file: Path
     # Where the keys are declared for the ssh commands a run spawns itself,
@@ -56,6 +60,11 @@ class RunPaths(BaseModel):
     # Resolved at launch rather than held: an operator can add or remove the
     # site key between two runs, and a run must use what is installed now.
     extra_key_files: Callable[[], tuple[Path, ...]] = tuple
+
+    @property
+    def collections_path(self) -> Path:
+        root = self.collections_root
+        return root() if callable(root) else root
 
 
 class RunService:

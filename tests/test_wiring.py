@@ -138,6 +138,6 @@ def test_the_run_service_and_the_inventory_read_the_same_collection(
 
     application = create_app(settings=settings, session_secret=b"test-secret")
 
-    assert application.state.collections_path == site
+    assert application.state.collections_root() == site
     assert application.state.run_service._paths.collections_path == site
-    assert application.state.inventory_service._collections_path == site
+    assert application.state.inventory_service._collections_path() == site

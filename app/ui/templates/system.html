@@ -114,6 +114,56 @@ SPDX-License-Identifier: Apache-2.0
     </details>
   </section>
 
+  {#
+  The collection, under the credentials and above nothing: replacing it is
+  rare, and it is the answer to "the fix is upstream, and the image is not out
+  yet". Shut by default like the panel above it, and it says which of the two
+  collections is running on the summary line so an operator never has to open
+  it to find out.
+  #}
+  <section class="card wide" id="collection-card">
+    <details id="collection-details">
+      <summary id="collection-summary">
+        <span class="reach-label">The playbooks this node runs</span>
+        <span class="reach-state" id="collection-state"></span>
+      </summary>
+
+      <div class="reach-body">
+        <p class="lead">
+          Every run executes the <code>seapath.ansible</code> collection. The
+          image ships one, and a collection installed here takes over from it,
+          which is how a corrected playbook reaches this machine without an
+          image build and without a registry to reach.
+        </p>
+
+        <div class="reach-column">
+          <h3>Installed collection</h3>
+          <p class="help">
+            The file is the tarball
+            <code>ansible-galaxy collection build</code> writes, built from the
+            SEAPATH <code>ansible</code> repository. What is installed here
+            seeds from the collection the image ships, so the dependency
+            collections the roles call stay in place. The next run executes it,
+            a run that is already going is left alone, and every run records
+            the fingerprint of what it ran.
+          </p>
+          <dl id="collection-summary-list"></dl>
+          <div class="field" id="collection-field">
+            <label for="collection-file">Collection archive</label>
+            <input id="collection-file" type="file" accept=".tar.gz,.gz,application/gzip">
+          </div>
+          <p class="error" id="collection-error" hidden></p>
+          <div class="actions">
+            <button type="button" id="collection-go" disabled>Install</button>
+            <button type="button" id="collection-remove" class="secondary" hidden>
+              Back to the image's collection
+            </button>
+          </div>
+        </div>
+      </div>
+    </details>
+  </section>
+
 </main>
 
 <div class="modal" id="confirm" hidden>

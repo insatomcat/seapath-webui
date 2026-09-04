@@ -75,7 +75,7 @@ def build(
         inventory=inventory,
         trust=trust,
         paths=RunPaths(
-            collections_path=write_fake_collection(tmp_path / "collections"),
+            collections_root=write_fake_collection(tmp_path / "collections"),
             private_key_file=tmp_path / "state/ssh/id_ed25519_self",
             known_hosts_file=tmp_path / "state/ssh/known_hosts",
             ssh_config_file=tmp_path / "root/.ssh/config",
@@ -721,7 +721,7 @@ def test_an_entry_the_shipped_collection_lacks_is_explained_not_offered(
         inventory=inventory,
         trust=trust,
         paths=RunPaths(
-            collections_path=write_fake_collection(
+            collections_root=write_fake_collection(
                 tmp_path / "partial", entries=["seapath_setup_network"]
             ),
             private_key_file=tmp_path / "state/ssh/id_ed25519_self",

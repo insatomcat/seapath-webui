@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import partial
 
 from fastapi import FastAPI
 
@@ -43,6 +44,7 @@ from app.inventory.artefacts import ArtefactStore
 from app.inventory.repository import InventoryRepository
 from app.inventory.service import InventoryService
 from app.runs.adapter import AnsibleRunnerAdapter, RunAdapter
+from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
 from app.services.node import NodeService
@@ -183,10 +185,12 @@ def create_app(
         authorized_keys_file=settings.authorized_keys_file,
         ansible_user=settings.ansible_user,
     )
-    # The site's collection where one is installed, the image's otherwise,
-    # decided once here so the whole service reads the same tree.
-    collections_path = collections_root(settings)
-    app.state.collections_path = collections_path
+    # The site's collection where one is installed, the image's otherwise.
+    # Resolved at each access rather than once here, because an administrator
+    # can install one while the service is up, and the answer has to be the
+    # tree the next run will execute. See D23.
+    resolve_collections = partial(collections_root, settings)
+    app.state.collections_root = resolve_collections
 
     app.state.inventory_service = InventoryService(
         InventoryRepository(settings.inventory_dir),
@@ -196,16 +200,26 @@ def create_app(
         artefacts=ArtefactStore(settings.artefacts_dir),
         # Read to tell a file the site owes the run from one the collection
         # already ships, such as the syslog template a role defaults to.
-        collections_path=collections_path,
+        collections_path=resolve_collections,
         max_file_bytes=settings.max_inventory_file_bytes,
     )
+    # One store, because the installer and the runs share its lock: a
+    # collection is never swapped under a convergence that is already going.
+    run_store = RunStore(settings.runs_dir)
+    app.state.collection_installer = CollectionInstaller(
+        site_dir=settings.site_collections_dir,
+        image_dir=settings.collections_path,
+        store=run_store,
+    )
     app.state.run_service = RunService(
-        store=RunStore(settings.runs_dir),
+        store=run_store,
         adapter=run_adapter or _default_run_adapter(settings),
         inventory=app.state.inventory_service,
         trust=app.state.trust_service,
         paths=RunPaths(
-            collections_path=collections_path,
+            # Looked up at each access, so a collection installed on the node
+            # is what the next run executes, with no restart.
+            collections_root=resolve_collections,
             private_key_file=settings.self_private_key_file,
             known_hosts_file=settings.known_hosts_file,
             ssh_config_file=settings.client_ssh_config_file,

@@ -19,6 +19,7 @@
     inventory: null,
     thisHost: null,
     siteKey: null,
+    collection: null,
     hostKeys: [],
     catalogue: [],
     // Whether the panel at the bottom has already been opened or left shut for
@@ -69,6 +70,41 @@
     element("site-key-remove").hidden = !key.installed;
     renderReach();
     return key;
+  }
+
+  // The collection every run executes. Two states: the one the image ships,
+  // and one installed on this node, which wins.
+  async function loadCollection() {
+    const collection = await API.get("/collection");
+    state.collection = collection;
+    const summary = element("collection-summary-list");
+    summary.replaceChildren();
+    const pairs = [
+      ["Running", collection.source === "site"
+        ? "A collection installed on this node"
+        : "The collection this image ships"],
+      ["Fingerprint", collection.version || "No collection at all"],
+      ["In the image", collection.image_version],
+    ];
+    pairs.forEach(([label, value]) => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const definition = document.createElement("dd");
+      definition.textContent = value;
+      summary.append(term, definition);
+    });
+    // A viewer reads which collection is running and is offered no way to
+    // replace it, the way the apply buttons are only an administrator's.
+    const admin = Chrome.isAdmin(state.me);
+    element("collection-field").hidden = !admin;
+    element("collection-go").hidden = !admin;
+    element("collection-remove").hidden = !collection.site_installed || !admin;
+    // On the shut summary, because "which playbooks is this node running" is
+    // worth answering without opening anything.
+    element("collection-state").textContent =
+      (collection.source === "site" ? "Installed here" : "From the image") +
+      " - " + (collection.version || "none");
+    return collection;
   }
 
   // One list, whose rows change state. Scanning merges what it found into
@@ -258,6 +294,51 @@
     await API.del("/trust/site-key");
     await loadSiteKey();
     await loadPlaybooks();
+  });
+
+  element("collection-file").addEventListener("change", (event) => {
+    element("collection-go").disabled = !event.target.files.length;
+    element("collection-error").hidden = true;
+  });
+
+  element("collection-go").addEventListener("click", async () => {
+    const error = element("collection-error");
+    const go = element("collection-go");
+    error.hidden = true;
+    const file = element("collection-file").files[0];
+    if (!file) {
+      return;
+    }
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    try {
+      // Streamed as the body: unpacking it is a second or two, and the
+      // catalogue is read again afterwards because the list of playbooks this
+      // page offers is the collection that just landed.
+      await API.upload("/collection", file);
+      element("collection-file").value = "";
+      await loadCollection();
+      await loadPlaybooks();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      go.removeAttribute("aria-busy");
+      go.disabled = !element("collection-file").files.length;
+    }
+  });
+
+  element("collection-remove").addEventListener("click", async () => {
+    const error = element("collection-error");
+    error.hidden = true;
+    try {
+      await API.del("/collection");
+      await loadCollection();
+      await loadPlaybooks();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    }
   });
 
   element("host-keys-scan").addEventListener("click", async () => {
@@ -763,7 +844,7 @@
     // The inventory first: the machines it declares are what the panel at the
     // bottom is measured against, and what the confirmation names.
     await loadInventoryHosts();
-    await Promise.all([loadSiteKey(), loadHostKeys()]);
+    await Promise.all([loadSiteKey(), loadHostKeys(), loadCollection()]);
     await loadPlaybooks();
   }
 

@@ -122,11 +122,47 @@ an image release, and the boot that starts applying it is where an operator
 looks for it.
 
 The volume is the one the quadlet already mounts, so this asks for no new mount
-and no new host surface. What is not written yet is the installer, meaning the
-upload that verifies a tarball and unpacks it there. Until it lands, a site
-installs the collection with `ansible-galaxy collection install
---collections-path=/var/lib/seapath-webui/collections` and restarts the
-service.
+and no new host surface.
+
+### Installing one
+
+`PUT /api/v1/collection`, and the panel at the bottom of the System page. The
+file is the tarball `ansible-galaxy collection build` writes, built from the
+SEAPATH `ansible` repository:
+
+```bash
+# On a machine that has the repository, once per release.
+git clone -b seapathalloc https://github.com/seapath/ansible && cd ansible
+./prepare.sh
+ansible-galaxy collection build --output-path /tmp
+# Then upload /tmp/seapath-ansible-2.0.0.tar.gz through the System page.
+```
+
+What the node does with it, in order: read the manifest and refuse anything
+that is not `seapath.ansible`, take the run lock, copy the image's tree into a
+staging directory beside the live one, unpack the archive over it with
+`ansible-galaxy collection install --force --no-deps`, and rename the staging
+directory over the live one. A failure at any step leaves the node running
+exactly what it ran before, which matters: a node whose collection is half
+replaced cannot converge, and cannot be repaired by converging.
+
+Three consequences worth knowing:
+
+- **The install is refused while a run is going.** A run stages a mirror of
+  symlinks into the collection tree, so replacing that tree mid convergence
+  breaks it on a live machine. It takes the same lock a second run would.
+- **The seed comes from the image every time.** `community.general` and
+  `ansible.posix` are what the roles call, and they come from the image's tree,
+  so the installed one is self contained. Installing twice never accumulates:
+  what the previous archive left behind and this one does not carry is gone.
+- **The trace is a commit with no diff.** The desired state did not move and
+  the code that applies it did. `git log` in the inventory repository carries
+  who installed which fingerprint, and every run records the fingerprint it
+  ran.
+
+`DELETE /api/v1/collection`, or the button beside the upload, removes the tree
+and the node runs the image's collection again. That is the undo, and it is
+what makes installing on a live node safe to attempt.
 
 ## 2. Quadlet
 

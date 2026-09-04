@@ -135,6 +135,22 @@ def test_the_system_page_carries_the_credentials_and_the_button(
     assert 'id="tree"' not in body
 
 
+def test_the_system_page_says_which_collection_this_node_runs(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/system").text
+    script = signed_in.get("/static/system.js").text
+
+    # Which playbooks this node runs is answerable without opening the panel,
+    # because the answer is a fact about the machine rather than a form.
+    assert "The playbooks this node runs" in body
+    assert 'id="collection-state"' in body
+    assert 'id="collection-file"' in body
+    # And the catalogue is read again after one is installed, so the page
+    # offers the collection that just landed.
+    assert 'API.upload("/collection", file)' in script
+
+
 def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
     signed_in: TestClient,
 ) -> None:
