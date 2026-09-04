@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -291,6 +293,27 @@ def test_a_hidden_element_is_hidden_whatever_its_display_rule(
     assert '<div class="modal" id="confirm" hidden>' in body
     assert "[hidden]" in css
     assert "display: none !important" in css
+
+
+@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs", "/login"])
+def test_a_page_declares_its_dark_canvas_before_it_fetches_anything(
+    signed_in: TestClient, path: str
+) -> None:
+    body = signed_in.get(path).text
+    css = signed_in.get("/static/style.css").text
+
+    # The stylesheet is a fetch away, and until it answers the browser paints a
+    # background of its own. Navigating between the pages flashed white on
+    # every hop. The meta names the scheme the UA paints in, the inline rule
+    # holds the exact colour, and both are read before any request is made.
+    head = body.split("</head>")[0]
+    assert '<meta name="color-scheme" content="dark">' in head
+    background = re.search(r"html \{ background: (#[0-9a-f]{6}); \}", head)
+    assert background is not None
+    # The literal above cannot be a variable, so it is asserted equal to the
+    # one the stylesheet paints the body with.
+    assert background.group(1) == re.search(r"--bg: (#[0-9a-f]{6});", css).group(1)
+    assert head.index("color-scheme") < head.index("style.css")
 
 
 def test_a_table_scrolls_inside_its_card_rather_than_over_the_next_one(

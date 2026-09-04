@@ -8,6 +8,14 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}SEAPATH{% endblock %}</title>
+    {# The dark canvas, declared before anything is fetched. A browser paints
+       its own background while the stylesheet is still on the way, and that
+       background is white unless the document says which scheme it is written
+       for: navigating between the four pages flashed white every time. The
+       colour is repeated here from --bg in style.css because a link element
+       comes too late to help, and a test asserts the two stay equal. #}
+    <meta name="color-scheme" content="dark">
+    <style>html { background: #10141a; }</style>
     <link rel="stylesheet" href="/static/style.css">
     {% block head %}{% endblock %}
   </head>
