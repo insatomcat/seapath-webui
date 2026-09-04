@@ -684,3 +684,106 @@ Two silences are deliberate, and both leave the entry available:
 What this is not is a claim about the other machines. The service reads one
 `/etc/os-release`, its own. An inventory mixing distributions still needs
 `seapath_setup_main`, and the note on every one of the five says so.
+
+
+## D23 - Open: the collection is updated as an artefact, the image by a playbook
+
+Everything a run executes is built into the image. The collection is cloned and
+installed by a dedicated stage, its version is stamped at build time, and the
+quadlet points at `:latest`. [deployment.md](deployment.md) draws the
+consequence and states it plainly: the image has to be released in step with
+SEAPATH. A site that needs one corrected playbook waits for an image build, a
+push, a pull and a restart of the service.
+
+Two different objects are frozen in there, and they deserve different answers:
+the **collection**, which is what a run executes, and the **image**, which is
+this service.
+
+### The collection: a volume, fed by the artefact store
+
+**Recommendation: move the collection out of the image and into a volume**,
+with the image keeping the one it builds as the fallback under
+`/opt/ansible/collections`. Where the volume carries a collection, it wins.
+
+The code is most of the way there already, and that is the argument rather than
+a coincidence:
+
+| Piece | Where | What it already does |
+|---|---|---|
+| The root is a setting | `app/core/settings.py`, `SEAPATH_WEBUI_COLLECTIONS_PATH` | A source checkout is already pointed elsewhere |
+| The version is observed | `RunService.collection_version`, `app/runs/service.py` | Read from `FILES.json` on disk at launch, so a run records the code it ran rather than the code the image shipped |
+| The roots stack | `app/runs/staging.py` | `ANSIBLE_COLLECTIONS_PATH` already takes a list, so a site collection layers over the image's |
+| An unknown collection is survivable | [D12](#d12), [D21](#d21) | A missing entry is offered as unavailable, and a playbook nobody reviewed is offered as read from the collection |
+
+That last row is what makes this safe. The service was already written for a
+collection released on its own schedule, so a 2.0.1 dropped underneath it lands
+as reviewed entries where a fiche exists and counted entries everywhere else,
+which is the behaviour [D21](#d21) chose on purpose.
+
+Delivery is the artefact store, [D18](#d18). A substation hypervisor may have
+no route to a registry and no route to GitHub, so the transport that has to
+work is a file: `ansible-galaxy collection build` produces a tarball, an
+administrator uploads it the way a VM image is uploaded, the service verifies a
+sha256 against what the upload declared, installs it into the volume and reads
+the new fingerprint. No registry to reach, no image to build, and the node's
+network is not involved at all.
+
+The trace needs a home. A run already records the fingerprint it used, so the
+history stays true with no work. What has no home yet is the installation
+itself, meaning who replaced the collection and when. The inventory repository
+is the audit trail of this service, so an empty commit there is the cheapest
+answer that keeps one place to look.
+
+*Recommendation followed, for the reading half.* The service resolves the two
+roots at start, whole, and says in the journal when it is the site's collection
+that runs. The volume it reads is the state volume the quadlet already mounts,
+so this asked for no new mount. The upload that verifies a tarball and installs
+it is not written: until it is, a site installs the collection with
+`ansible-galaxy` and restarts the service.
+
+### The image: a playbook, over the SSH path that already exists
+
+**Recommendation: the service updates itself the way it changes anything else,
+by running a playbook against its own machine.** The image reference becomes an
+inventory variable, the `deploy_seapath_webui` role at M5 templates the quadlet
+from it, and `ansible-runner` reaches `localhost` over the SSH connection every
+other run uses. Nothing new is granted to the container, and the rule of
+[AGENTS.md](../AGENTS.md) holds: a machine changes because a playbook changed
+it.
+
+Three things this has to get right:
+
+- **Pin the tag first.** The quadlet ships `Image=...:latest` today, which makes
+  "which code ran here" unanswerable from the machine. Every line of this
+  decision rests on the reference being exact.
+- **The killer has to survive the victim.** The task restarts the unit, the
+  container dies, the SSH session dies with it, and the run never records its
+  own end. The restart therefore has to be detached from the run that asks for
+  it, with `systemd-run --unit=... --no-block` or an `async` task polled zero
+  times, so the pull and the restart happen after the run has finished writing
+  its trace.
+- **Refuse while a run is in flight.** [D9](#d9) keeps `ansible-runner` in the
+  service process, so restarting the service kills whatever it is applying to a
+  live hypervisor. The precondition is the same shape as `peer_reachable`, and
+  the confirmation names the interruption like every other one here.
+
+### What is refused, and what stays available
+
+`podman-auto-update` alone is refused as the answer. `AutoUpdate=registry` on
+the container and the shipped timer would work, with the host's systemd doing
+the pull and the restart and the container asking for nothing, which is the
+appealing part. It is a timer, so nobody decides, nobody confirms, and it can
+restart the service in the middle of an apply. A site that wants it can enable
+it, and this service should keep the label out of the quadlet it ships.
+
+The podman socket stays refused. It is root on the host, and [D9](#d9) already
+declined it for a weaker version of this same wish.
+
+### What does not change
+
+A run is still identified by the pair "inventory commit, collection version",
+and that pair gets stronger here rather than weaker: the version stops being a
+build label and becomes a fingerprint of what is on disk, which it already is
+in the code. What moves is the schedule. The collection stops being tied to the
+release of this image, and the image stops being something an operator updates
+by hand on a machine they had to ssh into.
