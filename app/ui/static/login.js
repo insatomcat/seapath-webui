@@ -10,6 +10,7 @@
     event.preventDefault();
     error.hidden = true;
     submit.disabled = true;
+    submit.setAttribute("aria-busy", "true");
     try {
       await API.post("/auth/login", {
         username: document.getElementById("username").value,
@@ -22,6 +23,8 @@
       error.hidden = false;
       submit.disabled = false;
       document.getElementById("password").value = "";
+    } finally {
+      submit.removeAttribute("aria-busy");
     }
   });
 })();

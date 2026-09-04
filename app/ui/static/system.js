@@ -120,10 +120,12 @@
         button.textContent = row.accepted ? "forget" : "accept";
         button.addEventListener("click", async () => {
           button.disabled = true;
+          button.setAttribute("aria-busy", "true");
           try {
             await (row.accepted ? forgetHostKey(row) : acceptHostKeys([row]));
           } finally {
             button.disabled = false;
+            button.removeAttribute("aria-busy");
           }
         });
         actions.append(button);
@@ -690,6 +692,7 @@
 
     go.onclick = async () => {
       go.disabled = true;
+      go.setAttribute("aria-busy", "true");
       try {
         const variables = { ...values };
         if (skipReboot && entry.reboot_variable) {
@@ -706,6 +709,8 @@
         error.textContent = failure.message;
         error.hidden = false;
         go.disabled = false;
+      } finally {
+        go.removeAttribute("aria-busy");
       }
     };
     modal.hidden = false;

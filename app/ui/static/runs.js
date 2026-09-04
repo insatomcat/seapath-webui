@@ -345,6 +345,7 @@
     go.disabled = false;
     go.onclick = async () => {
       go.disabled = true;
+      go.setAttribute("aria-busy", "true");
       try {
         const started = await API.post("/runs", {
           playbook: record.playbook_id,
@@ -358,6 +359,8 @@
         error.textContent = failure.message;
         error.hidden = false;
         go.disabled = false;
+      } finally {
+        go.removeAttribute("aria-busy");
       }
     };
     modal.hidden = false;

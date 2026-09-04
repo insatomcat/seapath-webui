@@ -91,8 +91,15 @@ button {
   cursor: pointer;
 }
 
+/* A button is disabled far more often because there is nothing to do than
+   because something is running, so the cursor says "nothing to do" and the
+   waiting one is asked for explicitly, by the code that started the wait. */
 button:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button[aria-busy="true"] {
   cursor: progress;
 }
 

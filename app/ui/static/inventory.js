@@ -561,6 +561,7 @@
     showFindings([]);
     const button = element("save");
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
     try {
       const committed =
         buffer.store === "inventory"
@@ -585,6 +586,8 @@
       showError("editor-error", failure.message);
       showFindings((failure.detail && failure.detail.findings) || []);
       button.disabled = false;
+    } finally {
+      button.removeAttribute("aria-busy");
     }
   }
 
@@ -854,6 +857,7 @@
     const button = element("upload");
     const label = button.textContent;
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
     showError("folder-error", "");
     const stored = [];
     try {
@@ -890,6 +894,7 @@
     } finally {
       button.textContent = label;
       button.disabled = false;
+      button.removeAttribute("aria-busy");
       renderPending();
       await refresh();
       if (state.current !== null && !state.buffers.has(state.current)) {
