@@ -74,11 +74,20 @@ rather than by reading it:
 The collection version is stamped into the image with `--build-arg
 COLLECTION_VERSION`, reported by `GET /api/v1/node`, and recorded on every run
 next to the inventory commit. `galaxy.yml` says `2.0.0` on every branch, so the
-label carries the branch and the upstream commit instead: `buildpush.sh`
-defaults it to the branch name, and the workflow resolves the branch head and
-stamps `seapathalloc@<commit>`. That label, with the inventory commit, is what
-makes a deployment reproducible, and the catalogue refuses to offer an entry the
+label carries the branch and the upstream commit instead: both `buildpush.sh`
+and the workflow resolve the branch head with `git ls-remote` and stamp
+`seapathalloc@<commit>`. That label, with the inventory commit, is what makes a
+deployment reproducible, and the catalogue refuses to offer an entry the
 shipped collection does not contain.
+
+**That resolved commit is also passed into the build, and the build checks
+it.** The clone command is otherwise identical from one build to the next, so
+its layer is a cache hit and a build run just after a push to `seapathalloc`
+ships the collection of the previous one, silently and with a label naming the
+new commit. Passing the commit moves the cache key exactly when the branch
+moves. The clone then compares what it got against what was asked for, so a
+branch that moved in between fails the build rather than producing an image
+whose label is a lie.
 
 The collection version is part of the image identity. It determines which
 playbooks exist and what they do, so it is recorded at build time, reported by

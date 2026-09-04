@@ -62,11 +62,13 @@ jobs:
               exit 1
           fi
           echo "version=${SEAPATH_ANSIBLE_REF}@${sha:0:12}" >> "${GITHUB_OUTPUT}"
+          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
 
       - name: Build
         run: |
           docker build \
               --build-arg "SEAPATH_ANSIBLE_REF=${SEAPATH_ANSIBLE_REF}" \
+              --build-arg "SEAPATH_ANSIBLE_COMMIT=${{ steps.collection.outputs.sha }}" \
               --build-arg "COLLECTION_VERSION=${{ steps.collection.outputs.version }}" \
               -t "${IMAGE}:${GITHUB_SHA:0:7}" \
               -t "${IMAGE}:latest" \

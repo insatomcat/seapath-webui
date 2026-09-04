@@ -19,12 +19,27 @@ VERSION="${VERSION:-$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' app/__init__.py)}
 # service reports for it. `galaxy.yml` says 2.0.0 on every branch, so the branch
 # is the part of the label that says which code the machines get.
 SEAPATH_ANSIBLE_REF="${SEAPATH_ANSIBLE_REF:-seapathalloc}"
-COLLECTION_VERSION="${COLLECTION_VERSION:-${SEAPATH_ANSIBLE_REF}}"
+SEAPATH_ANSIBLE_REPOSITORY="${SEAPATH_ANSIBLE_REPOSITORY:-https://github.com/seapath/ansible.git}"
 IMAGE="${REGISTRY_USER}/${IMAGE_NAME}"
 
-echo "Building ${IMAGE}:${VERSION} from seapath/ansible ${SEAPATH_ANSIBLE_REF}"
+# The head of that branch, right now. It is passed into the build for two
+# reasons: it moves the cache key of the clone layer, without which a build
+# run after a push reuses the collection of the previous one, and it is the
+# part of the label that says which code the machines will get, since
+# galaxy.yml declares the same version on every branch.
+SEAPATH_ANSIBLE_COMMIT="${SEAPATH_ANSIBLE_COMMIT:-$(git ls-remote \
+    "${SEAPATH_ANSIBLE_REPOSITORY}" "refs/heads/${SEAPATH_ANSIBLE_REF}" | cut -f1)}"
+if [ -z "${SEAPATH_ANSIBLE_COMMIT}" ]; then
+    echo "seapath/ansible has no branch ${SEAPATH_ANSIBLE_REF}" >&2
+    exit 1
+fi
+COLLECTION_VERSION="${COLLECTION_VERSION:-${SEAPATH_ANSIBLE_REF}@${SEAPATH_ANSIBLE_COMMIT:0:12}}"
+
+echo "Building ${IMAGE}:${VERSION} from seapath/ansible ${COLLECTION_VERSION}"
 podman build \
+    --build-arg "SEAPATH_ANSIBLE_REPOSITORY=${SEAPATH_ANSIBLE_REPOSITORY}" \
     --build-arg "SEAPATH_ANSIBLE_REF=${SEAPATH_ANSIBLE_REF}" \
+    --build-arg "SEAPATH_ANSIBLE_COMMIT=${SEAPATH_ANSIBLE_COMMIT}" \
     --build-arg "COLLECTION_VERSION=${COLLECTION_VERSION}" \
     -t "${IMAGE}:${VERSION}" .
 podman tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"

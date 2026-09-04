@@ -32,8 +32,22 @@ RUN apt-get update && \
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
 
+# The head of that branch, resolved by the caller with `git ls-remote`. It is
+# what makes this layer's cache key move when the branch moves: without it the
+# clone command is identical from one build to the next, and a local build
+# after a push happily reuses the collection of the previous one. It is also
+# checked: a branch that moved between the resolution and the clone fails the
+# build rather than shipping code nobody asked for.
+ARG SEAPATH_ANSIBLE_COMMIT=
+
 RUN git clone --branch "${SEAPATH_ANSIBLE_REF}" --depth 1 \
-        "${SEAPATH_ANSIBLE_REPOSITORY}" /src
+        "${SEAPATH_ANSIBLE_REPOSITORY}" /src && \
+    head="$(git -C /src rev-parse HEAD)" && \
+    if [ -n "${SEAPATH_ANSIBLE_COMMIT}" ] && \
+       [ "${head}" != "${SEAPATH_ANSIBLE_COMMIT}" ]; then \
+        echo "${SEAPATH_ANSIBLE_REF} is at ${head}, the build asked for ${SEAPATH_ANSIBLE_COMMIT}" >&2; \
+        exit 1; \
+    fi
 
 WORKDIR /src
 RUN ./prepare.sh
