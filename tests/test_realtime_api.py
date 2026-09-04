@@ -349,3 +349,33 @@ def test_the_pool_is_read_from_every_machine_the_inventory_declares(
 def test_a_viewer_may_read_the_pool(signed_in_viewer: TestClient) -> None:
     # It changes nothing and it is half of what the page is for.
     assert signed_in_viewer.get("/api/v1/realtime/pool").status_code == 200
+
+
+def test_every_node_carries_its_conformance_beside_its_pool(
+    signed_in: TestClient,
+) -> None:
+    """One request, both halves, because one exposition carries both.
+
+    The exporter publishes what the cores are doing and what the machine was
+    tuned as in the same document, so asking twice would double what a page
+    refresh costs a substation hypervisor for nothing.
+    """
+    pool = signed_in.get("/api/v1/realtime/pool").json()
+    node = pool["nodes"][0]
+
+    assert pool["inventory_commit"]
+    assert {check["id"] for check in node["checks"]} == {
+        "cpu_isolation",
+        "tuned",
+        "preemption",
+        "kernel_cmdline",
+        "sched_rt",
+        "hugepages",
+        "smt",
+        "transparent_hugepages",
+        "irq_affinity",
+        "acpi",
+    }
+    # The raw values the checks were formed from, for an automation client
+    # asking the same question of a machine it cannot log into.
+    assert node["reading"]["tuned_profile"]

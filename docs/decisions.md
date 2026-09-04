@@ -1094,6 +1094,11 @@ adding them to what SEAPATH exports, which is upstream work. The page says
 which pane is which in its own heading rather than leaving the reader to infer
 it.
 
+> The second was written. [D27](#d27) adds those eight readings to what
+> `seapath-alloc` publishes, and the whole conformance list now answers for
+> every machine. The paragraph above is kept because it is the question D27
+> answers.
+
 ### What was refused
 
 **Querying Prometheus.** It would give history and one query for the whole
@@ -1112,3 +1117,102 @@ series with one down is six seconds before anything renders.
 would give the local node with one bind mount and no network. It answers for
 one machine, which is the design this decision is moving away from, and it adds
 host surface to avoid a request to a port the cluster already serves.
+
+## D27 - Settled: the tuning is published by the exporter, and the checks answer for every machine
+
+[D26](#d26) left the Real time page split down the middle. The CPU pool came
+from every node, and the conformance list came from the machine the browser
+happened to be pointed at. The readings forced that split, and D26 named the
+two ways out of it and left them for later.
+
+Eight of the ten checks read files. The tuned profile is
+`/etc/tuned/active_profile`, the throttling window is two sysctls, the hugepage
+pools are directories under `/sys/kernel/mm`, the interrupt affinities are
+masks under `/proc/irq`, and none of it is published by
+`prometheus-node-exporter`. So the eight answered for one machine, and the
+question an operator actually has is about three.
+
+### The two ways out, and why the second one wins
+
+**Run the checks on each node over SSH.** This service already reaches every
+machine that way ([D1](#d1)), so it is a few lines. It turns a page refresh
+into a command execution on live substation hypervisors, on a path that has no
+run lock, no confirmation naming the machines, and no run record. Every other
+thing this service does to a machine goes through `ansible-runner` for exactly
+those three reasons, and a reading that quietly becomes an execution is how
+that property is lost.
+
+**Publish the readings.** `seapath-alloc` already runs on every node, on a
+fifteen second timer, and already writes a Prometheus textfile that
+`node_exporter` serves. Adding the tuning to what it writes costs one file read
+per tick on a host the collector is already on, and turns the question into the
+HTTP GET this service was already making for the pool.
+
+The second is chosen, and the work is upstream: `conformance.py` in
+`deploy_seapath_alloc`, publishing `seapath_rt_*` beside `seapath_alloc_*` in
+the same file, under the same `node` job, with no new port, no new daemon and
+no new scrape configuration. That is the same decision as [D24](#d24)'s: what a
+machine runs and what a machine publishes come from the collection the CI
+tests, and this service reads it.
+
+It also pays for itself twice. The same metrics reach Prometheus, so a site
+gets history and alerting on values that used to be visible only by logging
+into the machine: a tuned profile selected but installed nowhere is an alert
+rule now, and it was a phone call before.
+
+### What the service does with it
+
+One implementation of the checks, for every machine. `app/services/checks.py`
+holds the ten and takes a `RealtimeReading` and a `CpuReading`, without caring
+which machine they describe. `app/cluster/tuning.py` turns an exposition back
+into those readings, and `app/hosts/local.py` reads them from this machine's
+own files as it always did.
+
+The local node keeps reading its own files rather than its exporter. It needs
+no collector, it is never stale, and it answers on a machine where nothing has
+been deployed yet, which is exactly the machine an operator reads the tuning of
+before writing an isolation down.
+
+The page becomes a matrix: one row per check, one column per machine, local
+first. That is the shape the question has. Two nodes converged from the same
+inventory answering differently is the finding, whatever the answers are, and a
+list of one machine's ten answers had no way to express it.
+
+### Three silences, kept apart
+
+A cell with nothing in it is never a failed check, and there are three reasons
+a machine has nothing to say. They are distinguished all the way from the
+exporter to the page, because each is fixed by a different act:
+
+| What happened | What it means | What fixes it |
+|---|---|---|
+| The node did not answer | The exporter is not up, or the machine is not | Deploy the exporters, or look at the machine |
+| It answered with no `seapath_rt_*` | The collector predates the block | Upgrade the collection on that node |
+| It answered with an empty label | It read, and there was nothing there | Read the check: it is a finding or it is not |
+
+The exporter carries that distinction with two conventions, both tested there
+and relied on here: an info family is published even when every reading in it
+came back empty, and a numeric gauge is omitted rather than defaulted, because
+every value it could carry is a legitimate one. `-1` is a correctly tuned
+`sched_rt_runtime_us` and a hugepage pool of `0` is a real answer.
+
+### What was refused
+
+**Ten grey rows for a node with an old collector.** They read as ten failures
+and bury the one act that fixes it. The node gets no rows and one sentence
+naming the role.
+
+**One series per interrupt.** A machine that keeps nothing off its isolated
+cores has every interrupt reaching one, which would be hundreds of series per
+node on every scrape, forever. The exporter names the first eight and publishes
+the true count beside them, and the count is what the check reports.
+
+**A second endpoint for the cluster conformance.** The pool and the tuning
+arrive in one exposition, so the page asks each node once. A second endpoint
+would have doubled what a page refresh costs a hypervisor to display two panels
+of the same reading.
+
+**Judging in the exporter.** It has no inventory and cannot have one: whether
+`isolcpus=4-7` is right for a machine is a question about what that machine was
+told, which lives in the repository this service writes. The collector reports
+what it read, and the comparison stays here.

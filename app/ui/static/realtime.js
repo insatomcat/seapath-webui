@@ -76,6 +76,7 @@
     measurements: { cyclictest: [], hwlatdetect: [] },
     selected: { cyclictest: null, hwlatdetect: null },
     canLaunch: false,
+    matrix: null,
     machines: [],
     isolated: [],
     thisHost: null,
@@ -116,23 +117,23 @@
     const report = await API.get("/realtime");
     element("checks-loading").hidden = true;
     element("checks").hidden = false;
-    const rows = element("check-rows");
-    rows.replaceChildren();
-    report.checks.forEach((check) => rows.append(renderCheck(check)));
 
-    const wanting = report.checks.filter(
-      (check) => check.status === "warning"
-    ).length;
-    element("checks-lead").textContent = report.this_host
-      ? (wanting
-          ? wanting + " of " + report.checks.length + " worth a look"
-          : "nothing worth a look") +
-        ", against " +
-        report.this_host +
-        (report.inventory_commit
-          ? " at " + report.inventory_commit.slice(0, 8)
-          : "")
-      : "no inventory entry describes this machine yet";
+    // The local machine, drawn before any exporter has answered. It is read
+    // from files this container already sees, so it costs no network and is
+    // never stale, and it is the column that still works on a node where
+    // nothing has been deployed yet. loadPool() widens the matrix to the
+    // cluster when the other nodes answer.
+    renderMatrix(
+      [
+        {
+          host: report.this_host || report.hostname,
+          reachable: true,
+          checks: report.checks,
+        },
+      ],
+      report.this_host,
+      report.inventory_commit
+    );
 
     // The report carries the CPU reading the checks were formed from, so the
     // affinity picker gets the isolated set without a second request.
@@ -143,53 +144,194 @@
     return report;
   }
 
-  // One row per check, and the detail only when asked for. Ten checks with
-  // their reasoning always on screen is the page an operator has to scroll,
-  // and scrolling is what this layout exists to avoid.
-  function renderCheck(check) {
+  // One row per check, one column per machine. The comparison is the point:
+  // ten checks on the node the browser happens to be pointed at said nothing
+  // about the other two hypervisors of the cluster, and the commonest findings
+  // in a substation, a machine converged and never rebooted or one left with
+  // transparent hugepages on, are exactly the ones that hide on the machine
+  // nobody is looking at.
+  function renderMatrix(nodes, thisHost, commit) {
+    state.matrix = { nodes: nodes, thisHost: thisHost, commit: commit };
+    const columns =
+      "minmax(7rem, 1.3fr) repeat(" + nodes.length + ", minmax(5rem, 1fr))";
+
+    const head = element("check-head");
+    head.replaceChildren();
+    head.style.gridTemplateColumns = columns;
+    head.append(cell("span", "Check"));
+    nodes.forEach((node) => head.append(nodeHeading(node, thisHost)));
+
+    // Every check the nodes answered, in the order they were run. A node that
+    // published nothing contributes no row of its own, so the list is what the
+    // machines that did answer have to say.
+    const ids = [];
+    nodes.forEach((node) =>
+      (node.checks || []).forEach((check) => {
+        if (!ids.some((known) => known.id === check.id)) {
+          ids.push({ id: check.id, title: check.title });
+        }
+      })
+    );
+
+    const rows = element("check-rows");
+    rows.replaceChildren();
+    ids.forEach((check) =>
+      rows.append(renderRow(check, nodes, columns))
+    );
+
+    const wanting = nodes.reduce(
+      (total, node) =>
+        total +
+        (node.checks || []).filter((check) => check.status === "warning")
+          .length,
+      0
+    );
+    const answering = nodes.filter((node) => (node.checks || []).length).length;
+    element("checks-lead").textContent =
+      (wanting
+        ? wanting + " worth a look on " + machines(answering)
+        : "nothing worth a look on " + machines(answering)) +
+      (commit ? ", against the inventory at " + commit.slice(0, 8) : "");
+  }
+
+  function machines(count) {
+    return count + (count > 1 ? " machines" : " machine");
+  }
+
+  function nodeHeading(node, thisHost) {
+    const box = document.createElement("span");
+    box.className = "check-node";
+    box.textContent = node.host;
+    if (node.host === thisHost) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "this node";
+      box.append(" ", tag);
+    }
+    return box;
+  }
+
+  function cell(tag, text) {
+    const node = document.createElement(tag);
+    node.textContent = text;
+    return node;
+  }
+
+  // A row is one check across the cluster, and it opens to what each machine
+  // answered. The detail stays behind a click: ten checks times three nodes
+  // with their reasoning on screen is a page an operator scrolls, and scrolling
+  // is what this layout exists to avoid.
+  function renderRow(check, nodes, columns) {
     const row = document.createElement("button");
     row.type = "button";
     row.className = "check-row";
-    if (check.declared && check.declared !== check.observed) {
-      row.classList.add("differs");
-    }
-
-    const dot = document.createElement("span");
-    dot.className = "dot status-" + check.status;
+    row.style.gridTemplateColumns = columns;
 
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = check.title;
+    row.append(name);
 
-    const observed = document.createElement("span");
-    observed.className = "observed";
-    observed.textContent = check.observed;
+    const answers = nodes.map((node) => answerOf(node, check.id));
+    answers.forEach((answer) => row.append(renderAnswer(answer)));
 
-    const declared = document.createElement("span");
-    declared.className = "declared";
-    if (check.declared === null || check.declared === undefined) {
-      // A dash rather than an empty cell: the column reads as answered, and
-      // the answer is that nothing in the inventory has an opinion here.
-      declared.classList.add("none");
-      declared.textContent = "\u2013";
-    } else {
-      declared.textContent = check.declared;
+    // The one thing a matrix says that a list could not: the machines
+    // disagree. Two nodes converged from the same inventory answering
+    // differently is the finding, whatever the answers are.
+    if (
+      answers.filter((answer) => answer.check).length > 1 &&
+      new Set(
+        answers
+          .filter((answer) => answer.check)
+          .map((answer) => answer.check.observed)
+      ).size > 1
+    ) {
+      row.classList.add("uneven");
     }
 
-    row.append(dot, name, observed, declared);
-
-    const detail = check.detail || defaultDetail(check);
-    if (detail) {
-      const note = document.createElement("p");
-      note.className = "check-detail";
-      note.textContent = detail;
-      note.hidden = true;
-      row.append(note);
-      row.addEventListener("click", () => {
-        note.hidden = !note.hidden;
-      });
-    }
+    const detail = document.createElement("div");
+    detail.className = "check-detail";
+    detail.hidden = true;
+    nodes.forEach((node, index) =>
+      detail.append(detailLine(node, answers[index]))
+    );
+    row.append(detail);
+    row.addEventListener("click", () => {
+      detail.hidden = !detail.hidden;
+    });
     return row;
+  }
+
+  function answerOf(node, id) {
+    const check = (node.checks || []).find((entry) => entry.id === id);
+    if (check) {
+      return { node: node, check: check };
+    }
+    // Why this machine has nothing to say, which is never a failed check. An
+    // unreachable node, and a node whose collector predates the tuning block,
+    // are two different faults fixed by two different acts.
+    return {
+      node: node,
+      check: null,
+      absence:
+        node.error ||
+        node.tuning_error ||
+        "This machine published nothing for this check.",
+    };
+  }
+
+  function renderAnswer(answer) {
+    const box = document.createElement("span");
+    box.className = "check-cell";
+
+    const dot = document.createElement("span");
+    dot.className = "dot status-" + (answer.check ? answer.check.status : "absent");
+    box.append(dot);
+
+    const value = document.createElement("span");
+    value.className = "value";
+    if (answer.check) {
+      value.textContent = answer.check.observed;
+      if (
+        answer.check.declared &&
+        answer.check.declared !== answer.check.observed
+      ) {
+        value.classList.add("differs");
+      }
+    } else {
+      value.classList.add("none");
+      value.textContent = "\u2013";
+    }
+    box.append(value);
+    return box;
+  }
+
+  function detailLine(node, answer) {
+    const line = document.createElement("p");
+    line.className = "detail-line";
+
+    const who = document.createElement("span");
+    who.className = "detail-host";
+    who.textContent = node.host;
+    line.append(who, " ");
+
+    if (!answer.check) {
+      line.append(answer.absence);
+      return line;
+    }
+    const check = answer.check;
+    const declared =
+      check.declared !== null && check.declared !== undefined
+        ? " The inventory asks for " + check.declared + "."
+        : "";
+    line.append(
+      check.observed +
+        "." +
+        declared +
+        " " +
+        (check.detail || defaultDetail(check))
+    );
+    return line;
   }
 
   // Something to say on a row that passed. A check with no detail would open
@@ -233,6 +375,14 @@
   async function loadPool() {
     const pool = await API.get("/realtime/pool");
     element("map-loading").hidden = true;
+
+    // The same reading answers both panels, so the cluster is asked once. Each
+    // node's exporter carries its pool and its tuning in one exposition, and
+    // fetching it twice would double what a page refresh costs a substation
+    // hypervisor for nothing.
+    element("checks-loading").hidden = true;
+    element("checks").hidden = false;
+    renderMatrix(pool.nodes, pool.this_host, pool.inventory_commit);
 
     const reachable = pool.nodes.filter((node) => node.cpus.length);
     const blocked = element("pool-blocked");

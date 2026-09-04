@@ -1,7 +1,13 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""The CPU pool of every machine in the inventory, read from their exporters.
+"""What every machine in the inventory is, read from their exporters.
+
+Two readings, one request. The CPU pool, which is what the isolated cores are
+doing, and the real time tuning, which is what the machine was tuned as. They
+arrive in the same exposition because `seapath-alloc` writes them into the same
+textfile, and they are read together because they answer one question: does
+this machine still match the inventory it was converged from.
 
 This is the one reading in the service that crosses to another machine, and it
 is worth being precise about why that is allowed here when D13 sent live state
@@ -43,7 +49,9 @@ from typing import Protocol
 
 from pydantic import BaseModel, Field, computed_field
 
-from app.cluster import metrics
+from app.cluster import metrics, tuning
+from app.hosts.models import RealtimeReading
+from app.services.checks import Check
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +63,15 @@ _CPU_DETAIL = "seapath_alloc_cpu_detail"
 _FALLBACKS = "seapath_alloc_active_fallbacks"
 _SLOT_WARNING = "seapath_alloc_slot_warning_info"
 _SCRAPE_TIME = "seapath_alloc_scrape_timestamp_seconds"
-# node_exporter's own, which is how the kernel of a machine this service cannot
-# read comes back. `version` is where the PREEMPT_RT build flag appears.
-_UNAME = "node_uname_info"
+
+# Said once, because it is the one failure here an operator fixes by upgrading
+# rather than by looking at the machine.
+_NO_TUNING = (
+    "This node's collector publishes the pool but not the tuning. "
+    "deploy_seapath_alloc from a collection that ships seapath_rt_* is what "
+    "adds it, and until then only the isolated set and the kernel can be "
+    "checked here."
+)
 
 
 class MetricsClient(Protocol):
@@ -135,16 +149,30 @@ class NodePool(BaseModel):
     declared_isolcpus: str | None = None
     """What the inventory asks this node to isolate.
 
-    The one conformance question that can be asked of a machine this service
-    cannot read: the exporter publishes `isolated` per CPU, so the set the
-    kernel actually booted with comes back from every node, and the inventory
-    holds what each was told. The commonest finding in a cluster is one machine
-    converged and never rebooted, and until now this page could only catch it
-    on the node the browser happened to be pointed at.
+    The exporter publishes `isolated` per CPU, so the set the kernel actually
+    booted with comes back from every node, and the inventory holds what each
+    was told. The commonest finding in a cluster is one machine converged and
+    never rebooted, which the kernel's boot-time reading of `isolcpus` makes
+    invisible any other way.
     """
     observed_isolcpus: str = ""
     kernel: str = ""
     preemption: str = ""
+
+    reading: RealtimeReading | None = None
+    """The tuning this node published, which is what its checks are formed from.
+
+    None when the node answered without it, which is a collector to upgrade
+    rather than a machine that failed anything. `tuning_error` says so.
+    """
+    kernel_cmdline: str = ""
+    tuning_error: str = ""
+    checks: list[Check] = Field(default_factory=list)
+    """The same ten checks the local machine gets, run against this node.
+
+    Filled by `RealtimeService`, which is where the inventory is: reading a
+    node is this module's job, and holding it against what it was told is not.
+    """
 
     # A computed field rather than a plain property: a property is invisible to
     # `model_dump`, so the page received no answer at all and rendered every
@@ -171,6 +199,12 @@ class ClusterPool(BaseModel):
 
     nodes: list[NodePool] = Field(default_factory=list)
     this_host: str | None = None
+    inventory_commit: str | None = None
+    """Which desired state the machines were compared against.
+
+    A conformance report with no idea which commit it was held against is an
+    anecdote, the same way a latency figure with no isolation behind it is.
+    """
     available: bool = True
     """At least one node answered.
 
@@ -210,7 +244,12 @@ class PoolReader:
             return NodePool(host=host, address=address, reachable=False, error=error)
 
         series = metrics.parse(text)
+        reading, cmdline = tuning.read(series)
+        release, model = tuning.kernel(series)
         if _CPU_DETAIL not in series:
+            # The kernel still comes back from node_exporter's own series, so
+            # a node with no allocator says which kernel it booted rather than
+            # nothing at all.
             return NodePool(
                 host=host,
                 address=address,
@@ -220,6 +259,8 @@ class PoolReader:
                     "metrics. deploy_seapath_alloc installs the collector that "
                     "writes them."
                 ),
+                kernel=release,
+                preemption=model,
             )
         return NodePool(
             host=host,
@@ -247,7 +288,11 @@ class PoolReader:
                     if sample.labels.get("isolated") == "1"
                 ]
             ),
-            **_uname(series),
+            reading=reading,
+            kernel_cmdline=cmdline,
+            tuning_error="" if reading else _NO_TUNING,
+            kernel=release,
+            preemption=model,
         )
 
 
@@ -300,27 +345,6 @@ def _optional_int(raw: str | None) -> int | None:
         return int(raw)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
-
-
-def _uname(series: dict) -> dict[str, str]:
-    """The kernel each node booted, from node_exporter's own series."""
-    samples = series.get(_UNAME, [])
-    if not samples:
-        return {}
-    labels = samples[0].labels
-    version = labels.get("version", "")
-    return {
-        "kernel": labels.get("release", ""),
-        "preemption": _preemption(version),
-    }
-
-
-def _preemption(version: str) -> str:
-    """PREEMPT_RT before PREEMPT, or every RT kernel reads as an ordinary one."""
-    for marker in ("PREEMPT_RT", "PREEMPT_DYNAMIC", "PREEMPT", "VOLUNTARY"):
-        if marker in version:
-            return marker
-    return "" if not version else "none"
 
 
 def _parse(raw: str) -> set[int]:

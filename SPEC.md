@@ -67,10 +67,13 @@ Proxmox clone:
 - Read only observation of what a node **is**: its hardware, its identity and
   its cluster membership, which is what an inventory is written against.
 - Real time conformance, meaning whether the tuning a machine came out with
-  matches what the inventory declared for it, and the two measurements that
-  back it. Both are ordinary runs of upstream roles, `cyclictest` and
-  `hwlatdetect`, so they happen on the machines rather than inside this
-  container. See D24 in [decisions.md](docs/decisions.md).
+  matches what the inventory declared for it, for every machine the inventory
+  declares. Each node publishes its own tuning through the exporter it already
+  runs, so the answer costs one HTTP GET per node and no SSH command. See D27
+  in [decisions.md](docs/decisions.md).
+- The two measurements that back it. Both are ordinary runs of upstream roles,
+  `cyclictest` and `hwlatdetect`, so they happen on the machines rather than
+  inside this container. See D24 in [decisions.md](docs/decisions.md).
 - VM runtime operations through `vm_manager`.
 
 ### Out of scope

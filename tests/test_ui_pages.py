@@ -453,18 +453,23 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     assert "undone by the next run that touches it" in body
 
 
-def test_the_real_time_page_says_which_checks_the_inventory_backs(
+def test_the_real_time_page_checks_every_machine(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/realtime").text
 
-    # The two kinds of check answer different questions, and only one has an
-    # action behind it. Naming them "conformance" and "advice" was how this
-    # page said so at first, and neither word survived contact with a reader.
-    # The column does the work instead: a value there is something to converge
-    # towards, a dash is something nobody declared.
-    assert "The inventory asks for" in body
-    assert "nothing in the inventory declares that" in body
+    # One row per check and one column per machine. The checks used to be about
+    # the node the browser happened to be pointed at, which said nothing about
+    # the other hypervisors of the same cluster, and the commonest findings in
+    # a substation are exactly the ones that hide on the machine nobody is
+    # looking at.
+    assert "Conformance, every machine" in body
+    assert 'id="check-head"' in body
+
+    # A machine that published nothing is not a machine that failed a check,
+    # and the legend carries the difference.
+    assert "nothing published" in body
+    assert "what its own\n        inventory entry asks of it" in body
 
 
 def test_the_real_time_page_offers_both_measurements(

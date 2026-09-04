@@ -35,6 +35,55 @@ def _detail(**labels: str) -> str:
     return "seapath_alloc_cpu_detail{" + rendered + "} 1"
 
 
+def _uname(release: str, version: str) -> str:
+    return (
+        f'node_uname_info{{domainname="(none)",machine="x86_64",'
+        f'nodename="seapath",release="{release}",sysname="Linux",'
+        f'version="{version}"}} 1\n'
+    )
+
+
+def _tuning(
+    profile: str = "seapath-rt-host",
+    installed: str = "1",
+    cmdline: str = (
+        "BOOT_IMAGE=/vmlinuz root=UUID=0 isolcpus=3-11 nohz_full=3-11 "
+        "rcu_nocbs=3-11 intel_idle.max_cstate=0"
+    ),
+    runtime: str = "-1",
+    thp: str = "never",
+    irqs_on_isolated: int = 0,
+) -> str:
+    """The `seapath_rt_*` block `seapath-alloc` writes beside the pool.
+
+    Rendered as text rather than as a model, because what the reader has to
+    survive is an exposition another program wrote: the escaping, the empty
+    labels, the families a node may not publish at all.
+    """
+    lines = [
+        f'seapath_rt_tuned_info{{profile="{profile}",'
+        f'source="/etc/tuned/active_profile",installed="{installed}"}} 1',
+        f'seapath_rt_kernel_cmdline_info{{cmdline="{cmdline}"}} 1',
+        f"seapath_rt_sched_rt_runtime_us {runtime}",
+        "seapath_rt_sched_rt_period_us 1000000",
+        'seapath_rt_hugepages_total{size_kb="1048576",node=""} 16',
+        'seapath_rt_hugepages_free{size_kb="1048576",node=""} 8',
+        f'seapath_rt_transparent_hugepages_info{{enabled="{thp}",'
+        f'defrag="{thp}"}} 1',
+        'seapath_rt_smt_info{control="on"} 1',
+        "seapath_rt_smt_active 1",
+        "seapath_rt_acpi_present 1",
+        "seapath_rt_irqs_total 214",
+        f"seapath_rt_irqs_on_isolated_cpus {irqs_on_isolated}",
+    ]
+    for number in range(irqs_on_isolated):
+        lines.append(
+            f'seapath_rt_irq_on_isolated_info{{irq="{181 + number}",'
+            f'name="eno1-TxRx-{number}",cpus="{4 + number}"}} 1'
+        )
+    return "\n".join(lines) + "\n"
+
+
 def _machine(occupied: dict[int, dict[str, str]], isolated: range) -> str:
     """Twelve cores, two threads each, in the reference topology."""
     lines = [
@@ -115,6 +164,29 @@ _NODE2 = _machine(
 )
 
 _BUSY = _NODE2 + 'seapath_alloc_active_fallbacks{severity="soft"} 1\n'
+
+# The tuning each machine publishes beside its pool, and the two are as unalike
+# as the pools. elabo1 is the machine an inventory describes and a convergence
+# reached. elabo2 is the finding this whole reading exists for: transparent
+# hugepages left on, RT throttling still enabled, and three interrupts the
+# kernel is still allowed to deliver on isolated cores. None of that is visible
+# from the pool, and none of it used to be visible from anywhere but the node
+# the browser happened to be pointed at.
+_NODE1 = (
+    _NODE1
+    + _uname("6.1.0-rt-amd64", "#1 SMP PREEMPT_RT Debian 6.1.0-1 (2026-01-01)")
+    + _tuning()
+)
+_BUSY = (
+    _BUSY
+    + _uname("6.1.0-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.0-1 (2026-01-01)")
+    + _tuning(
+        cmdline="BOOT_IMAGE=/vmlinuz root=UUID=0 isolcpus=3-11",
+        runtime="950000",
+        thp="madvise",
+        irqs_on_isolated=3,
+    )
+)
 
 # Keyed by what the reader actually puts in the URL, which is the inventory's
 # `ansible_host`. The fake node the rest of the suite serves lives at

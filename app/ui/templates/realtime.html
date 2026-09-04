@@ -16,17 +16,16 @@ and an answer that has to be scrolled for is one an operator stops reading.
 
   <section class="card pane" id="card-checks">
     <h2>
-      Conformance, this machine
+      Conformance, every machine
       <span class="pane-note" id="checks-lead"></span>
     </h2>
     <div class="loading" id="checks-loading">Reading this machine</div>
+    {# One row per check, one column per machine. The local column is read
+       from this machine's own files and the others from each node's exporter,
+       which is what makes the comparison possible at all: the tuning of a
+       machine this container cannot log into used to be invisible here. #}
     <div class="checks" id="checks" hidden>
-      <div class="check-head">
-        <span></span>
-        <span>Check</span>
-        <span>On this machine</span>
-        <span>The inventory asks for</span>
-      </div>
+      <div class="check-head" id="check-head"></div>
       <div id="check-rows"></div>
     </div>
     <p class="pane-foot">
@@ -34,10 +33,11 @@ and an answer that has to be scrolled for is one an operator stops reading.
       <span class="legend-item"><span class="dot status-warning"></span> worth a look</span>
       <span class="legend-item"><span class="dot status-info"></span> nothing to compare</span>
       <span class="legend-item"><span class="dot status-unknown"></span> unreadable</span>
+      <span class="legend-item"><span class="dot status-absent"></span> nothing published</span>
       <span class="pane-foot-note">
-        A dash in the last column means nothing in the inventory declares that
-        value, so there is nothing to converge towards. Click a row for what it
-        means.
+        Click a row for what each machine answered, and for what its own
+        inventory entry asks of it. A machine reached over its exporter carries
+        the age of the reading; this one is read directly and is never stale.
       </span>
     </p>
   </section>
@@ -58,9 +58,9 @@ and an answer that has to be scrolled for is one an operator stops reading.
         One column per physical core, one cell per thread; hover a core for
         what is on it. Read from each node's own exporter, which is where
         <code>seapath-alloc</code> publishes what it pinned: this container
-        cannot see the threads itself. The isolated set and the kernel are
-        checked against the inventory here for every machine; the rest of the
-        conformance list needs a reading only the local node can make.
+        cannot see the threads itself. The same reading carries each machine's
+        tuning, which is what the conformance panel above compares with the
+        inventory.
       </span>
     </p>
   </section>

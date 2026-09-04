@@ -255,3 +255,192 @@ def test_a_topology_with_no_cpu_still_produces_every_check() -> None:
     )
 
     assert len(checks) == 10
+
+
+# The same ten checks, on every machine of the cluster
+#
+# The reversal D27 records. The checks used to be about the node the browser
+# happened to be pointed at, because eight of the ten read files only that node
+# exposes. `seapath-alloc` publishes those readings now, so the service asks
+# each node's exporter and runs one implementation of the checks over all of
+# them. What the tests below hold is where each machine's answer came from, and
+# that the three ways a node can have nothing to say stay apart.
+
+
+class _Cluster:
+    """Three hypervisors, declaring three different isolations."""
+
+    def __init__(self, this_host: str | None = "node1") -> None:
+        self._state = InventoryState(
+            inventory=Inventory(
+                mode=Mode.CLUSTER,
+                hosts={
+                    "node1": NodeConfig(
+                        ansible_host="10.0.0.1",
+                        network_interface="eno1",
+                        isolcpus="4-7",
+                    ),
+                    "node2": NodeConfig(
+                        ansible_host="10.0.0.2",
+                        network_interface="eno1",
+                        isolcpus="2-7",
+                    ),
+                    "node3": NodeConfig(
+                        ansible_host="10.0.0.3",
+                        network_interface="eno1",
+                        isolcpus="4-7",
+                    ),
+                },
+            ),
+            commit="abcdef1234",
+            this_host=this_host,
+        )
+
+    def state(self) -> InventoryState:
+        return self._state
+
+
+def _exposition(isolated: str, tuning: str = "") -> str:
+    lines = [
+        f'seapath_alloc_cpu_detail{{cpu="{cpu}",'
+        f'isolated="{1 if str(cpu) in isolated.split(",") else 0}",'
+        f'ht_pair="{cpu}",ht_sibling="{cpu}",state="free",slot="",'
+        'member_count="0",members="",label="",group="",scheduler="",'
+        'priority="0"} 1'
+        for cpu in range(8)
+    ]
+    lines.append(
+        'node_uname_info{sysname="Linux",release="6.1.0-rt-amd64",'
+        'version="#1 SMP PREEMPT_RT Debian"} 1'
+    )
+    return "\n".join(lines) + "\n" + tuning
+
+
+_TUNING = (
+    'seapath_rt_tuned_info{profile="seapath-rt-host",'
+    'source="/etc/tuned/active_profile",installed="1"} 1\n'
+    'seapath_rt_kernel_cmdline_info{cmdline="isolcpus=4-7 nohz_full=4-7 '
+    'rcu_nocbs=4-7 intel_idle.max_cstate=0"} 1\n'
+    "seapath_rt_sched_rt_runtime_us -1\n"
+    "seapath_rt_sched_rt_period_us 1000000\n"
+    'seapath_rt_hugepages_total{size_kb="1048576",node=""} 16\n'
+    'seapath_rt_hugepages_free{size_kb="1048576",node=""} 16\n'
+    'seapath_rt_transparent_hugepages_info{enabled="never",defrag="never"} 1\n'
+    'seapath_rt_smt_info{control="off"} 1\n'
+    "seapath_rt_smt_active 0\n"
+    "seapath_rt_acpi_present 1\n"
+    "seapath_rt_irqs_total 214\n"
+    "seapath_rt_irqs_on_isolated_cpus 0\n"
+)
+
+
+class _Exporters:
+    def __init__(self, answers: dict[str, str]) -> None:
+        self.answers = answers
+
+    def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
+        for address, text in self.answers.items():
+            if address in url:
+                return text, ""
+        return None, "No route to host"
+
+
+def _cluster(answers: dict[str, str], this_host: str | None = "node1"):
+    from app.cluster.pool import PoolReader
+
+    service = RealtimeService(
+        _Reader(),
+        _Cluster(this_host),
+        _Runs(),
+        "node1",
+        pool=PoolReader(client=_Exporters(answers)),
+    )
+    pool = service.pool()
+    return {node.host: node for node in pool.nodes}, pool
+
+
+def test_every_node_is_checked_against_its_own_inventory_entry() -> None:
+    # node2 declares 2-7 and booted 4-7, which is the machine converged and
+    # never rebooted. Nothing on the local machine says so, and until its
+    # tuning was published nothing here could.
+    nodes, _ = _cluster(
+        {
+            "10.0.0.1": _exposition("4,5,6,7", _TUNING),
+            "10.0.0.2": _exposition("4,5,6,7", _TUNING),
+        }
+    )
+
+    node2 = {check.id: check for check in nodes["node2"].checks}
+
+    assert node2["cpu_isolation"].status is Status.WARNING
+    assert node2["cpu_isolation"].declared == "2-7"
+    assert node2["cpu_isolation"].kind is Kind.CONFORMANCE
+
+
+def test_a_remote_node_answers_all_ten_checks_from_its_exporter() -> None:
+    # The eight that used to need a file only the local node exposes. The tuned
+    # profile is the one an operator reaches for first, and it is the one an
+    # exporter had nothing to say about before D27.
+    nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING)})
+
+    node2 = {check.id: check for check in nodes["node2"].checks}
+
+    assert len(node2) == 10
+    assert node2["tuned"].observed == "seapath-rt-host"
+    assert node2["transparent_hugepages"].status is Status.OK
+    assert node2["smt"].observed == "off"
+
+
+def test_the_local_node_is_read_from_its_own_files_rather_than_its_exporter() -> None:
+    # It needs no exporter, it is never stale, and it answers on a machine
+    # where nothing has been deployed yet. The fake reader isolates 4-7 and
+    # leaves transparent hugepages on, and that is what the local column says
+    # whatever the exporter publishes.
+    nodes, _ = _cluster({"10.0.0.1": _exposition("0,1", _TUNING)})
+
+    node1 = {check.id: check for check in nodes["node1"].checks}
+
+    assert node1["cpu_isolation"].observed == "4-7"
+    assert node1["transparent_hugepages"].status is Status.WARNING
+
+
+def test_a_node_that_published_no_tuning_gets_no_checks_and_says_why() -> None:
+    # Ten grey rows would read as ten failures and bury the one act that fixes
+    # it, which is upgrading the collector on that machine.
+    nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7")})
+
+    assert nodes["node2"].checks == []
+    assert "deploy_seapath_alloc" in nodes["node2"].tuning_error
+
+
+def test_an_unreachable_node_keeps_its_column_and_its_reason() -> None:
+    nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING)})
+
+    assert nodes["node3"].checks == []
+    assert nodes["node3"].reachable is False
+    assert nodes["node3"].error
+
+
+def test_the_local_node_comes_first_and_the_commit_travels_with_the_report() -> None:
+    # The machine the operator is standing on, and the desired state every
+    # column was compared against. A conformance report with no commit behind
+    # it is an anecdote.
+    _, pool = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING)})
+
+    assert pool.nodes[0].host == "node1"
+    assert pool.inventory_commit == "abcdef1234"
+
+
+def test_a_machine_with_no_inventory_still_has_a_conformance_column() -> None:
+    # A freshly installed machine has no inventory at all, and reading the
+    # tuning is exactly what an operator does before writing the isolation
+    # down. An empty cluster view would take that away.
+    service = RealtimeService(
+        _Reader(), _Inventory(None, this_host=None), _Runs(), "n1"
+    )
+    pool = service.pool()
+
+    assert len(pool.nodes) == 1
+    assert pool.nodes[0].host == "n1"
+    assert len(pool.nodes[0].checks) == 10
+    assert pool.available is False

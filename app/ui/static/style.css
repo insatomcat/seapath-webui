@@ -1287,23 +1287,79 @@ button.secondary {
   line-height: 1.4;
 }
 
-/* The conformance list, as a table rather than as ten cards. The old shape
-   spent a line per check on a CONFORMANCE / ADVICE label nobody could read,
-   and the label was saying what the last column already shows: a check with a
-   declared value is a comparison, one with a dash is a reading. */
+/* The conformance matrix: one row per check, one column per machine. It was a
+   list of the local machine's ten answers until every node's tuning became
+   readable from its exporter, and a list is the wrong shape for the question
+   an operator actually has, which is whether the machines agree. The columns
+   are sized in JS, because how many there are is how many the inventory
+   declares. */
 .checks {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  overflow-x: auto;
 }
 
 .check-head,
 .check-row {
   display: grid;
-  grid-template-columns: 0.9rem minmax(9rem, 1.2fr) minmax(6rem, 1fr) minmax(4.5rem, 0.9fr);
   gap: 0.5rem;
   align-items: baseline;
   padding: 0.3rem 0.25rem;
+}
+
+/* The machine a column stands for. It wraps rather than truncating: a
+   hostname an operator cannot read names nothing. */
+.check-node {
+  overflow-wrap: anywhere;
+}
+
+.check-node .tag {
+  margin-left: 0.2rem;
+}
+
+/* One machine's answer to one check: the status, and the value behind it. The
+   value is truncated rather than wrapped, because a row that grows with its
+   longest cell costs the pane a check. The whole of it is one click away. */
+.check-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.check-cell .value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check-cell .value.differs {
+  color: var(--warn);
+}
+
+.check-cell .value.none {
+  color: var(--muted);
+}
+
+/* The machines disagree. Two nodes converged from the same inventory that
+   answer differently is the finding, whatever the answers are, and it is the
+   one thing a matrix says that a list could not. */
+.check-row.uneven .name {
+  box-shadow: inset 2px 0 0 var(--warn);
+  padding-left: 0.4rem;
+}
+
+.detail-line {
+  margin: 0.15rem 0;
+  line-height: 1.45;
+}
+
+.detail-host {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .check-head {
@@ -1339,29 +1395,8 @@ button.secondary {
   font-weight: 600;
 }
 
-.check-row .observed,
-.check-row .declared {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 0.78rem;
-  overflow-wrap: anywhere;
-}
-
-.check-row .declared {
-  color: var(--isolated);
-}
-
-/* Nothing declares this one. A dash rather than an empty cell, so the column
-   reads as answered rather than as unfinished. */
-.check-row .declared.none {
-  color: var(--muted);
-}
-
-.check-row.differs .observed {
-  color: var(--warn);
-}
-
 .check-detail {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   margin: 0.15rem 0 0.2rem;
   color: var(--muted);
   font-size: 0.78rem;
@@ -1408,6 +1443,14 @@ button.secondary {
 
 .dot.status-unknown {
   background: var(--muted);
+}
+
+/* Nothing was published for this machine, which is never a failed check: a
+   hollow dot rather than a grey one, so a cluster half deployed does not read
+   as a cluster half broken. */
+.dot.status-absent {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--muted);
 }
 
 .core-map {

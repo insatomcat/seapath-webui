@@ -281,3 +281,57 @@ def test_the_comparison_survives_serialisation(monkeypatch) -> None:
     nodes[0].declared_isolcpus = "4-7"
 
     assert nodes[0].model_dump()["isolation_matches"] is True
+
+
+# The tuning, which rides in the same exposition as the pool
+
+
+_TUNING = (
+    'seapath_rt_tuned_info{profile="seapath-rt-host",'
+    'source="/etc/tuned/active_profile",installed="1"} 1\n'
+    'seapath_rt_kernel_cmdline_info{cmdline="isolcpus=4-7 nohz_full=4-7"} 1\n'
+    'seapath_rt_transparent_hugepages_info{enabled="never",defrag="never"} 1\n'
+)
+
+
+def test_a_node_carries_its_tuning_beside_its_pool() -> None:
+    # One request answers both halves. They are written into the same textfile
+    # by the same collector on the same timer, and reading it twice would
+    # double what a page refresh costs a hypervisor for nothing.
+    nodes = PoolReader(
+        _Client({"10.0.0.1": _with_isolation("4,5,6,7") + _TUNING})
+    ).read([("node1", "10.0.0.1")])
+
+    assert nodes[0].reading.tuned_profile == "seapath-rt-host"
+    assert nodes[0].kernel_cmdline == "isolcpus=4-7 nohz_full=4-7"
+    assert nodes[0].tuning_error == ""
+
+
+def test_a_node_publishing_the_pool_and_no_tuning_names_what_adds_it() -> None:
+    # A collector that predates the tuning block is a node to upgrade, which is
+    # a different act from an unreachable node and from a failed check. The
+    # pool it does publish is kept.
+    nodes = PoolReader(_Client({"10.0.0.1": _with_isolation("4,5,6,7")})).read(
+        [("node1", "10.0.0.1")]
+    )
+
+    assert nodes[0].reading is None
+    assert nodes[0].cpus, "the pool it does publish is still read"
+    assert "deploy_seapath_alloc" in nodes[0].tuning_error
+
+
+def test_a_node_with_no_seapath_alloc_at_all_still_names_its_kernel() -> None:
+    # node_exporter's own series, which is there as soon as the exporter is.
+    # A machine where deploy_seapath_alloc has not run yet says which kernel it
+    # booted rather than nothing at all.
+    nodes = PoolReader(
+        _Client(
+            {
+                "10.0.0.1": 'node_uname_info{sysname="Linux",'
+                'release="6.1.0-18-rt-amd64",version="#1 SMP PREEMPT_RT"} 1\n'
+            }
+        )
+    ).read([("node1", "10.0.0.1")])
+
+    assert nodes[0].preemption == "PREEMPT_RT"
+    assert "deploy_seapath_alloc" in nodes[0].error

@@ -307,20 +307,35 @@ honest: on a machine up for months the since-boot average says nothing.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/realtime` | The conformance report: one entry per check, with its status, what was observed and, where the inventory declares one, what was declared |
-| GET | `/realtime/pool` | The CPU pool of every machine the inventory declares, read from each node's `prometheus-node-exporter`: which core carries which guest, interrupt, container or slot, plus the active fallbacks. A node that cannot be reached is reported with its reason beside the ones that answered. See [D26](decisions.md#d26) |
-| GET | `/realtime/reading` | The raw values the checks are formed from, for a client that would rather judge them itself |
+| GET | `/realtime` | The conformance report for **this** machine: one entry per check, with its status, what was observed and, where the inventory declares one, what was declared |
+| GET | `/realtime/pool` | Every machine the inventory declares, read from each node's `prometheus-node-exporter`. Two halves of one exposition: the CPU pool, meaning which core carries which guest, interrupt, container or slot, plus the active fallbacks; and each node's `checks`, the same ten this page runs on the local machine, held against that node's own inventory entry. A node that cannot be reached is reported with its reason beside the ones that answered. See [D26](decisions.md#d26) and [D27](decisions.md#d27) |
+| GET | `/realtime/reading` | The raw values this machine's checks are formed from, for a client that would rather judge them itself. Each node of `/realtime/pool` carries the same under `reading` |
 | GET | `/realtime/measurements` | The measurement runs launched from this node, newest first, each with what it fetched and the inventory commit it was taken under. `kind` narrows to `cyclictest` or `hwlatdetect` |
 
 Open to the `viewer` role. Nothing here writes anything.
 
 `/realtime/pool` is the one reading in this service that leaves the local
-machine. It answers a question no reading of `/sys` can: occupancy is the
-affinity of every QEMU thread in `/proc`, which this container's PID namespace
-hides and which the quadlet may not be given. `seapath-alloc` computes it on
-each host and publishes it, so this asks rather than duplicates, and the
-reading carries `scrape_age_seconds` because the collector runs on a fifteen
-second timer and the pool is never quite now.
+machine. It answers questions no reading of this container's `/sys` can.
+Occupancy is the affinity of every QEMU thread in `/proc`, which this
+container's PID namespace hides and which the quadlet may not be given. The
+tuning of another machine is a set of files on that machine, and the only other
+way to them is an SSH command per page refresh. `seapath-alloc` reads both on
+each host and publishes them in one textfile, so this asks rather than
+duplicates, and the reading carries `scrape_age_seconds` because the collector
+runs on a fifteen second timer and the answer is never quite now.
+
+Each node of the response carries `checks`, and an empty list has three
+possible reasons, kept apart because each is fixed by a different act:
+
+| Field | What it says |
+|---|---|
+| `error` | The node did not answer at all, with the reason |
+| `tuning_error` | It answered with no `seapath_rt_*` block, so its collector predates it and the collection on that node is what to upgrade |
+| neither, `checks` filled | It answered. An empty label inside a check means it read and there was nothing there, which the check reports as a finding or as `unknown` |
+
+The local node is first in the list and is read from its own files rather than
+from its exporter: it needs no collector, it is never stale, and it answers on
+a machine where nothing has been deployed yet.
 
 Every check carries a `kind`, `conformance` where the inventory declares a
 value and `advice` where nothing does. `isolcpus` and the tuned profile it
@@ -334,8 +349,8 @@ would be this service voting on it.
 **The two words are for API clients.** The page does not print them: neither
 survived contact with a reader, and `declared` already carries the same
 information. A check with a value there is one to converge towards, and a check
-without is one nobody declared, which the page shows as a dash under a column
-headed "The inventory asks for".
+without is one nobody declared, which the page shows as a dash when the row is
+opened.
 
 A reading that failed is `unknown`, never a pass and never a failure: on a
 substation hypervisor "unreadable" and "correct" must never look alike.

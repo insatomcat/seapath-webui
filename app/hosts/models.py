@@ -216,3 +216,11 @@ class RealtimeReading(Reading):
     per-device affinity is `configure_nic_irq_affinity`'s to write, never this
     service's.
     """
+    irqs_on_isolated: int | None = None
+    """How many there are, which the list above may only summarise.
+
+    The local reader names every one it found and this is simply their number.
+    A reading that arrived from an exporter is capped: a machine keeping
+    nothing off its isolated cores would otherwise cost one series per
+    interrupt, per node, on every scrape. The count stays true either way, and
+    it is the count the check reports."""

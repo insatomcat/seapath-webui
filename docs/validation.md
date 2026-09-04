@@ -180,6 +180,11 @@ carrying production traffic the first time it is run.
 | 17 | That machine does not fail the run, and the other machines still return their results | `any_errors_fatal` is set, so one kernel refusing must not take down a run that has already loaded the others | |
 | 18 | An interruption the detector reports is absent from the `cyclictest` figures taken at the same time | The whole claim of the card: an SMI is invisible to the kernel and therefore to cyclictest. Needs a machine with real SMIs | |
 | 19 | While `hwlatdetect` runs, the guests on the machine feel it | Honesty about the cost. The detector holds interrupts off for the sampling width of every window, and the confirmation says so before the run | |
+| 20 | On a three node cluster, every node has a column and every column has ten checks | The whole of D27. Each node answers from its own exporter, and only real machines have a real `/etc/tuned` and a real `/proc/irq` | |
+| 21 | A node whose collector predates `seapath_rt_*` shows no rows and one sentence naming `deploy_seapath_alloc`, beside nodes that answered | A site pinned to an older collection is the ordinary state during an upgrade, and it must read as a node to upgrade rather than as ten failures | |
+| 22 | Editing `isolcpus` for **another** node, converging it and not rebooting it shows the mismatch on that node's column, from the machine the browser is on | The finding this reversal exists for. Before it, the mismatch was invisible from anywhere but that machine | |
+| 23 | Fetching `localhost:9100/metrics` on a converged hypervisor returns a `seapath_rt_` block carrying the tuned profile, the command line, the sysctls and the interrupt count | The exporter side, on a real machine, before believing anything the page says about it | |
+| 24 | The tuning columns and the pool grid come from one request per node: `tcpdump` or the exporter's own access log shows one GET per node per refresh | Two panels of the same reading must not double what a page refresh costs a hypervisor | |
 
 ### Result
 
@@ -192,3 +197,9 @@ report themselves unavailable through `playbook_present`.
 Check 16 needs a machine whose kernel lacks `CONFIG_HWLAT_TRACER`, which a
 SEAPATH image does not produce. Any ordinary Debian kernel does, and the case
 matters enough to be worth borrowing one for.
+
+Checks 20 to 24 need a collection carrying `conformance.py` in
+`deploy_seapath_alloc`, and the role run on every node so the timer writes the
+block. Check 21 is the easiest to stage deliberately: stop
+`seapath-alloc-export.timer` on one node and delete its `.prom` file, which is
+what a node running an older collector looks like from here.

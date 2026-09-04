@@ -497,6 +497,7 @@ class LocalHostReader:
             acpi_present=self._path("sys/firmware/acpi").is_dir(),
             irq_count=irq_count,
             irqs_on_isolated_cpus=irqs,
+            irqs_on_isolated=len(irqs),
             warnings=warnings,
         )
 

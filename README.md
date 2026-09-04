@@ -61,14 +61,18 @@ this node may not be allowed to run it. The lower half is the SSH trust: the
 site key this node holds, and the host keys it has accepted, both undone in one
 click.
 
-![The Real time page: the conformance checks beside the cluster CPU pool and the measurements](img/realtime.png)
+![The Real time page: one conformance row per check and one column per machine, beside the cluster CPU pool and the measurements](img/realtime.png)
 
-**Real time** answers whether a machine came out of a convergence with the
-tuning it was told to have. Every check names what is on the machine beside
-what the inventory asks for, and a dash in that column means nothing declares
-the value, so there is nothing to converge towards. The commonest finding is a
-machine converged and never rebooted, which the kernel's boot-time reading of
-`isolcpus` hides from every other view. Beside the checks, two measurements,
+**Real time** answers whether the machines came out of a convergence with the
+tuning they were told to have. One row per check, one column per machine: each
+node publishes its own tuning through the exporter it already runs, so ten
+checks answer for the whole cluster from the page an operator has open, and no
+SSH command is issued to draw them. Opening a row says what each machine
+answered and what its own inventory entry asks of it. The commonest finding is
+a machine converged and never rebooted, which the kernel's boot-time reading of
+`isolcpus` hides from every other view, and which used to be visible only on
+the machine the browser happened to be pointed at. Beside the checks, two
+measurements,
 both running on the machines through Ansible rather than inside this container:
 `cyclictest` for what the scheduler delivered, and `hwlatdetect` for what the
 firmware took without telling the kernel. A machine that passes every check and
@@ -76,8 +80,8 @@ still misses its deadline is either a firmware problem or a configuration one,
 and the second measurement is the only thing that separates them.
 
 Beside them, the CPU pool of **every machine the inventory declares**, read
-from each node's own `prometheus-node-exporter`: which core carries which
-guest, interrupt, container or shared slot. `seapath-alloc` computes that on
+from the same request as the tuning above: which core carries which guest,
+interrupt, container or shared slot. `seapath-alloc` computes that on
 each host and publishes it, and this container could not compute it if it
 wanted to, since occupancy is the affinity of every QEMU thread in `/proc`.
 Asking the exporter is the opposite of holding a second source of truth for it.
