@@ -147,6 +147,44 @@ def test_membership_is_unknown_when_the_directory_is_not_mounted(
     assert any("/etc/corosync" in warning for warning in identity.warnings)
 
 
+def test_the_service_image_comes_from_the_installed_quadlet(
+    reader: LocalHostReader,
+) -> None:
+    # What the machine boots this service on, which is what the seed inventory
+    # pins `seapath_webui_image` from. The fixture also carries a commented
+    # `Image=`, which a line based parser has to leave alone.
+    assert (
+        reader.node_identity().service_image
+        == "docker.io/insatomcat/seapath-webui:latest"
+    )
+
+
+def test_a_later_image_assignment_wins_the_way_systemd_reads_it(
+    reader: LocalHostReader, host: Path
+) -> None:
+    quadlet = host / "etc/containers/systemd/seapath-webui.container"
+    quadlet.write_text(
+        quadlet.read_text() + "Image = registry.example.org:5000/seapath/webui:2.1\n"
+    )
+
+    assert (
+        reader.node_identity().service_image
+        == "registry.example.org:5000/seapath/webui:2.1"
+    )
+
+
+def test_a_machine_with_no_unit_file_reports_no_image_and_no_warning(
+    tmp_path: Path,
+) -> None:
+    # A development checkout, or a container that was handed no host /etc. The
+    # seed pins nothing, and the System page already says the inventory names
+    # no image, so there is nothing here for a warning to add.
+    identity = LocalHostReader(root=tmp_path / "empty").node_identity()
+
+    assert identity.service_image is None
+    assert not any("image" in warning.lower() for warning in identity.warnings)
+
+
 def test_the_isolated_set_is_read_from_sysfs(reader: LocalHostReader) -> None:
     cpu = reader.cpu()
 

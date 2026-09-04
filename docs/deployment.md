@@ -500,7 +500,7 @@ conventions.
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `seapath_webui_enabled` | no | `true` | Deploy and enable |
-| `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:0.3.6` | Image reference, an exact tag. This is the variable [D23](decisions.md#d23) turns into the update lever: editing it in the inventory and applying is how the service replaces itself |
+| `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:latest` | Image reference. The default is the tag the ISO installs and preloads, so a first apply on a node with no route to a registry finds the image already there. Set it to an exact tag to pin a version: this is the variable [D23](decisions.md#d23) turns into the update lever, and editing it in the inventory then applying is how the service replaces itself |
 | `seapath_webui_bind_address` | no | `{{ ip_addr }}` | Listen address, administration network. `auto` resolves it from the default route, which is what a fresh ISO boots with |
 | `seapath_webui_port` | no | `8006` | Listen port |
 | `seapath_webui_admin_group` | no | `seapath-admin` | Unix group granting the admin role |

@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from app import __version__
 from app.hosts.fake import FakeHostReader
 from app.hosts.models import NetworkReading
 from app.inventory.discovery import discover, seed_inventory
@@ -194,3 +197,62 @@ def test_a_machine_that_cannot_describe_itself_proposes_no_document(
     service = InventoryService(InventoryRepository(tmp_path / "inventory"), reader)
 
     assert service.proposed_document() is None
+
+
+def _seeded_image(reader: FakeHostReader) -> str | None:
+    inventory = seed_inventory(discover(reader))
+    assert inventory is not None
+    return inventory.hosts[reader.hostname].extra.get("seapath_webui_image")
+
+
+def test_the_seed_pins_the_version_answering_when_the_machine_boots_on_latest(
+    tmp_path: Path,
+) -> None:
+    # What the ISO installs. Seeding `latest` as it stands would write a
+    # variable that names no version, and the whole point of the variable is
+    # that the inventory says which code a machine is meant to run. The version
+    # answering is the one that tag resolved to, and it is published as a tag of
+    # its own, so the pin names an image that exists.
+    assert (
+        _seeded_image(FakeHostReader())
+        == f"docker.io/insatomcat/seapath-webui:{__version__}"
+    )
+
+
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "docker.io/insatomcat/seapath-webui:0.1.0",
+        "registry.example.org:5000/seapath/webui:0.1.0",
+        "docker.io/insatomcat/seapath-webui@sha256:" + "0" * 64,
+    ],
+)
+def test_a_reference_somebody_decided_is_seeded_as_it_stands(reference: str) -> None:
+    # An older version, a site registry with a port, a digest. Each one is a
+    # decision, and the seed records the machine rather than correcting it.
+    reader = FakeHostReader()
+    reader.service_image = reference
+
+    assert _seeded_image(reader) == reference
+
+
+def test_a_machine_whose_unit_file_could_not_be_read_pins_nothing() -> None:
+    # A variable naming a repository this service invented would be worse than
+    # the silence: the System page says the inventory names no image, and that
+    # is true.
+    reader = FakeHostReader()
+    reader.service_image = None
+
+    assert _seeded_image(reader) is None
+
+
+def test_the_seeded_pin_reaches_the_file(tmp_path: Path) -> None:
+    # Through the renderer, because a variable the schema carries and the file
+    # does not would pin nothing at all: Ansible reads the file.
+    repository = InventoryRepository(tmp_path / "inventory")
+    InventoryService(repository, FakeHostReader()).ensure_seed()
+
+    assert (
+        f"seapath_webui_image: docker.io/insatomcat/seapath-webui:{__version__}"
+        in repository.read()
+    )

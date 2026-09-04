@@ -291,10 +291,29 @@ the operator starts from a filled form rather than from a blank file:
 | the account holding UID 1000, the one the installer created | `admin_user`, falling back to `admin` with a warning when no account holds that UID |
 | block devices by path, with their claim state | candidates for `ceph_osd_disks` |
 | NICs with link state and driver, PTP capability | candidates for `ptp_interface`, `team0_0`, `team0_1` |
+| the image the installed quadlet names for this service | `seapath_webui_image`, pinned to the version answering when the machine boots on a tag that moves |
 
 Discovery proposes, it never decides. Every discovered value reaches the
 operator as a candidate to confirm, because a NIC that is up is not necessarily
 the NIC that carries sampled values.
+
+`seapath_webui_image` is the one variable the seed writes that describes this
+service rather than the machine. It is read from
+`/etc/containers/systemd/seapath-webui.container`, the unit the ISO installs and
+`deploy_seapath_webui` rewrites, so the inventory names the image the node
+actually boots on. The tag the ISO installs is `latest`, and the seed resolves
+it to the version answering, since a variable saying `latest` names no version
+and the point of writing it is that the inventory says which code a machine is
+meant to run. A reference already carrying an exact tag or a digest is a
+decision somebody made, and it is seeded unchanged. A machine whose unit file
+could not be read pins nothing, and `GET /node/update` reports that the
+inventory names no image for it.
+
+Editing that variable and applying `seapath_setup_deploy_seapath_webui` is how
+this service is replaced, which is [D23](decisions.md#d23). The seed only makes
+the starting point say something: an inventory that already exists is never
+rewritten, so a machine seeded before this carries no pin until somebody sets
+one.
 
 `admin_user` is read from the machine for a reason worth spelling out.
 `configure_seapath_distro` asks the same question with `getent passwd 1000`

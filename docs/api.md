@@ -260,7 +260,7 @@ is where this service answers "who changed what, and when".
 | Method | Path | Description |
 |---|---|---|
 | GET | `/node` | Hostname, distro, kernel, uptime, mode, role, collection version, inventory commit applied |
-| GET | `/node/update` | Which version of this service the inventory names for this machine (`seapath_webui_image`), which version is answering, and whether an apply would replace it. A reference pinned by digest carries no version, and the answer says so rather than guessing. See [D23](decisions.md#d23) |
+| GET | `/node/update` | Which version of this service the inventory names for this machine (`seapath_webui_image`), which version is answering, and whether an apply would replace it. A reference pinned by digest carries no version, and the answer says so rather than guessing. The seed writes that variable from the quadlet the machine boots on, so a node nobody has edited already names a version. See [D23](decisions.md#d23) |
 | GET | `/node/cpu` | Topology, isolated set, per core busy ratio |
 | GET | `/node/network` | Interfaces, addresses, link state, default route |
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |

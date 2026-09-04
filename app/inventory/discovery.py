@@ -16,9 +16,15 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from app import __version__
 from app.hosts.models import NodeMode
 from app.hosts.reader import HostReader
-from app.inventory.model import Inventory, Mode, NodeConfig
+from app.inventory.model import (
+    WEBUI_IMAGE_VARIABLE,
+    Inventory,
+    Mode,
+    NodeConfig,
+)
 
 # A machine freshly installed from the ISO has no isolation yet, so the
 # proposal comes from the topology rather than from the kernel command line.
@@ -29,6 +35,10 @@ _HOUSEKEEPING_CPUS = 4
 # The administration account the reference inventories name, used only when
 # the machine could not be asked which account it actually has.
 _DEFAULT_ADMIN_USER = "admin"
+
+# The tag that moves. The ISO installs it, and the seed resolves it to the
+# version answering rather than writing it into the inventory as a version.
+_MOVING_TAG = "latest"
 
 
 class InterfaceCandidate(BaseModel):
@@ -61,6 +71,7 @@ class Discovery(BaseModel):
     disks: list[DiskCandidate] = Field(default_factory=list)
     cpu_count: int | None = None
     isolated_now: list[int] = Field(default_factory=list)
+    service_image: str | None = None
     warnings: list[str] = Field(default_factory=list)
 
 
@@ -148,6 +159,7 @@ def discover(reader: HostReader) -> Discovery:
         ],
         cpu_count=cpu.online,
         isolated_now=cpu.isolated,
+        service_image=identity.service_image,
         warnings=warnings,
     )
 
@@ -160,9 +172,40 @@ def seed_inventory(discovery: Discovery) -> Inventory | None:
     """
     if discovery.proposed is None:
         return None
-    return Inventory(
-        mode=Mode.STANDALONE, hosts={discovery.hostname: discovery.proposed}
-    )
+    node = discovery.proposed.model_copy(deep=True)
+    image = _pinned_image(discovery.service_image)
+    if image:
+        node.extra[WEBUI_IMAGE_VARIABLE] = image
+    return Inventory(mode=Mode.STANDALONE, hosts={discovery.hostname: node})
+
+
+def _pinned_image(reference: str | None) -> str | None:
+    """The image reference to seed, from the one the machine boots on.
+
+    The repository comes from the machine, because a site builds and hosts its
+    own. The tag is this service's version whenever the machine boots on a
+    moving one, which is what the ISO installs: `latest` seeded as `latest`
+    would name no version, and the point of writing this variable is that the
+    inventory says which code a machine is meant to run. The version answering
+    here is the one that image resolved to, and it is published as a tag of its
+    own, once, so the pin names an image that exists.
+
+    A reference already naming an exact tag or a digest is a decision somebody
+    made, and it is seeded as it stands.
+    """
+    if reference is None:
+        return None
+    reference = reference.strip()
+    if not reference or "@" in reference:
+        return reference or None
+    repository, separator, tag = reference.rpartition(":")
+    # A colon that comes before the last slash is a registry port, so what it
+    # separates is not a tag and the reference carries none.
+    if not separator or "/" in tag:
+        return f"{reference}:{__version__}"
+    if tag == _MOVING_TAG:
+        return f"{repository}:{__version__}"
+    return reference
 
 
 def _propose_isolation(isolated_now: list[int], online: int | None) -> str | None:

@@ -32,6 +32,17 @@ all:
 """
 
 
+# The same file with the variable taken out, which is what a site that removed
+# it has, and what every inventory written before the seed carried it has.
+_INVENTORY_WITHOUT_IMAGE = """
+all:
+  hosts:
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+"""
+
+
 def _with_image(client: TestClient, image: str) -> None:
     response = client.put(
         "/api/v1/inventory/raw", json={"document": _INVENTORY.format(image=image)}
@@ -54,9 +65,27 @@ def _interrupted(root, playbook_id: str) -> RunRecord:
     return store.reconcile()[0]
 
 
+def test_the_seeded_machine_already_names_the_version_that_answers(
+    signed_in: TestClient,
+) -> None:
+    # The ordinary state of a machine nobody has edited. The seed reads the
+    # image from the quadlet the machine boots on and resolves the moving tag
+    # the ISO installs to the version answering, so the inventory says which
+    # code this node is meant to run without anybody typing it.
+    body = signed_in.get("/api/v1/node/update").json()
+
+    assert body["running"] == __version__
+    assert body["wanted"] == __version__
+    assert body["pending"] is False
+
+
 def test_an_inventory_naming_no_image_asks_for_nothing(signed_in: TestClient) -> None:
-    # The ordinary state of a machine nobody has pinned. Saying "up to date"
-    # here would be inventing an answer.
+    # Saying "up to date" here would be inventing an answer.
+    response = signed_in.put(
+        "/api/v1/inventory/raw", json={"document": _INVENTORY_WITHOUT_IMAGE}
+    )
+    assert response.status_code == 200, response.text
+
     body = signed_in.get("/api/v1/node/update").json()
 
     assert body["running"] == __version__

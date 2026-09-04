@@ -49,6 +49,10 @@ class FakeHostReader:
         # A parameter because it decides which prerequisites playbook may be
         # launched, and a test has to be able to be a Yocto machine.
         self.seapath_distro = seapath_distro
+        # The tag the ISO installs, so the fake starts where a freshly
+        # installed machine does and the seed has an unpinned reference to
+        # resolve, which is the case worth exercising.
+        self.service_image = "docker.io/insatomcat/seapath-webui:latest"
 
     def node_identity(self) -> NodeIdentity:
         return NodeIdentity(
@@ -62,6 +66,7 @@ class FakeHostReader:
             boot_time=_BOOT_TIME,
             mode=self.mode,
             admin_account="admin",
+            service_image=self.service_image,
         )
 
     def cpu(self) -> CpuReading:

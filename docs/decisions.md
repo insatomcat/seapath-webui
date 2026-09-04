@@ -783,6 +783,15 @@ itself, with the detached restart that lets the run reach its last task, lands
 with M5 and its contract is written down in
 [deployment.md](deployment.md#the-one-constraint-the-role-has-to-honour-the-restart-is-detached).
 
+The pin is seeded rather than typed. The read only adapter reads the image
+reference out of the quadlet installed on the machine, and the seed inventory
+writes it into `seapath_webui_image`, resolving the `latest` the ISO installs to
+the version answering. So a node nobody has edited already names the code it is
+meant to run, and the role's default stopped carrying a version: a default
+pinned by hand rots, and rots into a downgrade of every machine an ISO installed
+on something newer. What a site pins stays a site's decision, and it is written
+where every other decision about a machine is written.
+
 ### What is refused, and what stays available
 
 `podman-auto-update` alone is refused as the answer. `AutoUpdate=registry` on

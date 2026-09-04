@@ -41,6 +41,19 @@ def build_host_tree(root: Path) -> Path:
     _write(root / "proc/sys/kernel/osrelease", "6.1.0-18-rt-amd64\n")
     _write(root / "proc/uptime", "125430.12 987654.32\n")
     (root / "etc/corosync").mkdir(parents=True, exist_ok=True)
+    # The quadlet as the ISO installs it, which names the tag that moves. It is
+    # what the seed inventory reads the image reference from.
+    _write(
+        root / "etc/containers/systemd/seapath-webui.container",
+        "[Unit]\n"
+        "Description=SEAPATH management web UI and API\n"
+        "\n"
+        "[Container]\n"
+        "# An operator's comment, and a decoy Image= that must stay one.\n"
+        "Image=docker.io/insatomcat/seapath-webui:latest\n"
+        "ContainerName=seapath-webui\n"
+        "Network=host\n",
+    )
 
     # CPU
     cpu = root / "sys/devices/system/cpu"

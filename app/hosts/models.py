@@ -51,6 +51,15 @@ class NodeIdentity(Reading):
     names a different one, so a seed inventory that guessed the name wrong
     would remove the operator's own account on the first convergence.
     """
+    service_image: str | None = None
+    """The image reference the installed quadlet names for this service.
+
+    Read from the unit file on the host, so it is the reference this machine
+    actually boots on, whether the ISO installed it or an Ansible run did. It
+    is what the seed inventory pins `seapath_webui_image` from, which is how a
+    machine that was never edited by hand can still say which code answers on
+    it.
+    """
 
 
 class CpuTopologyEntry(BaseModel):

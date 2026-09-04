@@ -55,6 +55,10 @@ _IGNORED_BLOCK_PREFIXES = ("loop", "ram", "zram", "sr", "dm-", "md")
 
 _SECTOR_BYTES = 512
 
+# The unit file that declares this service on the machine, under the host's
+# /etc. Both the ISO and `deploy_seapath_webui` install it at this path.
+_QUADLET_PATH = "containers/systemd/seapath-webui.container"
+
 
 class LocalHostReader:
     """Reads the local machine. Writes nothing, ever."""
@@ -167,8 +171,36 @@ class LocalHostReader:
             boot_time=boot_time,
             mode=mode,
             admin_account=admin_account,
+            # Missing raises no warning. Outside a deployed node there is no
+            # unit file to read, and the consequence is already said where it
+            # is actionable: a seed that pins nothing, and a System page that
+            # reports the inventory naming no image for this machine.
+            service_image=self._service_image(),
             warnings=warnings,
         )
+
+    def _service_image(self) -> str | None:
+        """The image reference the installed quadlet names for this service.
+
+        Read from the unit file, which is what the machine boots on and what an
+        Ansible run rewrites. The running container would be the other source,
+        and this service is given no route to podman for it. The file sits in
+        the host's /etc that PAM already brought in, so this costs no mount.
+        """
+        content = self._read_etc(_QUADLET_PATH)
+        if content is None:
+            return None
+        image: str | None = None
+        for raw in content.splitlines():
+            line = raw.strip()
+            if line.startswith(("#", ";")) or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            # systemd tolerates spaces around the separator, and a later
+            # assignment of the same key wins, so the file is read to its end.
+            if key.strip().lower() == "image" and value.strip():
+                image = value.strip()
+        return image
 
     def _admin_account(self) -> str | None:
         """The account holding UID 1000, which the installer created.

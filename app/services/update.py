@@ -25,11 +25,13 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from app import __version__
+from app.inventory.model import WEBUI_IMAGE_VARIABLE
 from app.inventory.service import InventoryService
 
-# The inventory variable, and the catalogue entry that applies it. Named here
-# so the API, the UI and the documentation all say the same two words.
-IMAGE_VARIABLE = "seapath_webui_image"
+# The inventory variable, and the catalogue entry that applies it. The variable
+# is the schema's, so the seed that writes it at first boot and the reading
+# here cannot drift apart.
+IMAGE_VARIABLE = WEBUI_IMAGE_VARIABLE
 PLAYBOOK = "seapath_setup_deploy_seapath_webui"
 
 
