@@ -111,20 +111,40 @@ def test_a_missing_hostname_mount_is_called_out(tmp_path: Path) -> None:
     assert any("etc/hostname" in warning for warning in identity.warnings)
 
 
-def test_a_machine_without_corosync_conf_reads_as_standalone(
+def test_a_machine_with_no_corosync_authkey_reads_as_standalone(
     reader: LocalHostReader,
 ) -> None:
-    # The file only appears once cluster_setup_ha.yaml has run, so a standalone
-    # node is the normal case, not a degraded reading.
+    # The ordinary state of a standalone node, and a reading in its own right.
     assert reader.node_identity().mode is NodeMode.STANDALONE
 
 
-def test_corosync_conf_makes_it_a_cluster_member(
+def test_the_corosync_authkey_makes_it_a_cluster_member(
     reader: LocalHostReader, host: Path
 ) -> None:
-    (host / "etc/corosync/corosync.conf").write_text("totem {}\n")
+    (host / "etc/corosync/authkey").write_text("never read, only stat'ed")
 
     assert reader.node_identity().mode is NodeMode.CLUSTER
+
+
+def test_the_corosync_conf_the_debian_package_ships_says_nothing(
+    reader: LocalHostReader, host: Path
+) -> None:
+    # Found on a standalone node whose badge said "cluster". `dpkg -S
+    # /etc/corosync/corosync.conf` answers `corosync`: the package ships a
+    # default configuration, so every machine that installs corosync carries
+    # that file whether or not a cluster was ever formed.
+    (host / "etc/corosync/corosync.conf").write_text("totem {}\n")
+
+    assert reader.node_identity().mode is NodeMode.STANDALONE
+
+
+def test_membership_is_unknown_when_the_directory_is_not_mounted(
+    tmp_path: Path,
+) -> None:
+    identity = LocalHostReader(root=tmp_path / "empty").node_identity()
+
+    assert identity.mode is NodeMode.UNKNOWN
+    assert any("/etc/corosync" in warning for warning in identity.warnings)
 
 
 def test_the_isolated_set_is_read_from_sysfs(reader: LocalHostReader) -> None:

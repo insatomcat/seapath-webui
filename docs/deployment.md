@@ -245,12 +245,15 @@ What is left:
 - **`/etc/hostname` and `/etc/os-release`.** The container has its own UTS
   namespace, so without the first the node view would show a container id where
   the machine's name belongs, and the certificate would be issued to one.
-- **`/etc/corosync`, the directory, not `corosync.conf`.** That file only
-  appears once `cluster_setup_ha.yaml` has run, and its presence is what tells a
-  cluster member from a standalone machine. Bind mounting a source that does not
-  exist keeps the container from starting, so naming the file rather than the
-  directory would have broken every standalone node, which is exactly the
-  machine M1 targets.
+- **`/etc/corosync`, the directory.** What is read inside it is `authkey`,
+  which is what tells a cluster member from a standalone machine. `dpkg -S
+  /etc/corosync/corosync.conf` answers `corosync`: the Debian package ships a
+  default configuration, so that file is on every machine that installs
+  corosync and says nothing about membership. It was the first signal here, and
+  it made the badge say "cluster" on a standalone node. The authkey is written
+  by `corosync-keygen` in `configure_ha` and distributed to the members by the
+  same role. Its presence is read and its content never is, which is the rule
+  about the authkey this service holds to everywhere.
 - **`/etc/ssh`, read only,** added at M1. It carries the machine's public SSH
   host keys, and reading them off the filesystem is how the first SSH
   connection is verified without either prompting, which hangs a run forever,

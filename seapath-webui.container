@@ -74,11 +74,16 @@ Volume=/sys:/sys:ro
 # The stable by-path names, which are what ceph_osd_disks holds. The whole
 # device tree is not needed, only the symlinks.
 Volume=/dev/disk:/dev/disk:ro
-# The directory, not corosync.conf itself: that file only appears once
-# cluster_setup_ha.yaml has run, and a bind mount of a source that does not
-# exist keeps the container from starting on a standalone node. Its presence
-# is the signal that tells a cluster member from a standalone machine, and it
-# is the same signal the rest of the SEAPATH tooling uses.
+# The directory. It carries the signal that tells a cluster member from a
+# standalone machine, and that signal is `authkey`: `corosync.conf` comes from
+# the Debian package on every machine, configured or not. The authkey is
+# written by `corosync-keygen` in `configure_ha` and distributed to the
+# members, so it exists exactly where a cluster was formed. Its presence only:
+# this service must never read it, and a stat does not.
+#
+# On a machine installed from the ISO the directory exists, and where it does
+# not the unit creates it, because a bind mount of a missing source keeps the
+# container from starting.
 Volume=/etc/corosync:/etc/corosync:ro
 
 # Runtime plane, from M2.

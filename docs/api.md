@@ -284,8 +284,10 @@ the table would be wrong:
   and is `null`. What is reported instead, and what actually decides what a run
   will do, is `collection_version`, baked into this image at build time.
 - `mode` is `standalone`, `cluster` or `unknown`, derived from the presence of
-  `/etc/corosync/corosync.conf`. It is a fact about the machine, not about the
-  inventory.
+  `/etc/corosync/authkey`, which `configure_ha` writes and distributes to the
+  members. `corosync.conf` is on every machine that installs the Debian
+  package, configured or not, so it answers nothing. `mode` is a fact about the
+  machine and says nothing about the inventory.
 - `role`, meaning hypervisor or observer, comes from the inventory and is
   therefore `null` until M1.
 

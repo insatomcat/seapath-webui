@@ -34,7 +34,7 @@ creates them itself. See [deployment.md](deployment.md#2-quadlet).
 
 | # | Check | Why it cannot be tested against a fake | Result |
 |---|---|---|---|
-| 1 | The container starts on a **standalone** node, where `corosync.conf`, and possibly `/etc/ceph`, do not exist | A missing bind mount source is a podman behaviour | |
+| 1 | The container starts on a **standalone** node, where `/etc/corosync/authkey`, and possibly `/etc/ceph`, do not exist, and the badge reads `standalone` | A missing bind mount source is a podman behaviour, and the Debian package puts a `corosync.conf` on a machine that is in no cluster | |
 | 2 | `journalctl -u seapath-webui` shows the URL and the certificate fingerprint | The console banner is the whole trust story of the first connection | |
 | 3 | The browser reaches `https://<ip_addr>:8006/` and the certificate fingerprint matches the one on the console | | |
 | 3b | The certificate common name is the **node's** name, not a container id | The container's UTS namespace, which `Network=host` does not share | |

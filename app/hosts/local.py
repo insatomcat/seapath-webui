@@ -110,20 +110,26 @@ class LocalHostReader:
             except (ValueError, IndexError):
                 warnings.append("/proc/uptime could not be parsed.")
 
-        # The presence of a corosync configuration is what tells a cluster
-        # member from a standalone machine, and it is the same signal the other
-        # SEAPATH tooling uses. The file only appears once cluster_setup_ha.yaml
-        # has run, so its absence is the normal state of a standalone node.
-        if self._path("etc/corosync/corosync.conf").exists():
-            mode = NodeMode.CLUSTER
-        elif self._path("etc/corosync").is_dir():
-            mode = NodeMode.STANDALONE
-        else:
+        # The authkey, and never corosync.conf. Debian ships a default
+        # corosync.conf in the package itself, which every SEAPATH machine
+        # installs, so a standalone node has that file too: reading it as
+        # membership made the badge say "cluster" on a machine that had never
+        # formed one. The authkey is written by `corosync-keygen` in
+        # `configure_ha` and distributed to the members by the same role, so it
+        # exists exactly where a cluster was formed.
+        #
+        # Its presence, never its content. This service must never read the
+        # authkey, and a stat does not.
+        if not self._path("etc/corosync").is_dir():
             mode = NodeMode.UNKNOWN
             warnings.append(
                 "Cluster membership is unknown: /etc/corosync is not mounted "
                 "into this container."
             )
+        elif self._path("etc/corosync/authkey").exists():
+            mode = NodeMode.CLUSTER
+        else:
+            mode = NodeMode.STANDALONE
 
         admin_account = self._admin_account()
         if admin_account is None:
