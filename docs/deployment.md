@@ -584,3 +584,68 @@ At M5 its README gains a deprecation notice, the ISO stops enabling it, and
 `enable_vmmgr_http_api` stays default false so nothing breaks. The ports differ,
 so both can run side by side for at least one release. The role is not deleted:
 someone has automation against those endpoints.
+
+## 7. Behind a reverse proxy
+
+The service answers on its own HTTPS port and needs no proxy. A site that
+already fronts its machines with one can nonetheless mount it under a path,
+because nothing this service serves names a path from the root of the origin:
+every link, script, `fetch`, `EventSource`, websocket and redirect is relative.
+
+That property rests on an invariant. Every page sits exactly one segment deep
+(`/`, `/inventory`, `/system`, `/realtime`, `/runs`, `/login`), so all of them
+resolve a relative URL against the same base directory. A page nested deeper
+would break the others, silently and only behind a proxy. `test_ui_pages.py`
+asserts the property on the served bytes, pages and scripts alike, so a
+regression fails on a laptop rather than at a substation.
+
+The prefix therefore lives entirely in the proxy, and the service is never told
+what it is:
+
+```nginx
+# The entry point without its trailing slash. Without this redirect a browser
+# arriving at /seapath resolves every relative URL one directory too high, and
+# the page loads nothing.
+location = /seapath { return 308 /seapath/; }
+
+location /seapath/ {
+    # The trailing slash strips the prefix, so the service sees the paths it
+    # was written against and needs no root_path.
+    proxy_pass https://127.0.0.1:8006/;
+
+    # The certificate is the one the service generated for this node, signed by
+    # nobody. An operator verifies its fingerprint in the browser; a proxy on
+    # the same machine has nothing to verify it against.
+    proxy_ssl_verify off;
+
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # The console websocket, and the run event stream. A convergence sends
+    # nothing for minutes at a time, and a buffered proxy would hold the
+    # progress an operator is watching.
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade    $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+}
+```
+
+`$connection_upgrade` comes from the usual map, in the `http` block:
+
+```nginx
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+```
+
+Two limits. The session and CSRF cookies are set with `path=/`, so under a
+prefix they are offered to the proxy's other applications as well; their names
+carry a per node suffix, so they collide with nothing, but a site that cares
+scopes them at the proxy. And `/api/v1/docs` is the one page that stays
+root anchored, because FastAPI builds it from `openapi_url` without a
+`root_path`; the OpenAPI document itself, and every endpoint, are unaffected.

@@ -80,7 +80,11 @@ def install(app: FastAPI) -> None:
 
     def _page(request: Request, template: str, page: str):
         if current_session(request) is None:
-            return RedirectResponse("/login", status_code=303)
+            # Relative, like every URL the pages themselves carry, so a
+            # reverse proxy serving this service under a prefix keeps the
+            # operator inside it. RFC 9110 allows it, and unlike
+            # `request.url_for` it needs no knowledge of the prefix.
+            return RedirectResponse("login", status_code=303)
         return templates.TemplateResponse(
             request,
             template,
@@ -108,7 +112,7 @@ def install(app: FastAPI) -> None:
     def setup(request: Request):
         # The page that used to do both jobs. Kept as a redirect because it is
         # in people's history and in the first deployment's notes.
-        return RedirectResponse("/inventory", status_code=308)
+        return RedirectResponse("inventory", status_code=308)
 
     @app.get("/realtime", response_class=HTMLResponse, include_in_schema=False)
     def realtime(request: Request):
@@ -121,7 +125,7 @@ def install(app: FastAPI) -> None:
     @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
     def login(request: Request):
         if current_session(request) is not None:
-            return RedirectResponse("/", status_code=303)
+            return RedirectResponse("./", status_code=303)
         return templates.TemplateResponse(
             request,
             "login.html",

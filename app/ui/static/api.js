@@ -4,6 +4,13 @@
 // The one place that talks to the API. Every call goes through here so the
 // CSRF token is echoed consistently and the error envelope is unwrapped once.
 
+// The base is relative on purpose, here and everywhere else the front end
+// builds a URL. A reverse proxy can then serve the whole application under a
+// prefix without the application being told what the prefix is. It resolves
+// correctly because every page of this service sits exactly one segment deep,
+// so each of them shares the same base directory. A page nested deeper, or an
+// entry point reached without its trailing slash, would break it.
+
 const API = (function () {
   // Which cookie holds this node's token. The name carries a per node suffix,
   // because two ssh tunnels put two nodes on one host name and therefore in
@@ -30,7 +37,7 @@ const API = (function () {
     }
     Object.assign(headers, extra || {});
 
-    const response = await fetch("/api/v1" + path, {
+    const response = await fetch("api/v1" + path, {
       method,
       headers,
       credentials: "same-origin",
@@ -44,7 +51,7 @@ const API = (function () {
   // would mean a copy of a twenty gigabyte VM image for the sake of a name the
   // URL already carries.
   async function upload(path, file, extra) {
-    const response = await fetch("/api/v1" + path, {
+    const response = await fetch("api/v1" + path, {
       method: "PUT",
       headers: Object.assign(
         {

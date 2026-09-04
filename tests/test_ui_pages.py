@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -14,7 +16,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "login"
 
 
 @pytest.mark.parametrize(
@@ -109,7 +111,7 @@ def test_the_machine_can_propose_its_own_inventory_into_the_editor(
     # whose discovery failed then, still has the file it would have written one
     # click away. It lands in the editor, and saving it is the operator's act.
     assert 'id="propose"' in body
-    assert "/api/v1/inventory/proposed" in script
+    assert "api/v1/inventory/proposed" in script
     assert "nothing is committed until you do" in script
 
 
@@ -265,7 +267,7 @@ def test_the_old_configuration_url_still_leads_somewhere(
     response = signed_in.get("/setup", follow_redirects=False)
 
     assert response.status_code == 308
-    assert response.headers["location"] == "/inventory"
+    assert response.headers["location"] == "inventory"
 
 
 def test_the_apply_confirmation_says_what_it_will_disturb(
@@ -438,9 +440,9 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     # substation hypervisor has no route to a CDN. The stylesheet is in the
     # document, like the rest of the styles of this service, so the first paint
     # of this page waits on no fetch.
-    assert "/static/vendor/xterm.js" in body
+    assert "static/vendor/xterm.js" in body
     assert ".xterm {" in body
-    assert "/static/console.js" in body
+    assert "static/console.js" in body
     assert signed_in.get("/static/vendor/xterm.js").status_code == 200
     assert signed_in.get("/static/vendor/xterm.css").status_code == 200
 
@@ -502,3 +504,52 @@ def test_the_measurement_panel_can_take_the_page(
     # machine of the inventory and brings back a verdict and a histogram for
     # each. The panel borrows the page for that and gives it back.
     assert 'id="measure-expand"' in body
+
+
+# The property a reverse proxy depends on: nothing this service serves names a
+# path from the root of the origin. A site mounting the UI under a prefix, say
+# `/seapath/`, gets a working application only if every link, script, fetch,
+# websocket and redirect resolves against the document rather than the host. It
+# is a property of the served bytes, so it is asserted on them.
+_ROOT_ANCHORED = re.compile(
+    r"""(?:href|src)\s*=\s*["']/|"/api/v1|location\.assign\(\s*["']/"""
+)
+
+
+@pytest.mark.parametrize(
+    "path", ["/", "/inventory", "/system", "/realtime", "/runs", "/login"]
+)
+def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> None:
+    body = signed_in.get(path).text
+
+    assert _ROOT_ANCHORED.search(body) is None
+
+
+@pytest.mark.parametrize(
+    "asset",
+    [
+        "api.js",
+        "chrome.js",
+        "console.js",
+        "inventory.js",
+        "login.js",
+        "node.js",
+        "realtime.js",
+        "runs.js",
+        "system.js",
+    ],
+)
+def test_no_script_anchors_a_url_to_the_root(signed_in: TestClient, asset: str) -> None:
+    script = signed_in.get(f"/static/{asset}").text
+
+    assert _ROOT_ANCHORED.search(script) is None
+
+
+@pytest.mark.parametrize("path", ["/", "/system", "/setup"])
+def test_a_redirect_stays_inside_the_mount_point(client: TestClient, path: str) -> None:
+    # An absolute `Location` would send an operator to the root of the reverse
+    # proxy, out of the prefix the service was mounted under.
+    response = client.get(path, follow_redirects=False)
+
+    assert response.status_code in (303, 308)
+    assert not response.headers["location"].startswith("/")

@@ -91,7 +91,7 @@ const Console = (function () {
   }
 
   function connect() {
-    const url = new URL("/api/v1/node/console/ws", window.location.href);
+    const url = new URL("api/v1/node/console/ws", window.location.href);
     url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     url.searchParams.set("columns", terminal.cols);
     url.searchParams.set("lines", terminal.rows);

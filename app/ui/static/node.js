@@ -216,7 +216,7 @@
       await Console.describe(chrome.me);
     } catch (failure) {
       if (failure.status === 401) {
-        window.location.assign("/login");
+        window.location.assign("login");
         return;
       }
       warnings.add(failure.message);

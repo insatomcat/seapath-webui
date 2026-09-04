@@ -16,7 +16,7 @@
         username: document.getElementById("username").value,
         password: document.getElementById("password").value,
       });
-      window.location.assign("/");
+      window.location.assign("./");
     } catch (failure) {
       // The message is written for the operator, so it is shown as it comes.
       error.textContent = failure.message;

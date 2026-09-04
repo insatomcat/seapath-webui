@@ -670,7 +670,7 @@
       meta.append(item);
     });
     const anchor = document.createElement("a");
-    anchor.href = "/runs?run=" + encodeURIComponent(measurement.run_id);
+    anchor.href = "runs?run=" + encodeURIComponent(measurement.run_id);
     anchor.textContent = "open the run";
     meta.append(anchor);
     body.append(meta);
@@ -1133,7 +1133,7 @@
           variables,
         });
         window.location.assign(
-          "/runs?run=" + encodeURIComponent(started.run_id)
+          "runs?run=" + encodeURIComponent(started.run_id)
         );
       } catch (failure) {
         error.textContent = failure.message;

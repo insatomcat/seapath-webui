@@ -342,11 +342,11 @@
     if (!state.buffers.has(key)) {
       let text = "";
       if (entry.store === "inventory") {
-        text = await fetch("/api/v1/inventory/raw", {
+        text = await fetch("api/v1/inventory/raw", {
           credentials: "same-origin",
         }).then((response) => response.text());
       } else if (entry.store !== "missing" && entry.editable) {
-        text = await fetch("/api/v1" + route(store, entry.path), {
+        text = await fetch("api/v1" + route(store, entry.path), {
           credentials: "same-origin",
         }).then((response) => response.text());
       }
@@ -408,7 +408,7 @@
     const entry = buffer.entry;
     download.hidden = buffer.isNew || buffer.store === "inventory";
     if (!download.hidden) {
-      download.href = "/api/v1" + route(buffer.store, buffer.path);
+      download.href = "api/v1" + route(buffer.store, buffer.path);
     }
 
     editor.hidden = !buffer.editable;
@@ -660,7 +660,7 @@
     showError("editor-error", "");
     showFindings([]);
     try {
-      const document = await fetch("/api/v1/inventory/proposed", {
+      const document = await fetch("api/v1/inventory/proposed", {
         credentials: "same-origin",
       }).then(async (response) => {
         if (!response.ok) {

@@ -507,7 +507,7 @@
     if (entry.measures) {
       const link = document.createElement("a");
       link.className = "button-link";
-      link.href = "/realtime";
+      link.href = "realtime";
       link.textContent = "Launch it from the Real time page";
       actions.append(link);
       container.append(actions);
@@ -861,7 +861,7 @@
           check,
           variables,
         });
-        window.location.assign("/runs?run=" + encodeURIComponent(started.run_id));
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
       } catch (failure) {
         const error = element("confirm-error");
         error.textContent = failure.message;

@@ -31,12 +31,18 @@ SPDX-License-Identifier: Apache-2.0
         <span class="brand">SEAPATH</span>
         <span id="node-name" class="node-name">...</span>
         <span id="node-mode" class="badge">...</span>
+        {# Relative, like every URL this service emits, so a reverse proxy
+           can mount the application under a prefix without the application
+           knowing its own address. It holds because every page sits exactly
+           one segment deep, so all of them resolve a relative link against
+           the same directory. Keep that invariant: a page two segments deep
+           would silently break the others. #}
         <nav class="nav">
-          <a href="/" class="{{ 'current' if page == 'node' }}">Node</a>
-          <a href="/inventory" class="{{ 'current' if page == 'inventory' }}">Inventory</a>
-          <a href="/system" class="{{ 'current' if page == 'system' }}">System</a>
-          <a href="/realtime" class="{{ 'current' if page == 'realtime' }}">Real time</a>
-          <a href="/runs" class="{{ 'current' if page == 'runs' }}">Runs</a>
+          <a href="./" class="{{ 'current' if page == 'node' }}">Node</a>
+          <a href="inventory" class="{{ 'current' if page == 'inventory' }}">Inventory</a>
+          <a href="system" class="{{ 'current' if page == 'system' }}">System</a>
+          <a href="realtime" class="{{ 'current' if page == 'realtime' }}">Real time</a>
+          <a href="runs" class="{{ 'current' if page == 'runs' }}">Runs</a>
         </nav>
       </div>
       <div class="topbar-right">
@@ -56,8 +62,8 @@ SPDX-License-Identifier: Apache-2.0
       </span>
     </footer>
 
-    {% if nav %}<script src="/static/api.js"></script>
-    <script src="/static/chrome.js"></script>{% endif %}
+    {% if nav %}<script src="static/api.js"></script>
+    <script src="static/chrome.js"></script>{% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

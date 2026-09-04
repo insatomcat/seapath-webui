@@ -20,7 +20,7 @@ const Chrome = (function () {
       return { me, node };
     } catch (failure) {
       if (failure.status === 401) {
-        window.location.assign("/login");
+        window.location.assign("login");
       }
       throw failure;
     }
@@ -34,7 +34,7 @@ const Chrome = (function () {
     try {
       await API.post("/auth/logout");
     } finally {
-      window.location.assign("/login");
+      window.location.assign("login");
     }
   });
 

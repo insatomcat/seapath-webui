@@ -14,7 +14,7 @@ def test_the_root_sends_an_anonymous_visitor_to_the_login_page(
     response = client.get("/", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/login"
+    assert response.headers["location"] == "login"
 
 
 def test_the_login_page_explains_where_the_roles_come_from(
@@ -38,7 +38,7 @@ def test_the_login_page_redirects_an_operator_who_is_already_signed_in(
     response = signed_in.get("/login", follow_redirects=False)
 
     assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    assert response.headers["location"] == "./"
 
 
 def test_health_answers_without_a_session_and_says_nothing_about_the_machine(

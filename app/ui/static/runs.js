@@ -260,7 +260,7 @@
       record.state !== "success"
     );
     element("cancel").hidden = finished || !Chrome.isAdmin(state.me);
-    element("download-log").href = "/api/v1/runs/" + record.id + "/log";
+    element("download-log").href = "api/v1/runs/" + record.id + "/log";
     return record;
   }
 
@@ -288,7 +288,7 @@
     // Resumable by index: a browser reconnecting after a reboot asks for what
     // it has not seen rather than replaying a whole convergence.
     const source = new EventSource(
-      "/api/v1/runs/" + encodeURIComponent(runId) + "/events?offset=0"
+      "api/v1/runs/" + encodeURIComponent(runId) + "/events?offset=0"
     );
     state.source = source;
     source.onmessage = (message) => {
