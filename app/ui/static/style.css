@@ -1523,7 +1523,7 @@ button.secondary {
    screen to say it. */
 .chart {
   width: 100%;
-  max-height: 11rem;
+  max-height: 9rem;
   margin-top: 0.25rem;
 }
 
@@ -1667,4 +1667,52 @@ button.secondary {
 
 .pool-node .tag {
   font-size: 0.6rem;
+}
+
+/* What seapath-alloc knows about one core. Fixed rather than absolute, so it
+   is positioned against the viewport and escapes the pane it is drawn over
+   instead of being clipped by that pane's own scrolling. */
+.pool-tip {
+  position: fixed;
+  z-index: 20;
+  max-width: 26rem;
+  padding: 0.5rem 0.7rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  font-size: 0.75rem;
+  pointer-events: none;
+}
+
+.pool-tip dl {
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.6rem;
+}
+
+.pool-tip dt {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pool-tip dd {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.pool-cpu:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* The conformance a node can be asked from a distance: its isolated set
+   against what the inventory declares for it. */
+.pool-status {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  max-width: 26rem;
+}
+
+.pool-status.differs {
+  color: var(--warn);
 }

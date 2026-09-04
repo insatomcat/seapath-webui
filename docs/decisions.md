@@ -1067,11 +1067,23 @@ So the page aggregates. The local node is marked and sorted first, because it
 is the machine the operator is standing on and the one the conformance list is
 still about.
 
-**The conformance list stays local**, and that is the remaining seam. It reads
-this machine's `/sys` and compares it with this machine's inventory entry.
-Making it cluster wide needs a per node reading this service does not have, and
-the exporter publishes some of it but not the comparison. It is worth doing and
-it is not done here.
+**Two checks reach every node, and the rest stay local.** The exporter
+publishes `isolated` per CPU, so the set each machine actually booted with
+comes back from all of them, and `node_uname_info` carries the kernel. Those
+two are compared against each node's own inventory entry beside its grid, and
+the first is the one that matters most: `isolcpus` is read at boot, so a
+machine converged and never rebooted reads exactly like one where the change
+never happened, and until now that could only be caught on the node the browser
+happened to be pointed at.
+
+The other eight need a reading only the local node can make. The tuned profile,
+transparent hugepages, the scheduler sysctls, the boot parameters and the
+interrupt affinity are all files under `/sys` and `/proc` that no exporter
+publishes. Extending them across the cluster means either running the checks on
+each node over SSH, which turns a page refresh into a command execution, or
+adding them to what SEAPATH exports, which is upstream work. The page says
+which pane is which in its own heading rather than leaving the reader to infer
+it.
 
 ### What was refused
 

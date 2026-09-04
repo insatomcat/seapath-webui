@@ -41,7 +41,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 from app.cluster import metrics
 
@@ -55,6 +55,9 @@ _CPU_DETAIL = "seapath_alloc_cpu_detail"
 _FALLBACKS = "seapath_alloc_active_fallbacks"
 _SLOT_WARNING = "seapath_alloc_slot_warning_info"
 _SCRAPE_TIME = "seapath_alloc_scrape_timestamp_seconds"
+# node_exporter's own, which is how the kernel of a machine this service cannot
+# read comes back. `version` is where the PREEMPT_RT build flag appears.
+_UNAME = "node_uname_info"
 
 
 class MetricsClient(Protocol):
@@ -128,6 +131,31 @@ class NodePool(BaseModel):
     """
     slot_warnings: list[str] = Field(default_factory=list)
     scrape_age_seconds: float | None = None
+
+    declared_isolcpus: str | None = None
+    """What the inventory asks this node to isolate.
+
+    The one conformance question that can be asked of a machine this service
+    cannot read: the exporter publishes `isolated` per CPU, so the set the
+    kernel actually booted with comes back from every node, and the inventory
+    holds what each was told. The commonest finding in a cluster is one machine
+    converged and never rebooted, and until now this page could only catch it
+    on the node the browser happened to be pointed at.
+    """
+    observed_isolcpus: str = ""
+    kernel: str = ""
+    preemption: str = ""
+
+    # A computed field rather than a plain property: a property is invisible to
+    # `model_dump`, so the page received no answer at all and rendered every
+    # node as "nothing declared".
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def isolation_matches(self) -> bool | None:
+        """None when nothing is declared, so it is never drawn as a pass."""
+        if not self.declared_isolcpus or not self.reachable or not self.cpus:
+            return None
+        return _parse(self.declared_isolcpus) == _parse(self.observed_isolcpus)
 
     @property
     def isolated(self) -> list[int]:
@@ -212,6 +240,14 @@ class PoolReader:
                 }
             ),
             scrape_age_seconds=_age(series),
+            observed_isolcpus=_ranges(
+                [
+                    int(sample.labels.get("cpu", -1))
+                    for sample in series[_CPU_DETAIL]
+                    if sample.labels.get("isolated") == "1"
+                ]
+            ),
+            **_uname(series),
         )
 
 
@@ -264,3 +300,62 @@ def _optional_int(raw: str | None) -> int | None:
         return int(raw)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+def _uname(series: dict) -> dict[str, str]:
+    """The kernel each node booted, from node_exporter's own series."""
+    samples = series.get(_UNAME, [])
+    if not samples:
+        return {}
+    labels = samples[0].labels
+    version = labels.get("version", "")
+    return {
+        "kernel": labels.get("release", ""),
+        "preemption": _preemption(version),
+    }
+
+
+def _preemption(version: str) -> str:
+    """PREEMPT_RT before PREEMPT, or every RT kernel reads as an ordinary one."""
+    for marker in ("PREEMPT_RT", "PREEMPT_DYNAMIC", "PREEMPT", "VOLUNTARY"):
+        if marker in version:
+            return marker
+    return "" if not version else "none"
+
+
+def _parse(raw: str) -> set[int]:
+    """A kernel CPU list, as a set, so `4-7` and `4,5,6,7` compare equal."""
+    found: set[int] = set()
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            start, _, end = part.partition("-")
+            try:
+                found.update(range(int(start), int(end) + 1))
+            except ValueError:
+                continue
+        else:
+            try:
+                found.add(int(part))
+            except ValueError:
+                continue
+    return found
+
+
+def _ranges(cpus: list[int]) -> str:
+    """The kernel's own notation, so the two columns compare by eye."""
+    ordered = sorted(cpu for cpu in cpus if cpu >= 0)
+    if not ordered:
+        return ""
+    parts: list[str] = []
+    start = previous = ordered[0]
+    for cpu in ordered[1:]:
+        if cpu == previous + 1:
+            previous = cpu
+            continue
+        parts.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = cpu
+    parts.append(str(start) if start == previous else f"{start}-{previous}")
+    return ",".join(parts)

@@ -316,6 +316,36 @@
     });
     box.append(map);
 
+    // The conformance this page can ask of a machine it cannot read. The
+    // isolated set comes from the node's own exporter and the inventory holds
+    // what it was told, so the commonest finding in a cluster, one machine
+    // converged and never rebooted, is caught on every node rather than only
+    // on the one the browser is pointed at.
+    const status = document.createElement("p");
+    status.className = "pool-status";
+    if (node.isolation_matches === true) {
+      status.textContent = "Isolating " + node.observed_isolcpus + ", as declared";
+    } else if (node.isolation_matches === false) {
+      status.classList.add("differs");
+      status.textContent =
+        "Isolating " +
+        (node.observed_isolcpus || "nothing") +
+        ", the inventory declares " +
+        node.declared_isolcpus +
+        ". isolcpus is read at boot, so a convergence not followed by a reboot " +
+        "looks exactly like this.";
+    } else if (node.observed_isolcpus) {
+      status.textContent =
+        "Isolating " + node.observed_isolcpus + ", nothing declared";
+    }
+    if (status.textContent) {
+      if (node.preemption && node.preemption !== "PREEMPT_RT") {
+        status.classList.add("differs");
+        status.textContent += " Kernel is " + node.preemption + ".";
+      }
+      box.append(status);
+    }
+
     const notes = [];
     if (node.hard_fallbacks) {
       notes.push(
@@ -343,20 +373,93 @@
     cell.className = "pool-cpu";
     const [meaning, colour] = STATES[slot.state] || STATES.unknown;
     cell.style.background = colour;
-    // The label where it fits, the number otherwise. A core carrying a guest
-    // is read by the guest's name; a free one is read by its number, which is
-    // what an operator types into isolcpus.
+    // The label where it fits, the number otherwise. A core carrying a guest is
+    // read by the guest's name; a free one is read by its number, which is what
+    // an operator types into isolcpus.
     cell.textContent = slot.label || String(slot.cpu);
-    cell.title =
-      "CPU " +
-      slot.cpu +
-      ": " +
-      meaning +
-      (slot.label ? " (" + slot.label + ")" : "") +
-      (slot.group ? ", " + slot.group : "") +
-      (slot.scheduler ? ", " + slot.scheduler + "/" + slot.priority : "") +
-      (slot.members ? ", sharing with " + slot.members : "");
+    // A `title` gave one run-on line, and the interesting cores are exactly the
+    // ones with the most to say: a slot holds several actors, each with its own
+    // scheduler and priority, and that is a table rather than a sentence.
+    cell.addEventListener("mouseenter", () => showTip(cell, slot, meaning));
+    cell.addEventListener("mouseleave", hideTip);
+    cell.addEventListener("focus", () => showTip(cell, slot, meaning));
+    cell.addEventListener("blur", hideTip);
+    cell.tabIndex = 0;
     return cell;
+  }
+
+  function tipRow(label, value) {
+    const term = document.createElement("dt");
+    term.textContent = label;
+    const definition = document.createElement("dd");
+    definition.textContent = value;
+    return [term, definition];
+  }
+
+  // What seapath-alloc knows about one core, laid out. The members of a slot
+  // are the point: a core shared between a vCPU at FIFO/90 and an IRQ thread at
+  // FIFO/50 is a colocation an operator has to be able to read, and the flat
+  // string the exporter joins them into is not readable.
+  function showTip(cell, slot, meaning) {
+    const tip = element("pool-tip");
+    const list = document.createElement("dl");
+    list.append(...tipRow("CPU", String(slot.cpu)));
+    list.append(...tipRow("State", meaning));
+    if (slot.core !== null && slot.core !== undefined) {
+      list.append(
+        ...tipRow(
+          "Core",
+          slot.core +
+            (slot.sibling === null || slot.sibling === undefined
+              ? ""
+              : ", sibling CPU " + slot.sibling)
+        )
+      );
+    }
+    if (slot.label && slot.state !== "reserved") {
+      list.append(...tipRow(slot.slot ? "Slot" : "Actor", slot.label));
+    }
+    if (slot.state === "reserved" && slot.label) {
+      // The exporter puts the active sibling's CPU number in `label` here,
+      // which reads as a name unless it is spelled out.
+      list.append(...tipRow("Idle for", "the allocation on CPU " + slot.label));
+    }
+    // `group` repeats the state on a slot core, where the exporter sets both
+    // to "slot" and the members below carry the real answer.
+    if (slot.group && slot.group !== slot.state && slot.group !== "slot") {
+      list.append(...tipRow("Thread", slot.group));
+    }
+    if (slot.scheduler) {
+      list.append(...tipRow("Scheduling", slot.scheduler + "/" + slot.priority));
+    }
+    // One line per member, numbered, which is how the colocation is read.
+    splitMembers(slot.members).forEach((member, index) => {
+      list.append(...tipRow("Member " + (index + 1), member));
+    });
+
+    tip.replaceChildren(list);
+    tip.hidden = false;
+
+    // Placed against the cell, and pulled back inside the pane when it would
+    // run off the right edge.
+    const box = cell.getBoundingClientRect();
+    const width = tip.getBoundingClientRect().width;
+    tip.style.top = box.bottom + 6 + "px";
+    tip.style.left =
+      Math.max(8, Math.min(box.left, window.innerWidth - width - 8)) + "px";
+  }
+
+  function hideTip() {
+    element("pool-tip").hidden = true;
+  }
+
+  // The exporter joins members with ", " and each is "label/group SCHED/prio".
+  // Splitting on the comma is safe because neither half may contain one.
+  function splitMembers(members) {
+    return (members || "")
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
   }
 
   // The kernel's own range notation, `4-7` rather than `4,5,6,7`. The same
@@ -391,7 +494,6 @@
   function renderAffinity() {
     const choice = element("measure-affinity-choice");
     const value = element("measure-affinity");
-    const help = element("measure-affinity-help");
     const isolated = ranges(state.isolated);
 
     const options = [];
@@ -417,7 +519,10 @@
       } else {
         value.value = choice.value;
       }
-      help.textContent = custom
+      // The sentence that used to sit under this select is gone: the options
+      // say what they do, which is why it became a select, and the line was
+      // costing the chart below its own axis.
+      choice.title = custom
         ? "A CPU list in the kernel notation, such as 4-7 or 2,4-6."
         : choice.value === "smp"
           ? "One thread per online CPU, the housekeeping ones included, which " +
@@ -890,18 +995,22 @@
       svg.append(text(x(us), base + 15, us + "us", anchor));
     }
 
-    // One bucket is this many units wide. Never below a hairline: with 400
-    // buckets over 850 units a bar is about two units, and a bucket holding a
-    // single sample in the tail is the one an operator came to see.
-    const bar = Math.max((width - left - right) / (lastUsed + 1), 1);
+    // Grouped, never stacked and never overlaid. Each bucket is divided
+    // between the threads and they stand side by side, which is what rtperfui
+    // did and what makes the chart answer the question it is drawn for: not
+    // "what is the distribution" but "is one CPU worse than the others".
+    // Overlaying them hid exactly that, since threads usually agree and the
+    // colours piled into one mass.
+    const slotWidth = (width - left - right) / (lastUsed + 1);
+    const perThread = slotWidth / counts.length;
+    // Never below a hairline. On a machine whose worst case is far out, a
+    // bucket is a fraction of a unit wide, and the single sample in the tail is
+    // the one an operator came to see.
+    const barWidth = Math.max(perThread, 0.6);
 
     counts.forEach((series, index) => {
       const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
       group.setAttribute("fill", SERIES[index % SERIES.length]);
-      // Threads overlap on the same buckets, so they are drawn translucent:
-      // where they agree the colour deepens, and a thread that is alone out in
-      // the tail still shows its own.
-      group.setAttribute("opacity", "0.72");
       for (let bucket = 0; bucket <= lastUsed; bucket += 1) {
         const count = series[bucket];
         if (count <= 0) {
@@ -912,9 +1021,9 @@
           "http://www.w3.org/2000/svg",
           "rect"
         );
-        rect.setAttribute("x", x(buckets[bucket]));
+        rect.setAttribute("x", x(buckets[bucket]) + index * perThread);
         rect.setAttribute("y", top);
-        rect.setAttribute("width", bar);
+        rect.setAttribute("width", barWidth);
         // A bucket with one sample sits on the axis and would be zero high.
         rect.setAttribute("height", Math.max(base - top, 1));
         group.append(rect);

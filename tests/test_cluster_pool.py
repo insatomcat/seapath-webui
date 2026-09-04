@@ -183,3 +183,101 @@ def test_the_fake_serves_a_cluster_that_is_not_uniform() -> None:
     assert "vm" in states["elabo2"]
     assert "vm" not in states["elabo1"]
     assert nodes[2].reachable is False
+
+
+# Conformance a node can be asked from a distance
+
+
+def _with_isolation(isolated: str, uname: str = "") -> str:
+    lines = []
+    for cpu in range(8):
+        lines.append(
+            f'seapath_alloc_cpu_detail{{cpu="{cpu}",'
+            f'isolated="{1 if str(cpu) in isolated.split(",") else 0}",'
+            f'ht_pair="{cpu}",ht_sibling="{cpu}",state="free",slot="",'
+            'member_count="0",members="",label="",group="",scheduler="",'
+            'priority="0"} 1'
+        )
+    if uname:
+        lines.append(
+            'node_uname_info{sysname="Linux",release="6.1.0-18-rt-amd64",'
+            f'version="{uname}"}} 1'
+        )
+    return "\n".join(lines) + "\n"
+
+
+def test_the_isolated_set_of_a_remote_node_is_compared_with_its_inventory() -> None:
+    """The finding this whole addition exists for.
+
+    isolcpus is read at boot, so a machine converged and never rebooted reads
+    exactly like one where the change never happened. Until the pool was read
+    from every exporter, that could only be caught on the node the browser
+    happened to be pointed at.
+    """
+    nodes = PoolReader(_Client({"10.0.0.1": _with_isolation("4,5,6,7")})).read(
+        [("node1", "10.0.0.1")]
+    )
+    node = nodes[0]
+
+    assert node.observed_isolcpus == "4-7"
+
+    node.declared_isolcpus = "4-7"
+    assert node.isolation_matches is True
+
+    node.declared_isolcpus = "2-7"
+    assert node.isolation_matches is False
+
+
+def test_the_two_notations_for_one_set_compare_equal() -> None:
+    # The inventory is written by hand and the kernel prints ranges, so `4-7`
+    # and `4,5,6,7` are the same isolation and must not read as a mismatch.
+    nodes = PoolReader(_Client({"10.0.0.1": _with_isolation("4,5,6,7")})).read(
+        [("node1", "10.0.0.1")]
+    )
+    nodes[0].declared_isolcpus = "4,5,6,7"
+
+    assert nodes[0].isolation_matches is True
+
+
+def test_a_node_declaring_nothing_is_neither_a_pass_nor_a_failure() -> None:
+    # None rather than False: a machine with no isolcpus in its inventory has
+    # nothing to converge towards, and drawing that as a mismatch would put a
+    # warning on every machine nobody has configured yet.
+    nodes = PoolReader(_Client({"10.0.0.1": _with_isolation("4,5")})).read(
+        [("node1", "10.0.0.1")]
+    )
+
+    assert nodes[0].isolation_matches is None
+
+
+def test_an_unreachable_node_is_never_reported_as_matching() -> None:
+    nodes = PoolReader(_Client({})).read([("node1", "10.0.0.1")])
+    nodes[0].declared_isolcpus = "4-7"
+
+    assert nodes[0].isolation_matches is None
+
+
+def test_the_kernel_of_a_remote_node_comes_from_node_exporter() -> None:
+    # PREEMPT_RT before PREEMPT, or every RT kernel reads as an ordinary one.
+    rt = PoolReader(
+        _Client({"10.0.0.1": _with_isolation("4", "#1 SMP PREEMPT_RT Debian")})
+    ).read([("node1", "10.0.0.1")])
+    ordinary = PoolReader(
+        _Client({"10.0.0.1": _with_isolation("4", "#1 SMP PREEMPT_DYNAMIC Debian")})
+    ).read([("node1", "10.0.0.1")])
+
+    assert rt[0].preemption == "PREEMPT_RT"
+    assert rt[0].kernel == "6.1.0-18-rt-amd64"
+    assert ordinary[0].preemption == "PREEMPT_DYNAMIC"
+
+
+def test_the_comparison_survives_serialisation(monkeypatch) -> None:
+    # A plain property is invisible to model_dump, so the page received no
+    # answer and drew every node as "nothing declared". The check is on the
+    # serialised form because that is what the page reads.
+    nodes = PoolReader(_Client({"10.0.0.1": _with_isolation("4,5,6,7")})).read(
+        [("node1", "10.0.0.1")]
+    )
+    nodes[0].declared_isolcpus = "4-7"
+
+    assert nodes[0].model_dump()["isolation_matches"] is True

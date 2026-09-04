@@ -179,12 +179,21 @@ class RealtimeService:
         if state.inventory is None:
             return ClusterPool(nodes=[], this_host=state.this_host, available=False)
 
-        targets = [
-            (name, node.ansible_host)
+        hosts = {
+            name: node
             for name, node in state.inventory.hosts.items()
             if node.ansible_host
-        ]
-        nodes = self._pool.read(targets)
+        }
+        nodes = self._pool.read(
+            [(name, node.ansible_host) for name, node in hosts.items()]
+        )
+        # What each machine was told to isolate, attached to what it came back
+        # with. This is the one conformance question that can be asked of a
+        # machine this service cannot read, and it is the one that catches a
+        # node converged and never rebooted.
+        for node in nodes:
+            declared = hosts[node.host].isolcpus if node.host in hosts else None
+            node.declared_isolcpus = declared
         return ClusterPool(
             nodes=nodes,
             this_host=state.this_host,

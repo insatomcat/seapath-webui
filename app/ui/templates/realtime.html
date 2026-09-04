@@ -16,7 +16,7 @@ and an answer that has to be scrolled for is one an operator stops reading.
 
   <section class="card pane" id="card-checks">
     <h2>
-      Conformance
+      Conformance, this machine
       <span class="pane-note" id="checks-lead"></span>
     </h2>
     <div class="loading" id="checks-loading">Reading this machine</div>
@@ -44,18 +44,23 @@ and an answer that has to be scrolled for is one an operator stops reading.
 
   <section class="card pane" id="card-map">
     <h2>
-      CPU pool
+      CPU pool, every machine
       <span class="pane-note" id="map-note"></span>
     </h2>
     <div class="loading" id="map-loading">Asking each node's exporter</div>
     <div class="pool" id="pool" hidden></div>
     <p class="warning" id="pool-blocked" hidden></p>
+    {# Positioned against the hovered core, so it escapes the pane's own
+       scrolling rather than being clipped by it. #}
+    <div class="pool-tip" id="pool-tip" hidden></div>
     <p class="pane-foot" id="pool-legend" hidden>
       <span class="pane-foot-note">
-        One column per physical core, one cell per thread, so hyperthread
-        siblings sit together. Read from each node's own exporter, which is
-        where <code>seapath-alloc</code> publishes what it pinned: this
-        container cannot see the threads itself.
+        One column per physical core, one cell per thread; hover a core for
+        what is on it. Read from each node's own exporter, which is where
+        <code>seapath-alloc</code> publishes what it pinned: this container
+        cannot see the threads itself. The isolated set and the kernel are
+        checked against the inventory here for every machine; the rest of the
+        conformance list needs a reading only the local node can make.
       </span>
     </p>
   </section>
@@ -98,7 +103,6 @@ and an answer that has to be scrolled for is one an operator stops reading.
           <button id="measure-go" type="button">Measure</button>
         </div>
       </div>
-      <p class="help" id="measure-affinity-help"></p>
       <p class="warning" id="measure-blocked" hidden></p>
       <div class="loading" id="latency-loading">Reading past measurements</div>
       <div class="measure-body" id="latency" hidden>

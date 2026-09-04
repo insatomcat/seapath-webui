@@ -369,7 +369,7 @@ here is the same thing by hand, and it is short on purpose:
 # The exact tag the quadlet pins, which is this service's own version. The
 # quadlet never says `latest`: a machine has to be able to say which code is
 # answering on it.
-podman pull docker.io/insatomcat/seapath-webui:0.3.3
+podman pull docker.io/insatomcat/seapath-webui:0.3.4
 install -m 0644 seapath-webui.container /etc/containers/systemd/
 systemctl daemon-reload
 systemctl start seapath-webui
@@ -500,7 +500,7 @@ conventions.
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
 | `seapath_webui_enabled` | no | `true` | Deploy and enable |
-| `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:0.3.3` | Image reference, an exact tag. This is the variable [D23](decisions.md#d23) turns into the update lever: editing it in the inventory and applying is how the service replaces itself |
+| `seapath_webui_image` | no | `docker.io/insatomcat/seapath-webui:0.3.4` | Image reference, an exact tag. This is the variable [D23](decisions.md#d23) turns into the update lever: editing it in the inventory and applying is how the service replaces itself |
 | `seapath_webui_bind_address` | no | `{{ ip_addr }}` | Listen address, administration network. `auto` resolves it from the default route, which is what a fresh ISO boots with |
 | `seapath_webui_port` | no | `8006` | Listen port |
 | `seapath_webui_admin_group` | no | `seapath-admin` | Unix group granting the admin role |
