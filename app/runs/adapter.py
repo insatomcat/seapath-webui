@@ -137,7 +137,6 @@ class RunRequest:
 @dataclass
 class RunOutcome:
     return_code: int | None
-    command: list[str]
     cancelled: bool = False
     error: str | None = None
 
@@ -183,6 +182,26 @@ def collections_search_path(request: RunRequest) -> str:
     return os.pathsep.join(str(path) for path in paths if path is not None)
 
 
+def build_command(request: RunRequest) -> list[str]:
+    """The `ansible-playbook` invocation this request stands for.
+
+    Pure, and separate from `prepare`, because a run has to be able to show
+    its command line from the moment it is launched. Waiting for the adapter
+    to return would leave the field empty for the whole run, and empty forever
+    on a run whose machine rebooted underneath it.
+    """
+    command = ["ansible-playbook", "-i", str(request.inventory_file)]
+    if request.check:
+        command.append("--check")
+    for name, value in sorted(request.extra_vars.items()):
+        command += ["--extra-vars", f"{name}={_as_ansible_literal(value)}"]
+    # No --limit, ever. Which hosts a playbook plays against is a property of
+    # the playbook, copied into the catalogue. Narrowing cluster_setup_ha to
+    # one member of three would be accepted by Ansible and would mean nothing.
+    command.append(request.playbook)
+    return command
+
+
 def prepare(request: RunRequest) -> Preparation:
     directory = request.private_data_dir
     (directory / "env").mkdir(parents=True, exist_ok=True)
@@ -209,16 +228,6 @@ def prepare(request: RunRequest) -> Preparation:
             (request.private_key_file, *request.extra_key_files),
         )
 
-    command = ["ansible-playbook", "-i", str(request.inventory_file)]
-    if request.check:
-        command.append("--check")
-    for name, value in sorted(request.extra_vars.items()):
-        command += ["--extra-vars", f"{name}={_as_ansible_literal(value)}"]
-    # No --limit, ever. Which hosts a playbook plays against is a property of
-    # the playbook, copied into the catalogue. Narrowing cluster_setup_ha to
-    # one member of three would be accepted by Ansible and would mean nothing.
-    command.append(request.playbook)
-
     return Preparation(
         config_file=config_file,
         environment={
@@ -232,7 +241,7 @@ def prepare(request: RunRequest) -> Preparation:
             "ANSIBLE_HOST_KEY_CHECKING": "True",
             "PATH": _path_with_this_interpreter_first(),
         },
-        command=command,
+        command=build_command(request),
     )
 
 
@@ -310,7 +319,6 @@ class AnsibleRunnerAdapter:
         except ImportError as error:  # pragma: no cover - the image ships it
             return RunOutcome(
                 return_code=None,
-                command=preparation.command,
                 error=f"ansible-runner is missing from this image: {error}",
             )
 
@@ -334,6 +342,5 @@ class AnsibleRunnerAdapter:
         on_output(runner.stdout.read() if runner.stdout else "")
         return RunOutcome(
             return_code=runner.rc,
-            command=preparation.command,
             cancelled=runner.status == "canceled",
         )

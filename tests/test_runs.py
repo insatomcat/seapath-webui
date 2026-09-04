@@ -13,6 +13,7 @@ from __future__ import annotations
 import configparser
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -441,6 +442,53 @@ def test_a_run_without_a_final_status_is_interrupted_not_failed(
     assert record.state is RunState.INTERRUPTED
     assert "Relaunching" in record.message
     assert "seapath-machine" in record.message
+
+
+def test_the_command_is_recorded_before_the_run_ends(
+    store, inventory, trust, tmp_path
+) -> None:
+    """The invocation is readable while the run is going.
+
+    An operator watching a converge asks what was launched then, not once it
+    is over, and a run whose machine reboots under it never gets an "over".
+    """
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingAdapter(fake.FakeRunAdapter):
+        def execute(self, request, on_event, on_output, should_cancel):
+            started.set()
+            release.wait(5.0)
+            return super().execute(request, on_event, on_output, should_cancel)
+
+    service = build(store, inventory, trust, BlockingAdapter(), tmp_path)
+    record = service.launch("seapath_setup_main", "alice")
+    started.wait(5.0)
+    try:
+        going = store.load(record.id)
+        assert going.state is RunState.RUNNING
+        assert going.command[0] == "ansible-playbook"
+        assert going.command[-1] == "seapath.ansible.seapath_setup_main"
+    finally:
+        release.set()
+    assert wait_for(service, record.id).command == going.command
+
+
+def test_an_interrupted_run_still_says_what_was_launched(
+    store, inventory, trust, tmp_path
+) -> None:
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(events=fake.interrupted_run(), return_code=4),
+        tmp_path,
+    )
+
+    record = wait_for(service, service.launch("seapath_setup_main", "alice").id)
+
+    assert record.state is RunState.INTERRUPTED
+    assert record.command[-1] == "seapath.ansible.seapath_setup_main"
 
 
 def test_a_run_that_never_started_a_task_failed_rather_than_was_interrupted(

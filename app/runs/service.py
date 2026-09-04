@@ -19,7 +19,7 @@ from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.inventory.service import InventoryService, InventoryState
 from app.runs import catalogue, progress, staging
-from app.runs.adapter import RunAdapter, RunRequest
+from app.runs.adapter import RunAdapter, RunRequest, build_command
 from app.runs.catalogue import PlaybookEntry, Precondition, VariableType
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.store import RunLocked, RunStore
@@ -379,8 +379,13 @@ class RunService:
             self._store.release(run_id)
             raise
 
+        request = self._request(record, entry, directory, staged, extra_vars)
         record.state = RunState.RUNNING
         record.started_at = datetime.now(tz=UTC)
+        # Recorded before the thread starts, so the run view shows the exact
+        # invocation while it is going, and still shows it on a run that ends
+        # without ever coming back here.
+        record.command = build_command(request)
         self._store.save(record)
         audit_event(
             "run.launched",
@@ -393,7 +398,7 @@ class RunService:
 
         thread = threading.Thread(
             target=self._execute,
-            args=(record, entry, directory, staged, extra_vars),
+            args=(record, request),
             name=f"run-{run_id}",
             daemon=True,
         )
@@ -490,14 +495,30 @@ class RunService:
                 {"variable": name, "machines": hosts},
             )
 
-    def _execute(
+    def _request(
         self,
         record: RunRecord,
         entry: PlaybookEntry,
         directory: Path,
         staged: staging.Staging,
         extra_vars: dict[str, Any],
-    ) -> None:
+    ) -> RunRequest:
+        return RunRequest(
+            run_id=record.id,
+            playbook=entry.playbook,
+            inventory_file=staged.inventory_file,
+            private_data_dir=directory,
+            collections_path=self._paths.collections_path,
+            site_collections_path=staged.collections_paths[0],
+            private_key_file=self._paths.private_key_file,
+            known_hosts_file=self._paths.known_hosts_file,
+            ssh_config_file=self._paths.ssh_config_file,
+            extra_key_files=self._paths.extra_key_files(),
+            extra_vars=extra_vars,
+            check=record.check,
+        )
+
+    def _execute(self, record: RunRecord, request: RunRequest) -> None:
         run_progress = RunProgress()
 
         def on_event(event: dict) -> None:
@@ -510,25 +531,11 @@ class RunService:
 
         try:
             outcome = self._adapter.execute(
-                RunRequest(
-                    run_id=record.id,
-                    playbook=entry.playbook,
-                    inventory_file=staged.inventory_file,
-                    private_data_dir=directory,
-                    collections_path=self._paths.collections_path,
-                    site_collections_path=staged.collections_paths[0],
-                    private_key_file=self._paths.private_key_file,
-                    known_hosts_file=self._paths.known_hosts_file,
-                    ssh_config_file=self._paths.ssh_config_file,
-                    extra_key_files=self._paths.extra_key_files(),
-                    extra_vars=extra_vars,
-                    check=record.check,
-                ),
+                request,
                 on_event=on_event,
                 on_output=lambda text: self._store.append_log(record.id, text),
                 should_cancel=lambda: record.id in self._cancelled,
             )
-            record.command = outcome.command
             record.return_code = outcome.return_code
             record.state = self._final_state(outcome, run_progress)
             record.message = self._final_message(record, outcome)

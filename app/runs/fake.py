@@ -170,14 +170,12 @@ class FakeRunAdapter:
         self.requests.append(request)
         # Prepared for real, so the configuration a test inspects is the
         # configuration a machine would have been converged with.
-        preparation = prepare(request)
+        prepare(request)
 
         for event in self.events:
             if should_cancel():
-                return RunOutcome(
-                    return_code=None, command=preparation.command, cancelled=True
-                )
+                return RunOutcome(return_code=None, cancelled=True)
             on_event(event)
 
         on_output(self.output)
-        return RunOutcome(return_code=self.return_code, command=preparation.command)
+        return RunOutcome(return_code=self.return_code)
