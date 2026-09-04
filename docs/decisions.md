@@ -771,6 +771,18 @@ Three things this has to get right:
   live hypervisor. The precondition is the same shape as `peer_reachable`, and
   the confirmation names the interruption like every other one here.
 
+*Recommendation followed, for the half that belongs to this repository.* The
+tag is pinned, `seapath_webui_image` is the variable, and the catalogue carries
+`seapath_setup_deploy_seapath_webui` with what it costs written into the
+confirmation. `GET /api/v1/node/update` reports the version answering next to
+the one the inventory names for this machine, since an operator who edits the
+variable and never applies it has changed nothing. A run of that entry ends
+without a final status on the machine it was launched from, and the record says
+that is what applying it looks like rather than calling it a failure. The role
+itself, with the detached restart that lets the run reach its last task, lands
+with M5 and its contract is written down in
+[deployment.md](deployment.md#the-one-constraint-the-role-has-to-honour-the-restart-is-detached).
+
 ### What is refused, and what stays available
 
 `podman-auto-update` alone is refused as the answer. `AutoUpdate=registry` on

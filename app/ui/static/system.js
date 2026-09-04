@@ -20,6 +20,7 @@
     thisHost: null,
     siteKey: null,
     collection: null,
+    update: null,
     hostKeys: [],
     catalogue: [],
     // Whether the panel at the bottom has already been opened or left shut for
@@ -99,12 +100,59 @@
     element("collection-field").hidden = !admin;
     element("collection-go").hidden = !admin;
     element("collection-remove").hidden = !collection.site_installed || !admin;
-    // On the shut summary, because "which playbooks is this node running" is
-    // worth answering without opening anything.
-    element("collection-state").textContent =
-      (collection.source === "site" ? "Installed here" : "From the image") +
-      " - " + (collection.version || "none");
+    renderCollectionState();
     return collection;
+  }
+
+  // This service, next to the collection: the two halves of "which code is
+  // this node running", and the two things an update means here.
+  async function loadUpdate() {
+    const update = await API.get("/node/update");
+    state.update = update;
+    const summary = element("update-summary");
+    summary.replaceChildren();
+    const pairs = [
+      ["Answering now", update.running],
+      ["The inventory asks for", update.wanted || update.image || "nothing"],
+    ];
+    pairs.forEach(([label, value]) => {
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const definition = document.createElement("dd");
+      definition.textContent = value;
+      summary.append(term, definition);
+    });
+    const note = element("update-note");
+    if (update.pending) {
+      note.textContent =
+        "An apply would replace this service with " + update.wanted + ".";
+      note.className = "help warn";
+    } else {
+      note.textContent =
+        update.reason ||
+        "This service is the version the inventory names for this machine.";
+      note.className = "help";
+    }
+    renderCollectionState();
+    return update;
+  }
+
+  // The shut summary line carries both halves, so which code this node runs is
+  // answerable without opening the panel.
+  function renderCollectionState() {
+    const collection = state.collection;
+    if (!collection) {
+      return;
+    }
+    const where = collection.source === "site" ? "installed here" : "from the image";
+    const service = state.update && state.update.pending
+      ? ", service " + state.update.running + " and the inventory asks for " +
+        state.update.wanted
+      : "";
+    element("collection-state").textContent =
+      "playbooks " + (collection.version || "none") + " " + where + service;
+    element("collection-state").className =
+      "reach-state " + (state.update && state.update.pending ? "warn" : "ok");
   }
 
   // One list, whose rows change state. Scanning merges what it found into
@@ -844,7 +892,12 @@
     // The inventory first: the machines it declares are what the panel at the
     // bottom is measured against, and what the confirmation names.
     await loadInventoryHosts();
-    await Promise.all([loadSiteKey(), loadHostKeys(), loadCollection()]);
+    await Promise.all([
+      loadSiteKey(),
+      loadHostKeys(),
+      loadCollection(),
+      loadUpdate(),
+    ]);
     await loadPlaybooks();
   }
 

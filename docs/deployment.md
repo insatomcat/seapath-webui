@@ -487,6 +487,45 @@ absent, create the three Unix groups, template the quadlet, `daemon-reload`,
 enable and start. Strictly idempotent, with a handler restarting only the
 service and only when the quadlet or the configuration changed.
 
+### The one constraint the role has to honour: the restart is detached
+
+The role deploys the tool that ran it, and on the machine serving the page it
+is replacing the process that is recording the run. A `systemd` restart handler
+would kill `ansible-runner` mid task: the SSH session dies, the play never
+reaches its end, and the run record is whatever was on disk at that instant.
+
+So the pull and the restart are handed to a job that outlives the container:
+
+```yaml
+- name: Restart seapath-webui out of band
+  ansible.builtin.command:
+    argv:
+      - systemd-run
+      - --unit=seapath-webui-update
+      - --no-block
+      - /bin/sh
+      - -c
+      - podman pull {{ seapath_webui_image }} && systemctl restart seapath-webui
+  changed_when: true
+```
+
+`--no-block` returns as soon as systemd has queued the job, so the task
+succeeds, the play finishes, and the container goes away a moment later with
+its trace already written. What an operator sees is a page that stops
+answering for a few seconds and comes back on the new version.
+
+The run still ends without a final status on that machine, because the process
+that would have written it is gone. The catalogue entry says so before the
+confirmation, and the record says so afterwards rather than calling it a
+failure. `GET /api/v1/node/update` is how the result is checked: it reports the
+version answering now next to the one the inventory names.
+
+Two things the role must **not** do. It must not restart the service from a
+handler in the ordinary way, for the reason above. And it must not be given
+`podman-auto-update`: the update is an operator's decision, taken in front of a
+confirmation that names the machines, and a timer decides nothing. See
+[D23](decisions.md#d23).
+
 The role has a pleasing property: it deploys the tool that runs the role. A
 site can bootstrap from a fourth machine, then let the cluster take over, or the
 other way round.

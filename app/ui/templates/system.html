@@ -124,16 +124,16 @@ SPDX-License-Identifier: Apache-2.0
   <section class="card wide" id="collection-card">
     <details id="collection-details">
       <summary id="collection-summary">
-        <span class="reach-label">The playbooks this node runs</span>
+        <span class="reach-label">The code this node runs</span>
         <span class="reach-state" id="collection-state"></span>
       </summary>
 
       <div class="reach-body">
         <p class="lead">
-          Every run executes the <code>seapath.ansible</code> collection. The
-          image ships one, and a collection installed here takes over from it,
-          which is how a corrected playbook reaches this machine without an
-          image build and without a registry to reach.
+          Two things are updated separately here. The playbooks, which are the
+          <code>seapath.ansible</code> collection a run executes, arrive as a
+          file. This service, which is a container image, arrives the way every
+          other change to a machine does: an inventory variable and an apply.
         </p>
 
         <div class="reach-column">
@@ -159,6 +159,20 @@ SPDX-License-Identifier: Apache-2.0
               Back to the image's collection
             </button>
           </div>
+        </div>
+
+        <div class="reach-column">
+          <h3>This service</h3>
+          <p class="help">
+            The version each machine runs is
+            <code>seapath_webui_image</code> in the inventory. Editing it
+            changes nothing on its own: applying <em>Apply the management UI</em>
+            is what replaces the container, here and on the other machines. That
+            run ends without a final status on this machine, because the service
+            recording it is the service being replaced.
+          </p>
+          <dl id="update-summary"></dl>
+          <p class="help" id="update-note"></p>
         </div>
       </div>
     </details>

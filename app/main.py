@@ -48,6 +48,7 @@ from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
 from app.services.node import NodeService
+from app.services.update import UpdateService
 from app.trust.service import TrustService
 from app.ui import routes as ui_routes
 
@@ -211,6 +212,10 @@ def create_app(
         image_dir=settings.collections_path,
         store=run_store,
     )
+    # What the inventory asks this service to be, next to what it is. Read
+    # only: replacing it is an Ansible run like any other.
+    app.state.update_service = UpdateService(app.state.inventory_service)
+
     app.state.run_service = RunService(
         store=run_store,
         adapter=run_adapter or _default_run_adapter(settings),

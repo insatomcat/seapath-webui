@@ -144,6 +144,7 @@ no preview button at all rather than a button that lies.
 | `seapath_setup_prometheus_exporters.yaml` | `cluster_machines`, `standalone_machine` | full | no | |
 | `seapath_setup_snmp.yaml` | `cluster_machines`, `standalone_machine` | full | no | |
 | `seapath_setup_deploy_seapath_alloc.yaml` | `hypervisors` | full | no | Dynamic CPU pinning. RT relevant, confirmation names the impacted machines. |
+| `seapath_setup_deploy_seapath_webui.yaml` | `cluster_machines`, `standalone_machine` | full | no | This service, on every machine the inventory declares. The version each one gets is `seapath_webui_image`, so an update is an edit and an apply. The run ends without a final status on the machine it was launched from, because the service recording it is the service being replaced: the entry says so before the confirmation, and the record says so afterwards. See [D23](decisions.md#d23). |
 | `seapath_setup_hardening.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | yes | Ends with a reboot of every host. Sets `PermitRootLogin no` and restricts `ListenAddress`, which is why the trust targets the `ansible` account. Offered only after the rest converges cleanly. |
 
 ### Cluster

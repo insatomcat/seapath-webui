@@ -23,6 +23,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.runs import catalogue
 from app.runs.models import RunRecord, RunState
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,28 @@ class RunLocked(Exception):
     same machines concurrently. The message names the run that is already
     going, because "try again later" is not an answer.
     """
+
+
+def _interrupted_message(record: RunRecord) -> str:
+    """Why a run has no final status, said as what happened.
+
+    A playbook that replaces this service ends every run of itself this way,
+    on the machine it was launched from, and calling that an interruption
+    without saying so reads as a failure of the update. What the operator
+    checks instead is the version this page now reports.
+    """
+    entry = catalogue.get(record.playbook_id)
+    if entry is not None and entry.restarts_service:
+        return (
+            "This run replaced the service that was recording it, so it has no "
+            "final status. That is what applying it looks like. The version "
+            "answering now is on the node view."
+        )
+    return (
+        "The service restarted while this run was going. The run is "
+        "relaunchable: the playbooks are idempotent, so converging "
+        "again is the recovery."
+    )
 
 
 class RunStore:
@@ -206,11 +229,7 @@ class RunStore:
                 continue
             record.state = RunState.INTERRUPTED
             record.finished_at = datetime.now(tz=UTC)
-            record.message = (
-                "The service restarted while this run was going. The run is "
-                "relaunchable: the playbooks are idempotent, so converging "
-                "again is the recovery."
-            )
+            record.message = _interrupted_message(record)
             self.save(record)
             recovered.append(record)
             logger.warning("Marked run %s as interrupted after a restart", record.id)

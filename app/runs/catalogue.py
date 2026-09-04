@@ -180,6 +180,13 @@ class PlaybookEntry(BaseModel):
     `seapath_setup_main` picks between them per machine, so it carries none.
     """
     derivation: Derivation | None = None
+    restarts_service: bool = False
+    """This playbook replaces the container serving this page.
+
+    A run of one ends without a final status on the machine it was launched
+    from, the way a reboot does, and the record says so rather than calling it
+    a failure. See D23.
+    """
 
     @property
     def previewable(self) -> bool:
@@ -477,6 +484,35 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.SELF_TRUST,
             Precondition.PEER_REACHABLE,
         ],
+    ),
+    PlaybookEntry(
+        id="seapath_setup_deploy_seapath_webui",
+        playbook=f"{COLLECTION}.seapath_setup_deploy_seapath_webui",
+        title="Apply the management UI, including this one",
+        targets=list(_MACHINE_TARGETS),
+        # `deploy_seapath_webui` templates the quadlet and enables the unit.
+        preview=Preview.FULL,
+        reboots=Reboots.NO,
+        restarts_service=True,
+        disruption=(
+            "Replaces the seapath-webui container on every machine the "
+            "inventory declares, this one included. The page you are reading "
+            "goes away for a few seconds and comes back on the new version, "
+            "and this run ends without a final status because the service "
+            "writing its trace is the service being replaced."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
+        notes=(
+            "The version each machine gets is `seapath_webui_image` in the "
+            "inventory, so an update is an edit and an apply, like every other "
+            "change here. The role restarts the unit through a detached "
+            "systemd job, which is what lets this run reach its last task "
+            "before the container it is running in goes away."
+        ),
     ),
     PlaybookEntry(
         id="seapath_setup_hardening",

@@ -19,6 +19,7 @@ from app.core.auth import Role
 from app.core.security import require_role
 from app.hosts.models import CpuReading, DisksReading, NetworkReading
 from app.services.node import NodeService, NodeSummary
+from app.services.update import ServiceUpdate, UpdateService
 
 router = APIRouter(
     prefix="/node",
@@ -31,9 +32,24 @@ def _service(request: Request) -> NodeService:
     return request.app.state.node_service
 
 
+def _update(request: Request) -> UpdateService:
+    return request.app.state.update_service
+
+
 @router.get("", response_model=NodeSummary)
 def node(request: Request) -> NodeSummary:
     return _service(request).summary()
+
+
+@router.get("/update", response_model=ServiceUpdate)
+def update(request: Request) -> ServiceUpdate:
+    """Which version of this service the inventory asks for, and which answers.
+
+    Read only, like everything here. Replacing this service is an Ansible run
+    like any other: the reference is a variable, and applying it is what makes
+    it real. See D23.
+    """
+    return _update(request).state()
 
 
 @router.get("/cpu", response_model=CpuReading)
