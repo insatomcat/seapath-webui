@@ -84,7 +84,12 @@ def install(app: FastAPI) -> None:
         return templates.TemplateResponse(
             request,
             template,
-            {"version": __version__, "page": page, "nav": True},
+            {
+                "version": __version__,
+                "page": page,
+                "nav": True,
+                "csrf_cookie": request.app.state.cookie_names.csrf,
+            },
         )
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
@@ -118,5 +123,11 @@ def install(app: FastAPI) -> None:
         if current_session(request) is not None:
             return RedirectResponse("/", status_code=303)
         return templates.TemplateResponse(
-            request, "login.html", {"version": __version__, "nav": False}
+            request,
+            "login.html",
+            {
+                "version": __version__,
+                "nav": False,
+                "csrf_cookie": request.app.state.cookie_names.csrf,
+            },
         )

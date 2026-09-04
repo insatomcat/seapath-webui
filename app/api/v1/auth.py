@@ -60,7 +60,9 @@ def login(payload: LoginRequest, request: Request, response: Response) -> Identi
 
     sessions = request.app.state.sessions
     session = sessions.create(User(username=payload.username, role=role))
-    set_session_cookies(response, session, sessions, settings)
+    set_session_cookies(
+        response, session, sessions, settings, request.app.state.cookie_names
+    )
     audit_event("login.succeeded", user=payload.username, role=role.value)
 
     identity = _identity(request, session.user)
@@ -74,7 +76,7 @@ def logout(request: Request, response: Response) -> Response:
     if session is not None:
         request.app.state.sessions.delete(session.id)
         audit_event("logout", user=session.username)
-    clear_session_cookies(response, request.app.state.settings)
+    clear_session_cookies(response, request.app.state.cookie_names)
     response.status_code = 204
     return response
 

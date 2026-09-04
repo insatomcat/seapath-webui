@@ -11,6 +11,7 @@ import time
 from fastapi.testclient import TestClient
 
 from app.runs import fake
+from tests.conftest import cookie_names
 from tests.fakes import write_fake_collection
 
 
@@ -267,7 +268,7 @@ def test_an_interrupted_run_is_presented_as_relaunchable(
         client.post(
             "/api/v1/auth/login", json={"username": "admin", "password": "secret"}
         )
-        client.headers["X-CSRF-Token"] = client.cookies["seapath_csrf"]
+        client.headers["X-CSRF-Token"] = client.cookies[cookie_names(client).csrf]
         run_id = client.post(
             "/api/v1/runs", json={"playbook": "seapath_setup_main"}
         ).json()["run_id"]

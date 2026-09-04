@@ -14,8 +14,10 @@ from fastapi.testclient import TestClient
 
 from app.core import bootstrap
 from app.core.auth import Role, UnixGroupDirectory, User
+from app.core.security import derive_cookie_names
 from app.core.sessions import SessionStore
 from app.core.settings import Settings
+from tests.conftest import cookie_names, sign_in
 
 
 def test_login_sets_a_session_and_reports_the_identity(client: TestClient) -> None:
@@ -29,8 +31,9 @@ def test_login_sets_a_session_and_reports_the_identity(client: TestClient) -> No
     assert body["role"] == "admin"
     assert body["node"] == "seapath-machine"
     assert body["mode"] == "standalone"
-    assert client.cookies["seapath_session"]
-    assert client.cookies["seapath_csrf"] == body["csrf_token"]
+    names = cookie_names(client)
+    assert client.cookies[names.session]
+    assert client.cookies[names.csrf] == body["csrf_token"]
 
 
 def test_a_wrong_password_does_not_say_whether_the_account_exists(
@@ -73,7 +76,9 @@ def test_logout_invalidates_the_session(signed_in: TestClient) -> None:
 def test_a_forged_cookie_is_rejected_before_the_store_is_consulted(
     client: TestClient,
 ) -> None:
-    client.cookies.set("seapath_session", "forged.deadbeef", domain="testserver")
+    client.cookies.set(
+        cookie_names(client).session, "forged.deadbeef", domain="testserver"
+    )
 
     assert client.get("/api/v1/auth/me").status_code == 401
 
@@ -132,3 +137,32 @@ def test_a_missing_host_etc_is_named_instead_of_looking_like_bad_passwords(
 
     assert missing == [str(dangling)]
     assert "/run/host/etc" in caplog.text
+
+
+def test_each_node_names_its_cookies_after_its_own_secret(
+    settings: Settings,
+) -> None:
+    first = derive_cookie_names(settings, b"one-node-secret")
+    second = derive_cookie_names(settings, b"another-node-secret")
+
+    assert first.session.startswith("seapath_session_")
+    assert first.csrf.startswith("seapath_csrf_")
+    assert first.session != second.session
+    assert first.csrf != second.csrf
+
+
+def test_signing_in_to_a_second_node_leaves_the_first_session_alone(
+    signed_in: TestClient, second_node: TestClient
+) -> None:
+    # Two ssh tunnels, two clusters, one host name and therefore one cookie
+    # jar. Signing in to the second node used to overwrite the first node's
+    # cookie and sign the operator out of it.
+    sign_in(second_node, "admin")
+
+    assert second_node.get("/api/v1/auth/me").status_code == 200
+    assert signed_in.get("/api/v1/auth/me").status_code == 200
+
+    # And signing out of one is signing out of one.
+    assert second_node.post("/api/v1/auth/logout").status_code == 204
+    assert second_node.get("/api/v1/auth/me").status_code == 401
+    assert signed_in.get("/api/v1/auth/me").status_code == 200

@@ -24,7 +24,7 @@ from app.console.service import ConsoleService, ConsoleUnavailable, clamp_window
 from app.core.auth import Role
 from app.core.settings import Settings
 from app.main import create_app
-from tests.conftest import BASE_URL
+from tests.conftest import BASE_URL, cookie_names
 
 WS = "/api/v1/node/console/ws"
 
@@ -38,9 +38,10 @@ def connect(client: TestClient, query: str = "", **kwargs):
     a situation that does not exist rather than the authentication path.
     """
     headers = dict(kwargs.pop("headers", {}))
-    session = client.cookies.get("seapath_session")
+    name = cookie_names(client).session
+    session = client.cookies.get(name)
     if session is not None:
-        headers.setdefault("cookie", f"seapath_session={session}")
+        headers.setdefault("cookie", f"{name}={session}")
     return client.websocket_connect(WS + query, headers=headers, **kwargs)
 
 

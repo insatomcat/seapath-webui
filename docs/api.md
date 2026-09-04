@@ -36,9 +36,16 @@ redirects to the first.
   would have filled stays `null`. On a substation hypervisor "unknown" and
   "zero" must never look alike.
 - The CSRF token is required on every unsafe method that carries a session
-  cookie. It is handed to the browser in the readable `seapath_csrf` cookie and
-  echoed in `X-CSRF-Token`. A bearer authenticated call carries no ambient
-  authority and is exempt.
+  cookie. It is handed to the browser in a readable `seapath_csrf_<suffix>`
+  cookie and echoed in `X-CSRF-Token`. A bearer authenticated call carries no
+  ambient authority and is exempt.
+- Both cookies, `seapath_session_<suffix>` and `seapath_csrf_<suffix>`, carry a
+  suffix that identifies the node. Cookies are scoped by host and path and
+  never by port, so an operator holding an ssh tunnel to each of two clusters
+  browses both on `localhost` with one cookie jar, and fixed names would make
+  each sign in evict the previous one. The pages name their own CSRF cookie in
+  a `csrf-cookie` meta tag; a client that reads the cookie takes the name from
+  the `Set-Cookie` the login answered with.
 
 `GET /healthz`, outside `/api/v1` and outside the schema, answers without a
 session and says nothing about the machine. It exists for the container's own

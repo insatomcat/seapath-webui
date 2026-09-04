@@ -5,8 +5,15 @@
 // CSRF token is echoed consistently and the error envelope is unwrapped once.
 
 const API = (function () {
+  // Which cookie holds this node's token. The name carries a per node suffix,
+  // because two ssh tunnels put two nodes on one host name and therefore in
+  // one cookie jar, so the page has to say which of the cookies is ours.
+  const CSRF_META = document.querySelector('meta[name="csrf-cookie"]');
+  const CSRF_COOKIE = CSRF_META ? CSRF_META.content : "seapath_csrf";
+  const CSRF_PATTERN = new RegExp("(?:^|;\\s*)" + CSRF_COOKIE + "=([^;]*)");
+
   function csrfToken() {
-    const match = document.cookie.match(/(?:^|;\s*)seapath_csrf=([^;]*)/);
+    const match = document.cookie.match(CSRF_PATTERN);
     return match ? decodeURIComponent(match[1]) : "";
   }
 

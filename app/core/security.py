@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hmac
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from hashlib import sha256
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -20,6 +22,36 @@ from app.core.settings import Settings
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
+# Domain separation, so what a cookie name publishes shares nothing with any
+# other use the session secret is put to.
+_COOKIE_NAME_LABEL = b"seapath-webui/cookie-name"
+
+
+@dataclass(frozen=True)
+class CookieNames:
+    """The names this node gives its two cookies.
+
+    A cookie is scoped by host and path, and never by port: RFC 6265 section
+    8.5 says so in as many words. An operator reaching two nodes through two
+    ssh tunnels sees both as `localhost`, so one cookie jar serves both, and a
+    fixed name means signing in to the second one overwrites the first one's
+    cookie and signs it out. The suffix gives every node its own name in that
+    shared jar. It comes from the session secret, which is persisted, so it
+    survives a restart, and which is generated per machine, so no two nodes
+    collide.
+    """
+
+    session: str
+    csrf: str
+
+
+def derive_cookie_names(settings: Settings, secret: bytes) -> CookieNames:
+    suffix = hmac.new(secret, _COOKIE_NAME_LABEL, sha256).hexdigest()[:8]
+    return CookieNames(
+        session=f"{settings.session_cookie_name}_{suffix}",
+        csrf=f"{settings.csrf_cookie_name}_{suffix}",
+    )
+
 
 def get_settings_from(connection: HTTPConnection) -> Settings:
     return connection.app.state.settings
@@ -29,13 +61,16 @@ def get_sessions_from(connection: HTTPConnection) -> SessionStore:
     return connection.app.state.sessions
 
 
+def get_cookie_names_from(connection: HTTPConnection) -> CookieNames:
+    return connection.app.state.cookie_names
+
+
 # An `HTTPConnection` rather than a `Request` because the console is a
 # websocket, and a websocket handshake carries the same cookies. Everything
 # these three need, the application state and the cookies, is on the base
 # class both share.
 def current_session(connection: HTTPConnection) -> Session | None:
-    settings = get_settings_from(connection)
-    cookie = connection.cookies.get(settings.session_cookie_name)
+    cookie = connection.cookies.get(get_cookie_names_from(connection).session)
     return get_sessions_from(connection).resolve(cookie)
 
 
@@ -74,7 +109,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
     ) -> Response:
         settings: Settings = request.app.state.settings
         if request.method not in _SAFE_METHODS and request.cookies.get(
-            settings.session_cookie_name
+            get_cookie_names_from(request).session
         ):
             session = current_session(request)
             supplied = request.headers.get(settings.csrf_header_name, "")
@@ -104,13 +139,17 @@ def _csrf_failure() -> JSONResponse:
 
 
 def set_session_cookies(
-    response: Response, session: Session, sessions: SessionStore, settings: Settings
+    response: Response,
+    session: Session,
+    sessions: SessionStore,
+    settings: Settings,
+    names: CookieNames,
 ) -> None:
     max_age = settings.session_ttl_seconds
     # `secure` is unconditional: the service listens on HTTPS only, so a cookie
     # that would travel in clear is a cookie that would never be sent at all.
     response.set_cookie(
-        settings.session_cookie_name,
+        names.session,
         sessions.sign(session.id),
         max_age=max_age,
         httponly=True,
@@ -122,7 +161,7 @@ def set_session_cookies(
     # a secret on its own: it is only useful together with the session cookie a
     # foreign origin cannot read.
     response.set_cookie(
-        settings.csrf_cookie_name,
+        names.csrf,
         session.csrf_token,
         max_age=max_age,
         httponly=False,
@@ -132,6 +171,6 @@ def set_session_cookies(
     )
 
 
-def clear_session_cookies(response: Response, settings: Settings) -> None:
-    response.delete_cookie(settings.session_cookie_name, path="/")
-    response.delete_cookie(settings.csrf_cookie_name, path="/")
+def clear_session_cookies(response: Response, names: CookieNames) -> None:
+    response.delete_cookie(names.session, path="/")
+    response.delete_cookie(names.csrf, path="/")

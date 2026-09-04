@@ -35,7 +35,7 @@ from app.core.auth import (
 from app.core.bootstrap import collections_root, run_startup_tasks
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
-from app.core.security import CsrfMiddleware
+from app.core.security import CsrfMiddleware, derive_cookie_names
 from app.core.sessions import SessionStore
 from app.core.settings import Settings, get_settings
 from app.core.tls import ensure_session_secret
@@ -161,10 +161,15 @@ def create_app(
     app.state.reader = reader
     app.state.authenticator = authenticator
     app.state.role_directory = role_directory
+    secret = session_secret or ensure_session_secret(settings)
     app.state.sessions = SessionStore(
-        secret=session_secret or ensure_session_secret(settings),
+        secret=secret,
         ttl_seconds=settings.session_ttl_seconds,
     )
+    # Named after this node rather than after the service, because an operator
+    # holding an ssh tunnel to each of two clusters reaches both on localhost
+    # and the browser keeps one cookie jar for the pair. See `CookieNames`.
+    app.state.cookie_names = derive_cookie_names(settings, secret)
     app.state.node_service = NodeService(reader, settings.collection_version)
     app.state.console_service = ConsoleService(
         console_adapter or _default_console_adapter(settings),

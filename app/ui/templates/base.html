@@ -12,6 +12,11 @@ SPDX-License-Identifier: Apache-2.0
        is fetched: form controls, scrollbars, and the canvas behind the page
        while the document is still arriving. Without it they are white. #}
     <meta name="color-scheme" content="dark">
+    {# The name of this node's CSRF cookie, which the front end reads the token
+       from. It carries a per node suffix, because a browser reaching two nodes
+       through two ssh tunnels sees one host, localhost, and keeps one cookie
+       jar for both. #}
+    <meta name="csrf-cookie" content="{{ csrf_cookie }}">
     {# The styles themselves, in the document rather than a fetch away. A
        linked stylesheet is a round trip between the navigation and the first
        paint, and every hop between the four tabs rendered unstyled until it

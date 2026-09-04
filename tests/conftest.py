@@ -28,6 +28,7 @@ from fastapi.testclient import TestClient
 from app.cluster.fake import FakeMetricsClient
 from app.console.fake import FakeConsoleAdapter
 from app.core.auth import Role
+from app.core.security import CookieNames
 from app.core.settings import Settings
 from app.hosts.fake import FakeHostReader
 from app.main import create_app
@@ -161,8 +162,45 @@ def client(
 
 
 @pytest.fixture
+def second_node(
+    client: TestClient,
+    settings: Settings,
+    reader: FakeHostReader,
+    authenticator: FakeAuthenticator,
+    directory: FakeRoleDirectory,
+    run_adapter: FakeRunAdapter,
+    console_adapter: FakeConsoleAdapter,
+    metrics_client: FakeMetricsClient,
+) -> Iterator[TestClient]:
+    """Another node's service, reached by the same browser as `client`.
+
+    An operator forwarding one cluster to 8006 and another to 8007 browses two
+    services on one host name, and a cookie is scoped by host and not by port,
+    so the two share a jar. That jar is shared here, deliberately, because it
+    is the whole point: this is the situation the cookie names have to survive.
+    """
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        # Its own secret, as a second machine has.
+        session_secret=b"another-node-secret",
+        run_adapter=run_adapter,
+        console_adapter=console_adapter,
+        metrics_client=metrics_client,
+    )
+    # httpx copies a `Cookies`, and a copy would model two browsers. The jar
+    # is handed over directly so both clients keep writing into the same one.
+    with TestClient(
+        application, base_url=BASE_URL, cookies=client.cookies.jar
+    ) as test_client:
+        yield test_client
+
+
+@pytest.fixture
 def signed_in(client: TestClient) -> TestClient:
-    return _sign_in(client, "admin")
+    return sign_in(client, "admin")
 
 
 @pytest.fixture
@@ -197,22 +235,27 @@ def signed_in_with(
                 metrics_client=metrics_client,
             )
             client = stack.enter_context(TestClient(application, base_url=BASE_URL))
-            return _sign_in(client, "admin")
+            return sign_in(client, "admin")
 
         yield build
 
 
 @pytest.fixture
 def signed_in_viewer(client: TestClient) -> TestClient:
-    return _sign_in(client, "viewer")
+    return sign_in(client, "viewer")
 
 
-def _sign_in(client: TestClient, username: str) -> TestClient:
+def cookie_names(client: TestClient) -> CookieNames:
+    """The names this application's cookies carry, which are per node."""
+    return client.app.state.cookie_names
+
+
+def sign_in(client: TestClient, username: str) -> TestClient:
     response = client.post(
         "/api/v1/auth/login", json={"username": username, "password": "secret"}
     )
     assert response.status_code == 200
     # The front end reads the token from the cookie; the test client does the
     # same rather than trusting the login response body.
-    client.headers["X-CSRF-Token"] = client.cookies["seapath_csrf"]
+    client.headers["X-CSRF-Token"] = client.cookies[cookie_names(client).csrf]
     return client
