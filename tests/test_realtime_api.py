@@ -258,3 +258,67 @@ def test_a_sample_width_beyond_a_second_is_refused(signed_in: TestClient) -> Non
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_variable"
+
+
+def test_a_measurement_can_be_relaunched_from_its_own_record(
+    signed_in: TestClient, run_adapter, settings
+) -> None:
+    """The Runs page replays a record's variables, so they must be replayable.
+
+    The results folder is filled by the service and refused from a caller, and
+    recording it among the operator's own variables made the two rules
+    collide: the relaunch sent it back, the API refused it as undeclared, and
+    a measurement could be launched but never relaunched.
+    """
+    first = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "test_run_cyclictest",
+            "variables": {"cyclictest_duration": 20, "cyclictest_affinity": "4-7"},
+        },
+    ).json()["run_id"]
+    wait_for(signed_in, first)
+
+    record = signed_in.get(f"/api/v1/runs/{first}").json()
+    # Only what the operator chose. The injected path is not an operator's
+    # decision and has no business being replayed.
+    assert record["variables"] == {
+        "cyclictest_duration": 20,
+        "cyclictest_affinity": "4-7",
+    }
+
+    # Exactly what the Runs page posts when Relaunch is pressed.
+    again = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": record["playbook_id"],
+            "check": record["check"],
+            "variables": record["variables"],
+        },
+    )
+    assert again.status_code == 202
+    second = again.json()["run_id"]
+    wait_for(signed_in, second)
+
+    # And the relaunch fetches into its own directory. Replaying the recorded
+    # path would have written the second run's results over the first's.
+    assert run_adapter.requests[1].extra_vars["cyclictest_result_folder"] == str(
+        settings.runs_dir / second / "results"
+    )
+
+
+def test_the_recorded_command_still_names_the_results_folder(
+    signed_in: TestClient, settings
+) -> None:
+    # Keeping the path out of `variables` must not cost the record its exact
+    # invocation. `command` is built from the request, so it carries every
+    # extra var the run was actually given.
+    run_id = signed_in.post(
+        "/api/v1/runs", json={"playbook": "test_run_hwlatdetect"}
+    ).json()["run_id"]
+    wait_for(signed_in, run_id)
+
+    command = " ".join(signed_in.get(f"/api/v1/runs/{run_id}").json()["command"])
+
+    assert str(settings.runs_dir / run_id / "results") in command
+    assert "hwlatdetect_result_folder" in command

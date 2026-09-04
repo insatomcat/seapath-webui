@@ -369,15 +369,23 @@ class RunService:
             )
 
         state = self._inventory.state()
-        extra_vars = self._accepted_variables(entry, variables or {}, state)
+        chosen = self._accepted_variables(entry, variables or {}, state)
 
         run_id = _new_run_id()
+        extra_vars = dict(chosen)
         if entry.results_variable:
             # Where a measuring playbook fetches what it measured. The service
-            # fills it, never the caller: it is a path inside this container.
-            # Recorded with the other variables all the same, because the
-            # record is the exact invocation and hiding half of it would make
-            # the command it shows unreproducible.
+            # fills it, never the caller: it is a path inside this container,
+            # and it names *this* run.
+            #
+            # It goes to the request and stays out of `record.variables`, which
+            # is what a relaunch replays. Recording it made a relaunch send it
+            # back as a caller supplied variable, which the API refuses because
+            # no catalogue entry declares it, so a measurement could be
+            # launched and never relaunched. Had it been accepted the outcome
+            # was worse: the second run would have fetched its results into the
+            # first run's directory. The exact invocation is still recorded, in
+            # `command`, which is built from the request.
             extra_vars[entry.results_variable] = str(self._store.results_dir(run_id))
         record = RunRecord(
             id=run_id,
@@ -387,7 +395,7 @@ class RunService:
             launched_by=launched_by,
             inventory_commit=state.commit,
             collection_version=self.collection_version(),
-            variables=extra_vars,
+            variables=chosen,
         )
 
         # The lock before the directory: two operators must not converge the

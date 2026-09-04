@@ -190,9 +190,10 @@ class RealtimeService:
             finished_at=record.finished_at,
             launched_by=record.launched_by,
             inventory_commit=record.inventory_commit,
-            # The injected results folder is a path inside this container and
-            # means nothing to a reader of the page, so the operator's own
-            # parameters are what is shown back.
+            # Records written before the injected path was kept out of them
+            # still carry it, and it is a path inside this container that means
+            # nothing to a reader of the page. New records hold only what the
+            # operator chose, which is what a relaunch replays.
             variables={
                 name: value
                 for name, value in record.variables.items()
