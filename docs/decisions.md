@@ -858,7 +858,7 @@ That buys three things beyond the privileges:
 | `cyclictest` | A catalogue entry, run through Ansible, histogram parsed from the fetched artefact and charted on `/realtime` |
 | `systemcheck` | The conformance report on `/realtime`, with every check that has an inventory variable behind it compared against the inventory rather than against an opinion |
 | `seapath`, the CPU map | The core grouped map on `/realtime`, drawn from `/node/cpu`. The per VM colouring waits for M2, which is when VM definitions enter the inventory |
-| `hwlatdetect` | Deferred until the role exists upstream. See below |
+| `hwlatdetect` | A role and a playbook written for `seapath-ansible`, and a second catalogue entry here |
 
 `systemcheck` is the tab that gained the most from moving. It ran ten checks
 and judged each against a fixed opinion, which is all a standalone tool can do.
@@ -889,26 +889,122 @@ operator reads while choosing an isolation. Per VM pinning arrives with M2,
 from the VM definitions in the inventory, which is the declarative side of the
 same question.
 
-### What is deferred, and why
+### What was written upstream to make this possible
 
-`hwlatdetect` has no upstream role. Writing one is the right way to add it, and
-it belongs in `seapath-ansible` where the CI runs it. It measures system
-management interrupts, which are invisible to the kernel and therefore to every
-check on this page, so the gap is worth closing. Until the role exists,
-`/realtime` says ACPI is present and that `hwlatdetect` is what measures what
-ACPI hides.
+Neither measurement was reachable as a playbook. `cyclictest` had a role, used
+only from `ci_all_machines_tests.yaml`, which runs it after the Yocto
+functional tests and is therefore unusable on a Debian machine or on a running
+deployment. `hwlatdetect` had no role at all.
 
-`test_run_cyclictest.yaml` did not exist upstream either. The role has only
-ever been reachable through `ci_all_machines_tests.yaml`, which runs it after
-the Yocto functional tests, so it cannot be used on a Debian machine or on a
-running deployment. A playbook of twenty lines makes the role usable on its
-own; until it lands in the shipped collection, the entry reports itself
-unavailable through `playbook_present`, which is what [D12](#d12) prescribes
-for exactly this case.
+Both now exist in `seapath-ansible`: `test_run_cyclictest.yaml` wraps the
+existing role, and `hwlatdetect` is a new role plus `test_run_hwlatdetect.yaml`.
+Writing them there rather than carrying the commands here is the same decision
+as everything else in this document: what a machine runs comes from the
+collection the CI tests, and a measurement is no exception. Where a site pins a
+collection that predates them, both entries report themselves unavailable
+through `playbook_present`, which is what [D12](#d12) prescribes.
+
+`hwlatdetect` earns its place next to `cyclictest` rather than inside it,
+because only one of the two has anything to do with the inventory. Every
+conformance check on this page reads something the kernel knows, and an SMI is
+what the kernel is never told about. So a machine that passes every check and
+still misses its deadline is either a firmware problem or a configuration one,
+and this is the only measurement that separates them. Nothing in an inventory
+reaches it, and the page says so: the fix is in the BIOS.
+
+The role records the absence of the `hwlat` tracer in its fetched result
+instead of failing. A measurement plays every machine the inventory declares
+and the collection sets `any_errors_fatal`, so a kernel built without
+`CONFIG_HWLAT_TRACER` would otherwise take down a run that has already loaded
+the others. The page keeps that case visibly apart from a clean result:
+reporting an unmeasurable machine as a machine with no interruptions would tell
+an operator their firmware is clean when nobody looked.
 
 ### The consequence for `rtperfui`
 
-It can be retired once the `hwlatdetect` role exists and M2 brings the per VM
-map. Retiring it is the point rather than a side effect: a second web service
-on every hypervisor, privileged, with its own port and its own trust story, is
+It can be retired. All four of its tabs are answered here or by something that
+already existed: `cyclictest` and `hwlatdetect` as runs, `systemcheck` as the
+conformance report, and the CPU map by [D25](#d25), which found that
+`seapath-alloc` had already removed the problem that map was drawing.
+
+Retiring it is the point rather than a side effect: a second web service on
+every hypervisor, privileged, with its own port and its own trust story, is
 host surface this design spent considerable effort not having.
+
+## D25 - Settled: the per VM CPU map is dropped, because seapath-alloc removed the problem it drew
+
+[D24](#d24) deferred `rtperfui`'s per VM CPU map to M2, on the grounds that it
+needed VM definitions in the inventory. That reading was wrong about what the
+map was for, and reading `deploy_seapath_alloc` is what corrected it.
+
+### What the map was working around
+
+In `rtperfui`, a core's occupant is answered by correlating two remote sources:
+the Pacemaker CIB says which node a VM is running on, and the VM's libvirt XML,
+fetched out of Ceph RBD image metadata, says which cores its `<cputune>` asked
+for. The tool also falls back to `nsenter` into PID 1 when it cannot reach
+`cibadmin` from its container.
+
+That machinery exists because of a fact that is no longer true: pinning was
+**declared statically in the libvirt XML**, so the XML lived with the disk in
+Ceph, and **placement was decided by Pacemaker**, so answering "which core is
+this VM on" meant first answering "which node is this VM on". Two remote
+lookups for a question about one machine.
+
+`seapath-alloc` deleted both halves. Pinning is now decided **locally, at VM
+start and at every migration**, by the node the VM landed on, and the result is
+read back from `/proc`. `ARCHITECTURE.md` states the principle: *no daemon, no
+persistent allocation database, the kernel is always the source of truth*. So
+there is nothing to correlate across a cluster any more. The user's reading is
+right, and it goes further than deferring the feature.
+
+### Why the map does not move here either
+
+Two reasons, and either is sufficient.
+
+**It cannot be read from this container.** `status.collect()` derives occupancy
+from `/proc/*/task/*/status`, the affinity of every QEMU thread on the machine.
+This container has its own PID namespace and sees none of them.
+[AGENTS.md](../AGENTS.md) forbids `--pid=host` by name, which is precisely the
+mount-and-namespace fight [D13](#d13) refused, and `rtperfui`'s `nsenter`
+fallback is a larger version of the route [D9](#d9) already declined.
+
+**It is already published.** `seapath-alloc export` writes
+`/var/lib/prometheus/node_exporter/seapath-alloc.prom`, served by the
+`node_exporter` every SEAPATH node runs, and the repository ships two Grafana
+dashboards for it. Which core a VM's vCPU landed on *this boot, after this
+migration* is live state by [D13](#d13)'s own definition, it is collected with
+history, and it is alerted on. A page in a browser nobody has open would be a
+second source of truth for it, worse in every respect.
+
+So what stays on the Real time page is the topology and the isolated set:
+which cores exist, which are isolated, and which physical core each thread
+belongs to. That is what a machine **is**, it comes from the read only `/sys`
+this container already has, and it is what an operator reads while choosing an
+isolation.
+
+### What this service should interface with instead
+
+The **declarative** half, which is the half Prometheus cannot answer and the
+half that belongs in an inventory. `deploy_vms_cluster` and
+`deploy_vms_standalone` already take a `vm_pinning_profile` variable per VM,
+carried to the machine as RBD image metadata (`_seapath_alloc`) in a cluster or
+as `/etc/seapath/alloc.d/<vm>.yaml` on a standalone node. It is an ordinary
+inventory variable applied by an ordinary Ansible run, which is exactly the
+shape this service exists to edit.
+
+That gives M2 a sharper target than "a CPU map with VM colours":
+
+- **Edit `vm_pinning_profile`** with the rest of the VM's definition, as
+  inventory, validated against the profile schema `config.py` documents.
+- **Report conformance**, which is the question no exporter answers: does this
+  node's pool match what the profiles asked for. `seapath-alloc` already
+  computes the answer and exports it as `seapath_alloc_active_fallbacks`: a
+  *hard* fallback means an actor that asked for isolation is running on
+  housekeeping cores. That is a machine failing to deliver its declared state,
+  and saying so belongs on the conformance list beside `isolcpus` and the tuned
+  profile.
+
+Neither is built yet, and both are M2. What is settled here is the direction:
+this service edits the profile and checks the outcome against it, and never
+draws the placement.

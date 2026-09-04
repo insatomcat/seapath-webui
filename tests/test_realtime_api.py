@@ -168,7 +168,8 @@ def test_a_measurement_lists_the_histogram_the_run_fetched(
     measurements = signed_in.get("/api/v1/realtime/measurements").json()
 
     assert [item["run_id"] for item in measurements] == [run_id]
-    result = measurements[0]["results"][0]
+    assert measurements[0]["kind"] == "cyclictest"
+    result = measurements[0]["latency"][0]
     assert result["host"] == "node1"
     assert [thread["max_us"] for thread in result["threads"]] == [15, 12, 9, 11]
     # The pair that makes a latency figure worth keeping: which desired state
@@ -185,3 +186,75 @@ def test_a_convergence_run_is_absent_from_the_measurement_history(
     signed_in.post("/api/v1/runs", json={"playbook": "seapath_setup_main"})
 
     assert signed_in.get("/api/v1/realtime/measurements").json() == []
+
+
+def test_the_two_measurements_are_one_history_told_apart_by_kind(
+    signed_in: TestClient, settings
+) -> None:
+    """Both kinds in one list, each carrying only its own results.
+
+    They answer complementary questions, so an operator reads them together:
+    cyclictest reports what the scheduler delivered, hwlatdetect what the
+    firmware took without telling the kernel.
+    """
+    from tests.test_hwlatdetect import CLEAN
+
+    latency = signed_in.post(
+        "/api/v1/runs", json={"playbook": "test_run_cyclictest"}
+    ).json()["run_id"]
+    wait_for(signed_in, latency)
+    (settings.runs_dir / latency / "results" / "cyclictest_node1.txt").write_text(SMP)
+
+    hardware = signed_in.post(
+        "/api/v1/runs", json={"playbook": "test_run_hwlatdetect"}
+    ).json()["run_id"]
+    wait_for(signed_in, hardware)
+    (settings.runs_dir / hardware / "results" / "hwlatdetect_node1.txt").write_text(
+        CLEAN
+    )
+
+    both = signed_in.get("/api/v1/realtime/measurements").json()
+    assert {item["kind"] for item in both} == {"cyclictest", "hwlatdetect"}
+
+    only = signed_in.get("/api/v1/realtime/measurements?kind=hwlatdetect").json()
+    assert [item["run_id"] for item in only] == [hardware]
+    assert only[0]["interruptions"][0]["samples_recorded"] == 0
+    # A cyclictest run carries no interruptions and the reverse, so a page
+    # rendering one kind never has to guess which field to read.
+    assert only[0]["latency"] == []
+
+
+def test_the_hwlatdetect_results_folder_is_filled_by_the_service(
+    signed_in: TestClient, run_adapter, settings
+) -> None:
+    run_id = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "test_run_hwlatdetect",
+            "variables": {"hwlatdetect_duration": 300, "hwlatdetect_threshold": 20},
+        },
+    ).json()["run_id"]
+    wait_for(signed_in, run_id)
+
+    request = run_adapter.requests[0]
+    assert request.playbook == "seapath.ansible.test_run_hwlatdetect"
+    assert request.extra_vars["hwlatdetect_result_folder"] == str(
+        settings.runs_dir / run_id / "results"
+    )
+    assert request.extra_vars["hwlatdetect_duration"] == 300
+
+
+def test_a_sample_width_beyond_a_second_is_refused(signed_in: TestClient) -> None:
+    # The width is the interval during which the machine's interrupts are held
+    # off. Beyond a second that is a machine taken away from its guests rather
+    # than measured.
+    response = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "test_run_hwlatdetect",
+            "variables": {"hwlatdetect_width": 5_000_000},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_variable"

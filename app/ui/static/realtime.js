@@ -12,10 +12,77 @@
 // one confirmation across everything that touches a machine.
 
 (function () {
+  // Two measurements, kept apart because they answer different questions:
+  // cyclictest reports what the scheduler delivered, which the tuning can
+  // change, and hwlatdetect what the firmware took without telling the kernel,
+  // which no inventory variable reaches.
+  const MEASUREMENTS = {
+    cyclictest: {
+      playbook: "test_run_cyclictest",
+      form: "measure-form",
+      blocked: "measure-blocked",
+      loading: "latency-loading",
+      panel: "latency",
+      picker: "measure-picker",
+      body: "latency-body",
+      lead: "latency-lead",
+      button: "measure-go",
+      results: (item) => item.latency,
+      absent:
+        "The collection installed on this node has no test_run_cyclictest " +
+        "playbook, so the latency cannot be measured from here. Past " +
+        "measurements are still listed below.",
+      done:
+        "cyclictest, run through Ansible on the machines the inventory " +
+        "declares. Every measurement carries the inventory commit it was " +
+        "taken under, because a latency figure without the isolation behind " +
+        "it is an anecdote.",
+      empty:
+        "No latency has been measured from this node yet. cyclictest runs on " +
+        "the machines over the same SSH path a convergence uses, so nothing " +
+        "measures inside this container and nothing here runs at real time " +
+        "priority.",
+      fields: {
+        cyclictest_duration: "measure-duration",
+        cyclictest_priority: "measure-priority",
+        cyclictest_affinity: "measure-affinity",
+      },
+    },
+    hwlatdetect: {
+      playbook: "test_run_hwlatdetect",
+      form: "hwlat-form",
+      blocked: "hwlat-blocked",
+      loading: "hwlat-loading",
+      panel: "hwlat",
+      picker: "hwlat-picker",
+      body: "hwlat-body",
+      lead: "hwlat-lead",
+      button: "hwlat-go",
+      results: (item) => item.interruptions,
+      absent:
+        "The collection installed on this node has no test_run_hwlatdetect " +
+        "playbook, so the hardware cannot be measured from here. Past " +
+        "measurements are still listed below.",
+      done:
+        "hwlatdetect, run through Ansible on the machines the inventory " +
+        "declares.",
+      empty:
+        "The firmware has not been measured from this node yet. A machine " +
+        "that passes every check above and still misses its deadline is the " +
+        "case this answers.",
+      fields: {
+        hwlatdetect_duration: "hwlat-duration",
+        hwlatdetect_threshold: "hwlat-threshold",
+        hwlatdetect_width: "hwlat-width",
+        hwlatdetect_window: "hwlat-window",
+      },
+    },
+  };
+
   const state = {
-    catalogue: null,
-    measurements: [],
-    selected: null,
+    catalogue: {},
+    measurements: { cyclictest: [], hwlatdetect: [] },
+    selected: { cyclictest: null, hwlatdetect: null },
     canLaunch: false,
     machines: [],
   };
@@ -186,41 +253,38 @@
   // Measurement
 
   async function loadCatalogue() {
+    let playbooks = [];
     try {
-      const playbooks = await API.get("/playbooks");
-      state.catalogue = playbooks.find(
-        (item) => item.entry.id === "test_run_cyclictest"
-      );
+      playbooks = await API.get("/playbooks");
     } finally {
       // Even when the catalogue could not be read. A launch panel that stays
       // blank says nothing, and the operator is left looking for a button that
       // was never rendered rather than reading why.
-      renderLaunch();
+      Object.entries(MEASUREMENTS).forEach(([kind, spec]) => {
+        state.catalogue[kind] = playbooks.find(
+          (item) => item.entry.id === spec.playbook
+        );
+        renderLaunch(kind);
+      });
     }
   }
 
-  function renderLaunch() {
-    const form = element("measure-form");
-    const blocked = element("measure-blocked");
-    if (!state.catalogue) {
+  function renderLaunch(kind) {
+    const spec = MEASUREMENTS[kind];
+    const entry = state.catalogue[kind];
+    const form = element(spec.form);
+    const blocked = element(spec.blocked);
+    if (!entry) {
       // Either the collection has no such playbook, or the catalogue could not
       // be read at all. The sentence covers both, since neither leaves a
       // button that would work.
-      // The collection this image ships has no such playbook. Said as what it
-      // is rather than by hiding the card: a site pinned to a collection that
-      // predates it needs to know why the button is absent, and D12 makes
-      // reporting it the rule rather than offering a button that fails at the
-      // first task.
-      blocked.textContent =
-        "The collection installed on this node has no test_run_cyclictest " +
-        "playbook, so the measurement cannot be launched from here. Past " +
-        "measurements are still listed below.";
+      blocked.textContent = spec.absent;
       blocked.hidden = false;
       form.hidden = true;
       return;
     }
-    if (!state.catalogue.available) {
-      blocked.textContent = state.catalogue.unmet.join(" ");
+    if (!entry.available) {
+      blocked.textContent = entry.unmet.join(" ");
       blocked.hidden = false;
       form.hidden = true;
       return;
@@ -229,51 +293,47 @@
     form.hidden = !state.canLaunch;
   }
 
-  async function loadMeasurements() {
-    state.measurements = await API.get("/realtime/measurements?limit=10");
-    element("latency-loading").hidden = true;
-    const done = state.measurements.filter((item) => item.results.length);
-    element("latency").hidden = false;
-    element("latency-lead").textContent = done.length
-      ? "cyclictest, run through Ansible on the machines the inventory " +
-        "declares. Every measurement carries the inventory commit it was " +
-        "taken under, because a latency figure without the isolation behind " +
-        "it is an anecdote."
-      : "No latency has been measured from this node yet. cyclictest runs on " +
-        "the machines over the same SSH path a convergence uses, so nothing " +
-        "measures inside this container and nothing here runs at real time " +
-        "priority.";
-    state.selected = done.length ? done[0].run_id : null;
-    renderPicker();
-    renderMeasurement();
+  async function loadMeasurements(kind) {
+    const spec = MEASUREMENTS[kind];
+    const items = await API.get("/realtime/measurements?limit=10&kind=" + kind);
+    state.measurements[kind] = items;
+    element(spec.loading).hidden = true;
+    element(spec.panel).hidden = false;
+    const done = items.filter((item) => spec.results(item).length);
+    element(spec.lead).textContent = done.length ? spec.done : spec.empty;
+    state.selected[kind] = done.length ? done[0].run_id : null;
+    renderPicker(kind);
+    renderMeasurement(kind);
   }
 
-  function renderPicker() {
-    const picker = element("measure-picker");
+  function renderPicker(kind) {
+    const spec = MEASUREMENTS[kind];
+    const picker = element(spec.picker);
     picker.replaceChildren();
-    state.measurements.forEach((item) => {
+    state.measurements[kind].forEach((item) => {
       const button = document.createElement("button");
       button.type = "button";
-      if (item.run_id === state.selected) {
+      if (item.run_id === state.selected[kind]) {
         button.classList.add("current");
       }
       button.textContent =
         (item.started_at ? item.started_at.slice(0, 16).replace("T", " ") : "?") +
-        (item.results.length ? "" : " - " + item.state);
+        (spec.results(item).length ? "" : " - " + item.state);
       button.addEventListener("click", () => {
-        state.selected = item.run_id;
-        renderPicker();
-        renderMeasurement();
+        state.selected[kind] = item.run_id;
+        renderPicker(kind);
+        renderMeasurement(kind);
       });
       picker.append(button);
     });
   }
 
-  function renderMeasurement() {
-    const body = element("latency-body");
+  function renderMeasurement(kind) {
+    const spec = MEASUREMENTS[kind];
+    const body = element(spec.body);
     body.replaceChildren();
-    const measurement = state.measurements.find(
-      (item) => item.run_id === state.selected
+    const measurement = state.measurements[kind].find(
+      (item) => item.run_id === state.selected[kind]
     );
     if (!measurement) {
       return;
@@ -293,8 +353,10 @@
     ]);
     body.append(meta);
 
-    measurement.results.forEach((result) => {
-      body.append(renderResult(result));
+    const render =
+      kind === "cyclictest" ? renderLatency : renderInterruptions;
+    spec.results(measurement).forEach((result) => {
+      body.append(render(result));
     });
 
     const link = document.createElement("p");
@@ -306,7 +368,116 @@
     body.append(link);
   }
 
-  function renderResult(result) {
+  // hwlatdetect returns a list of gaps rather than a distribution, and usually
+  // an empty one. So this card is a verdict and a table: on a clean machine the
+  // whole result is "nothing above the threshold", and on a dirty one what
+  // matters is when each interruption happened and how long it lasted.
+  function renderInterruptions(result) {
+    const section = document.createElement("section");
+    const heading = document.createElement("h3");
+    heading.textContent = result.host;
+    section.append(heading);
+
+    if (!result.supported || result.message) {
+      const note = document.createElement("p");
+      // A kernel that cannot be asked is reported apart from a kernel that was
+      // asked and found nothing. Reading the first as a clean machine is the
+      // one mistake this card must never invite.
+      note.className = result.supported ? "warning" : "legend";
+      note.textContent = result.message;
+      section.append(note);
+      return section;
+    }
+
+    const verdict = document.createElement("p");
+    const worst = result.interruptions.length
+      ? Math.max.apply(
+          null,
+          result.interruptions.map((item) =>
+            Math.max(item.inner_us, item.outer_us)
+          )
+        )
+      : null;
+    if (worst === null) {
+      verdict.className = "legend";
+      // The sample count is deliberately absent. hwlatdetect's "Samples
+      // recorded" counts the gaps it saw, so on a clean machine it is zero,
+      // and quoting it here read as "nothing was measured" on exactly the
+      // machine that was measured and came back clean.
+      verdict.textContent =
+        "No interruption above the threshold. The firmware took nothing this " +
+        "run could see.";
+      section.append(verdict);
+      return section;
+    }
+
+    verdict.className = "warning";
+    verdict.textContent =
+      result.interruptions.length +
+      " interruption" +
+      (result.interruptions.length > 1 ? "s" : "") +
+      " above the threshold, the worst " +
+      worst +
+      "us. That is time the kernel never saw, so no isolation and no priority " +
+      "protects a guest from it. The fix is in the firmware settings.";
+    section.append(verdict, interruptionTable(result));
+
+    if (result.command) {
+      const command = document.createElement("p");
+      command.className = "legend";
+      const code = document.createElement("code");
+      code.textContent = result.command;
+      command.append(code);
+      section.append(command);
+    }
+    return section;
+  }
+
+  function interruptionTable(result) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "table-scroll";
+    const table = document.createElement("table");
+    const head = document.createElement("thead");
+    head.innerHTML =
+      "<tr><th>When</th><th>CPU</th><th>Inner</th><th>Outer</th>" +
+      "<th>Worst</th></tr>";
+    const body = document.createElement("tbody");
+    // The longest first: on a machine with hundreds of small gaps and one long
+    // one, the long one is the whole finding.
+    const ordered = result.interruptions.slice().sort(
+      (a, b) =>
+        Math.max(b.inner_us, b.outer_us) - Math.max(a.inner_us, a.outer_us)
+    );
+    ordered.slice(0, 50).forEach((item) => {
+      const row = document.createElement("tr");
+      [
+        item.timestamp === null
+          ? "unknown"
+          : new Date(item.timestamp * 1000).toISOString().slice(11, 19),
+        item.cpu === null ? "unknown" : String(item.cpu),
+        item.inner_us + "us",
+        item.outer_us + "us",
+        Math.max(item.inner_us, item.outer_us) + "us",
+      ].forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      });
+      body.append(row);
+    });
+    table.append(head, body);
+    wrapper.append(table);
+    if (ordered.length > 50) {
+      const more = document.createElement("p");
+      more.className = "legend";
+      more.textContent =
+        "The 50 longest of " + ordered.length + ". The run holds them all.";
+      wrapper.append(more);
+    }
+    return wrapper;
+  }
+
+  function renderLatency(result) {
     const section = document.createElement("section");
     const heading = document.createElement("h3");
     heading.textContent = result.host;
@@ -562,33 +733,31 @@
   // catalogue entry wrote: a measurement disturbs a live substation through
   // what it runs rather than through what it writes, and the operator needs
   // that sentence rather than the convergence one.
-  function confirm() {
+  function confirm(kind) {
+    const spec = MEASUREMENTS[kind];
     const modal = element("measure-confirm");
     const go = element("measure-confirm-go");
     const error = element("measure-confirm-error");
     error.hidden = true;
 
-    const variables = {
-      cyclictest_duration: Number(element("measure-duration").value),
-      cyclictest_priority: Number(element("measure-priority").value),
-      cyclictest_affinity: element("measure-affinity").value.trim(),
-    };
+    const variables = {};
+    Object.entries(spec.fields).forEach(([name, id]) => {
+      const field = element(id);
+      variables[name] =
+        field.type === "number" ? Number(field.value) : field.value.trim();
+    });
 
+    element("measure-confirm-title").textContent =
+      state.catalogue[kind].entry.title;
     // The values the operator actually chose, rather than the catalogue's
     // defaults. A confirmation that named a priority the form no longer holds
     // is a sentence an operator learns to stop reading, and this is the page
     // where that costs the most.
     element("measure-disruption").textContent =
-      state.catalogue.entry.disruption +
-      " This one runs for " +
-      variables.cyclictest_duration +
-      "s at priority " +
-      variables.cyclictest_priority +
-      ", on " +
-      (variables.cyclictest_affinity === "smp"
-        ? "every online CPU"
-        : "CPUs " + variables.cyclictest_affinity) +
-      " of " +
+      state.catalogue[kind].entry.disruption +
+      " " +
+      settings(kind, variables) +
+      " on " +
       (state.machines.join(", ") || "no machine, the inventory is empty") +
       ". It changes nothing on them.";
 
@@ -597,7 +766,7 @@
       go.disabled = true;
       try {
         const started = await API.post("/runs", {
-          playbook: "test_run_cyclictest",
+          playbook: spec.playbook,
           check: false,
           variables,
         });
@@ -613,10 +782,46 @@
     modal.hidden = false;
   }
 
+  // The chosen settings in the sentence's own words. Written per measurement
+  // because the numbers mean different things: a duration and a priority for
+  // one, a duration and a sampled fraction for the other, and the fraction is
+  // what an operator is really choosing when they set width and window.
+  function settings(kind, variables) {
+    if (kind === "cyclictest") {
+      return (
+        "This one runs for " +
+        variables.cyclictest_duration +
+        "s at priority " +
+        variables.cyclictest_priority +
+        ", on " +
+        (variables.cyclictest_affinity === "smp"
+          ? "every online CPU"
+          : "CPUs " + variables.cyclictest_affinity) +
+        " of"
+      );
+    }
+    const share = Math.round(
+      (variables.hwlatdetect_width / variables.hwlatdetect_window) * 100
+    );
+    return (
+      "This one runs for " +
+      variables.hwlatdetect_duration +
+      "s, holding interrupts off " +
+      variables.hwlatdetect_width +
+      "us out of every " +
+      variables.hwlatdetect_window +
+      "us, so about " +
+      share +
+      "% of that time, on"
+    );
+  }
+
   element("measure-cancel").addEventListener("click", () => {
     element("measure-confirm").hidden = true;
   });
-  element("measure-go").addEventListener("click", confirm);
+  Object.entries(MEASUREMENTS).forEach(([kind, spec]) => {
+    element(spec.button).addEventListener("click", () => confirm(kind));
+  });
 
   async function loadMachines() {
     const payload = await API.get("/inventory");
@@ -633,13 +838,17 @@
       loadChecks(),
       loadMap(),
       loadMachines().then(loadCatalogue),
-      loadMeasurements(),
+      loadMeasurements("cyclictest"),
+      loadMeasurements("hwlatdetect"),
     ]);
   }
 
   start().catch((failure) => {
     showBanner([failure.message]);
-    element("checks-loading").hidden = true;
-    element("latency-loading").hidden = true;
+    // Every spinner, so a page that failed halfway does not sit there looking
+    // like a page still loading.
+    ["checks-loading", "latency-loading", "hwlat-loading"].forEach((id) => {
+      element(id).hidden = true;
+    });
   });
 })();

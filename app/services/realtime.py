@@ -42,6 +42,7 @@ from app.hosts.reader import HostReader
 from app.inventory.model import NodeConfig, Role
 from app.inventory.service import InventoryService
 from app.runs.cyclictest import CyclictestResult
+from app.runs.hwlatdetect import HwlatdetectResult
 from app.runs.models import RunRecord, RunState
 from app.runs.service import RunService
 
@@ -95,12 +96,36 @@ class RealtimeConformance(Reading):
         return sum(1 for check in self.checks if check.status is Status.WARNING)
 
 
-MEASUREMENT_PLAYBOOK = "test_run_cyclictest"
+class MeasurementKind(str, Enum):
+    """Which question a measurement run asked.
+
+    The two are complementary rather than alternatives, and the page keeps them
+    apart because their answers are of different kinds. `cyclictest` measures
+    what the scheduler delivered, which the tuning can change. `hwlatdetect`
+    measures what the firmware took without telling the kernel, which no
+    variable in the inventory reaches.
+    """
+
+    CYCLICTEST = "cyclictest"
+    HWLATDETECT = "hwlatdetect"
+
+
+# The catalogue entry behind each, and the variable the service fills with the
+# run's own results directory. Keyed by playbook id, which is what a run record
+# carries, so a run launched from the System page is recognised here too.
+MEASUREMENT_PLAYBOOKS = {
+    "test_run_cyclictest": MeasurementKind.CYCLICTEST,
+    "test_run_hwlatdetect": MeasurementKind.HWLATDETECT,
+}
+_RESULTS_VARIABLES = frozenset(
+    {"cyclictest_result_folder", "hwlatdetect_result_folder"}
+)
 
 
 class Measurement(BaseModel):
-    """One cyclictest run, and what it brought back."""
+    """One measurement run, and what it brought back."""
 
+    kind: MeasurementKind
     run_id: str
     state: RunState
     started_at: datetime | None = None
@@ -114,7 +139,14 @@ class Measurement(BaseModel):
     record already carries the collection version beside it.
     """
     variables: dict[str, object] = Field(default_factory=dict)
-    results: list[CyclictestResult] = Field(default_factory=list)
+    latency: list[CyclictestResult] = Field(default_factory=list)
+    """Filled on a cyclictest run, one entry per machine."""
+    interruptions: list[HwlatdetectResult] = Field(default_factory=list)
+    """Filled on a hwlatdetect run, one entry per machine."""
+
+    @property
+    def machines(self) -> int:
+        return len(self.latency) + len(self.interruptions)
 
 
 class RealtimeService:
@@ -130,21 +162,28 @@ class RealtimeService:
         self._runs = runs
         self._hostname = hostname
 
-    def measurements(self, limit: int = 10) -> list[Measurement]:
-        """The cyclictest runs this node has launched, newest first.
+    def measurements(
+        self, kind: MeasurementKind | None = None, limit: int = 10
+    ) -> list[Measurement]:
+        """The measurement runs this node has launched, newest first.
 
         Runs, not readings. The measurement happened on the machines through
         Ansible and left a record like any other run, so the history is the run
         history filtered rather than a second store of results.
         """
-        return [
-            self._measurement(record)
-            for record in self._runs.list(limit=200)
-            if record.playbook_id == MEASUREMENT_PLAYBOOK
-        ][:limit]
+        found = []
+        for record in self._runs.list(limit=200):
+            of = MEASUREMENT_PLAYBOOKS.get(record.playbook_id)
+            if of is None or (kind is not None and of is not kind):
+                continue
+            found.append(self._measurement(record, of))
+            if len(found) >= limit:
+                break
+        return found
 
-    def _measurement(self, record: RunRecord) -> Measurement:
+    def _measurement(self, record: RunRecord, kind: MeasurementKind) -> Measurement:
         return Measurement(
+            kind=kind,
             run_id=record.id,
             state=record.state,
             started_at=record.started_at,
@@ -157,9 +196,18 @@ class RealtimeService:
             variables={
                 name: value
                 for name, value in record.variables.items()
-                if name != "cyclictest_result_folder"
+                if name not in _RESULTS_VARIABLES
             },
-            results=self._runs.results(record.id),
+            latency=(
+                self._runs.latency_results(record.id)
+                if kind is MeasurementKind.CYCLICTEST
+                else []
+            ),
+            interruptions=(
+                self._runs.interruption_results(record.id)
+                if kind is MeasurementKind.HWLATDETECT
+                else []
+            ),
         )
 
     def conformance(self) -> RealtimeConformance:

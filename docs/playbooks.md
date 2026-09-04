@@ -162,8 +162,9 @@ no preview button at all rather than a button that lies.
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
 | `test_run_cyclictest.yaml` | `cluster_machines`, `standalone_machine` | none | no | The `cyclictest` role on its own. Copies a script to a temporary directory, runs `cyclictest`, fetches the histogram, leaves. Changes nothing on the machines. Launched from the Real time page, where its parameters and its chart are. |
+| `test_run_hwlatdetect.yaml` | `cluster_machines`, `standalone_machine` | none | no | The `hwlatdetect` role on its own. Measures the interruptions the kernel never sees. Records the absence of the `hwlat` tracer in the fetched result rather than failing, so one kernel that cannot answer does not take down a run that has already loaded the other machines. |
 
-The one entry in the catalogue that measures rather than converges, and the
+The two entries in the catalogue that measure rather than converge, and the
 distinction earns a flag on the entry (`measures`) because the confirmation has
 to say a different sentence. A convergence is dangerous through what it
 *writes*. This is dangerous through what it *runs*: a thread per measured CPU
@@ -180,14 +181,27 @@ followed by a `fetch` of the file that command wrote. Check mode skips the
 command, the fetch then has nothing to bring back, and the preview would report
 a green run that measured nothing.
 
-Three variables, each checked before it reaches a command line on every
-machine: `cyclictest_duration` in seconds, `cyclictest_priority` bounded to
-1-98, and `cyclictest_affinity`, which is `smp` or a CPU list. 99 is refused
-because it sits above the kernel's own threads on a PREEMPT_RT machine, which
-is how a measurement wedges the host it was measuring. A fourth,
-`cyclictest_result_folder`, is filled by the service with the run's own results
-directory and refused from a caller: it is a path inside this container rather
-than an operator's decision.
+Every variable is checked before it reaches a command line on every machine.
+`cyclictest_duration` in seconds, `cyclictest_priority` bounded to 1-98, and
+`cyclictest_affinity` as `smp` or a CPU list: 99 is refused because it sits
+above the kernel's own threads on a PREEMPT_RT machine, which is how a
+measurement wedges the host it was measuring. For `hwlatdetect`, a duration in
+seconds and `threshold`, `width` and `window` in microseconds, each bounded to
+a second, since `width` is the interval during which the machine's interrupts
+are held off. The results folder of each is filled by the service with the
+run's own directory and refused from a caller: it is a path inside this
+container rather than an operator's decision.
+
+**Why `hwlatdetect` is worth a second entry rather than a flag on the first.**
+The two measure different things and only one of them has anything to do with
+the inventory. `cyclictest` measures what the scheduler delivered, which every
+conformance check on the Real time page can move. `hwlatdetect` measures what
+the firmware took: an SMI carries the CPU into firmware without telling the
+operating system, so the time is missing from the kernel's own accounting and
+from the `cyclictest` figures alike. A machine that passes every check and
+still misses its deadline is either a firmware problem or a configuration one,
+and this is what separates them. Nothing in an inventory reaches it, and the
+page says so: the fix is in the BIOS.
 
 **This is a `test_*` playbook, and section 4 says those are refused.** The rule
 stands and this is its one exception, which is narrow by construction: the rule
@@ -199,11 +213,12 @@ already exists upstream and is the one the CI runs, so the alternative was a
 second implementation of a measurement in Python, inside a container that must
 never hold real time privileges.
 
-`test_run_cyclictest.yaml` did not exist upstream when this entry was written.
-The `cyclictest` role was only reachable through `ci_all_machines_tests.yaml`,
-which runs it after the Yocto functional tests and is therefore unusable on a
-Debian machine or on a running deployment. Until the playbook lands in the
-collection an image ships, the entry reports itself unavailable through
+Neither playbook existed upstream when these entries were written.
+`cyclictest` was only reachable through `ci_all_machines_tests.yaml`, which
+runs it after the Yocto functional tests and is therefore unusable on a Debian
+machine or on a running deployment, and `hwlatdetect` had no role at all. Both
+now exist on the branch the image builds from. Where a site pins a collection
+that predates them, the entries report themselves unavailable through
 `playbook_present`, which is exactly what [D12](decisions.md#d12) prescribes.
 
 ### The two libvirt entries

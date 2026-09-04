@@ -123,6 +123,7 @@ class VariableType(str, Enum):
     and needs to be told which one of them is leaving.
     """
     SECONDS = "seconds"
+    MICROSECONDS = "microseconds"
     PRIORITY = "priority"
     CPU_LIST = "cpu_list"
     """`smp`, or a CPU list in the kernel notation the inventory already uses.
@@ -752,6 +753,79 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "temporary directory, runs cyclictest, fetches the histogram and "
             "leaves. The histogram is parsed and charted on the real time "
             "page, and kept with the run."
+        ),
+    ),
+    PlaybookEntry(
+        id="test_run_hwlatdetect",
+        playbook=f"{COLLECTION}.test_run_hwlatdetect",
+        title="Measure the hardware latency (hwlatdetect)",
+        targets=list(_MACHINE_TARGETS),
+        # One `command` and a `fetch` of what it printed, like the cyclictest
+        # entry: check mode skips the command and the fetch brings back
+        # nothing, so a preview would report a green run that measured nothing.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        measures=True,
+        results_variable="hwlatdetect_result_folder",
+        disruption=(
+            "Polls the clock with interrupts disabled, one CPU at a time, for "
+            "the sampling width of every window. That is the machine's own "
+            "interrupts held off while each sample runs, which on a hypervisor "
+            "carrying live guests is felt by the guests."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+            Precondition.PLAYBOOK_PRESENT,
+        ],
+        variables=[
+            VariableSpec(
+                name="hwlatdetect_duration",
+                type=VariableType.SECONDS,
+                description=(
+                    "How long to watch, in seconds. Firmware interrupts are "
+                    "rare and periodic, so a short run finding nothing proves "
+                    "very little: hours are what a clean bill of health costs."
+                ),
+            ),
+            VariableSpec(
+                name="hwlatdetect_threshold",
+                type=VariableType.MICROSECONDS,
+                description=(
+                    "Gaps shorter than this are not reported, in "
+                    "microseconds. It decides what counts as an interruption "
+                    "worth knowing about rather than measurement noise."
+                ),
+            ),
+            VariableSpec(
+                name="hwlatdetect_width",
+                type=VariableType.MICROSECONDS,
+                description=(
+                    "How long each sample watches, in microseconds. This is "
+                    "the interval during which the machine's interrupts are "
+                    "held off."
+                ),
+            ),
+            VariableSpec(
+                name="hwlatdetect_window",
+                type=VariableType.MICROSECONDS,
+                description=(
+                    "How often a sample starts, in microseconds. Width over "
+                    "window is the fraction of time the hardware is actually "
+                    "watched, and raising it finds rarer events by taking more "
+                    "of the CPU it is watching."
+                ),
+            ),
+        ],
+        notes=(
+            "The measurement no conformance check can make. An SMI takes the "
+            "CPU into firmware without telling the kernel, so the time is "
+            "missing from the kernel's own accounting and from cyclictest's "
+            "view of it. A machine correctly isolated and still missing its "
+            "deadline is either a firmware problem or a configuration one, and "
+            "this separates them. A kernel with no hwlat tracer is reported as "
+            "such rather than as a machine with no interruptions."
         ),
     ),
 )

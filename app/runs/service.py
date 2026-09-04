@@ -19,7 +19,7 @@ from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.hosts.local import parse_cpu_list
 from app.inventory.service import InventoryService, InventoryState
-from app.runs import catalogue, cyclictest, progress, staging
+from app.runs import catalogue, cyclictest, hwlatdetect, progress, staging
 from app.runs.adapter import RunAdapter, RunRequest, build_command
 from app.runs.catalogue import (
     PlaybookEntry,
@@ -311,8 +311,8 @@ class RunService:
     def reconcile(self) -> list[RunRecord]:
         return self._store.reconcile()
 
-    def results(self, run_id: str) -> list[cyclictest.CyclictestResult]:
-        """The measurements a run fetched, parsed.
+    def latency_results(self, run_id: str) -> list[cyclictest.CyclictestResult]:
+        """The cyclictest histograms a run fetched, parsed.
 
         Read from the run directory at each request rather than folded into
         the record: the record is what the run did, and this is what the run
@@ -320,6 +320,10 @@ class RunService:
         no results, which is exactly what it is.
         """
         return cyclictest.read(self._store.results_dir(run_id))
+
+    def interruption_results(self, run_id: str) -> list[hwlatdetect.HwlatdetectResult]:
+        """The hwlatdetect reports a run fetched, parsed."""
+        return hwlatdetect.read(self._store.results_dir(run_id))
 
     def launch(
         self,
@@ -678,6 +682,13 @@ def _checked_value(entry: PlaybookEntry, spec: VariableSpec, value: Any) -> Any:
 
     if spec.type is VariableType.SECONDS:
         return _bounded(entry, spec, value, 1, 24 * 3600, "seconds")
+
+    if spec.type is VariableType.MICROSECONDS:
+        # A second is the ceiling: hwlatdetect's width is an interval during
+        # which the machine's interrupts are held off, and a window is the
+        # period one sits in. Beyond a second either is a machine taken away
+        # from its guests rather than measured.
+        return _bounded(entry, spec, value, 1, 1_000_000, "microseconds")
 
     if spec.type is VariableType.PRIORITY:
         # SCHED_FIFO's own range, minus its two ends. 0 leaves the measurement

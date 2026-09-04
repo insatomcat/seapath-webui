@@ -70,8 +70,12 @@ commonest finding is a machine converged and never rebooted, which the kernel's
 boot-time reading of `isolcpus` hides from every other view. The rest, SMT,
 transparent hugepages, interrupt affinity, is reported with what it costs and
 never as a failure: a site is entitled to its own answer there. Below the
-checks, the latency itself, measured by `cyclictest` running on the machines
-through Ansible rather than inside this container. See D24 in
+checks, two measurements, both running on the machines through Ansible rather
+than inside this container: `cyclictest` for what the scheduler delivered, and
+`hwlatdetect` for what the firmware took without telling the kernel. A machine
+that passes every check above and still misses its deadline is either a
+firmware problem or a configuration one, and the second measurement is the only
+thing that separates them. See D24 and D25 in
 [docs/decisions.md](docs/decisions.md).
 
 ![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)

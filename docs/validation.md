@@ -174,9 +174,21 @@ carrying production traffic the first time it is run.
 | 11 | A measurement pinned with `cyclictest_affinity` to the isolated set labels each series with the right CPU | The mapping is read off the command line the role's script built | |
 | 12 | While the measurement runs, this service stays responsive and its container stays on the housekeeping CPUs | The whole point of measuring on the target instead of here. `systemd-cgls` and `taskset -pc` on the container answer it | |
 | 13 | Nothing on any machine changed: `seapath_setup_main.yaml` from a conventional control machine still reports no change afterwards | **The acceptance criterion.** A measurement that configured something would be the worst kind of bug here | |
+| 14 | `hwlatdetect` completes and `results/hwlatdetect_<host>.txt` exists for every machine | The role's `fetch`, over the real SSH mesh | |
+| 15 | On a SEAPATH kernel the result reports samples rather than a missing tracer | The `hwlat` tracer detection, against a real `available_tracers` | |
+| 16 | On a machine whose kernel has no `hwlat` tracer, the page says the machine **could not be asked**, visibly apart from a machine that was asked and found nothing | The failure this whole card exists to avoid: an unmeasurable machine reading as clean firmware. Needs a non-RT kernel to reproduce | |
+| 17 | That machine does not fail the run, and the other machines still return their results | `any_errors_fatal` is set, so one kernel refusing must not take down a run that has already loaded the others | |
+| 18 | An interruption the detector reports is absent from the `cyclictest` figures taken at the same time | The whole claim of the card: an SMI is invisible to the kernel and therefore to cyclictest. Needs a machine with real SMIs | |
+| 19 | While `hwlatdetect` runs, the guests on the machine feel it | Honesty about the cost. The detector holds interrupts off for the sampling width of every window, and the confirmation says so before the run | |
 
 ### Result
 
-Not yet run. The measurement half needs `test_run_cyclictest.yaml` in the
-collection the image ships: until it is there the entry reports itself
-unavailable through `playbook_present`, and checks 8 to 13 cannot be run.
+Not yet run. Checks 8 to 19 need `test_run_cyclictest.yaml` and
+`test_run_hwlatdetect.yaml` in the collection the image ships. Both are on the
+`seapathalloc` branch the Dockerfile builds from, so an image built after that
+branch moved has them; a site pinned to an older collection sees both entries
+report themselves unavailable through `playbook_present`.
+
+Check 16 needs a machine whose kernel lacks `CONFIG_HWLAT_TRACER`, which a
+SEAPATH image does not produce. Any ordinary Debian kernel does, and the case
+matters enough to be worth borrowing one for.

@@ -17,7 +17,12 @@ from fastapi import APIRouter, Depends, Query, Request
 from app.core.auth import Role
 from app.core.security import require_role
 from app.hosts.models import RealtimeReading
-from app.services.realtime import Measurement, RealtimeConformance, RealtimeService
+from app.services.realtime import (
+    Measurement,
+    MeasurementKind,
+    RealtimeConformance,
+    RealtimeService,
+)
 
 router = APIRouter(
     prefix="/realtime",
@@ -51,11 +56,17 @@ def reading(request: Request) -> RealtimeReading:
 @router.get("/measurements", response_model=list[Measurement])
 def measurements(
     request: Request,
+    kind: MeasurementKind | None = None,
     limit: int = Query(default=10, ge=1, le=50),
 ) -> list[Measurement]:
-    """The cyclictest runs launched from this node, newest first.
+    """The measurement runs launched from this node, newest first.
+
+    Both kinds by default, or one when `kind` names it. `cyclictest` reports
+    what the scheduler delivered and `hwlatdetect` what the firmware took
+    without telling the kernel: complementary answers rather than alternatives,
+    which is why they are one history with a discriminator rather than two.
 
     Each carries the inventory commit its machines were converged from, so a
     latency figure can be read against the isolation that produced it.
     """
-    return _service(request).measurements(limit=limit)
+    return _service(request).measurements(kind=kind, limit=limit)

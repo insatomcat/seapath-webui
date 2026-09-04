@@ -302,7 +302,7 @@ honest: on a machine up for months the since-boot average says nothing.
 |---|---|---|
 | GET | `/realtime` | The conformance report: one entry per check, with its status, what was observed and, where the inventory declares one, what was declared |
 | GET | `/realtime/reading` | The raw values the checks are formed from, for a client that would rather judge them itself |
-| GET | `/realtime/measurements` | The `cyclictest` runs launched from this node, newest first, each with the parsed histogram it fetched and the inventory commit it was taken under |
+| GET | `/realtime/measurements` | The measurement runs launched from this node, newest first, each with what it fetched and the inventory commit it was taken under. `kind` narrows to `cyclictest` or `hwlatdetect` |
 
 Open to the `viewer` role. Nothing here writes anything.
 
@@ -323,6 +323,28 @@ page:
 A reading that failed is `unknown`, never a pass and never a failure: on a
 substation hypervisor "unreadable" and "correct" must never look alike.
 
+There are two measurements, and they are complementary rather than
+alternatives, which is why they are one history with a `kind` discriminator
+rather than two endpoints:
+
+- **`cyclictest`** reports what the scheduler delivered, in `latency`. Every
+  check on this page can move that number, because the tuning behind it is in
+  the inventory.
+- **`hwlatdetect`** reports what the firmware took without telling the kernel,
+  in `interruptions`. An SMI carries the CPU into firmware and the operating
+  system is never told, so the time is missing from the kernel's own accounting
+  and from the `cyclictest` figures. A machine that passes every check above
+  and still misses its deadline is either a firmware problem or a configuration
+  one, and this is what separates them. **No inventory variable reaches it:**
+  the fix is in the BIOS, which is why nothing in the conformance list can
+  cover the same ground.
+
+A `hwlatdetect` result carries `supported: false` when the machine's kernel has
+no `hwlat` tracer. That is reported apart from a machine that was asked and
+found nothing, and the distinction is load bearing: showing an unmeasurable
+machine as a machine with no interruptions tells an operator their firmware is
+clean when nobody looked.
+
 **Measuring is a run, launched through `POST /runs` like any other playbook.**
 There is no endpoint here that starts one, and that is the design rather than
 an omission. `cyclictest` executes on the machines the inventory declares, over
@@ -332,13 +354,17 @@ ceremony as an apply. The confirmation says a different sentence, because a
 measurement disturbs a live substation through what it *runs* rather than
 through what it writes.
 
-`/realtime/measurements` reads the histogram out of the run's own results
-directory, which the service fills by passing `cyclictest_result_folder` to the
-run. That variable is filled by the service and refused from a caller: it is a
-path inside this container rather than an operator's decision. The three the
-caller does supply are checked before they reach a command line on every
-machine: `cyclictest_duration` in seconds, `cyclictest_priority` bounded to
-1-98, and `cyclictest_affinity`, which is `smp` or a CPU list.
+`/realtime/measurements` reads each result out of the run's own results
+directory, which the service fills by passing `cyclictest_result_folder` or
+`hwlatdetect_result_folder` to the run. Those are filled by the service and
+refused from a caller: they are paths inside this container rather than an
+operator's decision. What the caller does supply is checked before it reaches a
+command line on every machine: `cyclictest_duration` in seconds,
+`cyclictest_priority` bounded to 1-98, `cyclictest_affinity` as `smp` or a CPU
+list, and `hwlatdetect_duration` in seconds with `threshold`, `width` and
+`window` in microseconds, each bounded to a second. `width` is the interval
+during which the machine's interrupts are held off, so beyond a second it is a
+machine taken away from its guests rather than measured.
 
 The per thread minimum, average and maximum come from the file's footer rather
 than from the histogram. `-h400` truncates at 400us, so a machine that produced
