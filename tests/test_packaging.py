@@ -201,3 +201,22 @@ def test_the_container_never_asks_for_the_privileges_a_measurement_needs() -> No
         assert forbidden not in _QUADLET
     assert "Nice=" in _QUADLET
     assert "CPUQuota=" in _QUADLET
+
+
+def test_reading_the_cluster_pool_costs_the_container_no_mount() -> None:
+    """The pool comes over the network, from a port the cluster already serves.
+
+    This is what makes D26 a smaller thing than the observation plane D13
+    removed. `seapath-alloc` publishes the pool through the exporter every node
+    runs, so this service asks for it on port 9100 rather than reading the
+    textfile through a bind mount or the host's `/proc` through a namespace it
+    may not have. Adding either back here is a design decision, so it fails
+    here first.
+    """
+    for absent in ("/var/lib/prometheus", "/run/seapath", "/proc"):
+        assert absent not in _SOURCES
+        assert absent not in _PRE_START
+
+    # The request needs the host network namespace, which the quadlet already
+    # uses so the service answers on the administration address.
+    assert "Network=host" in _QUADLET

@@ -36,8 +36,7 @@
         "the machines over the same SSH path a convergence uses, so nothing " +
         "measures inside this container and nothing here runs at real time " +
         "priority.",
-      note:
-        "what the scheduler delivered, which the tuning above can change",
+      note: "every machine the run measured, this one first",
       fields: {
         cyclictest_duration: "measure-duration",
         cyclictest_priority: "measure-priority",
@@ -62,9 +61,7 @@
         "The firmware has not been measured from this node yet. A machine " +
         "that passes every check above and still misses its deadline is the " +
         "case this answers.",
-      note:
-        "what the firmware took without telling the kernel, which no " +
-        "inventory variable reaches",
+      note: "what the firmware took without telling the kernel",
       fields: {
         hwlatdetect_duration: "hwlat-duration",
         hwlatdetect_threshold: "hwlat-threshold",
@@ -81,6 +78,7 @@
     canLaunch: false,
     machines: [],
     isolated: [],
+    thisHost: null,
   };
 
   // Enough for a machine with more threads than anyone measures at once, and
@@ -135,6 +133,11 @@
           ? " at " + report.inventory_commit.slice(0, 8)
           : "")
       : "no inventory entry describes this machine yet";
+
+    // The report carries the CPU reading the checks were formed from, so the
+    // affinity picker gets the isolated set without a second request.
+    state.isolated = (report.cpu && report.cpu.isolated) || [];
+    renderAffinity();
 
     showBanner(report.warnings || []);
     return report;
@@ -206,64 +209,155 @@
     );
   }
 
-  // The CPU map, grouped by physical core so hyperthread siblings sit
-  // together. The node view already draws a flat grid of the same CPUs; this
-  // one exists to answer a different question, which is whether an isolated
-  // CPU is sharing a core with one that is not.
-  async function loadMap() {
-    const cpu = await API.get("/node/cpu");
+  // What each state means, and what an operator does about it. Straight from
+  // the exporter's own vocabulary, so a colour here and a colour on the
+  // Grafana dashboard this repository ships mean the same thing.
+  const STATES = {
+    free: ["An isolated core with nothing on it", "#46b16b"],
+    vm: ["A guest thread", "#4a9eff"],
+    irq: ["A NIC interrupt", "#d98a2b"],
+    irq_slot: ["A slot holding NIC interrupts", "#d98a2b"],
+    slot: ["A named shared core slot", "#d9a441"],
+    quadlet: ["A pinned container", "#3fbfb0"],
+    run: ["A seapath-run process", "#c86bd0"],
+    claim: ["A claim held by an operator tool", "#c86bd0"],
+    reserved: ["The idle sibling of an exclusive core", "#7a2f2f"],
+    housekeeping: ["Not isolated", "#39424f"],
+    unknown: ["The exporter did not say", "#8d9bad"],
+  };
+
+  // The pool of every node, read from each one's exporter. This is the only
+  // panel that leaves the local machine, and it is the only way the question
+  // can be answered: occupancy is the affinity of every QEMU thread in /proc,
+  // which this container's PID namespace hides.
+  async function loadPool() {
+    const pool = await API.get("/realtime/pool");
+    element("map-loading").hidden = true;
+
+    const reachable = pool.nodes.filter((node) => node.cpus.length);
+    const blocked = element("pool-blocked");
+    if (!reachable.length) {
+      // Said as what is missing rather than drawn as an empty grid. On a
+      // machine whose exporters were never deployed this is the ordinary
+      // state, and the sentence names the role that fixes it.
+      blocked.textContent = pool.nodes.length
+        ? "No node published a seapath-alloc pool. " +
+          pool.nodes
+            .map((node) => node.host + ": " + (node.error || "no metrics"))
+            .join("; ") +
+          ". deploy_prometheus_exporters and deploy_seapath_alloc install what " +
+          "publishes it."
+        : "There is no inventory yet, so there is no node to ask.";
+      blocked.hidden = false;
+      return;
+    }
+    blocked.hidden = true;
+    element("pool").hidden = false;
+    element("pool-legend").hidden = false;
+
+    const grid = element("pool");
+    grid.replaceChildren();
+    pool.nodes.forEach((node) => grid.append(renderNode(node, pool.this_host)));
+
+    const stale = reachable
+      .map((node) => node.scrape_age_seconds)
+      .filter((age) => age !== null && age !== undefined);
+    element("map-note").textContent =
+      reachable.length +
+      " of " +
+      pool.nodes.length +
+      " nodes answered" +
+      (stale.length
+        ? ", " + Math.round(Math.max.apply(null, stale)) + "s ago"
+        : "");
+  }
+
+  function renderNode(node, thisHost) {
+    const box = document.createElement("div");
+    box.className = "pool-node";
+
+    const head = document.createElement("h3");
+    head.textContent = node.host;
+    if (node.host === thisHost) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "this node";
+      head.append(" ", tag);
+    }
+    box.append(head);
+
+    if (!node.cpus.length) {
+      const why = document.createElement("p");
+      why.className = "legend";
+      why.textContent = node.error || "No metrics.";
+      box.append(why);
+      return box;
+    }
+
+    // One column per physical core, threads stacked inside it, which is the
+    // shape the Grafana dashboard uses and the shape that makes a hyperthread
+    // pair readable at a glance.
     const cores = new Map();
-    cpu.topology.forEach((entry) => {
-      const key = entry.socket + ":" + entry.core;
+    node.cpus.forEach((slot) => {
+      const key = slot.core === null ? slot.cpu : slot.core;
       if (!cores.has(key)) {
         cores.set(key, []);
       }
-      cores.get(key).push(entry);
+      cores.get(key).push(slot);
     });
 
-    const map = element("core-map");
-    map.replaceChildren();
-    let split = 0;
-    cores.forEach((threads) => {
-      const isolated = threads.filter((entry) => entry.isolated).length;
-      const box = document.createElement("div");
-      box.className = "core";
-      if (isolated > 0 && isolated < threads.length) {
-        box.classList.add("split");
-        split += 1;
-      }
-      threads.forEach((entry) => {
-        const cell = document.createElement("div");
-        cell.className = "cpu " + (entry.isolated ? "isolated" : "housekeeping");
-        cell.textContent = entry.cpu;
-        cell.title =
-          "CPU " +
-          entry.cpu +
-          " - socket " +
-          entry.socket +
-          ", core " +
-          entry.core;
-        box.append(cell);
-      });
-      map.append(box);
+    const map = document.createElement("div");
+    map.className = "pool-cores";
+    [...cores.keys()].sort((a, b) => a - b).forEach((key) => {
+      const column = document.createElement("div");
+      column.className = "pool-core";
+      cores.get(key).forEach((slot) => column.append(renderSlot(slot)));
+      map.append(column);
     });
+    box.append(map);
 
-    state.isolated = cpu.isolated;
-    renderAffinity();
-
-    // The summary as one line in the heading rather than as a list of five.
-    // The grid below already shows which CPUs are isolated; what it cannot
-    // show is the count of cores split across the isolation, which is the one
-    // number worth a sentence.
-    element("map-note").textContent =
-      cores.size +
-      " cores, " +
-      (cpu.isolated.length
-        ? ranges(cpu.isolated) + " isolated"
-        : "none isolated") +
-      (split ? ", " + split + " split across the isolation" : "");
+    const notes = [];
+    if (node.hard_fallbacks) {
+      notes.push(
+        node.hard_fallbacks +
+          " actor" +
+          (node.hard_fallbacks > 1 ? "s" : "") +
+          " asked for isolation and is running on housekeeping cores"
+      );
+    }
+    if (node.soft_fallbacks) {
+      notes.push(node.soft_fallbacks + " degraded to a shared core");
+    }
+    node.slot_warnings.forEach((warning) => notes.push(warning));
+    if (notes.length) {
+      const line = document.createElement("p");
+      line.className = "pool-warning";
+      line.textContent = notes.join(". ") + ".";
+      box.append(line);
+    }
+    return box;
   }
 
+  function renderSlot(slot) {
+    const cell = document.createElement("div");
+    cell.className = "pool-cpu";
+    const [meaning, colour] = STATES[slot.state] || STATES.unknown;
+    cell.style.background = colour;
+    // The label where it fits, the number otherwise. A core carrying a guest
+    // is read by the guest's name; a free one is read by its number, which is
+    // what an operator types into isolcpus.
+    cell.textContent = slot.label || String(slot.cpu);
+    cell.title =
+      "CPU " +
+      slot.cpu +
+      ": " +
+      meaning +
+      (slot.label ? " (" + slot.label + ")" : "") +
+      (slot.group ? ", " + slot.group : "") +
+      (slot.scheduler ? ", " + slot.scheduler + "/" + slot.priority : "") +
+      (slot.members ? ", sharing with " + slot.members : "");
+    return cell;
+  }
 
   // The kernel's own range notation, `4-7` rather than `4,5,6,7`. The same
   // shape the inventory writes, so what the operator picks here reads like
@@ -476,9 +570,21 @@
     meta.append(anchor);
     body.append(meta);
 
+    // Every machine the run measured, this one first. A run has no --limit, so
+    // a measurement plays the whole inventory and brings back one file each,
+    // and the pool above reads every node too: the page is the cluster's, and
+    // showing one machine of a measurement that took three would be the odd
+    // panel out. Local first, because it is the one the operator is standing
+    // on and the one every other reading here is about.
+    const results = spec.results(measurement).slice().sort((a, b) => {
+      if (a.host === state.thisHost) return -1;
+      if (b.host === state.thisHost) return 1;
+      return a.host.localeCompare(b.host);
+    });
+
     const render =
       kind === "cyclictest" ? renderLatency : renderInterruptions;
-    spec.results(measurement).forEach((result) => {
+    results.forEach((result) => {
       body.append(render(result));
     });
 
@@ -490,9 +596,7 @@
   // matters is when each interruption happened and how long it lasted.
   function renderInterruptions(result) {
     const section = document.createElement("section");
-    const heading = document.createElement("h3");
-    heading.textContent = result.host;
-    section.append(heading);
+    section.append(hostHeading(result.host));
 
     if (!result.supported || result.message) {
       const note = document.createElement("p");
@@ -593,11 +697,24 @@
     return wrapper;
   }
 
+  // Which machine a result belongs to, marked when it is this one. Three
+  // results under one heading otherwise read as one machine measured three
+  // times.
+  function hostHeading(host) {
+    const heading = document.createElement("h3");
+    heading.textContent = host;
+    if (host === state.thisHost) {
+      const tag = document.createElement("span");
+      tag.className = "tag";
+      tag.textContent = "this node";
+      heading.append(" ", tag);
+    }
+    return heading;
+  }
+
   function renderLatency(result) {
     const section = document.createElement("section");
-    const heading = document.createElement("h3");
-    heading.textContent = result.host;
-    section.append(heading);
+    section.append(hostHeading(result.host));
 
     if (result.parse_error) {
       const error = document.createElement("p");
@@ -702,20 +819,18 @@
     return value === null || value === undefined ? "unknown" : value + "us";
   }
 
-  // One line per thread on a logarithmic count axis, drawn as inline SVG. A
-  // chart library is 200kB of vendored JavaScript for one chart, and the whole
-  // point of a latency histogram is the four decades between the bulk of the
-  // samples and the one that matters: a linear axis hides exactly the tail an
-  // operator is looking for.
+  // A histogram, which is what cyclictest produces and how it is read
+  // everywhere else: one bar per microsecond bucket, on a logarithmic count
+  // axis. rtperfui drew it this way and was right to.
   //
-  // A bucket nobody landed in is a gap in the line rather than a point on the
-  // baseline. On a log axis zero has no place, and drawing it at the bottom
-  // produced a continuous line along the axis that claimed one sample in every
-  // bucket out to the worst case, in the region an operator reads most
-  // carefully. So the polyline is broken wherever the count is zero, and a
-  // bucket standing alone between two empty ones is marked with a dot: a
-  // single sample at 341us is the whole reason for looking at this chart, and
-  // a zero length line segment draws nothing.
+  // This was a line at first, which forced a workaround the bars make
+  // unnecessary: a bucket nobody landed in has no bar, while a line had to be
+  // broken at every zero or it drew a continuous run along the axis claiming
+  // one sample in every bucket out to the worst case.
+  //
+  // The four decades between the bulk and the tail are the whole point, and a
+  // linear axis hides exactly the part an operator is looking for. A chart
+  // library is 200kB of vendored JavaScript for one chart.
   function chart(result) {
     const width = 900;
     const height = 170;
@@ -739,35 +854,28 @@
     // The last bucket any thread reached, so a 400 bucket histogram whose
     // samples all sit under 30us is drawn over the range that has data.
     let lastUsed = 0;
+    let peak = 1;
     counts.forEach((series) => {
       series.forEach((value, index) => {
         if (value > 0 && index > lastUsed) {
           lastUsed = index;
         }
-      });
-    });
-    const span = Math.max(buckets[lastUsed], 1);
-    let peak = 1;
-    counts.forEach((series) => {
-      series.forEach((value) => {
         if (value > peak) {
           peak = value;
         }
       });
     });
+    const span = Math.max(buckets[lastUsed], 1);
     const decades = Math.ceil(Math.log10(peak)) || 1;
+    const base = height - bottom;
 
     const x = (us) => left + (us / span) * (width - left - right);
     const y = (count) =>
-      count <= 0
-        ? height - bottom
-        : height -
-          bottom -
-          (Math.log10(count) / decades) * (height - bottom - 8);
+      count <= 0 ? base : base - (Math.log10(count) / decades) * (base - 8);
 
     svg.append(
-      line(left, height - bottom, width - right, height - bottom),
-      line(left, 8, left, height - bottom)
+      line(left, base, width - right, base),
+      line(left, 8, left, base)
     );
 
     for (let decade = 0; decade <= decades; decade += 1) {
@@ -779,55 +887,45 @@
       // The last label is anchored to its end and the first to its start, so
       // neither runs off the side of the viewBox.
       const anchor = step === 4 ? "end" : step === 0 ? "start" : "middle";
-      svg.append(text(x(us), height - bottom + 15, us + "us", anchor));
+      svg.append(text(x(us), base + 15, us + "us", anchor));
     }
 
+    // One bucket is this many units wide. Never below a hairline: with 400
+    // buckets over 850 units a bar is about two units, and a bucket holding a
+    // single sample in the tail is the one an operator came to see.
+    const bar = Math.max((width - left - right) / (lastUsed + 1), 1);
+
     counts.forEach((series, index) => {
-      const colour = SERIES[index % SERIES.length];
-      let run = [];
-      const flush = () => {
-        if (run.length > 1) {
-          svg.append(polyline(run, colour));
-        } else if (run.length === 1) {
-          svg.append(dot(run[0][0], run[0][1], colour));
-        }
-        run = [];
-      };
+      const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      group.setAttribute("fill", SERIES[index % SERIES.length]);
+      // Threads overlap on the same buckets, so they are drawn translucent:
+      // where they agree the colour deepens, and a thread that is alone out in
+      // the tail still shows its own.
+      group.setAttribute("opacity", "0.72");
       for (let bucket = 0; bucket <= lastUsed; bucket += 1) {
-        if (series[bucket] > 0) {
-          run.push([x(buckets[bucket]), y(series[bucket])]);
-        } else {
-          flush();
+        const count = series[bucket];
+        if (count <= 0) {
+          continue;
         }
+        const top = y(count);
+        const rect = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "rect"
+        );
+        rect.setAttribute("x", x(buckets[bucket]));
+        rect.setAttribute("y", top);
+        rect.setAttribute("width", bar);
+        // A bucket with one sample sits on the axis and would be zero high.
+        rect.setAttribute("height", Math.max(base - top, 1));
+        group.append(rect);
       }
-      flush();
+      svg.append(group);
     });
 
     return svg;
   }
 
-  function polyline(points, colour) {
-    const node = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "polyline"
-    );
-    node.setAttribute("class", "series");
-    node.setAttribute("points", points.map((p) => p[0] + "," + p[1]).join(" "));
-    node.setAttribute("stroke", colour);
-    return node;
-  }
 
-  function dot(cx, cy, colour) {
-    const node = document.createElementNS(
-      "http://www.w3.org/2000/svg",
-      "circle"
-    );
-    node.setAttribute("cx", cx);
-    node.setAttribute("cy", cy);
-    node.setAttribute("r", 1.6);
-    node.setAttribute("fill", colour);
-    return node;
-  }
 
   function line(x1, y1, x2, y2) {
     const node = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -994,9 +1092,15 @@
     element(spec.button).addEventListener("click", () => confirm(kind));
   });
 
+  // Which machines a run plays, and which of them is this one. Fetched before
+  // anything else rather than beside it: the measurement panels filter their
+  // results to the local machine, and doing that in parallel with the fetch
+  // that names it is a race the panels lost, so every machine of the run was
+  // rendered on a page about one.
   async function loadMachines() {
     const payload = await API.get("/inventory");
     state.machines = payload.inventory ? Object.keys(payload.inventory.hosts) : [];
+    state.thisHost = payload.this_host;
   }
 
   async function start() {
@@ -1006,10 +1110,15 @@
     // is a run like any other, and POST /runs asks for the admin role.
     state.canLaunch = Chrome.isAdmin(me);
     showTab("cyclictest");
+    // The inventory first, on its own. It names the machines a run plays and
+    // which of them is this one, and the measurement panels filter to that
+    // name: fetching it beside them is a race the panels lost, so every
+    // machine of the run was rendered on a page about one.
+    await loadMachines();
     await Promise.all([
       loadChecks(),
-      loadMap(),
-      loadMachines().then(loadCatalogue),
+      loadPool(),
+      loadCatalogue(),
       loadMeasurements("cyclictest"),
       loadMeasurements("hwlatdetect"),
     ]);

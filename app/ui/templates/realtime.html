@@ -44,17 +44,18 @@ and an answer that has to be scrolled for is one an operator stops reading.
 
   <section class="card pane" id="card-map">
     <h2>
-      CPU map
+      CPU pool
       <span class="pane-note" id="map-note"></span>
     </h2>
-    <div class="core-map" id="core-map"></div>
-    <p class="pane-foot">
-      <span class="legend-item"><span class="swatch isolated"></span> isolated</span>
-      <span class="legend-item"><span class="swatch housekeeping"></span> housekeeping</span>
+    <div class="loading" id="map-loading">Asking each node's exporter</div>
+    <div class="pool" id="pool" hidden></div>
+    <p class="warning" id="pool-blocked" hidden></p>
+    <p class="pane-foot" id="pool-legend" hidden>
       <span class="pane-foot-note">
-        Grouped by physical core. An outlined core has one thread isolated and
-        one not, so the isolated one shares its execution units with whatever
-        the scheduler puts on the other.
+        One column per physical core, one cell per thread, so hyperthread
+        siblings sit together. Read from each node's own exporter, which is
+        where <code>seapath-alloc</code> publishes what it pinned: this
+        container cannot see the threads itself.
       </span>
     </p>
   </section>

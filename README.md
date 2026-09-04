@@ -61,7 +61,7 @@ this node may not be allowed to run it. The lower half is the SSH trust: the
 site key this node holds, and the host keys it has accepted, both undone in one
 click.
 
-![The Real time page: the conformance checks beside the CPU map and the measurements](img/realtime.png)
+![The Real time page: the conformance checks beside the cluster CPU pool and the measurements](img/realtime.png)
 
 **Real time** answers whether a machine came out of a convergence with the
 tuning it was told to have. Every check names what is on the machine beside
@@ -75,9 +75,16 @@ firmware took without telling the kernel. A machine that passes every check and
 still misses its deadline is either a firmware problem or a configuration one,
 and the second measurement is the only thing that separates them.
 
+Beside them, the CPU pool of **every machine the inventory declares**, read
+from each node's own `prometheus-node-exporter`: which core carries which
+guest, interrupt, container or shared slot. `seapath-alloc` computes that on
+each host and publishes it, and this container could not compute it if it
+wanted to, since occupancy is the affinity of every QEMU thread in `/proc`.
+Asking the exporter is the opposite of holding a second source of truth for it.
+
 It is the one page laid out as an application rather than as a document: the
 panes are placed and each scrolls inside itself, because an answer that has to
-be scrolled for is one an operator stops reading. See D24 and D25 in
+be scrolled for is one an operator stops reading. See D24, D25 and D26 in
 [docs/decisions.md](docs/decisions.md).
 
 ![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)

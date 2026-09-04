@@ -301,10 +301,19 @@ honest: on a machine up for months the since-boot average says nothing.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/realtime` | The conformance report: one entry per check, with its status, what was observed and, where the inventory declares one, what was declared |
+| GET | `/realtime/pool` | The CPU pool of every machine the inventory declares, read from each node's `prometheus-node-exporter`: which core carries which guest, interrupt, container or slot, plus the active fallbacks. A node that cannot be reached is reported with its reason beside the ones that answered. See [D26](decisions.md#d26) |
 | GET | `/realtime/reading` | The raw values the checks are formed from, for a client that would rather judge them itself |
 | GET | `/realtime/measurements` | The measurement runs launched from this node, newest first, each with what it fetched and the inventory commit it was taken under. `kind` narrows to `cyclictest` or `hwlatdetect` |
 
 Open to the `viewer` role. Nothing here writes anything.
+
+`/realtime/pool` is the one reading in this service that leaves the local
+machine. It answers a question no reading of `/sys` can: occupancy is the
+affinity of every QEMU thread in `/proc`, which this container's PID namespace
+hides and which the quadlet may not be given. `seapath-alloc` computes it on
+each host and publishes it, so this asks rather than duplicates, and the
+reading carries `scrape_age_seconds` because the collector runs on a fifteen
+second timer and the pool is never quite now.
 
 Every check carries a `kind`, `conformance` where the inventory declares a
 value and `advice` where nothing does. `isolcpus` and the tuned profile it

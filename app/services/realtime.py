@@ -36,6 +36,7 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
+from app.cluster.pool import ClusterPool, PoolReader
 from app.hosts.local import parse_cpu_list
 from app.hosts.models import CpuReading, Reading, RealtimeReading
 from app.hosts.reader import HostReader
@@ -156,11 +157,39 @@ class RealtimeService:
         inventory: InventoryService,
         runs: RunService,
         hostname: str,
+        pool: PoolReader | None = None,
     ) -> None:
         self._reader = reader
         self._inventory = inventory
         self._runs = runs
         self._hostname = hostname
+        self._pool = pool or PoolReader()
+
+    def pool(self) -> ClusterPool:
+        """The CPU pool of every machine the inventory declares.
+
+        The one reading here that leaves this machine, and the only one that
+        can answer the question at all: occupancy comes from the affinity of
+        every QEMU thread in `/proc`, which this container's PID namespace
+        hides. `seapath-alloc` computes it on each host and publishes it
+        through the exporter every node already runs, so this asks rather than
+        duplicates. See `app/cluster/pool.py`.
+        """
+        state = self._inventory.state()
+        if state.inventory is None:
+            return ClusterPool(nodes=[], this_host=state.this_host, available=False)
+
+        targets = [
+            (name, node.ansible_host)
+            for name, node in state.inventory.hosts.items()
+            if node.ansible_host
+        ]
+        nodes = self._pool.read(targets)
+        return ClusterPool(
+            nodes=nodes,
+            this_host=state.this_host,
+            available=any(node.cpus for node in nodes),
+        )
 
     def measurements(
         self, kind: MeasurementKind | None = None, limit: int = 10

@@ -19,6 +19,8 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api import v1
+from app.cluster.fake import FakeMetricsClient
+from app.cluster.pool import MetricsClient, PoolReader
 from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
 from app.console.service import ConsoleService
 from app.core.auth import (
@@ -114,6 +116,7 @@ def create_app(
     session_secret: bytes | None = None,
     run_adapter: RunAdapter | None = None,
     console_adapter: ConsoleAdapter | None = None,
+    metrics_client: MetricsClient | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -256,6 +259,16 @@ def create_app(
         inventory=app.state.inventory_service,
         runs=app.state.run_service,
         hostname=hostname,
+        # The one reading that leaves this machine: each node's exporter, for
+        # the CPU pool seapath-alloc computes and this container cannot.
+        pool=PoolReader(
+            # Injected like every other adapter, so the suite reaches no
+            # network. `use_fakes` covers the development switch, where nobody
+            # passes one in.
+            client=metrics_client
+            or (FakeMetricsClient() if settings.use_fakes else None),
+            port=settings.node_exporter_port,
+        ),
     )
 
     install_error_handlers(app)

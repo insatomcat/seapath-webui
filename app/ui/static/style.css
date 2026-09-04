@@ -1605,3 +1605,66 @@ button.secondary {
   color: var(--muted);
   cursor: pointer;
 }
+
+/* The cluster pool: one block per node, one column per physical core, one cell
+   per thread. The same shape as the Grafana dashboard this repository ships
+   over the same metrics, because an operator who has seen one should recognise
+   the other. */
+.pool {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.pool-node {
+  min-width: 0;
+}
+
+.pool-node h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.pool-cores {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.pool-core {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+/* Narrow, because a machine has twenty four of these and the pane holds three
+   machines. The number is the fallback; a core carrying a guest is read by the
+   guest's name, and the title carries the rest. */
+.pool-cpu {
+  width: 3.1rem;
+  height: 1.15rem;
+  display: grid;
+  place-items: center;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  color: #0d1117;
+  font-weight: 600;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.pool-warning {
+  margin: 0.3rem 0 0;
+  color: var(--warn);
+  font-size: 0.72rem;
+}
+
+.pool-node .tag {
+  font-size: 0.6rem;
+}

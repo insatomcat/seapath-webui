@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from app.cluster.fake import FakeMetricsClient
 from app.core.auth import (
     DevAuthenticator,
     DevRoleDirectory,
@@ -141,3 +142,31 @@ def test_the_run_service_and_the_inventory_read_the_same_collection(
     assert application.state.collections_root() == site
     assert application.state.run_service._paths.collections_path == site
     assert application.state.inventory_service._collections_path() == site
+
+
+def test_the_suite_reaches_no_exporter_over_the_network(
+    settings, reader, authenticator, directory, run_adapter, console_adapter
+) -> None:
+    """No test may touch the network, including the one that reads the pool.
+
+    The pool is read from each node's exporter over HTTP, so an application
+    built without a client would try to reach 192.168.200.125 on every request
+    that renders it. A suite that touches the network is one that fails on a
+    train, and slowly.
+    """
+    from app.cluster.pool import UrllibMetricsClient
+    from app.main import create_app
+
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        session_secret=b"test-secret",
+        run_adapter=run_adapter,
+        console_adapter=console_adapter,
+        metrics_client=FakeMetricsClient(),
+    )
+
+    pool = application.state.realtime_service._pool
+    assert not isinstance(pool._client, UrllibMetricsClient)

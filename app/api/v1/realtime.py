@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from app.cluster.pool import ClusterPool
 from app.core.auth import Role
 from app.core.security import require_role
 from app.hosts.models import RealtimeReading
@@ -51,6 +52,23 @@ def conformance(request: Request) -> RealtimeConformance:
 def reading(request: Request) -> RealtimeReading:
     """The raw values the checks are formed from, for an automation client."""
     return _service(request).conformance().reading
+
+
+@router.get("/pool", response_model=ClusterPool)
+def pool(request: Request) -> ClusterPool:
+    """The CPU pool of every machine the inventory declares.
+
+    Read from each node's `prometheus-node-exporter`, which serves the
+    `seapath_alloc_*` textfile the allocator writes every fifteen seconds. This
+    service asks the exporter rather than computing it: occupancy is the
+    affinity of every QEMU thread in `/proc`, which this container's PID
+    namespace hides and which the quadlet may not be given.
+
+    A node that cannot be reached is reported with the reason and the others
+    are still returned, because a cluster half built is the ordinary state of a
+    cluster being built.
+    """
+    return _service(request).pool()
 
 
 @router.get("/measurements", response_model=list[Measurement])

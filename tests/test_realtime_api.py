@@ -322,3 +322,30 @@ def test_the_recorded_command_still_names_the_results_folder(
 
     assert str(settings.runs_dir / run_id / "results") in command
     assert "hwlatdetect_result_folder" in command
+
+
+def test_the_pool_is_read_from_every_machine_the_inventory_declares(
+    signed_in: TestClient,
+) -> None:
+    """The one reading that leaves this machine, and why it is allowed.
+
+    D13 sent live state to the exporter because a second source of truth for
+    it earned nothing. This reads what that exporter already publishes, which
+    is the opposite, and it is the only way to answer at all: occupancy is the
+    affinity of every QEMU thread in /proc, which this container's PID
+    namespace hides.
+    """
+    pool = signed_in.get("/api/v1/realtime/pool").json()
+
+    assert pool["this_host"] == "seapath-machine"
+    assert [node["host"] for node in pool["nodes"]] == ["seapath-machine"]
+    node = pool["nodes"][0]
+    assert node["reachable"] is True
+    assert node["cpus"], "the fake exporter answered but no CPU was read"
+    # The occupants, which is what a reading of /sys could never produce.
+    assert {slot["state"] for slot in node["cpus"]} >= {"housekeeping", "free"}
+
+
+def test_a_viewer_may_read_the_pool(signed_in_viewer: TestClient) -> None:
+    # It changes nothing and it is half of what the page is for.
+    assert signed_in_viewer.get("/api/v1/realtime/pool").status_code == 200

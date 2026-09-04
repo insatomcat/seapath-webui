@@ -25,6 +25,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.cluster.fake import FakeMetricsClient
 from app.console.fake import FakeConsoleAdapter
 from app.core.auth import Role
 from app.core.settings import Settings
@@ -113,6 +114,17 @@ def console_adapter() -> FakeConsoleAdapter:
 
 
 @pytest.fixture
+def metrics_client() -> FakeMetricsClient:
+    """The exporters of a cluster that does not exist.
+
+    Injected rather than left to the real client, because without it the suite
+    would try to reach 192.168.200.125 on every test that renders the pool, and
+    a test suite that touches the network is one that fails on a train.
+    """
+    return FakeMetricsClient()
+
+
+@pytest.fixture
 def authenticator() -> FakeAuthenticator:
     return FakeAuthenticator(
         {"admin": "secret", "viewer": "secret", "nobody": "secret"}
@@ -132,6 +144,7 @@ def client(
     directory: FakeRoleDirectory,
     run_adapter: FakeRunAdapter,
     console_adapter: FakeConsoleAdapter,
+    metrics_client: FakeMetricsClient,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -141,6 +154,7 @@ def client(
         session_secret=b"test-secret",
         run_adapter=run_adapter,
         console_adapter=console_adapter,
+        metrics_client=metrics_client,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client
@@ -159,6 +173,7 @@ def signed_in_with(
     directory: FakeRoleDirectory,
     run_adapter: FakeRunAdapter,
     console_adapter: FakeConsoleAdapter,
+    metrics_client: FakeMetricsClient,
 ) -> Iterator[Callable[[Path], TestClient]]:
     """A signed in client whose service reads the collection you hand it.
 
@@ -179,6 +194,7 @@ def signed_in_with(
                 session_secret=b"test-secret",
                 run_adapter=run_adapter,
                 console_adapter=console_adapter,
+                metrics_client=metrics_client,
             )
             client = stack.enter_context(TestClient(application, base_url=BASE_URL))
             return _sign_in(client, "admin")

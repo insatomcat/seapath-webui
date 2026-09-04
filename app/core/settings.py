@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # mount rather than asking for one of its own. A source checkout and the
     # tests point it at their own tree.
     host_etc_root: Path = Path("/run/host/etc")
+    # Where every SEAPATH node serves its metrics. `deploy_prometheus_exporters`
+    # puts node_exporter here and PROMETHEUS.md tells a site to scrape it, so
+    # the CPU pool is read from the port a cluster already has open rather than
+    # from a new one.
+    node_exporter_port: int = 9100
 
     # The inventory repository, separate from the service state so it can be
     # backed up, cloned and exported on its own. A folder rather than a file:

@@ -1008,3 +1008,86 @@ That gives M2 a sharper target than "a CPU map with VM colours":
 Neither is built yet, and both are M2. What is settled here is the direction:
 this service edits the profile and checks the outcome against it, and never
 draws the placement.
+
+## D26 - Settled: the pool is read from each node's exporter, and the page aggregates the cluster
+
+[D25](#d25) dropped the per VM CPU map on two grounds: this container cannot
+see the threads, and the placement is live state that
+`prometheus-node-exporter` already publishes. Both facts are still true. The
+conclusion drawn from them was wrong, and the page proved it: a map showing
+only isolated against housekeeping repeats a row of the conformance list and
+tells an operator nothing they did not already have.
+
+What D25 missed is that reading the exporter and duplicating it are opposites.
+
+### Asking rather than computing
+
+`seapath-alloc` derives occupancy from the affinity of every QEMU thread in
+`/proc`, which is exactly the reading this container cannot make. It runs on
+the host, sees all of it, and writes `seapath_alloc_cpu_detail` to a Prometheus
+textfile every fifteen seconds. `node_exporter` serves that on port 9100 on
+every SEAPATH machine, because `deploy_prometheus_exporters` puts it there and
+[PROMETHEUS.md](../../seapath-ansible/roles/deploy_seapath_alloc/PROMETHEUS.md)
+tells a site to scrape it.
+
+So this service asks. One HTTP GET per node, no mount, no privilege, no route
+to a host daemon, and nothing computed twice. The metric carries everything the
+Grafana dashboard the collection ships draws with: the CPU, whether it is
+isolated, its physical core and HT sibling, its state, the actor on it, and the
+members of a shared slot.
+
+That is a narrower thing than the observation plane [D13](#d13) removed. D13
+refused a **second source of truth** for live state, and the cost it refused was
+a route from this container to the host's systemd. Reading a published
+exposition is neither: the exporter stays the source, Prometheus stays the
+history and the alerting, and this reads the current value into the page an
+operator already has open.
+
+Two properties keep it honest, and both are tested:
+
+- **The reading carries its age.** The collector runs on a fifteen second
+  timer, so the pool is never quite now, and a page implying otherwise would
+  read as live for the whole minute after a node stopped exporting.
+- **A node that cannot be reached is reported with its reason, beside the
+  nodes that answered.** A cluster half built is the ordinary state of a
+  cluster being built, and an exporter that answers without the seapath-alloc
+  metrics is a different fault from an unreachable one, fixed by a different
+  role. The page names which.
+
+### The page aggregates, and that settles a scope question
+
+The Real time page was incoherent about scope: the conformance list and the CPU
+map read the local machine, while a measurement brought back one file per
+machine because a run plays the whole inventory and carries no `--limit`. Two
+answers were available, local only or cluster wide, and the pool decides it:
+once every node's pool is on the page, showing one machine's measurement would
+make the measurement the odd panel out.
+
+So the page aggregates. The local node is marked and sorted first, because it
+is the machine the operator is standing on and the one the conformance list is
+still about.
+
+**The conformance list stays local**, and that is the remaining seam. It reads
+this machine's `/sys` and compares it with this machine's inventory entry.
+Making it cluster wide needs a per node reading this service does not have, and
+the exporter publishes some of it but not the comparison. It is worth doing and
+it is not done here.
+
+### What was refused
+
+**Querying Prometheus.** It would give history and one query for the whole
+cluster. This repository deliberately does not deploy Prometheus and cannot
+know its address: PROMETHEUS.md says it is shared across sites and its
+configuration lives with the monitoring infrastructure. Asking each node
+directly needs no address a site has not already given us, since the inventory
+names every machine.
+
+**An HTTP client dependency.** `urllib` makes this request, and an unused
+dependency tree in a substation image is only its CVEs. The requests run in a
+thread pool because the page waits on the slowest node, and three nodes in
+series with one down is six seconds before anything renders.
+
+**Reading the textfile through a mount.** `/var/lib/prometheus/node_exporter/`
+would give the local node with one bind mount and no network. It answers for
+one machine, which is the design this decision is moving away from, and it adds
+host surface to avoid a request to a port the cluster already serves.
