@@ -1,0 +1,88 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+#}
+{% extends "base.html" %}
+{% block title %}Real time - SEAPATH{% endblock %}
+
+{% block body %}
+<main class="page realtime">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card wide" id="card-checks">
+    <h2>Real time conformance</h2>
+    <p class="lead" id="checks-lead"></p>
+    <div class="loading" id="checks-loading">Reading this machine</div>
+    <div class="checks" id="checks" hidden></div>
+    <p class="legend">
+      A <strong>conformance</strong> check compares the machine with the value
+      the inventory declares for it, and the fix for a mismatch is an inventory
+      edit followed by a run. An <strong>advice</strong> check has nothing to
+      compare against: it reports what the machine came out with and says what
+      it costs. Neither kind is fixed from this page, because nothing here
+      writes to a host.
+    </p>
+  </section>
+
+  <section class="card wide" id="card-map">
+    <h2>CPU map</h2>
+    <div class="map-body">
+      <dl id="map-summary"></dl>
+      <div class="core-map" id="core-map"></div>
+    </div>
+    <p class="legend">
+      Grouped by physical core, so the two threads of one core sit together.
+      An isolated CPU whose sibling is not isolated shares its execution units
+      with whatever the scheduler puts there, which is the case the outline
+      marks.
+    </p>
+  </section>
+
+  <section class="card wide" id="card-latency">
+    <h2>Measured latency</h2>
+    <p class="lead" id="latency-lead"></p>
+
+    <div class="measure-form" id="measure-form" hidden>
+      <label class="field">
+        <span>Duration, in seconds</span>
+        <input type="number" id="measure-duration" min="1" max="86400" value="20">
+      </label>
+      <label class="field">
+        <span>Real time priority</span>
+        <input type="number" id="measure-priority" min="1" max="98" value="90">
+      </label>
+      <label class="field">
+        <span>CPUs to measure</span>
+        <input type="text" id="measure-affinity" value="smp">
+      </label>
+      <div class="field measure-action">
+        <button id="measure-go" type="button">Measure</button>
+      </div>
+    </div>
+    <p class="warning" id="measure-blocked" hidden></p>
+    <p class="warning" id="measure-error" hidden></p>
+
+    <div class="loading" id="latency-loading">Reading past measurements</div>
+    <div id="latency" hidden>
+      <div class="measure-picker" id="measure-picker"></div>
+      <div id="latency-body"></div>
+    </div>
+  </section>
+
+  <div class="modal" id="measure-confirm" hidden>
+    <div class="modal-body">
+      <h2>Measure the latency</h2>
+      <p id="measure-disruption"></p>
+      <p class="error" id="measure-confirm-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="measure-cancel" class="secondary">Cancel</button>
+        <button type="button" id="measure-confirm-go">Measure</button>
+      </div>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/realtime.js"></script>
+{% endblock %}

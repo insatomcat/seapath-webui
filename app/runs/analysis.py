@@ -533,13 +533,22 @@ class _Reader:
         return None
 
 
-def playbook_ids(collection: Path) -> list[str]:
-    """Every playbook of the collection, CI and test helpers aside.
+def playbook_ids(collection: Path, reviewed: frozenset[str] = frozenset()) -> list[str]:
+    """Every playbook of the collection that may be read for the catalogue.
 
     `ci_*` and `test_*` drive the upstream CI: they reinstall an ISO, restore a
     snapshot, reboot on a USB drive. They exist to build a machine from
-    nothing, not to converge one that is running virtual machines in a
+    nothing rather than to converge one running virtual machines in a
     substation, and no reading of a YAML file makes them safe to offer here.
+    So they are dropped, and a playbook dropped here is never derived into an
+    entry an operator can launch.
+
+    `reviewed` is the exception, and it is narrow by construction: an id a
+    human put in the catalogue by hand. `test_run_cyclictest` is the case. A
+    reviewed entry is already offered whatever this function returns, since the
+    catalogue is written rather than derived, and naming it here only attaches
+    the counted facts beside the prose. Leaving it out made the one measurement
+    entry the only one on the page with no plays and no tasks under it.
     """
     directory = Path(collection) / "playbooks"
     if not directory.is_dir():
@@ -549,7 +558,7 @@ def playbook_ids(collection: Path) -> list[str]:
         for path in directory.iterdir()
         if path.is_file()
         and path.suffix in (".yaml", ".yml")
-        and not path.stem.startswith(("ci_", "test_"))
+        and (path.stem in reviewed or not path.stem.startswith(("ci_", "test_")))
     )
 
 
@@ -559,16 +568,22 @@ def read(collection: Path, playbook_id: str) -> PlaybookFacts:
 
 
 @lru_cache(maxsize=8)
-def _cached(collection: str, identity: str) -> tuple[PlaybookFacts, ...]:
+def _cached(
+    collection: str, identity: str, reviewed: frozenset[str]
+) -> tuple[PlaybookFacts, ...]:
     reader = _Reader(Path(collection))
-    return tuple(reader.facts(name) for name in playbook_ids(Path(collection)))
+    return tuple(
+        reader.facts(name) for name in playbook_ids(Path(collection), reviewed)
+    )
 
 
-def read_all(collection: Path, identity: str) -> tuple[PlaybookFacts, ...]:
+def read_all(
+    collection: Path, identity: str, reviewed: frozenset[str] = frozenset()
+) -> tuple[PlaybookFacts, ...]:
     """Every playbook of the collection, analysed once per installed version.
 
     `identity` is the collection's fingerprint, so reinstalling it reads the
     tree again while a page reload does not: this walks a few hundred YAML
     files, which is cheap once and silly on every request.
     """
-    return _cached(str(collection), identity)
+    return _cached(str(collection), identity, reviewed)

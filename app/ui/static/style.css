@@ -1163,3 +1163,191 @@ button.secondary {
 .console-panel .legend {
   margin-bottom: 0;
 }
+
+/* Real time */
+
+.checks {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.check {
+  display: grid;
+  grid-template-columns: 0.6rem 1fr auto;
+  gap: 0.25rem 0.75rem;
+  align-items: baseline;
+  padding: 0.6rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+/* The status is a bar down the left rather than a coloured word, so a page of
+   ten checks is scanned by looking at one column. */
+.check::before {
+  content: "";
+  grid-row: 1 / -1;
+  align-self: stretch;
+  border-radius: 2px;
+  background: var(--muted);
+}
+
+.check.ok::before {
+  background: var(--ok);
+}
+
+.check.warning::before {
+  background: var(--warn);
+}
+
+.check.info::before {
+  background: var(--accent);
+}
+
+.check-title {
+  font-weight: 600;
+}
+
+.check-kind {
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.check-values {
+  grid-column: 2 / -1;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+/* What the inventory asked for, where the two differ. Rendered next to the
+   observed value rather than under it, because the comparison is the whole
+   content of a conformance check. */
+.check-declared {
+  color: var(--isolated);
+}
+
+.check-detail {
+  grid-column: 2 / -1;
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* The summary beside the cores rather than above them. The card spans the
+   page, because a narrow card in a three column grid leaves two empty ones,
+   and the cores are what the reader came for. */
+.map-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 3rem;
+  align-items: flex-start;
+}
+
+.map-body dl {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.core-map {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  flex: 1 1 20rem;
+}
+
+.core {
+  display: flex;
+  gap: 0.15rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+/* A core whose threads disagree about isolation. The isolated one shares its
+   execution units with whatever the scheduler puts on the other. */
+.core.split {
+  border-color: var(--warn);
+}
+
+.measure-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0 1rem;
+  align-items: end;
+  margin-bottom: 1rem;
+}
+
+/* The button keeps its own column so the three fields stay aligned, and it
+   sits at its natural width inside it: a full width blue bar reads as the
+   page's main action, and on this page that is the conformance report. */
+.measure-action button {
+  width: auto;
+}
+
+.measure-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.measure-picker button {
+  padding: 0.3rem 0.6rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.measure-picker button.current {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.chart {
+  width: 100%;
+  height: auto;
+  margin-top: 0.5rem;
+}
+
+.chart .axis {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.chart .tick {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.chart .series {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.chart-legend span {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.chart-legend i {
+  width: 0.75rem;
+  height: 0.2rem;
+  border-radius: 1px;
+}
+
+.chart-axes {
+  margin-right: 0.5rem;
+  color: var(--muted);
+}

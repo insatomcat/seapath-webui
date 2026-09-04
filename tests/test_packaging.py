@@ -66,7 +66,10 @@ def test_a_mount_source_that_may_be_absent_is_created_by_the_unit(
         "/var/log",
         "/run/log",
         "/etc/machine-id",
-        # Read by nothing once the observation plane moved out.
+        # The tuned daemon's runtime directory, which is the profile it is
+        # running. The real time page reads the profile that was *configured*,
+        # out of the host's /etc that PAM already brought in, so neither of
+        # these is needed for it. See test_the_tuned_profile_is_read_through...
         "/etc/tuned",
         "/run/tuned",
         "/var/lib/pacemaker",
@@ -168,3 +171,33 @@ def test_the_site_collection_rides_in_the_state_volume() -> None:
     assert any(
         site.is_relative_to(Path(source)) for source in _SOURCES
     ), f"{site} is under no mount the quadlet gives the container"
+
+
+def test_the_tuned_profile_is_read_through_the_mount_that_is_already_there() -> None:
+    """The real time page costs the container no new host surface.
+
+    The reading it added answers what the machine *is*: the profile
+    `configure_hypervisor` selected, the preemption the kernel was built with,
+    the pages that were reserved. Every one of them comes from the container's
+    own /proc, the read only /sys, or the host's /etc that PAM already needs,
+    and the test above still refuses /etc/tuned and /run/tuned as mounts of
+    their own.
+
+    The latency measurement adds nothing either: cyclictest runs on the target
+    over SSH, through an Ansible run, so this container never needs the real
+    time privileges it would take to measure from the inside.
+    """
+    assert "/etc:/run/host/etc:ro" in _VOLUMES
+    assert "SEAPATH_WEBUI_HOST_ETC_ROOT" not in _QUADLET
+
+
+def test_the_container_never_asks_for_the_privileges_a_measurement_needs() -> None:
+    # rtperfui measured from inside its own container and paid for it with
+    # `--privileged`, CAP_SYS_NICE and `rtprio=99`. This one keeps its Nice and
+    # its CPUQuota, and sends the measurement out over SSH instead. A machine
+    # whose management UI competes with its real time guests has the problem
+    # this whole design exists to avoid. See D24 in docs/decisions.md.
+    for forbidden in ("--privileged", "CAP_SYS_NICE", "rtprio", "AddCapability"):
+        assert forbidden not in _QUADLET
+    assert "Nice=" in _QUADLET
+    assert "CPUQuota=" in _QUADLET

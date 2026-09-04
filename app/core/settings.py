@@ -39,6 +39,11 @@ class Settings(BaseSettings):
     # Root of the host filesystem as seen from this process. Always "/" in the
     # container, a fixture tree in the tests.
     host_root: Path = Path("/")
+    # Where the host's whole /etc is readable. The quadlet mounts it there for
+    # PAM, and the real time reading takes the tuned profile out of the same
+    # mount rather than asking for one of its own. A source checkout and the
+    # tests point it at their own tree.
+    host_etc_root: Path = Path("/run/host/etc")
 
     # The inventory repository, separate from the service state so it can be
     # backed up, cloned and exported on its own. A folder rather than a file:

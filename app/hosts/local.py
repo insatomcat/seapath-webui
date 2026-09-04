@@ -36,12 +36,15 @@ from app.hosts.models import (
     CpuReading,
     CpuTopologyEntry,
     DisksReading,
+    HugepagePool,
     InterfaceAddress,
+    IrqOnIsolatedCpu,
     NetworkInterface,
     NetworkReading,
     NodeIdentity,
     NodeMode,
     PtpClock,
+    RealtimeReading,
 )
 from app.hosts.reader import CommandRunner, SubprocessRunner
 
@@ -56,8 +59,20 @@ _SECTOR_BYTES = 512
 class LocalHostReader:
     """Reads the local machine. Writes nothing, ever."""
 
-    def __init__(self, root: Path, runner: CommandRunner | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        runner: CommandRunner | None = None,
+        etc_root: Path | None = None,
+    ) -> None:
         self._root = Path(root)
+        # Where the host's whole /etc is readable. The quadlet bind mounts
+        # /etc/hostname and /etc/os-release directly, because identity is
+        # needed before anything else, and it mounts the rest at
+        # /run/host/etc for PAM. The tuned profile lives in that second one,
+        # so reading it costs no new mount: that is the whole reason this
+        # parameter exists rather than a Volume line.
+        self._etc_root = Path(etc_root) if etc_root else self._root / "etc"
         self._runner = runner or SubprocessRunner()
         # Previous /proc/stat snapshot, so per CPU busy time is a rate between
         # two polls rather than a meaningless number since boot.
@@ -82,6 +97,9 @@ class LocalHostReader:
             return int(raw)
         except ValueError:
             return None
+
+    def _read_etc(self, *parts: str) -> str | None:
+        return _text_at(self._etc_root.joinpath(*[p.lstrip("/") for p in parts]))
 
     # Node identity
 
@@ -379,6 +397,144 @@ class LocalHostReader:
             return fields[0], _hex_to_ipv4(fields[2])
         return None, None
 
+    # Real time
+
+    def realtime(self) -> RealtimeReading:
+        """The tuning this machine carries, read from files it already shows.
+
+        Read once, judged nowhere: whether a value is right for a SEAPATH
+        hypervisor is `app/services/realtime.py`'s decision, because that is
+        where the inventory is, and half the answers are "it matches what you
+        declared" rather than an absolute.
+        """
+        warnings: list[str] = []
+
+        profile = self._read_etc("tuned/active_profile")
+        profile_source = "/etc/tuned/active_profile" if profile else None
+        installed: bool | None = None
+        if profile:
+            # `configure_hypervisor` writes the profile under `profiles/`. The
+            # distribution ships its own under `/usr/lib/tuned`, so a name
+            # found in neither is a profile that does not exist.
+            installed = (
+                any(
+                    self._etc_root.joinpath("tuned", directory, profile).is_dir()
+                    for directory in ("profiles", ".")
+                )
+                or self._path("usr/lib/tuned", profile).is_dir()
+            )
+        else:
+            warnings.append(
+                "The tuned profile could not be read. /etc/tuned/active_profile "
+                "is absent, which on a converged hypervisor means "
+                "configure_hypervisor has not run."
+            )
+
+        version = self._read_text("proc/version")
+        if version is None:
+            warnings.append("/proc/version could not be read.")
+
+        smt_control = self._read_text("sys/devices/system/cpu/smt/control")
+        smt_active = _optional_bool(self._read_int("sys/devices/system/cpu/smt/active"))
+
+        isolated = set(
+            parse_cpu_list(self._read_text("sys/devices/system/cpu/isolated"))
+        )
+        if not isolated:
+            cmdline = self._read_text("proc/cmdline") or ""
+            isolated = set(parse_cpu_list(_kernel_parameter(cmdline, "isolcpus")))
+        irq_count, irqs = self._irq_affinity(isolated)
+
+        return RealtimeReading(
+            tuned_profile=profile,
+            tuned_profile_source=profile_source,
+            tuned_profile_installed=installed,
+            kernel_version=version,
+            preemption=_preemption_model(version),
+            smt_active=smt_active,
+            smt_control=smt_control,
+            sched_rt_runtime_us=self._read_int("proc/sys/kernel/sched_rt_runtime_us"),
+            sched_rt_period_us=self._read_int("proc/sys/kernel/sched_rt_period_us"),
+            hugepages=self._hugepages(),
+            transparent_hugepages=_bracketed(
+                self._read_text("sys/kernel/mm/transparent_hugepage/enabled")
+            ),
+            transparent_hugepage_defrag=_bracketed(
+                self._read_text("sys/kernel/mm/transparent_hugepage/defrag")
+            ),
+            acpi_present=self._path("sys/firmware/acpi").is_dir(),
+            irq_count=irq_count,
+            irqs_on_isolated_cpus=irqs,
+            warnings=warnings,
+        )
+
+    def _hugepages(self) -> list[HugepagePool]:
+        """Every pool the kernel exposes, machine wide and per NUMA node.
+
+        Both, because the two answer different questions. A VM pinned to one
+        socket takes its pages from that socket's pool, so a machine with
+        enough pages in total and none on the node the guest sits on fails to
+        start with the total looking correct.
+        """
+        pools: list[HugepagePool] = []
+        for base, node in self._hugepage_roots():
+            for entry in sorted(_iterdir(base)):
+                size = _hugepage_size_kb(entry.name)
+                if size is None:
+                    continue
+                total = _int_at(entry / "nr_hugepages")
+                free = _int_at(entry / "free_hugepages")
+                if total is None:
+                    continue
+                pools.append(
+                    HugepagePool(size_kb=size, total=total, free=free or 0, node=node)
+                )
+        return pools
+
+    def _hugepage_roots(self) -> list[tuple[Path, int | None]]:
+        roots: list[tuple[Path, int | None]] = [
+            (self._path("sys/kernel/mm/hugepages"), None)
+        ]
+        for entry in sorted(_iterdir(self._path("sys/devices/system/node"))):
+            match = re.fullmatch(r"node(\d+)", entry.name)
+            if match:
+                roots.append((entry / "hugepages", int(match.group(1))))
+        return roots
+
+    def _irq_affinity(
+        self, isolated: set[int]
+    ) -> tuple[int | None, list[IrqOnIsolatedCpu]]:
+        """Which interrupts may still be delivered to an isolated CPU.
+
+        `/proc/irq` is the container's own and is not namespaced, so this costs
+        no mount. An affinity mask is a permission rather than an observation:
+        a interrupt allowed on an isolated CPU is a latency source whether or
+        not it has fired there yet, which is exactly the kind of thing that is
+        true of the machine rather than of this second.
+        """
+        root = self._path("proc/irq")
+        entries = [entry for entry in _iterdir(root) if entry.name.isdigit()]
+        if not entries:
+            return None, []
+        if not isolated:
+            return len(entries), []
+
+        offenders: list[IrqOnIsolatedCpu] = []
+        for entry in sorted(entries, key=lambda path: int(path.name)):
+            raw = _text_at(entry / "smp_affinity_list")
+            if raw is None:
+                continue
+            overlap = sorted(isolated.intersection(parse_cpu_list(raw)))
+            if overlap:
+                offenders.append(
+                    IrqOnIsolatedCpu(
+                        number=entry.name,
+                        name=_irq_name(entry),
+                        cpus=overlap,
+                    )
+                )
+        return len(entries), offenders
+
     # PTP
 
     def ptp_clocks(self) -> list[PtpClock]:
@@ -630,3 +786,69 @@ def _hex_to_ipv4(value: str) -> str | None:
     except ValueError:
         return None
     return ".".join(str((raw >> shift) & 0xFF) for shift in (0, 8, 16, 24))
+
+
+def _text_at(path: Path) -> str | None:
+    """Read a path that is already absolute.
+
+    The reader's own `_read_text` joins its argument onto the filesystem root,
+    which is what makes every parser testable against a recorded tree. A path
+    walked out of that tree, one entry of `/proc/irq` for instance, is already
+    rooted and must not be joined a second time.
+    """
+    try:
+        return path.read_text(errors="replace").strip()
+    except (OSError, UnicodeError):
+        return None
+
+
+def _int_at(path: Path) -> int | None:
+    raw = _text_at(path)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _preemption_model(version: str | None) -> str | None:
+    """The preemption the kernel was built with, from `/proc/version`.
+
+    PREEMPT_RT first, because a fully preemptible kernel also carries PREEMPT
+    in the same string and matching the shorter one first would report every
+    RT kernel as an ordinary preemptible one.
+    """
+    if not version:
+        return None
+    for marker in ("PREEMPT_RT", "PREEMPT_DYNAMIC", "PREEMPT", "VOLUNTARY"):
+        if marker in version:
+            return marker
+    return "none"
+
+
+def _bracketed(value: str | None) -> str | None:
+    """The selected entry of a sysfs list, `always [madvise] never`."""
+    if not value:
+        return None
+    match = re.search(r"\[([^\]]+)\]", value)
+    return match.group(1) if match else value.strip() or None
+
+
+def _hugepage_size_kb(name: str) -> int | None:
+    match = re.fullmatch(r"hugepages-(\d+)kB", name)
+    return int(match.group(1)) if match else None
+
+
+def _irq_name(entry: Path) -> str | None:
+    """The device behind an interrupt, which is the only useful part of it.
+
+    `/proc/irq/<n>/` holds one subdirectory named after the handler. A number
+    alone tells an operator nothing, and the name is what says whether an
+    interrupt on an isolated CPU is the storage controller or a USB port
+    nobody uses.
+    """
+    for child in _iterdir(entry):
+        if child.is_dir() and child.name not in ("smp_affinity_list",):
+            return child.name
+    return None

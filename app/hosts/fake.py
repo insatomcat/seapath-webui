@@ -19,12 +19,15 @@ from app.hosts.models import (
     CpuReading,
     CpuTopologyEntry,
     DisksReading,
+    HugepagePool,
     InterfaceAddress,
+    IrqOnIsolatedCpu,
     NetworkInterface,
     NetworkReading,
     NodeIdentity,
     NodeMode,
     PtpClock,
+    RealtimeReading,
 )
 
 _BOOT_TIME = datetime(2026, 8, 11, 6, 0, 0, tzinfo=UTC)
@@ -87,6 +90,43 @@ class FakeHostReader:
                 "BOOT_IMAGE=/vmlinuz root=/dev/mapper/main-root ro "
                 "isolcpus=4-7 nohz_full=4-7 rcu_nocbs=4-7"
             ),
+        )
+
+    def realtime(self) -> RealtimeReading:
+        """A converged hypervisor with two findings left on it.
+
+        Deliberately not a clean bill of health. A fake that passes every check
+        makes the page look finished while only ever exercising one branch, and
+        the two kept here are the two a real machine most often still carries:
+        SMT left on by the firmware, and transparent hugepages on `madvise`
+        rather than off. One interrupt is left reaching an isolated CPU for the
+        same reason.
+        """
+        return RealtimeReading(
+            tuned_profile="seapath-rt-host",
+            tuned_profile_source="/etc/tuned/active_profile",
+            tuned_profile_installed=True,
+            kernel_version=(
+                "Linux version 6.1.0-18-rt-amd64 (debian-kernel@lists.debian.org) "
+                "#1 SMP PREEMPT_RT Debian 6.1.76-1 (2026-02-01)"
+            ),
+            preemption="PREEMPT_RT",
+            smt_active=True,
+            smt_control="on",
+            sched_rt_runtime_us=-1,
+            sched_rt_period_us=1000000,
+            hugepages=[
+                HugepagePool(size_kb=1048576, total=8, free=8),
+                HugepagePool(size_kb=2048, total=0, free=0),
+                HugepagePool(size_kb=1048576, total=8, free=8, node=0),
+            ],
+            transparent_hugepages="madvise",
+            transparent_hugepage_defrag="madvise",
+            acpi_present=True,
+            irq_count=112,
+            irqs_on_isolated_cpus=[
+                IrqOnIsolatedCpu(number="34", name="ahci0", cpus=[4]),
+            ],
         )
 
     def network(self) -> NetworkReading:

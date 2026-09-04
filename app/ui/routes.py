@@ -105,6 +105,10 @@ def install(app: FastAPI) -> None:
         # in people's history and in the first deployment's notes.
         return RedirectResponse("/inventory", status_code=308)
 
+    @app.get("/realtime", response_class=HTMLResponse, include_in_schema=False)
+    def realtime(request: Request):
+        return _page(request, "realtime.html", "realtime")
+
     @app.get("/runs", response_class=HTMLResponse, include_in_schema=False)
     def runs(request: Request):
         return _page(request, "runs.html", "runs")

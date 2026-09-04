@@ -567,3 +567,31 @@ def test_no_reviewed_entry_understates_a_reboot() -> None:
     ]
 
     assert silent == []
+
+
+def test_a_reviewed_test_playbook_is_read_and_an_unreviewed_one_is_not(
+    tmp_path: Path,
+) -> None:
+    """The `test_*` rule stops derivation, and reviewing is what lifts it.
+
+    `ci_*` and `test_*` build a machine from nothing, and offering one next to
+    the network configuration on the strength of a YAML read is what the rule
+    forbids. `test_run_cyclictest` is in the catalogue because a human read it
+    and wrote the sentence an operator needs, so it is read for its facts. The
+    ones nobody reviewed stay unread, which is what keeps them off the page.
+    """
+    playbooks = tmp_path / "playbooks"
+    playbooks.mkdir(parents=True)
+    for name in (
+        "test_run_cyclictest",
+        "test_run_cukinia",
+        "ci_test",
+        "seapath_setup_snmp",
+    ):
+        (playbooks / f"{name}.yaml").write_text("---\n- hosts: all\n")
+
+    with_review = analysis.playbook_ids(tmp_path, frozenset({"test_run_cyclictest"}))
+    without = analysis.playbook_ids(tmp_path)
+
+    assert with_review == ["seapath_setup_snmp", "test_run_cyclictest"]
+    assert without == ["seapath_setup_snmp"]

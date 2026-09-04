@@ -86,6 +86,38 @@ def build_host_tree(root: Path) -> Path:
         "eno1\t00C8A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\n",
     )
 
+    # Real time tuning, as configure_hypervisor leaves it. The profile is read
+    # from the host's /etc, which the container sees at /run/host/etc, so the
+    # tree carries it under `etc/` and the test points `etc_root` there.
+    _write(root / "etc/tuned/active_profile", "seapath-rt-host\n")
+    (root / "etc/tuned/profiles/seapath-rt-host").mkdir(parents=True, exist_ok=True)
+    _write(
+        root / "proc/version",
+        "Linux version 6.1.0-18-rt-amd64 (debian-kernel@lists.debian.org) "
+        "#1 SMP PREEMPT_RT Debian 6.1.76-1 (2026-02-01)\n",
+    )
+    _write(cpu / "smt/active", "0\n")
+    _write(cpu / "smt/control", "off\n")
+    _write(root / "proc/sys/kernel/sched_rt_runtime_us", "-1\n")
+    _write(root / "proc/sys/kernel/sched_rt_period_us", "1000000\n")
+    _write(root / "sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages", "8\n")
+    _write(root / "sys/kernel/mm/hugepages/hugepages-1048576kB/free_hugepages", "8\n")
+    _write(root / "sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages", "0\n")
+    _write(root / "sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages", "0\n")
+    node0 = root / "sys/devices/system/node/node0/hugepages/hugepages-1048576kB"
+    _write(node0 / "nr_hugepages", "8\n")
+    _write(node0 / "free_hugepages", "8\n")
+    thp = root / "sys/kernel/mm/transparent_hugepage"
+    _write(thp / "enabled", "always madvise [never]\n")
+    _write(thp / "defrag", "always defer [never]\n")
+    (root / "sys/firmware/acpi").mkdir(parents=True, exist_ok=True)
+    # Two interrupts, one of which is still allowed on an isolated CPU. The
+    # named subdirectory is how /proc/irq carries the device behind the number.
+    _write(root / "proc/irq/22/smp_affinity_list", "0-3\n")
+    (root / "proc/irq/22/eno1").mkdir(parents=True, exist_ok=True)
+    _write(root / "proc/irq/34/smp_affinity_list", "4\n")
+    (root / "proc/irq/34/ahci0").mkdir(parents=True, exist_ok=True)
+
     # PTP
     _write(root / "sys/class/ptp/ptp0/clock_name", "ice-ptp\n")
 

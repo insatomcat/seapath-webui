@@ -48,6 +48,7 @@ from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
 from app.services.node import NodeService
+from app.services.realtime import RealtimeService
 from app.services.update import UpdateService
 from app.trust.service import TrustService
 from app.ui import routes as ui_routes
@@ -128,7 +129,9 @@ def create_app(
         reader = (
             FakeHostReader()
             if settings.use_fakes
-            else LocalHostReader(root=settings.host_root)
+            else LocalHostReader(
+                root=settings.host_root, etc_root=settings.host_etc_root
+            )
         )
     if authenticator is None:
         authenticator = (
@@ -242,6 +245,17 @@ def create_app(
         # tests and a machine reinstalled under a running service is read
         # again rather than remembered.
         node_distribution=lambda: reader.node_identity().seapath_distro,
+    )
+
+    # The real time page, which reads both halves of the same question: the
+    # tuning this machine came out with, and the latency a cyclictest run
+    # measured on it. The run half is the run service, filtered, so there is
+    # one history and one lock rather than a second way to load a machine.
+    app.state.realtime_service = RealtimeService(
+        reader=reader,
+        inventory=app.state.inventory_service,
+        runs=app.state.run_service,
+        hostname=hostname,
     )
 
     install_error_handlers(app)

@@ -157,6 +157,55 @@ no preview button at all rather than a button that lies.
 | `cluster_setup_users.yaml` | `hypervisors:&cluster_machines` | none | no | The `libvirtadmin` user, needed for live migration and console access. |
 | `cluster_remove_machine.yaml` | `cluster_machines` | none | no | Requires `machine_to_remove`, chosen from a list. See section 5. |
 
+### Measurement
+
+| Playbook | Targets | Preview | Reboots | Notes |
+|---|---|---|---|---|
+| `test_run_cyclictest.yaml` | `cluster_machines`, `standalone_machine` | none | no | The `cyclictest` role on its own. Copies a script to a temporary directory, runs `cyclictest`, fetches the histogram, leaves. Changes nothing on the machines. Launched from the Real time page, where its parameters and its chart are. |
+
+The one entry in the catalogue that measures rather than converges, and the
+distinction earns a flag on the entry (`measures`) because the confirmation has
+to say a different sentence. A convergence is dangerous through what it
+*writes*. This is dangerous through what it *runs*: a thread per measured CPU
+at real time priority, on machines that are carrying live guests, for as long
+as the operator asked. Neither sentence covers the other.
+
+The entry's `disruption` names no figure, and the confirmation appends the
+three the operator actually chose. A sentence that said "priority 90" while the
+field held 50 is one an operator learns to stop reading, and this is the page
+where that costs the most.
+
+Preview is `none`, and not as a judgement call: the playbook is one `command`
+followed by a `fetch` of the file that command wrote. Check mode skips the
+command, the fetch then has nothing to bring back, and the preview would report
+a green run that measured nothing.
+
+Three variables, each checked before it reaches a command line on every
+machine: `cyclictest_duration` in seconds, `cyclictest_priority` bounded to
+1-98, and `cyclictest_affinity`, which is `smp` or a CPU list. 99 is refused
+because it sits above the kernel's own threads on a PREEMPT_RT machine, which
+is how a measurement wedges the host it was measuring. A fourth,
+`cyclictest_result_folder`, is filled by the service with the run's own results
+directory and refused from a caller: it is a path inside this container rather
+than an operator's decision.
+
+**This is a `test_*` playbook, and section 4 says those are refused.** The rule
+stands and this is its one exception, which is narrow by construction: the rule
+forbids *deriving* an entry for a CI playbook from a YAML read, and this entry
+was written by hand after reading the role. Analysis still refuses to derive
+`ci_*` and `test_*`; naming a reviewed id lets the counted facts sit under the
+prose, and nothing else. What made the exception worth making is that the role
+already exists upstream and is the one the CI runs, so the alternative was a
+second implementation of a measurement in Python, inside a container that must
+never hold real time privileges.
+
+`test_run_cyclictest.yaml` did not exist upstream when this entry was written.
+The `cyclictest` role was only reachable through `ci_all_machines_tests.yaml`,
+which runs it after the Yocto functional tests and is therefore unusable on a
+Debian machine or on a running deployment. Until the playbook lands in the
+collection an image ships, the entry reports itself unavailable through
+`playbook_present`, which is exactly what [D12](decisions.md#d12) prescribes.
+
 ### The two libvirt entries
 
 They are two playbooks upstream, and they stay two entries here.
@@ -200,7 +249,9 @@ Two families are refused outright rather than derived:
 
 - `ci_*.yaml`, `test_*.yaml`. They reinstall an ISO, restore a snapshot and
   reboot on a USB drive. They build a machine from nothing, and no reading of a
-  YAML file makes them safe to offer next to the network configuration.
+  YAML file makes them safe to offer next to the network configuration. A
+  reviewed entry can still name one, `test_run_cyclictest` being the only one:
+  what the rule forbids is deriving such an entry from a file nobody read.
 - Any playbook needing a variable this page has no field for. It is listed with
   the variable named and stays unavailable, `seapath_update_yocto_cluster` and
   its `{{ machine_to_update }}` being the case. A free text field wired to an

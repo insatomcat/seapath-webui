@@ -34,6 +34,11 @@ _LOG = "stdout.log"
 _INVENTORY = "inventory.yaml"
 _SITE = "site"
 _LOCK = ".lock"
+# Where a playbook that measures something fetches what it measured. Its own
+# directory rather than the run root, which ansible-runner owns: `artifacts`,
+# `env` and `inventory` are laid out there and a fetch landing among them is a
+# file nobody can tell from runner's.
+_RESULTS = "results"
 
 
 class RunLocked(Exception):
@@ -90,8 +95,25 @@ class RunStore:
         # variables that name them.
         (directory / _EVENTS).touch()
         (directory / _LOG).touch()
+        (directory / _RESULTS).mkdir(exist_ok=True)
         self.save(record)
         return directory
+
+    def results_dir(self, run_id: str) -> Path:
+        """Where a measuring playbook is told to fetch its results.
+
+        Passed to the run as the variable the catalogue entry names, so the
+        histogram of a cyclictest lands beside the event stream that produced
+        it and is kept or deleted with it. A run is one directory, and that
+        stays true of the ones that bring something back.
+        """
+        return self.directory(run_id) / _RESULTS
+
+    def results(self, run_id: str) -> list[Path]:
+        directory = self.results_dir(run_id)
+        if not directory.is_dir():
+            return []
+        return sorted(path for path in directory.iterdir() if path.is_file())
 
     def save(self, record: RunRecord) -> None:
         path = self.directory(record.id) / _RECORD

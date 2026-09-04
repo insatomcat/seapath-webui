@@ -17,10 +17,16 @@ from pydantic import BaseModel
 
 from app.core.errors import ApiError
 from app.core.logging import audit_event
+from app.hosts.local import parse_cpu_list
 from app.inventory.service import InventoryService, InventoryState
-from app.runs import catalogue, progress, staging
+from app.runs import catalogue, cyclictest, progress, staging
 from app.runs.adapter import RunAdapter, RunRequest, build_command
-from app.runs.catalogue import PlaybookEntry, Precondition, VariableType
+from app.runs.catalogue import (
+    PlaybookEntry,
+    Precondition,
+    VariableSpec,
+    VariableType,
+)
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.store import RunLocked, RunStore
 from app.trust import known_hosts
@@ -305,6 +311,16 @@ class RunService:
     def reconcile(self) -> list[RunRecord]:
         return self._store.reconcile()
 
+    def results(self, run_id: str) -> list[cyclictest.CyclictestResult]:
+        """The measurements a run fetched, parsed.
+
+        Read from the run directory at each request rather than folded into
+        the record: the record is what the run did, and this is what the run
+        brought back. A file removed to reclaim space then reads as a run with
+        no results, which is exactly what it is.
+        """
+        return cyclictest.read(self._store.results_dir(run_id))
+
     def launch(
         self,
         playbook_id: str,
@@ -352,6 +368,13 @@ class RunService:
         extra_vars = self._accepted_variables(entry, variables or {}, state)
 
         run_id = _new_run_id()
+        if entry.results_variable:
+            # Where a measuring playbook fetches what it measured. The service
+            # fills it, never the caller: it is a path inside this container.
+            # Recorded with the other variables all the same, because the
+            # record is the exact invocation and hiding half of it would make
+            # the command it shows unreproducible.
+            extra_vars[entry.results_variable] = str(self._store.results_dir(run_id))
         record = RunRecord(
             id=run_id,
             playbook=entry.playbook,
@@ -462,8 +485,11 @@ class RunService:
                 400,
             )
         for name, value in supplied.items():
-            if declared[name].type is VariableType.MACHINE:
+            spec = declared[name]
+            if spec.type is VariableType.MACHINE:
                 self._check_machine(entry, name, value, state)
+            else:
+                supplied[name] = _checked_value(entry, spec, value)
         return dict(supplied)
 
     def _check_machine(
@@ -638,3 +664,72 @@ def _new_run_id() -> str:
     # Sortable, readable, and unique on a node: the store lists runs by
     # sorting on it, and an operator reads it in a directory listing.
     return datetime.now(tz=UTC).strftime("%Y%m%dT%H%M%S.%f")
+
+
+def _checked_value(entry: PlaybookEntry, spec: VariableSpec, value: Any) -> Any:
+    """One measurement parameter, checked before it reaches a command line.
+
+    These are the first variables here that carry a number an operator picks,
+    and they end up inside a shell command on every machine of the inventory.
+    Each one is checked against the bound that makes it safe.
+    """
+    if spec.type is VariableType.BOOLEAN:
+        return bool(value)
+
+    if spec.type is VariableType.SECONDS:
+        return _bounded(entry, spec, value, 1, 24 * 3600, "seconds")
+
+    if spec.type is VariableType.PRIORITY:
+        # SCHED_FIFO's own range, minus its two ends. 0 leaves the measurement
+        # outside real time scheduling altogether, and 99 puts it above the
+        # kernel's own threads on a PREEMPT_RT machine, which is how a
+        # measurement wedges the host it was measuring.
+        return _bounded(entry, spec, value, 1, 98, "a SCHED_FIFO priority")
+
+    if spec.type is VariableType.CPU_LIST:
+        text = str(value).strip()
+        if text == "smp":
+            return text
+        if not parse_cpu_list(text):
+            raise ApiError(
+                "invalid_variable",
+                (
+                    f"{spec.name} takes `smp` or a CPU list such as 4-7. "
+                    f"{value!r} is neither."
+                ),
+                400,
+                {"variable": spec.name},
+            )
+        return text
+
+    return value
+
+
+def _bounded(
+    entry: PlaybookEntry,
+    spec: VariableSpec,
+    value: Any,
+    low: int,
+    high: int,
+    unit: str,
+) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ApiError(
+            "invalid_variable",
+            f"{spec.name} takes a whole number of {unit}. {value!r} is not one.",
+            400,
+            {"variable": spec.name},
+        ) from None
+    if not low <= number <= high:
+        raise ApiError(
+            "invalid_variable",
+            (
+                f"{spec.name} takes {unit} between {low} and {high}. "
+                f"{entry.title} was asked for {number}."
+            ),
+            400,
+            {"variable": spec.name},
+        )
+    return number

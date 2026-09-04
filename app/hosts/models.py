@@ -126,3 +126,84 @@ class BlockDevice(BaseModel):
 
 class DisksReading(Reading):
     devices: list[BlockDevice] = Field(default_factory=list)
+
+
+class HugepagePool(BaseModel):
+    """One hugepage size the kernel exposes, and what is allocated in it."""
+
+    size_kb: int
+    total: int
+    free: int
+    node: int | None = None
+    """The NUMA node, or None for the machine wide pool."""
+
+
+class IrqOnIsolatedCpu(BaseModel):
+    """An interrupt whose affinity mask still reaches an isolated CPU."""
+
+    number: str
+    name: str | None = None
+    cpus: list[int] = Field(default_factory=list)
+
+
+class RealtimeReading(Reading):
+    """The real time tuning of this machine, as configured rather than as felt.
+
+    Everything here answers "what is this machine", which is the side of D13
+    that stays: the tuned profile that was selected, the preemption model the
+    kernel was built with, the pages that were reserved. What the machine is
+    *feeling* under load is `prometheus-node-exporter`'s, and what it actually
+    delivers in latency is a `cyclictest` run, which is a measurement and has a
+    run record of its own.
+
+    Every field comes from a file the container already sees: its own `/proc`,
+    which is not namespaced for any of this, the read only `/sys`, and the
+    host's `/etc` that PAM already brought in. No mount is added for this
+    reading, and none may be: a value that needs a route to tuned, to systemd
+    or to the journal is on the far side of the line D13 drew.
+    """
+
+    tuned_profile: str | None = None
+    tuned_profile_source: str | None = None
+    """Which file the profile was read from, because the answer matters.
+
+    `/etc/tuned/active_profile` is what `configure_hypervisor` writes and what
+    survives a reboot, so it is the configured profile and the one an
+    inventory can be held against. The running daemon's own
+    `/run/tuned/active_profile` is live state and is not read here.
+    """
+    tuned_profile_installed: bool | None = None
+    """The profile directory exists under `/etc/tuned/profiles`.
+
+    A machine naming a profile it does not have is a machine tuned by nothing,
+    and `tuned-adm active` on the host would still report the name.
+    """
+
+    kernel_version: str | None = None
+    """`/proc/version`, which is where the PREEMPT_RT build flag appears."""
+    preemption: str | None = None
+    """`PREEMPT_RT`, `PREEMPT`, `PREEMPT_DYNAMIC`, `voluntary` or `none`."""
+
+    smt_active: bool | None = None
+    smt_control: str | None = None
+
+    sched_rt_runtime_us: int | None = None
+    sched_rt_period_us: int | None = None
+
+    hugepages: list[HugepagePool] = Field(default_factory=list)
+    transparent_hugepages: str | None = None
+    """The bracketed choice of `/sys/kernel/mm/transparent_hugepage/enabled`."""
+    transparent_hugepage_defrag: str | None = None
+
+    acpi_present: bool | None = None
+
+    irq_count: int | None = None
+    irqs_on_isolated_cpus: list[IrqOnIsolatedCpu] = Field(default_factory=list)
+    """The interrupts whose `smp_affinity_list` still reaches an isolated CPU.
+
+    Counted rather than described: on a machine with `isolcpus=managed_irq` the
+    kernel keeps managed interrupts off the isolated set by itself, so a long
+    list here is a finding and an empty one is the expected shape. The
+    per-device affinity is `configure_nic_irq_affinity`'s to write, never this
+    service's.
+    """

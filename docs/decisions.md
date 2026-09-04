@@ -803,3 +803,112 @@ build label and becomes a fingerprint of what is on disk, which it already is
 in the code. What moves is the schedule. The collection stops being tied to the
 release of this image, and the image stops being something an operator updates
 by hand on a machine they had to ssh into.
+
+## D24 - Settled: the real time measurement runs on the target, over SSH
+
+`rtperfui` is a separate node local service that measures real time
+performance: `cyclictest`, `hwlatdetect`, a page of system checks, and a CPU
+map showing which VM each core is pinned to. Its four tabs are useful and its
+job is one this service should carry, so the question was how to absorb it
+rather than whether to.
+
+The obstacle is one line of its quadlet, and that line is load bearing:
+
+```ini
+PodmanArgs=--privileged
+AddCapability=CAP_SYS_NICE
+Ulimit=rtprio=99
+```
+
+`cyclictest` measures scheduling latency, so it must run at real time priority
+on the machine being measured. `rtperfui` runs it inside its own container and
+pays for that with `--privileged` and `rtprio=99`. This service's quadlet says
+the opposite in its own comment: `CPUAffinity` on the housekeeping set,
+`CPUQuota=50%`, `Nice=5`, "the exact opposite of the rtperfui quadlet". Porting
+the code as it stands means granting real time privileges to the container that
+serves the management UI on a substation hypervisor, where it would compete
+with the guests it exists to describe. Two services on one machine, one of them
+privileged, is the same problem wearing a second port number.
+
+**The measurement is an Ansible run.** SEAPATH already ships a `cyclictest`
+role, and this service already reaches every node over SSH, the local one
+included ([D1](#d1)). So `cyclictest` executes on the target through
+`ansible-runner`, the role fetches its histogram to the controller, and this
+service parses the artefact and charts it. What runs inside the container is a
+regular expression.
+
+That buys three things beyond the privileges:
+
+- **Every machine, rather than this one.** `rtperfui` measures the node it runs
+  on. A run plays every machine the inventory declares, so a three node cluster
+  is measured in one act and compared in one view.
+- **One lock, one history, one confirmation.** Loading three hypervisors at
+  SCHED_FIFO 90 is exactly the kind of act the run lock and the naming
+  confirmation exist for. A second subsystem with its own launch path would
+  have neither, and could start while a convergence is in flight.
+- **The measurement carries its desired state.** A run records the inventory
+  commit it was produced from, so a latency figure is filed against the
+  isolation that produced it. A number with no idea what the machine was
+  configured as is an anecdote.
+
+### What the four tabs became
+
+| `rtperfui` | Here |
+|---|---|
+| `cyclictest` | A catalogue entry, run through Ansible, histogram parsed from the fetched artefact and charted on `/realtime` |
+| `systemcheck` | The conformance report on `/realtime`, with every check that has an inventory variable behind it compared against the inventory rather than against an opinion |
+| `seapath`, the CPU map | The core grouped map on `/realtime`, drawn from `/node/cpu`. The per VM colouring waits for M2, which is when VM definitions enter the inventory |
+| `hwlatdetect` | Deferred until the role exists upstream. See below |
+
+`systemcheck` is the tab that gained the most from moving. It ran ten checks
+and judged each against a fixed opinion, which is all a standalone tool can do.
+Here, `isolcpus` and the tuned profile it selects are declared in the
+inventory, so those two become **conformance**: the machine is compared with
+what it was told, and the commonest finding is a machine converged and never
+rebooted, which the kernel's boot-time reading of `isolcpus` makes invisible
+any other way. That is the one thing [D13](#d13) says this service can add that
+`prometheus-node-exporter` cannot. The other eight stay **advice**, reported
+with what they cost and never as a failure: nothing in a SEAPATH inventory has
+an opinion about SMT, and a red badge over a site's own decision would be this
+service voting.
+
+The reading costs the container no new mount. The tuned profile comes from
+`/etc/tuned/active_profile` through the host `/etc` that PAM already needs at
+`/run/host/etc`, and everything else is the container's own `/proc` or the read
+only `/sys`. `/run/tuned`, which is the daemon's running profile, stays refused
+by the test in `test_packaging.py`: the configured profile is what an inventory
+can be held against, and the running one is live state.
+
+The CPU map is worth one note. `rtperfui` reads the Pacemaker CIB and pulls
+each VM's libvirt XML out of Ceph RBD metadata, falling back to `nsenter` into
+PID 1 when it cannot reach `cibadmin`. None of that is carried: resource
+placement is live state by [D13](#d13)'s definition, and `nsenter` into the
+host's namespaces is a larger version of the route [D9](#d9) already declined.
+What the map shows is the topology and the isolated set, which is what an
+operator reads while choosing an isolation. Per VM pinning arrives with M2,
+from the VM definitions in the inventory, which is the declarative side of the
+same question.
+
+### What is deferred, and why
+
+`hwlatdetect` has no upstream role. Writing one is the right way to add it, and
+it belongs in `seapath-ansible` where the CI runs it. It measures system
+management interrupts, which are invisible to the kernel and therefore to every
+check on this page, so the gap is worth closing. Until the role exists,
+`/realtime` says ACPI is present and that `hwlatdetect` is what measures what
+ACPI hides.
+
+`test_run_cyclictest.yaml` did not exist upstream either. The role has only
+ever been reachable through `ci_all_machines_tests.yaml`, which runs it after
+the Yocto functional tests, so it cannot be used on a Debian machine or on a
+running deployment. A playbook of twenty lines makes the role usable on its
+own; until it lands in the shipped collection, the entry reports itself
+unavailable through `playbook_present`, which is what [D12](#d12) prescribes
+for exactly this case.
+
+### The consequence for `rtperfui`
+
+It can be retired once the `hwlatdetect` role exists and M2 brings the per VM
+map. Retiring it is the point rather than a side effect: a second web service
+on every hypervisor, privileged, with its own port and its own trust story, is
+host surface this design spent considerable effort not having.

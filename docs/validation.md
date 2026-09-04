@@ -66,8 +66,7 @@ fall back to a plausible looking value.
 
 ### Result
 
-Not yet run. Fill in the table and name the machine, the SEAPATH release and
-the date.
+Not yet run.
 
 ## M1
 
@@ -147,3 +146,37 @@ says. On a substation hypervisor that is a safety property, not a cosmetic one.
 ### Result
 
 Not yet run.
+
+## Real time
+
+Added after M1, and separate from it because the checks below are about one
+page and one playbook. See D24 in [decisions.md](decisions.md).
+
+The conformance half changes nothing and can be read on any machine. The
+measurement half loads every machine the inventory declares, at real time
+priority, for as long as the duration says, so it wants a machine that is not
+carrying production traffic the first time it is run.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | On a converged hypervisor, the tuned check reads `seapath-rt-host` and marks it a conformance pass | `/etc/tuned/active_profile` reached through `/run/host/etc`, on a machine `configure_hypervisor` actually ran on | |
+| 2 | On a machine with no `isolcpus` in the inventory, the same check is advice and reports no profile, without a red badge | The role gates the whole tuned block on that variable, so this is what an unconfigured machine legitimately looks like | |
+| 3 | Editing `isolcpus`, converging, and **not** rebooting leaves the isolation check reporting a mismatch that names the reboot | The kernel reads `isolcpus` at boot. This is the finding the page exists for and no fake can produce it | |
+| 4 | After the reboot, the same check passes with the observed and declared columns equal | | |
+| 5 | The preemption check reads `PREEMPT_RT` on a SEAPATH image | `/proc/version` of the real kernel, which is the one place the build flag appears | |
+| 6 | The interrupt check counts the machine's real interrupts and names any that reach an isolated CPU | A real `/proc/irq` on a machine with real devices. On a kernel with `isolcpus=managed_irq` the expected result is none | |
+| 7 | Hugepages are reported per NUMA node on a two socket machine | The fixture has one node; a starved second node is the case that costs a guest its start | |
+| 8 | Launching a measurement asks for confirmation naming the machines and saying what it runs, rather than what it writes | | |
+| 9 | The run completes and `results/cyclictest_<host>.txt` exists under the run directory for **every** machine of the inventory | The role's `fetch` with `flat: true`, over the real SSH mesh | |
+| 10 | The histogram is charted per thread, and the per thread maximum matches the `# Max Latencies` footer of the fetched file | The parser is tested; only a real run proves the file it parses is the one the role produces | |
+| 11 | A measurement pinned with `cyclictest_affinity` to the isolated set labels each series with the right CPU | The mapping is read off the command line the role's script built | |
+| 12 | While the measurement runs, this service stays responsive and its container stays on the housekeeping CPUs | The whole point of measuring on the target instead of here. `systemd-cgls` and `taskset -pc` on the container answer it | |
+| 13 | Nothing on any machine changed: `seapath_setup_main.yaml` from a conventional control machine still reports no change afterwards | **The acceptance criterion.** A measurement that configured something would be the worst kind of bug here | |
+
+### Result
+
+Not yet run. The measurement half needs `test_run_cyclictest.yaml` in the
+collection the image ships: until it is there the entry reports itself
+unavailable through `playbook_present`, and checks 8 to 13 cannot be run.

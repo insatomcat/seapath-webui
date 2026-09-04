@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs"])
+@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/realtime", "/runs"])
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
 
@@ -23,6 +23,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/", "node.js"),
         ("/inventory", "inventory.js"),
         ("/system", "system.js"),
+        ("/realtime", "realtime.js"),
         ("/runs", "runs.js"),
     ],
 )
@@ -448,3 +449,27 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     # every time it opens.
     assert "passwordless <code>sudo</code>" in body
     assert "undone by the next run that touches it" in body
+
+
+def test_the_real_time_page_separates_conformance_from_advice(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/realtime").text
+
+    # The two kinds of check answer different questions, and only one of them
+    # has an action behind it. A page that presented them alike would read as
+    # this service having an opinion about a site's own decisions.
+    assert "conformance" in body
+    assert "advice" in body
+    assert "Neither kind is fixed from this page" in body
+
+
+def test_the_real_time_page_says_where_the_measurement_runs(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/realtime").text
+
+    # The one thing an operator has to understand about this page: cyclictest
+    # runs on the machines, through Ansible, and not inside this container.
+    assert 'id="measure-confirm"' in body
+    assert 'id="measure-form"' in body

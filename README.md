@@ -61,6 +61,19 @@ this node may not be allowed to run it. The lower half is the SSH trust: the
 site key this node holds, and the host keys it has accepted, both undone in one
 click.
 
+![The Real time page: the conformance checks, each marked conformance or advice](img/realtime.png)
+
+**Real time** answers whether a machine came out of a convergence with the
+tuning it was told to have. `isolcpus` and the tuned profile it selects are
+declared in the inventory, so those two are compared against it, and the
+commonest finding is a machine converged and never rebooted, which the kernel's
+boot-time reading of `isolcpus` hides from every other view. The rest, SMT,
+transparent hugepages, interrupt affinity, is reported with what it costs and
+never as a failure: a site is entitled to its own answer there. Below the
+checks, the latency itself, measured by `cyclictest` running on the machines
+through Ansible rather than inside this container. See D24 in
+[docs/decisions.md](docs/decisions.md).
+
 ![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)
 
 **Runs** is what happened. Every run keeps the playbook, who launched it, the
