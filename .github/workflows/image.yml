@@ -64,6 +64,19 @@ jobs:
           echo "version=${SEAPATH_ANSIBLE_REF}@${sha:0:12}" >> "${GITHUB_OUTPUT}"
           echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
 
+      # The version the quadlet pins, read from the source rather than typed
+      # here. `tests/test_packaging.py` holds the two together, so this is the
+      # tag a machine deployed from this repository will ask for.
+      - name: Resolve the image version
+        id: version
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' app/__init__.py)
+          if [ -z "${version}" ]; then
+              echo "app/__init__.py carries no __version__" >&2
+              exit 1
+          fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
       - name: Build
         run: |
           docker build \
@@ -71,6 +84,7 @@ jobs:
               --build-arg "SEAPATH_ANSIBLE_COMMIT=${{ steps.collection.outputs.sha }}" \
               --build-arg "COLLECTION_VERSION=${{ steps.collection.outputs.version }}" \
               -t "${IMAGE}:${GITHUB_SHA:0:7}" \
+              -t "${IMAGE}:${{ steps.version.outputs.version }}" \
               -t "${IMAGE}:latest" \
               .
 
@@ -106,9 +120,25 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # The commit tag is what a quadlet pins to when a site wants a known
-      # image; `latest` is what the deployment instructions pull.
+      # Three tags, and only one of them is a promise. The commit tag names
+      # exactly this build. `latest` is what a first deployment pulls. The
+      # version tag is what the quadlet pins, and it is published once: a tag
+      # that moves says nothing about which code answers on a machine, which is
+      # the whole reason the quadlet names one rather than `latest`.
+      #
+      # So a push to main that carries no bump of `__version__` publishes the
+      # first two and says so. Shipping to a machine means bumping the version,
+      # which is the release gesture docs/deployment.md describes.
       - name: Push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           docker push "${IMAGE}:${GITHUB_SHA:0:7}"
           docker push "${IMAGE}:latest"
+          if docker manifest inspect "${IMAGE}:${VERSION}" >/dev/null 2>&1; then
+              echo "::notice::${IMAGE}:${VERSION} is already published and is \
+          left as it is. Bump __version__ to publish a new version tag; this \
+          build is ${IMAGE}:${GITHUB_SHA:0:7}."
+          else
+              docker push "${IMAGE}:${VERSION}"
+          fi

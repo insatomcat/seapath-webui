@@ -202,10 +202,24 @@ drift apart.
 `Image=` names an exact tag, and it follows this service's `__version__`.
 `latest` would leave a machine unable to say which code is answering on it,
 which is the half of "which code, against which desired state" that the run
-record cannot supply on its own. Releasing is therefore: bump `__version__`,
-run `buildpush.sh`, which reads the version from the source rather than
-repeating it, and install the quadlet. A test in `tests/test_packaging.py`
-holds the tag and the version together.
+record cannot supply on its own. A test in `tests/test_packaging.py` holds the
+tag and the version together, and `buildpush.sh` reads the version from the
+source rather than repeating it.
+
+Releasing is therefore one gesture: **bump `__version__`**, then build. The
+`image` workflow publishes three tags and only one of them is a promise:
+
+| Tag | What it names |
+|---|---|
+| `<sha7>` | Exactly this build, always published |
+| `latest` | What a first deployment pulls, always moved |
+| `<version>` | What the quadlet pins, published **once** |
+
+A push to main carrying no bump leaves the version tag where it is and says so
+in a notice. That is the point: a tag that moves says nothing about which code
+answers on a machine, and the whole update path rests on it saying something.
+`seapath_webui_image` in the inventory names that tag, `deploy_seapath_webui`
+pulls it, and `GET /api/v1/node/update` compares it with the version answering.
 
 ### The listen socket
 
