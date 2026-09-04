@@ -15,6 +15,7 @@ from app.hosts.models import (
     NetworkReading,
     NodeIdentity,
     PtpClock,
+    RealtimeReading,
 )
 
 
@@ -75,6 +76,8 @@ class HostReader(Protocol):
     def node_identity(self) -> NodeIdentity: ...
 
     def cpu(self) -> CpuReading: ...
+
+    def realtime(self) -> RealtimeReading: ...
 
     def network(self) -> NetworkReading: ...
 

@@ -339,3 +339,112 @@ def test_no_administration_address_without_a_default_route(
         "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
     )
     assert read_admin_address(host, runner) is None
+
+
+# Real time. The whole reading comes from files the container already sees: its
+# own /proc, the read only /sys, and the host's /etc that PAM brought in. A
+# test that needed a new mount here would be a test of a design change.
+
+
+def test_the_tuned_profile_is_the_configured_one_not_the_running_one(
+    reader: LocalHostReader,
+) -> None:
+    # /etc/tuned/active_profile is what `configure_hypervisor` writes and what
+    # survives a reboot, so it is the value an inventory can be held against.
+    # The daemon's own /run/tuned/active_profile is live state and D13 keeps it
+    # out.
+    realtime = reader.realtime()
+
+    assert realtime.tuned_profile == "seapath-rt-host"
+    assert realtime.tuned_profile_source == "/etc/tuned/active_profile"
+    assert realtime.tuned_profile_installed is True
+
+
+def test_a_selected_profile_that_is_not_installed_is_reported_as_such(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    # tuned-adm on the host reports the name either way, so a machine tuned by
+    # nothing looks configured. The directory is the only thing that says.
+    (host / "etc/tuned/active_profile").write_text("site-rt\n")
+
+    realtime = LocalHostReader(root=host, runner=runner).realtime()
+
+    assert realtime.tuned_profile == "site-rt"
+    assert realtime.tuned_profile_installed is False
+
+
+def test_the_preemption_model_prefers_preempt_rt_over_preempt(
+    reader: LocalHostReader,
+) -> None:
+    # A PREEMPT_RT kernel carries PREEMPT in the same string, so the shorter
+    # marker matched first would report every RT kernel as an ordinary one.
+    assert reader.realtime().preemption == "PREEMPT_RT"
+
+
+def test_a_preemptible_kernel_is_not_read_as_a_real_time_one(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    (host / "proc/version").write_text(
+        "Linux version 6.1.0-18-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.1.76-1\n"
+    )
+
+    assert LocalHostReader(root=host, runner=runner).realtime().preemption == (
+        "PREEMPT_DYNAMIC"
+    )
+
+
+def test_hugepages_are_read_machine_wide_and_per_numa_node(
+    reader: LocalHostReader,
+) -> None:
+    # Both, because a guest pinned to one socket draws from that socket's pool:
+    # the right total with nothing on the node the guest sits on fails to start
+    # while the total looks correct.
+    pools = reader.realtime().hugepages
+
+    assert (1048576, None, 8) in [(p.size_kb, p.node, p.total) for p in pools]
+    assert (1048576, 0, 8) in [(p.size_kb, p.node, p.total) for p in pools]
+    assert (2048, None, 0) in [(p.size_kb, p.node, p.total) for p in pools]
+
+
+def test_the_bracketed_sysfs_choice_is_the_value_that_is_read(
+    reader: LocalHostReader,
+) -> None:
+    # `always madvise [never]` is a list with the selection in brackets, and
+    # reporting the whole line would make every comparison against it wrong.
+    realtime = reader.realtime()
+
+    assert realtime.transparent_hugepages == "never"
+    assert realtime.transparent_hugepage_defrag == "never"
+
+
+def test_an_interrupt_allowed_on_an_isolated_cpu_is_found_and_named(
+    reader: LocalHostReader,
+) -> None:
+    realtime = reader.realtime()
+
+    assert realtime.irq_count == 2
+    assert [
+        (irq.number, irq.name, irq.cpus) for irq in realtime.irqs_on_isolated_cpus
+    ] == [("34", "ahci0", [4])]
+
+
+def test_no_interrupt_is_reported_when_none_reaches_the_isolated_set(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    (host / "proc/irq/34/smp_affinity_list").write_text("0-3\n")
+
+    realtime = LocalHostReader(root=host, runner=runner).realtime()
+
+    assert realtime.irq_count == 2
+    assert realtime.irqs_on_isolated_cpus == []
+
+
+def test_a_machine_with_no_tuned_profile_says_so_rather_than_guessing(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    (host / "etc/tuned/active_profile").unlink()
+
+    realtime = LocalHostReader(root=host, runner=runner).realtime()
+
+    assert realtime.tuned_profile is None
+    assert any("configure_hypervisor" in warning for warning in realtime.warnings)

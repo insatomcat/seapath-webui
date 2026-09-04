@@ -500,6 +500,19 @@
 
     const actions = document.createElement("div");
     actions.className = "actions";
+    // A playbook that measures rather than converges is launched from the
+    // Real time page, which is where its parameters and its chart are. Listed
+    // here all the same: this is the catalogue of what this node can run, and
+    // an entry missing from it reads as a playbook the collection lacks.
+    if (entry.measures) {
+      const link = document.createElement("a");
+      link.className = "button-link";
+      link.href = "/realtime";
+      link.textContent = "Launch it from the Real time page";
+      actions.append(link);
+      container.append(actions);
+      return;
+    }
     if (item.available && Chrome.isAdmin(state.me)) {
       if (entry.preview !== "none") {
         const check = document.createElement("button");

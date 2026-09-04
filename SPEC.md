@@ -66,6 +66,11 @@ Proxmox clone:
 - Running the upstream playbooks, with progress, logs, and history.
 - Read only observation of what a node **is**: its hardware, its identity and
   its cluster membership, which is what an inventory is written against.
+- Real time conformance, meaning whether the tuning a machine came out with
+  matches what the inventory declared for it, and the two measurements that
+  back it. Both are ordinary runs of upstream roles, `cyclictest` and
+  `hwlatdetect`, so they happen on the machines rather than inside this
+  container. See D24 in [decisions.md](docs/decisions.md).
 - VM runtime operations through `vm_manager`.
 
 ### Out of scope
@@ -257,6 +262,16 @@ archives, live in a store beside the repository that git does not carry.
 - The container runs on housekeeping CPUs only, with `CPUAffinity` computed from
   the isolated set, a `CPUQuota`, and a positive `Nice`. No real time priority,
   the exact opposite of the `rtperfui` quadlet.
+- **A measurement runs on the target, never here.** `cyclictest` needs
+  SCHED_FIFO on the machine being measured, and `hwlatdetect` holds its
+  interrupts off; `rtperfui` pays for both with `--privileged` and
+  `rtprio=99`. Running them through Ansible over the SSH path a convergence
+  already uses keeps those privileges out of this container, and measures every
+  machine of the inventory rather than this one. D24 records the reasoning.
+- **Where a core's occupant is drawn is settled too, and the answer is
+  nowhere here.** `seapath-alloc` decides pinning locally at every VM start and
+  publishes the result through `prometheus-node-exporter`. What this service
+  edits is the `vm_pinning_profile` that asks for it. See D25.
 - The service itself never restarts a service on the host. Only an explicit,
   named playbook run does, through the roles that already own those handlers.
 - Applying an inventory change on a live substation restarts whatever the roles

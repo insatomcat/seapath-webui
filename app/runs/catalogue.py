@@ -122,6 +122,18 @@ class VariableType(str, Enum):
     run. `cluster_remove_machine` is the case: it plays every cluster member
     and needs to be told which one of them is leaving.
     """
+    SECONDS = "seconds"
+    MICROSECONDS = "microseconds"
+    PRIORITY = "priority"
+    CPU_LIST = "cpu_list"
+    """`smp`, or a CPU list in the kernel notation the inventory already uses.
+
+    The three above are the measurement parameters, and they are the first
+    variables here that are a number an operator picks rather than a switch or
+    a machine name. They are typed rather than free text for the reason D8
+    gives about tags: a value this service cannot check is a free form extra
+    vars box, and this one refuses to have one.
+    """
     UNKNOWN = "unknown"
     """A variable analysis found and nothing here knows how to ask for.
 
@@ -186,6 +198,29 @@ class PlaybookEntry(BaseModel):
     A run of one ends without a final status on the machine it was launched
     from, the way a reboot does, and the record says so rather than calling it
     a failure. See D23.
+    """
+    results_variable: str | None = None
+    """The variable naming where this playbook fetches what it measured.
+
+    A measuring playbook brings a file back to the controller, and every one
+    upstream takes the destination as an ordinary variable:
+    `cyclictest_result_folder` for cyclictest, `cukinia_test_prefix` for the
+    functional tests. The run service fills it with the run's own results
+    directory, so a measurement is kept, listed and deleted with the run that
+    produced it.
+
+    Filled by the service and never by the caller: it is a path inside this
+    container, not an operator's decision, so it is absent from `variables` and
+    the API refuses it there like any other undeclared name.
+    """
+    measures: bool = False
+    """This run measures the machines rather than converging them.
+
+    It changes what the confirmation has to say. A convergence is dangerous
+    because of what it writes; a cyclictest is dangerous because of what it
+    runs, which is a thread per CPU at real time priority for the duration of
+    the test. Neither sentence covers the other, and an operator on a live
+    substation needs the right one.
     """
 
     @property
@@ -655,6 +690,144 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "subject."
         ),
     ),
+    PlaybookEntry(
+        id="test_run_cyclictest",
+        playbook=f"{COLLECTION}.test_run_cyclictest",
+        title="Measure the latency (cyclictest)",
+        targets=list(_MACHINE_TARGETS),
+        # One `command` from end to end, and the task after it fetches the file
+        # that command wrote. Check mode skips the command and the fetch then
+        # has nothing to bring back, so a preview would report a green run that
+        # measured nothing.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        measures=True,
+        results_variable="cyclictest_result_folder",
+        disruption=(
+            "Runs cyclictest on every machine the inventory declares, which is "
+            "a measuring thread per measured CPU at real time priority, "
+            "competing with whatever those CPUs are already running. On a live "
+            "substation the machines are measured alongside their guests, and "
+            "the number that comes back includes them."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+            Precondition.PLAYBOOK_PRESENT,
+        ],
+        variables=[
+            VariableSpec(
+                name="cyclictest_duration",
+                type=VariableType.SECONDS,
+                description=(
+                    "How long to measure, in seconds. Twenty is the upstream "
+                    "default and enough to catch a gross misconfiguration. A "
+                    "figure worth quoting takes hours, because the latency "
+                    "that matters is the one that happens once."
+                ),
+            ),
+            VariableSpec(
+                name="cyclictest_priority",
+                type=VariableType.PRIORITY,
+                description=(
+                    "The SCHED_FIFO priority of the measuring threads, 90 by "
+                    "default. Above the priority of a guest's vCPU threads it "
+                    "measures the machine, below it measures the queue behind "
+                    "the guest."
+                ),
+            ),
+            VariableSpec(
+                name="cyclictest_affinity",
+                type=VariableType.CPU_LIST,
+                description=(
+                    "Which CPUs to measure. `smp` runs one thread per online "
+                    "CPU, which is the upstream default. A list measures those "
+                    "CPUs, and the isolated set is what a SEAPATH machine is "
+                    "asked about."
+                ),
+            ),
+        ],
+        notes=(
+            "Nothing on the machine is changed: the role copies a script to a "
+            "temporary directory, runs cyclictest, fetches the histogram and "
+            "leaves. The histogram is parsed and charted on the real time "
+            "page, and kept with the run."
+        ),
+    ),
+    PlaybookEntry(
+        id="test_run_hwlatdetect",
+        playbook=f"{COLLECTION}.test_run_hwlatdetect",
+        title="Measure the hardware latency (hwlatdetect)",
+        targets=list(_MACHINE_TARGETS),
+        # One `command` and a `fetch` of what it printed, like the cyclictest
+        # entry: check mode skips the command and the fetch brings back
+        # nothing, so a preview would report a green run that measured nothing.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        measures=True,
+        results_variable="hwlatdetect_result_folder",
+        disruption=(
+            "Polls the clock with interrupts disabled, one CPU at a time, for "
+            "the sampling width of every window. That is the machine's own "
+            "interrupts held off while each sample runs, which on a hypervisor "
+            "carrying live guests is felt by the guests."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+            Precondition.PLAYBOOK_PRESENT,
+        ],
+        variables=[
+            VariableSpec(
+                name="hwlatdetect_duration",
+                type=VariableType.SECONDS,
+                description=(
+                    "How long to watch, in seconds. Firmware interrupts are "
+                    "rare and periodic, so a short run finding nothing proves "
+                    "very little: hours are what a clean bill of health costs."
+                ),
+            ),
+            VariableSpec(
+                name="hwlatdetect_threshold",
+                type=VariableType.MICROSECONDS,
+                description=(
+                    "Gaps shorter than this are not reported, in "
+                    "microseconds. It decides what counts as an interruption "
+                    "worth knowing about rather than measurement noise."
+                ),
+            ),
+            VariableSpec(
+                name="hwlatdetect_width",
+                type=VariableType.MICROSECONDS,
+                description=(
+                    "How long each sample watches, in microseconds. This is "
+                    "the interval during which the machine's interrupts are "
+                    "held off."
+                ),
+            ),
+            VariableSpec(
+                name="hwlatdetect_window",
+                type=VariableType.MICROSECONDS,
+                description=(
+                    "How often a sample starts, in microseconds. Width over "
+                    "window is the fraction of time the hardware is actually "
+                    "watched, and raising it finds rarer events by taking more "
+                    "of the CPU it is watching."
+                ),
+            ),
+        ],
+        notes=(
+            "The measurement no conformance check can make. An SMI takes the "
+            "CPU into firmware without telling the kernel, so the time is "
+            "missing from the kernel's own accounting and from cyclictest's "
+            "view of it. A machine correctly isolated and still missing its "
+            "deadline is either a firmware problem or a configuration one, and "
+            "this separates them. A kernel with no hwlat tracer is reported as "
+            "such rather than as a machine with no interruptions."
+        ),
+    ),
 )
 
 BY_ID = {entry.id: entry for entry in CATALOGUE}
@@ -895,7 +1068,13 @@ def resolve(collections_path: Path, version: str = "") -> tuple[PlaybookEntry, .
     facts = {
         item.id: item
         for item in analysis.read_all(
-            root, version or identity(collections_path) or "none"
+            root,
+            version or identity(collections_path) or "none",
+            # The `test_*` entries a human reviewed, so their counted facts sit
+            # under the prose like every other entry's. Analysis still refuses
+            # to *derive* one: an id absent from this set and starting with
+            # `ci_` or `test_` is never read at all.
+            frozenset(entry.id for entry in CATALOGUE),
         )
     }
 
