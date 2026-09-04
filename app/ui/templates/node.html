@@ -6,7 +6,9 @@ SPDX-License-Identifier: Apache-2.0
 {% block title %}Node - SEAPATH{% endblock %}
 
 {% block head %}
-<link rel="stylesheet" href="/static/vendor/xterm.css">
+{# In the document like the rest, and for the same reason: a link here is a
+   fetch the first paint of this page waits on. #}
+<style>{{ stylesheet("vendor/xterm.css") }}</style>
 {% endblock %}
 
 {% block body %}

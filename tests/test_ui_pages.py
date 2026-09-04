@@ -5,8 +5,6 @@
 
 from __future__ import annotations
 
-import re
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -315,24 +313,24 @@ def test_a_hidden_element_is_hidden_whatever_its_display_rule(
 
 
 @pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs", "/login"])
-def test_a_page_declares_its_dark_canvas_before_it_fetches_anything(
+def test_a_page_is_styled_without_fetching_anything(
     signed_in: TestClient, path: str
 ) -> None:
     body = signed_in.get(path).text
     css = signed_in.get("/static/style.css").text
 
-    # The stylesheet is a fetch away, and until it answers the browser paints a
-    # background of its own. Navigating between the pages flashed white on
-    # every hop. The meta names the scheme the UA paints in, the inline rule
-    # holds the exact colour, and both are read before any request is made.
+    # A linked stylesheet is a round trip between the navigation and the first
+    # paint, and these assets are served `no-cache`, so every hop between the
+    # tabs painted the page unstyled while the conditional request was in
+    # flight. The head carries the styles themselves, and the scheme the
+    # browser paints its own surfaces in.
     head = body.split("</head>")[0]
     assert '<meta name="color-scheme" content="dark">' in head
-    background = re.search(r"html \{ background: (#[0-9a-f]{6}); \}", head)
-    assert background is not None
-    # The literal above cannot be a variable, so it is asserted equal to the
-    # one the stylesheet paints the body with.
-    assert background.group(1) == re.search(r"--bg: (#[0-9a-f]{6});", css).group(1)
-    assert head.index("color-scheme") < head.index("style.css")
+    assert '<link rel="stylesheet"' not in body
+    assert css in head
+    # Read whole, so a selector with a `>` in it survives the templating.
+    assert ".card.wide" in head
+    assert "html {\n  background: var(--bg);\n}" in css
 
 
 def test_a_table_scrolls_inside_its_card_rather_than_over_the_next_one(
@@ -420,11 +418,14 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     body = signed_in.get("/").text
 
     # The emulator and its stylesheet are served from this node, because a
-    # substation hypervisor has no route to a CDN.
+    # substation hypervisor has no route to a CDN. The stylesheet is in the
+    # document, like the rest of the styles of this service, so the first paint
+    # of this page waits on no fetch.
     assert "/static/vendor/xterm.js" in body
-    assert "/static/vendor/xterm.css" in body
+    assert ".xterm {" in body
     assert "/static/console.js" in body
     assert signed_in.get("/static/vendor/xterm.js").status_code == 200
+    assert signed_in.get("/static/vendor/xterm.css").status_code == 200
 
     # A shell is the one place in this UI where what an operator does is
     # neither recorded nor part of the desired state, and the panel says so

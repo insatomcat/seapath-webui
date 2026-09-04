@@ -29,6 +29,13 @@
   display: none !important;
 }
 
+/* The canvas as well as the body: the background of the root element is what
+   a browser paints the whole viewport with, including the area under a short
+   page and whatever it shows during a navigation. */
+html {
+  background: var(--bg);
+}
+
 body {
   margin: 0;
   background: var(--bg);
