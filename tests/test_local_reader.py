@@ -73,6 +73,23 @@ def test_the_hostname_comes_from_the_host_not_the_container(
     assert identity.warnings == []
 
 
+def test_the_administration_account_is_the_one_holding_uid_1000(
+    reader: LocalHostReader,
+) -> None:
+    # The same question `configure_seapath_distro` asks with
+    # `getent passwd 1000`, and the answer `admin_user` is seeded with.
+    assert reader.node_identity().admin_account == "admin"
+
+
+def test_a_machine_with_no_uid_1000_says_so(host: Path, runner) -> None:
+    (host / "etc/passwd").write_text("root:x:0:0:root:/root:/bin/bash\n")
+
+    identity = LocalHostReader(root=host, runner=runner).node_identity()
+
+    assert identity.admin_account is None
+    assert any("UID 1000" in warning for warning in identity.warnings)
+
+
 def test_the_certificate_names_the_node_not_the_container(host: Path) -> None:
     # The common name of the certificate is what an operator compares against
     # the machine they think they are talking to, and socket.gethostname()

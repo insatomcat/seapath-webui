@@ -26,6 +26,10 @@ from app.inventory.model import Inventory, Mode, NodeConfig
 # reference deployment uses.
 _HOUSEKEEPING_CPUS = 4
 
+# The administration account the reference inventories name, used only when
+# the machine could not be asked which account it actually has.
+_DEFAULT_ADMIN_USER = "admin"
+
 
 class InterfaceCandidate(BaseModel):
     name: str
@@ -105,8 +109,21 @@ def discover(reader: HostReader) -> Discovery:
             # fact this machine cannot observe.
             ptp_interface=None,
             ntp_servers=[],
+            # The account the installer made. Every package manager
+            # distribution needs this variable, and the prerequisites run
+            # stops on its first task without it. The name comes from the
+            # machine because `configure_seapath_distro` deletes the account
+            # holding UID 1000 when `admin_user` names another one.
+            admin_user=identity.admin_account or _DEFAULT_ADMIN_USER,
             isolcpus=_propose_isolation(cpu.isolated, cpu.online),
         )
+        if not identity.admin_account:
+            warnings.append(
+                f"The administration account was set to {_DEFAULT_ADMIN_USER!r}, "
+                "the name the reference inventories use. Check it before "
+                "applying the prerequisites, which removes the account holding "
+                "UID 1000 when it is named differently."
+            )
     else:
         warnings.append(
             "No interface carries the default route, so the administration "

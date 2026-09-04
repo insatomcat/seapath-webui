@@ -29,6 +29,15 @@ def build_host_tree(root: Path) -> Path:
         "ID=debian\n"
         'VERSION_ID="12"\n',
     )
+    # The account list as PAM sees it: the image symlinks /etc/passwd to the
+    # host's. `admin` holds UID 1000, which is what the ISO installs and what
+    # `admin_user` is seeded from.
+    _write(
+        root / "etc/passwd",
+        "root:x:0:0:root:/root:/bin/bash\n"
+        "ansible:x:998:998::/home/ansible:/bin/bash\n"
+        "admin:x:1000:1000::/home/admin:/bin/bash\n",
+    )
     _write(root / "proc/sys/kernel/osrelease", "6.1.0-18-rt-amd64\n")
     _write(root / "proc/uptime", "125430.12 987654.32\n")
     (root / "etc/corosync").mkdir(parents=True, exist_ok=True)

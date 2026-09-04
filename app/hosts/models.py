@@ -43,6 +43,14 @@ class NodeIdentity(Reading):
     uptime_seconds: float | None = None
     boot_time: datetime | None = None
     mode: NodeMode = NodeMode.UNKNOWN
+    admin_account: str | None = None
+    """The account the installer created, meaning the one holding UID 1000.
+
+    It is what `admin_user` has to be seeded with. `configure_seapath_distro`
+    reads UID 1000 on the machine and deletes that account when `admin_user`
+    names a different one, so a seed inventory that guessed the name wrong
+    would remove the operator's own account on the first convergence.
+    """
 
 
 class CpuTopologyEntry(BaseModel):

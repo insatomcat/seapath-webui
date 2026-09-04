@@ -75,13 +75,15 @@ Volume=/etc/corosync:/etc/corosync:ro
 Volume=/var/run/libvirt/libvirt-sock:/var/run/libvirt/libvirt-sock
 Volume=/etc/ceph:/etc/ceph:ro
 
-# PAM authentication against the local accounts, and the Unix group that grants
-# each role. The whole directory read only, rather than a bind mount of
-# /etc/passwd, /etc/group and /etc/shadow: `usermod` and `passwd` write a new
-# file and rename it over the old one, so a bind mount of the file pins the
-# inode the container started with, and an operator added to seapath-admin stays
-# locked out until this service is restarted. The image symlinks the three files
-# into this mount, and a symlink is resolved at every open.
+# PAM authentication against the local accounts, the Unix group that grants
+# each role, and the account holding UID 1000, which is the one the seed
+# inventory names in admin_user. The whole directory read only, rather than a
+# bind mount of /etc/passwd, /etc/group and /etc/shadow: `usermod` and
+# `passwd` write a new file and rename it over the old one, so a bind mount of
+# the file pins the inode the container started with, and an operator added to
+# seapath-admin stays locked out until this service is restarted. The image
+# symlinks the three files into this mount, and a symlink is resolved at every
+# open.
 Volume=/etc:/run/host/etc:ro
 
 Environment=PYTHONUNBUFFERED=1

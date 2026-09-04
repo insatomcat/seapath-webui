@@ -58,6 +58,7 @@ class FakeHostReader:
             uptime_seconds=7200.0,
             boot_time=_BOOT_TIME,
             mode=self.mode,
+            admin_account="admin",
         )
 
     def cpu(self) -> CpuReading:

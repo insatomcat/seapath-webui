@@ -33,6 +33,38 @@ def test_the_ptp_interface_is_never_guessed() -> None:
     assert [item.name for item in discovery.interfaces if item.ptp_capable]
 
 
+def test_the_administration_account_is_read_from_the_machine() -> None:
+    # `configure_seapath_distro` removes the account holding UID 1000 when
+    # `admin_user` names another one, so the proposal reports the account the
+    # installer made instead of assuming the name.
+    assert discover(FakeHostReader()).proposed.admin_user == "admin"
+
+
+def test_an_unreadable_administration_account_falls_back_and_says_so() -> None:
+    reader = FakeHostReader()
+    identity = reader.node_identity()
+    identity.admin_account = None
+    reader.node_identity = lambda: identity
+
+    discovery = discover(reader)
+
+    assert discovery.proposed.admin_user == "admin"
+    assert any("administration account" in warning for warning in discovery.warnings)
+
+
+def test_the_seed_names_an_administration_account(tmp_path: Path) -> None:
+    # Without it the prerequisites run stops on its first task, on the
+    # conditional of "Remove old admin user from sudoers file".
+    service = InventoryService(
+        InventoryRepository(tmp_path / "inventory"), FakeHostReader()
+    )
+    service.ensure_seed()
+
+    inventory = service.state().inventory
+    assert inventory.hosts["seapath-machine"].admin_user == "admin"
+    assert "admin_user: admin" in service.raw()
+
+
 def test_the_loopback_is_not_offered_as_a_candidate() -> None:
     assert "lo" not in {item.name for item in discover(FakeHostReader()).interfaces}
 

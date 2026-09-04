@@ -25,6 +25,7 @@ def node(**overrides) -> NodeConfig:
         "dns_servers": ["192.168.200.1"],
         "ptp_interface": "eno12419",
         "ntp_servers": ["185.254.101.25"],
+        "admin_user": "admin",
         "isolcpus": "4-7",
     }
     values.update(overrides)
@@ -44,6 +45,20 @@ def test_a_complete_standalone_inventory_is_accepted() -> None:
 
     assert result.valid
     assert result.errors() == []
+
+
+def test_a_machine_with_no_administration_account_is_warned_about() -> None:
+    # The prerequisites playbook of a package manager distribution needs
+    # admin_user and stops on its first task without it. A warning rather than
+    # an error, because a Yocto machine has no such account.
+    result = validate(inventory(admin_user=None))
+
+    assert result.valid
+    assert "admin_user_is_named" in rules(result, Level.WARNING)
+
+
+def test_a_named_administration_account_is_not_warned_about() -> None:
+    assert "admin_user_is_named" not in rules(validate(inventory()), Level.WARNING)
 
 
 def test_an_empty_inventory_is_refused() -> None:

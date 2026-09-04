@@ -125,6 +125,13 @@ class LocalHostReader:
                 "into this container."
             )
 
+        admin_account = self._admin_account()
+        if admin_account is None:
+            warnings.append(
+                "No account holds UID 1000, so the administration account "
+                "could not be read from the machine."
+            )
+
         return NodeIdentity(
             hostname=hostname,
             kernel_release=self._read_text("proc/sys/kernel/osrelease"),
@@ -135,8 +142,27 @@ class LocalHostReader:
             uptime_seconds=uptime_seconds,
             boot_time=boot_time,
             mode=mode,
+            admin_account=admin_account,
             warnings=warnings,
         )
+
+    def _admin_account(self) -> str | None:
+        """The account holding UID 1000, which the installer created.
+
+        The image symlinks /etc/passwd to the host's, for PAM, so this is the
+        machine's own account list. UID 1000 is the question the
+        `configure_seapath_distro` role itself asks with `getent passwd 1000`,
+        and asking it the same way is what keeps the seed inventory from
+        naming an account that would then be deleted.
+        """
+        raw = self._read_text("etc/passwd")
+        if not raw:
+            return None
+        for line in raw.splitlines():
+            fields = line.split(":")
+            if len(fields) > 2 and fields[2] == "1000":
+                return fields[0]
+        return None
 
     def _parse_os_release(self) -> dict[str, str]:
         raw = self._read_text("etc/os-release")

@@ -142,6 +142,25 @@ def _validate_host(name: str, node: NodeConfig) -> list[Finding]:
             )
         )
 
+    # A warning, because a Yocto machine has no such account and its
+    # inventory is a legitimate one. On every other distribution the
+    # prerequisites run stops on its first task without this variable, which
+    # is late enough to be worth saying here.
+    if not node.admin_user:
+        findings.append(
+            Finding(
+                level=Level.WARNING,
+                rule="admin_user_is_named",
+                host=name,
+                field="admin_user",
+                message=(
+                    "No administration account is named. The prerequisites "
+                    "playbook of a package manager distribution needs "
+                    "admin_user, and fails on its first task without it."
+                ),
+            )
+        )
+
     gateway = _address(node.gateway_addr) if node.gateway_addr else None
     if node.gateway_addr and gateway is None:
         findings.append(
