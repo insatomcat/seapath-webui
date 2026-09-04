@@ -490,3 +490,15 @@ def test_the_real_time_page_is_laid_out_as_one_screen(
     # itself.
     assert 'class="page realtime"' in body
     assert body.count('class="card pane"') == 3
+
+
+def test_the_measurement_panel_can_take_the_page(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/realtime").text
+
+    # One screen is the right shape for the question the page answers at a
+    # glance, and the wrong one for reading a result: a run measures every
+    # machine of the inventory and brings back a verdict and a histogram for
+    # each. The panel borrows the page for that and gives it back.
+    assert 'id="measure-expand"' in body

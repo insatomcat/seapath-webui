@@ -1183,7 +1183,11 @@ button.secondary {
 .page.realtime {
   height: calc(100vh - var(--chrome));
   grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, auto) minmax(0, 1fr);
+  /* The measurement row has a floor, and the pool above it scrolls. A cluster
+     of eight machines would otherwise take the whole column and leave the
+     panel a couple of lines, which is the one place on this page where a
+     result is actually read. */
+  grid-template-rows: auto minmax(0, auto) minmax(20rem, 1fr);
   overflow: hidden;
 }
 
@@ -1206,6 +1210,38 @@ button.secondary {
   grid-column: 2;
   grid-row: 3;
   min-height: 0;
+}
+
+/* The panel, taken to the whole page. A run has no --limit, so a measurement
+   comes back with one result per machine of the inventory, and reading four of
+   them in the corner the layout can spare is the thing an operator gives up
+   on. Expanded, it is the same panel with the room the results need. */
+.page.realtime.expanded > #card-checks,
+.page.realtime.expanded > #card-map {
+  display: none;
+}
+
+.page.realtime.expanded > #card-measure {
+  grid-column: 1 / -1;
+  grid-row: 2 / 4;
+}
+
+.pane-expand {
+  flex: 0 0 auto;
+  padding: 0.2rem 0.6rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pane-expand:hover {
+  color: var(--text);
 }
 
 /* A pane is a card that owns its height: the heading and the footnote stay
@@ -1469,10 +1505,25 @@ button.secondary {
   flex: 1 1 auto;
 }
 
+/* One column per machine that fits. A run measures every machine of the
+   inventory, and reading four results one under the other was the scrolling
+   this panel is meant to spare an operator. A histogram is legible from about
+   34rem, so a narrow window gets one column and a wide one gets two. */
 .measure-result {
   overflow-y: auto;
   min-height: 0;
   flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(34rem, 1fr));
+  gap: 0 2rem;
+  align-items: start;
+}
+
+/* Expanded there is width to spend, so the columns are asked to be wider
+   rather than more numerous: two large histograms read better than three
+   small ones, and four machines still land on one screen. */
+.page.realtime.expanded .measure-result {
+  grid-template-columns: repeat(auto-fit, minmax(46rem, 1fr));
 }
 
 .measure-picker {
@@ -1509,7 +1560,10 @@ button.secondary {
   padding: 0.15rem 0.5rem 0.15rem 0;
 }
 
+/* Provenance belongs to the whole measurement, so it spans the columns the
+   machines are laid out in. */
 .measure-meta {
+  grid-column: 1 / -1;
   display: flex;
   flex-wrap: wrap;
   gap: 0.15rem 1rem;
@@ -1519,11 +1573,14 @@ button.secondary {
 }
 
 /* The chart is a shape, read at a glance: where the bulk sits and how far the
-   tail runs. It was rendered at the full width of the pane and took half a
-   screen to say it. */
+   tail runs. One per machine, at the width of its column. */
 .chart {
   width: 100%;
-  max-height: 9rem;
+  /* The drawing keeps the ratio of its viewBox and takes the width of the
+     column it is in. A ceiling on its height instead is met by scaling the
+     whole drawing down and centring it, which left the chart adrift in the
+     middle of the panel with a wide margin on either side. */
+  height: auto;
   margin-top: 0.25rem;
 }
 

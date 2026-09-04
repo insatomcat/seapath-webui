@@ -76,6 +76,12 @@ and an answer that has to be scrolled for is one an operator stops reading.
         </button>
       </span>
       <span class="pane-note" id="measure-note"></span>
+      {# A measurement plays every machine of the inventory and brings back a
+         verdict, a histogram and a fold for each. The third of a screen this
+         panel is given beside the pool shows one of them, so it can take the
+         page when an operator is reading a result and give it back after. #}
+      <button type="button" class="pane-expand" id="measure-expand"
+              aria-expanded="false">Expand</button>
     </h2>
 
     <div class="measure" id="panel-cyclictest">

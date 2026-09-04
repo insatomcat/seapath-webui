@@ -1194,6 +1194,33 @@
     tab.addEventListener("click", () => showTab(tab.dataset.kind));
   });
 
+  // The panel over the whole page, and back. The page is laid out as one
+  // screen, which is right for the question it answers at a glance and wrong
+  // for the moment an operator sits down with a result: a run measured every
+  // machine of the inventory, and each of them is a verdict, a histogram and a
+  // fold. Expanding hides the two panes above rather than opening a window, so
+  // it is the same panel with the same state, only larger.
+  const page = document.querySelector(".page.realtime");
+
+  function setExpanded(expanded) {
+    page.classList.toggle("expanded", expanded);
+    const button = element("measure-expand");
+    button.textContent = expanded ? "Collapse" : "Expand";
+    button.setAttribute("aria-expanded", String(expanded));
+  }
+
+  element("measure-expand").addEventListener("click", () => {
+    setExpanded(!page.classList.contains("expanded"));
+  });
+
+  document.addEventListener("keydown", (event) => {
+    // The confirmation is the thing Escape is about while it is up, and it
+    // sits over the panel that would otherwise collapse under it.
+    if (event.key === "Escape" && element("measure-confirm").hidden) {
+      setExpanded(false);
+    }
+  });
+
   element("measure-cancel").addEventListener("click", () => {
     element("measure-confirm").hidden = true;
   });
