@@ -690,6 +690,68 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "subject."
         ),
     ),
+    # The two VM playbooks. Both loop over the whole `VMs` group and neither
+    # takes a guest to deploy, so a run of one is a statement about every guest
+    # the inventory declares. The confirmation names them, which is what the
+    # guest model was missing when these entries were first left out.
+    PlaybookEntry(
+        id="deploy_vms_cluster",
+        playbook=f"{COLLECTION}.deploy_vms_cluster",
+        title="Deploy the VMs on the cluster",
+        # `hosts: "{{ groups['cluster_machines'][0] }}"`. The playbook already
+        # runs from one member and `cluster_vm` reaches Pacemaker from there,
+        # so which member drives it is not a decision anybody makes.
+        targets=["cluster_machines[0]"],
+        # `cluster_vm status` registers the presence check and the block below
+        # reads `.status` off it. Check mode skips the module and the play dies
+        # on the attribute that is not there, so a preview would report a
+        # failure about the machine rather than about check mode.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        disruption=(
+            "Creates every guest the inventory declares and the cluster does "
+            "not have yet, and starts it unless its entry declines. A guest "
+            "that already exists is left alone, unless it carries `force`: "
+            "that one is destroyed and recreated from its disk image, and "
+            "whatever was running inside it is gone."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.CLUSTER,
+        ],
+        notes=(
+            "Copies each new guest's disk image to the driving node, imports "
+            "it into the Ceph pool and removes the copy. The image in the "
+            "artefacts is the seed a creation starts from, and the disk the "
+            "guest runs on afterwards lives in Ceph."
+        ),
+    ),
+    PlaybookEntry(
+        id="deploy_vms_standalone",
+        playbook=f"{COLLECTION}.deploy_vms_standalone",
+        title="Deploy the VMs on this machine",
+        # Two plays, and the second one is worth the scope line it takes: it
+        # reaches every guest of the group over SSH to wait for it to answer,
+        # for the guests whose entry asks. A guest that never answers is a run
+        # that waits for it.
+        targets=["standalone_machine", "VMs"],
+        # `community.libvirt.virt` lists the domains and every task after it
+        # reads `.list_vms` off that register. Same shape as the cluster one.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        disruption=(
+            "Copies each guest's disk image into the libvirt pool, defines it "
+            "and starts it unless its entry declines. A guest that carries "
+            "`force` is stopped, undefined with its NVRAM and recreated, and "
+            "whatever was running inside it is gone."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.STANDALONE,
+        ],
+    ),
     PlaybookEntry(
         id="test_run_cyclictest",
         playbook=f"{COLLECTION}.test_run_cyclictest",

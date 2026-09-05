@@ -13,6 +13,7 @@ button.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -508,12 +509,30 @@ def test_no_reviewed_entry_understates_the_machines_it_plays() -> None:
             # for `standalone_machine` that matches no group of any inventory.
             if ":" not in target
             and target != "standalone"
-            and target not in entry.targets
+            and not _names(target, entry.targets)
         ]
         if unlisted:
             missing[entry.id] = unlisted
 
     assert missing == {}
+
+
+def _names(target: str, listed: list[str]) -> bool:
+    """Whether the entry's scope line covers a target the reader found.
+
+    Usually a plain group name, matched as one. A `hosts:` built from a
+    template is reported verbatim by the reader, and comparing
+    `{{ groups['cluster_machines'][0] }}` against a line written for an
+    operator would only ever fail: what is checked there is that every group
+    the template names is one the entry names too, so `cluster_machines[0]` is
+    accepted and a scope line that forgot the group is not.
+    """
+    if "{{" not in target:
+        return target in listed
+    return all(
+        any(group in item for item in listed)
+        for group in re.findall(r"groups\[['\"]([^'\"]+)['\"]\]", target)
+    )
 
 
 @real_collection

@@ -235,12 +235,32 @@ the titles now say which is which.
 
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
-| `deploy_vms_cluster.yaml` | first host of `cluster_machines` | partial | no | Deploys every VM in the `VMs` group. Note it already runs from one node, so which node drives is irrelevant. |
-| `deploy_vms_standalone.yaml` | `standalone_machine` | partial | no | |
+| `deploy_vms_cluster.yaml` | `cluster_machines[0]` | none | no | Creates every guest the inventory declares and the cluster does not have yet. One node drives it and `cluster_vm` reaches Pacemaker from there, so which node is not a decision anybody makes. |
+| `deploy_vms_standalone.yaml` | `standalone_machine`, `VMs` | none | no | Two plays. The second reaches every guest over SSH to wait for it to answer, for the guests whose entry asks. |
 
-Neither is in the catalogue yet: the UI has no VM model, and a run that deploys
-the `VMs` group needs one before the confirmation can say which guests it
-touches.
+Both are reviewed entries now that there is a guest model to write the
+confirmation from. Two things about them are worth stating where an operator
+reads them.
+
+**Preview is `none` on both, and not as a judgement call.** The cluster
+playbook registers `cluster_vm status` and the block below reads `.status` off
+it; the standalone one registers `community.libvirt.virt` listing the domains
+and every task after it reads `.list_vms`. Check mode skips a module that does
+not support it, and the play then dies on an attribute that is not there, so a
+preview would report a failure about the machine rather than about check mode.
+
+**A guest that already exists is left alone, and `force` is the exception the
+confirmation has to name.** Both roles skip their whole creation block for a
+guest the hypervisor already has. A guest whose entry carries `force` is
+destroyed and recreated from its disk image instead, with `virsh undefine
+--nvram` in the standalone case, and whatever was running inside it is gone.
+The VMs page colours that column for the same reason.
+
+The corollary is what makes adoption cheap: a guest that already runs is
+declared by its name alone. `vm_disk` and `xml_path` are read inside the block
+that is skipped, so an adopted guest needs neither, and nothing is reported
+missing for it. [D30](decisions.md#d30) has the reasoning and the page that
+uses it.
 
 ### Not reviewed, and offered as such
 
