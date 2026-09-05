@@ -178,10 +178,12 @@ class RealtimeService:
             # The machine the browser is pointed at, when the inventory has no
             # entry for it. It is the one node whose readings need no exporter,
             # and leaving it out would drop the only column that always works.
-            nodes.insert(0, self._local_node())
-        # The local node first, because it is the machine the operator is
-        # standing on and the one column that answers without an exporter.
-        nodes.sort(key=lambda node: node.host != state.this_host)
+            nodes.append(self._local_node())
+        # By name, because the columns of the conformance matrix and the cards
+        # of the pool are read against each other across reloads, and the order
+        # the inventory happens to list its hosts in moves under the operator.
+        # The local node carries its own tag, so it does not need a position.
+        nodes.sort(key=lambda node: node.host)
         return ClusterPool(
             nodes=nodes,
             this_host=state.this_host,

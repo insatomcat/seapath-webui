@@ -421,13 +421,13 @@ def test_an_unreachable_node_keeps_its_column_and_its_reason() -> None:
     assert nodes["node3"].error
 
 
-def test_the_local_node_comes_first_and_the_commit_travels_with_the_report() -> None:
-    # The machine the operator is standing on, and the desired state every
-    # column was compared against. A conformance report with no commit behind
-    # it is an anecdote.
-    _, pool = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING)})
+def test_the_nodes_come_back_by_name_and_the_commit_travels_with_the_report() -> None:
+    # By name, so a column keeps its place across reloads and between the two
+    # panels. And the desired state every column was compared against: a
+    # conformance report with no commit behind it is an anecdote.
+    _, pool = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING)}, this_host="node2")
 
-    assert pool.nodes[0].host == "node1"
+    assert [node.host for node in pool.nodes] == ["node1", "node2", "node3"]
     assert pool.inventory_commit == "abcdef1234"
 
 
