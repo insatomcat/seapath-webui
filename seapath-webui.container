@@ -25,7 +25,7 @@ Wants=network-online.target
 # "inventory commit, collection version", and a machine that cannot say which
 # image is answering on it cannot answer the other half of the question either.
 # The tag follows `__version__`, and a test holds the two together.
-Image=docker.io/insatomcat/seapath-webui:0.3.13
+Image=docker.io/insatomcat/seapath-webui:0.3.14
 ContainerName=seapath-webui
 Network=host
 
