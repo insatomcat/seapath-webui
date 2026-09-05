@@ -50,7 +50,20 @@ RUN git clone --branch "${SEAPATH_ANSIBLE_REF}" --depth 1 \
     fi
 
 WORKDIR /src
-RUN ./prepare.sh
+# Three attempts, because prepare.sh spends its time on galaxy.ansible.com and
+# on two GitHub releases, and a gateway timeout there fails a release build
+# that has nothing wrong with it. The script is safe to re-enter: it installs
+# the roles with `--force`, the collections it already has are left alone, and
+# the submodule update and the two downloads redo themselves.
+RUN set -eu; \
+    for attempt in 1 2 3; do \
+        if ./prepare.sh; then \
+            exit 0; \
+        fi; \
+        echo "prepare.sh failed on attempt ${attempt}" >&2; \
+        sleep 30; \
+    done; \
+    exit 1
 
 # prepare.sh installs the local collection before it updates the git submodules
 # and fetches the Cockpit plugins, so the collection it installed is missing the
