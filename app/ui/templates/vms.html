@@ -19,8 +19,13 @@ mechanism stays and the mechanism stops being the interface.
 
 Starting and stopping are the runtime plane, and they reach a machine the way
 everything else here does: one task calling the upstream module, over the SSH
-path a convergence uses, under the same lock. Migration and the metadata are
-still to come.
+path a convergence uses, under the same lock.
+
+The metadata panel is the same shape and the one place where this service
+touches state a role would normally own. A guest's Pacemaker configuration
+lives as metadata on its RBD image, `vm_manager` writes those keys at creation
+and never again, so the only alternative was recreating the guest from its seed
+image and losing its disk. D31 records the bounds.
 #}
 {% extends "base.html" %}
 {% block title %}VMs - SEAPATH{% endblock %}
@@ -48,6 +53,7 @@ still to come.
             <th>Disk image</th>
             <th>libvirt XML</th>
             <th>On deployment</th>
+            <th></th>
             <th></th>
           </tr>
         </thead>
@@ -85,6 +91,61 @@ still to come.
         <tbody id="undeclared-rows"></tbody>
       </table>
     </div>
+  </section>
+
+  {# A guest's Pacemaker configuration lives as metadata on its RBD image,
+     `system_<name>`, and `vm_manager` writes those keys at creation and never
+     again. This is where they are read and changed. Reading costs a run, so
+     the panel shows what was last seen and offers to look again. #}
+  <section class="card" id="meta-card" hidden>
+    <div class="card-head">
+      <h2 id="meta-title">Metadata</h2>
+      <button type="button" id="meta-close" class="secondary">Close</button>
+    </div>
+    <p class="lead" id="meta-lead"></p>
+    <div class="loading" id="meta-loading" hidden>Reading the image</div>
+    <p class="warning" id="meta-note" hidden></p>
+
+    <div class="table-scroll" id="meta-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Value</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="meta-rows"></tbody>
+      </table>
+    </div>
+
+    {# A change is written to the image and takes effect at the next creation
+       of the Pacemaker resource. The panel says so, and offers the outage
+       that applies it only when something actually moved. #}
+    <p class="clear" id="meta-applied" hidden></p>
+    <div class="card-actions" id="meta-pending" hidden>
+      <button type="button" id="meta-apply">Stop and restart to apply</button>
+      <span class="legend" id="meta-pending-note"></span>
+    </div>
+
+    <h3>Add or change a key</h3>
+    <label for="meta-key">Key</label>
+    <input type="text" id="meta-key" autocomplete="off" spellcheck="false">
+    <label for="meta-value">Value</label>
+    <textarea id="meta-value" rows="3" spellcheck="false"></textarea>
+    <div class="card-actions">
+      <button type="button" id="meta-set">Write it</button>
+      <button type="button" id="meta-refresh" class="secondary">Read again</button>
+    </div>
+    <p class="error" id="meta-error" hidden></p>
+    <p class="pane-foot">
+      <span class="pane-foot-note">
+        Read and written with <code>rbd image-meta</code> on a cluster member,
+        through a run like every other act here. Pacemaker reads these keys
+        when it creates the resource, so a change waits until the resource is
+        created again.
+      </span>
+    </p>
   </section>
 
   {# The one form on this page. It asks for what a guest is made of and

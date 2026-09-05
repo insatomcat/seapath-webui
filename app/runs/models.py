@@ -99,6 +99,10 @@ class RunRecord(BaseModel):
     # artefact leaves no trace in `git log`, so this is where "which quadlet
     # did that run actually push" is answered.
     files: list[StagedFile] = Field(default_factory=list)
+    # The guest a generated play acts on, absent on every playbook of the
+    # catalogue. It is what lets the VMs page find the run that read a guest's
+    # metadata without opening every run directory to look.
+    guest: str | None = None
 
     @property
     def finished(self) -> bool:

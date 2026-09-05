@@ -805,3 +805,27 @@ def test_adding_a_vm_says_what_it_will_do_before_it_does_it(
 
     assert "the guest is written into the" in body
     assert "the deployment playbook is run" in body
+
+
+def test_the_vms_page_edits_the_metadata_of_a_guest(signed_in: TestClient) -> None:
+    # A guest's Pacemaker configuration lives as metadata on its RBD image,
+    # and `vm_manager` writes those keys at creation and never again. This
+    # panel is where they are read and changed. See D31.
+    body = signed_in.get("/vms").text
+
+    assert 'id="meta-card"' in body
+    assert 'id="meta-key"' in body
+    assert 'id="meta-value"' in body
+    assert "rbd image-meta" in body
+
+
+def test_applying_a_metadata_change_is_offered_as_the_outage_it_is(
+    signed_in: TestClient,
+) -> None:
+    # Pacemaker reads those keys when it creates the resource, so applying one
+    # stops the guest and starts it again. The button says so rather than
+    # calling it a refresh.
+    body = signed_in.get("/vms").text
+
+    assert "Stop and restart to apply" in body
+    assert "created again" in body

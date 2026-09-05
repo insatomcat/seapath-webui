@@ -85,6 +85,14 @@ guest a splice into the file checked like every other write, and a whole
 playbook of the collection. The operator is spared the trip through two pages
 and a group name they have no reason to know.
 
+Editing a guest's metadata is there too. A guest's Pacemaker configuration
+lives as metadata on its RBD image, `vm_manager` writes those keys at creation
+and never again, and the only upstream way to change one is to recreate the
+guest from its seed image and lose its disk. The panel reads them with `rbd
+image-meta`, writes one, and reads the image again to say what actually moved.
+Applying a change stops the guest and rebuilds its Pacemaker resource, so it is
+a second button that names the outage and appears only when something did move.
+
 Starting and stopping a guest are there too, one button per row, offered as
 whichever of the two would change something. Each is a run: one task calling
 the upstream module, over the SSH path a convergence uses, under the same lock
@@ -181,8 +189,9 @@ the Real time page, and all three are still to be run on a real machine.
 
 M2 is the VMs, and most of it is in: the `VMs` group is read as guests rather
 than as machines, the page joins what the inventory declares to what Pacemaker
-reports, adding a guest is one act, and starting and stopping one are runs.
-Migration, the snapshots and the metadata follow the same shape.
+reports, adding a guest is one act, starting and stopping one are runs, and the
+RBD metadata is read and edited from the same page. Migration and the snapshots
+follow the same shape.
 
 ## Development
 

@@ -30,6 +30,7 @@ from app.runs.catalogue import (
 )
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.store import RunLocked, RunStore
+from app.services import metadata
 from app.trust import known_hosts
 from app.trust.service import TrustService
 
@@ -361,7 +362,50 @@ class RunService:
             variables=None,
             check=False,
             play=actions.play(action, guest, mode),
+            guest=guest,
         )
+
+    def launch_metadata(
+        self,
+        op: actions.MetadataOp,
+        guest: str,
+        launched_by: str,
+        key: str = "",
+        value: str = "",
+    ) -> RunRecord:
+        """Read, or change, one guest's RBD image metadata.
+
+        A read takes no lock. The lock exists so that two operators do not
+        converge the same machines at once, and reading `rbd image-meta list`
+        converges nothing: holding it would make a page refuse to show what a
+        guest is configured with while a convergence is going, which is exactly
+        when somebody wants to look.
+
+        A write takes it, like everything else that changes something.
+        """
+        return self._launch(
+            actions.metadata_entry(op, guest),
+            launched_by,
+            variables=None,
+            check=False,
+            play=actions.metadata_play(op, guest, key, value),
+            locked=op is not actions.MetadataOp.READ,
+            guest=guest,
+        )
+
+    def latest_metadata(
+        self, guest: str
+    ) -> tuple[RunRecord | None, metadata.MetadataResult | None]:
+        """The newest metadata run for this guest, and what it brought back.
+
+        The page shows what was last seen rather than a live reading, because a
+        reading costs a run. `None` for a guest nobody has looked at yet, which
+        is an ordinary state and not a failure.
+        """
+        for record in self._store.list(200):
+            if record.guest == guest and record.playbook_id.startswith("vm_metadata"):
+                return record, metadata.read(self._store.results_dir(record.id))
+        return None, None
 
     def _mode(self) -> Mode:
         state = self._inventory.state()
@@ -374,6 +418,8 @@ class RunService:
         variables: dict[str, Any] | None = None,
         check: bool = False,
         play: str | None = None,
+        locked: bool = True,
+        guest: str | None = None,
     ) -> RunRecord:
         blocking = self._blocking(
             entry, self._unmet_preconditions(), self._missing_playbooks()
@@ -429,15 +475,18 @@ class RunService:
             inventory_commit=state.commit,
             collection_version=self.collection_version(),
             variables=chosen,
+            guest=guest,
         )
 
         # The lock before the directory: two operators must not converge the
         # same machines concurrently, and the loser must be told which run is
-        # already going.
-        try:
-            self._store.acquire(run_id)
-        except RunLocked as error:
-            raise ApiError("run_in_progress", str(error), 409) from error
+        # already going. A run that only reads is exempt, and says so where it
+        # asks to be.
+        if locked:
+            try:
+                self._store.acquire(run_id)
+            except RunLocked as error:
+                raise ApiError("run_in_progress", str(error), 409) from error
 
         try:
             directory = self._store.create(record)
@@ -462,7 +511,8 @@ class RunService:
                 target.write_text(play)
                 playbook = str(target)
         except Exception:
-            self._store.release(run_id)
+            if locked:
+                self._store.release(run_id)
             raise
 
         request = self._request(record, entry, directory, staged, extra_vars, playbook)

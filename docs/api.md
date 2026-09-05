@@ -510,6 +510,10 @@ domain and the resource.
 | POST | `/vms` | Declare one guest in the `VMs` group, one commit, `If-Match` on the commit hash. Answers with the commit and the playbook that deploys it. `admin` |
 | POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
 | POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |
+| GET | `/vms/{name}/metadata` | The metadata the last read or write brought back, with the run it came from and when. `viewer` |
+| POST | `/vms/{name}/metadata/read` | Read the guest's RBD image metadata. Answers `202` with the run. Takes no lock. `operator` |
+| PUT | `/vms/{name}/metadata` | Add, change or remove one key. `value` writes it, no `value` removes it. Answers `202` with the run. `admin` |
+| POST | `/vms/{name}/reconfigure` | Stop the guest, rebuild its Pacemaker resource from the metadata and start it. `202` with the run. `operator` |
 
 Reading is open to the `viewer` role. `POST /vms` is an administrator's act,
 because it commits the desired state and the run that follows creates a
@@ -567,6 +571,35 @@ What each does differs by mode, and the page says which it is doing:
 Reading is `viewer`, adding a VM is `admin`, and acting on one is `operator`:
 it changes no desired state, the way cancelling a run does not.
 
+### The RBD metadata
+
+A guest's Pacemaker configuration lives as metadata on its system disk image,
+`system_<name>` in the `rbd` pool. `vm_manager` writes those keys at creation
+and `enable_vm` reads them all back to build the resource; nothing upstream
+changes one on a guest that exists. So this service reads and writes them with
+`rbd image-meta`, on a cluster member, inside an ordinary run.
+[D31](decisions.md#d31) has the search that led there and the bounds.
+
+Cluster only, because the metadata is on an RBD image and a standalone machine
+has no Ceph to hold one. Every operation is a run, and a read takes no lock:
+the lock exists so two operators do not converge the same machines at once, and
+`rbd image-meta list` converges nothing.
+
+A write reads the image before and after in the same run, so `changes` in
+`GET /vms/{name}/metadata` is what actually moved rather than what the caller
+asked for. A key set to the value it already held produces no change, and the
+page offers the outage that applies one only when there is one.
+
+**Applying is separate, and it is an outage.** `enable_vm` reads those keys only
+when the guest is not already a Pacemaker resource, so a write changes nothing
+about a running guest until the resource is created again.
+`POST /vms/{name}/reconfigure` is `disable` then `enable` through `cluster_vm`,
+which stops the guest and starts it again.
+
+Keys are checked against `^[A-Za-z0-9_.-]{1,128}$` and values are capped at
+64 KB, which takes a pinning profile and refuses a file. Every `rbd`
+invocation is `argv`, a list, so no shell parses it.
+
 ### Still to come
 
 | Method | Path | Description |
@@ -575,11 +608,6 @@ it changes no desired state, the way cancelling a run does not.
 | POST | `/vms/{name}/migrate` | Cluster only |
 | GET POST | `/vms/{name}/snapshots` | List, create |
 | POST | `/vms/{name}/snapshots/{id}/rollback` | |
-
-Changing a guest's metadata is not in that list yet, and the reason is
-recorded in [D30](decisions.md#d30): `cluster_vm` reads metadata and does not
-write it, so `_seapath_alloc` waits for a `set_metadata` command upstream
-rather than for a `command:` task here.
 
 ## Internal
 

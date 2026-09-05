@@ -15,6 +15,10 @@ on `/runs`.
 
 from __future__ import annotations
 
+import json
+import time
+from pathlib import Path
+
 import yaml
 from fastapi.testclient import TestClient
 
@@ -36,6 +40,30 @@ VMs:
       force: true
       enable: false
 """
+
+
+def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        record = client.get(f"/api/v1/runs/{run_id}").json()
+        if record["state"] not in ("pending", "running"):
+            return record
+        time.sleep(0.02)
+    raise AssertionError(f"Run {run_id} did not finish")
+
+
+# The metadata of a guest lives on an RBD image, so every operation on it is a
+# cluster act. The fixture is the real cluster inventory the fidelity tests use,
+# with the guests added to it.
+CLUSTER = Path(__file__).parent / "golden" / "adopted-cluster.yaml"
+
+
+def _declare_cluster(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS},
+    )
+    assert response.status_code == 200, response.text
 
 
 def _declare(client: TestClient) -> None:
@@ -363,3 +391,208 @@ def test_an_operator_may_act_on_a_guest_and_a_viewer_may_not(
     # operator's act rather than the administrator's, the way cancelling a run
     # is.
     assert signed_in_viewer.post("/api/v1/vms/vm-guest1/start").status_code == 403
+
+
+# 5. The RBD image metadata, which is where a guest's Pacemaker configuration
+# actually lives.
+
+
+def _metadata_file(settings: Settings, run_id: str, before: dict, after: dict) -> None:
+    """What the play's last task writes, planted here because the fake adapter
+    runs no Ansible."""
+    results = settings.runs_dir / run_id / "results"
+    results.mkdir(parents=True, exist_ok=True)
+    (results / "metadata.json").write_text(
+        json.dumps({"before": before, "after": after})
+    )
+
+
+def test_reading_the_metadata_is_a_run_that_takes_no_lock(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The lock exists so two operators do not converge the same machines at
+    # once, and `rbd image-meta list` converges nothing. Holding it would make
+    # the page refuse to show what a guest is configured with while a
+    # convergence is going, which is when somebody wants to look.
+    _declare_cluster(signed_in)
+    RunStore(settings.runs_dir).acquire("a-convergence")
+
+    response = signed_in.post("/api/v1/vms/vm-guest1/metadata/read")
+
+    assert response.status_code == 202
+    assert response.json()["operation"] == "read"
+
+
+def test_the_read_play_asks_rbd_and_changes_nothing(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster(signed_in)
+
+    run = signed_in.post("/api/v1/vms/vm-guest1/metadata/read").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_metadata_read.yaml"))
+    document = yaml.safe_load(written[0].read_text())
+    tasks = document[0]["tasks"]
+    assert tasks[0]["ansible.builtin.command"]["argv"] == [
+        "rbd",
+        "-p",
+        "rbd",
+        "image-meta",
+        "list",
+        "system_vm-guest1",
+        "--format",
+        "json",
+    ]
+    # A read says so to Ansible as well, so the recap does not report a change
+    # nobody made.
+    assert tasks[0]["changed_when"] is False
+
+
+def test_the_metadata_a_run_brought_back_is_what_the_page_shows(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster(signed_in)
+    run = signed_in.post("/api/v1/vms/vm-guest1/metadata/read").json()
+    wait_for(signed_in, run["run_id"])
+    _metadata_file(
+        settings,
+        run["run_id"],
+        {"_priority": "10", "_live_migration": "true"},
+        {"_priority": "10", "_live_migration": "true"},
+    )
+
+    view = signed_in.get("/api/v1/vms/vm-guest1/metadata").json()
+
+    assert view["image"] == "system_vm-guest1"
+    assert view["entries"] == {"_priority": "10", "_live_migration": "true"}
+    # A read moved nothing, so there is nothing to apply.
+    assert view["changes"] == []
+
+
+def test_a_guest_nobody_has_read_yet_says_so(signed_in: TestClient) -> None:
+    _declare_cluster(signed_in)
+
+    view = signed_in.get("/api/v1/vms/vm-guest1/metadata").json()
+
+    assert view["entries"] == {}
+    assert "has read this guest's metadata" in view["note"]
+
+
+def test_setting_a_key_reads_the_image_before_and_after(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # "Did this change anything" is answered by the image rather than by what
+    # the browser believed the value was a minute ago.
+    _declare_cluster(signed_in)
+
+    run = signed_in.put(
+        "/api/v1/vms/vm-guest1/metadata",
+        json={"key": "_preferred_host", "value": "node2"},
+    ).json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_metadata_set.yaml"))
+    tasks = yaml.safe_load(written[0].read_text())[0]["tasks"]
+    assert [task["name"] for task in tasks] == [
+        "Read the metadata of system_vm-guest1",
+        "Set _preferred_host on system_vm-guest1",
+        "Read the metadata of system_vm-guest1 again",
+        "Bring the metadata back",
+    ]
+    # `argv`, a list, so no shell parses it and a value holding a quote or a
+    # newline is one argument either way.
+    assert tasks[1]["ansible.builtin.command"]["argv"][-2:] == [
+        "_preferred_host",
+        "node2",
+    ]
+
+
+def test_removing_a_key_is_the_write_with_no_value(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster(signed_in)
+
+    run = signed_in.put(
+        "/api/v1/vms/vm-guest1/metadata", json={"key": "_priority"}
+    ).json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_metadata_remove.yaml"))
+    tasks = yaml.safe_load(written[0].read_text())[0]["tasks"]
+    assert tasks[1]["ansible.builtin.command"]["argv"][-2:] == [
+        "system_vm-guest1",
+        "_priority",
+    ]
+
+
+def test_a_write_that_changed_something_is_told_apart_from_one_that_did_not(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The page offers the outage that applies a change only when there is a
+    # change to apply, so this distinction is the whole feature.
+    _declare_cluster(signed_in)
+    run = signed_in.put(
+        "/api/v1/vms/vm-guest1/metadata",
+        json={"key": "_priority", "value": "20"},
+    ).json()
+    wait_for(signed_in, run["run_id"])
+    _metadata_file(settings, run["run_id"], {"_priority": "10"}, {"_priority": "20"})
+
+    view = signed_in.get("/api/v1/vms/vm-guest1/metadata").json()
+
+    assert view["changes"] == [{"key": "_priority", "before": "10", "after": "20"}]
+
+
+def test_a_write_that_set_the_value_already_there_changed_nothing(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster(signed_in)
+    run = signed_in.put(
+        "/api/v1/vms/vm-guest1/metadata",
+        json={"key": "_priority", "value": "10"},
+    ).json()
+    wait_for(signed_in, run["run_id"])
+    _metadata_file(settings, run["run_id"], {"_priority": "10"}, {"_priority": "10"})
+
+    view = signed_in.get("/api/v1/vms/vm-guest1/metadata").json()
+
+    assert view["changes"] == []
+
+
+def test_a_key_this_service_will_not_write_is_refused(signed_in: TestClient) -> None:
+    _declare_cluster(signed_in)
+
+    response = signed_in.put(
+        "/api/v1/vms/vm-guest1/metadata",
+        json={"key": "a key with spaces", "value": "x"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_metadata_key"
+
+
+def test_applying_a_metadata_change_is_disable_then_enable(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # `enable_vm` reads the `_` keys only when the guest is not already a
+    # Pacemaker resource, so there is no way to apply one without the guest
+    # going down and coming back.
+    _declare_cluster(signed_in)
+
+    run = signed_in.post("/api/v1/vms/vm-guest1/reconfigure").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_reconfigure.yaml"))
+    tasks = yaml.safe_load(written[0].read_text())[0]["tasks"]
+    assert [task["seapath.ansible.cluster_vm"]["command"] for task in tasks] == [
+        "disable",
+        "enable",
+    ]
+
+
+def test_writing_metadata_is_an_administrator_s_act(
+    signed_in_viewer: TestClient,
+) -> None:
+    assert (
+        signed_in_viewer.put(
+            "/api/v1/vms/vm-guest1/metadata", json={"key": "k", "value": "v"}
+        ).status_code
+        == 403
+    )

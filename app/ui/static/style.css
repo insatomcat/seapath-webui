@@ -2202,3 +2202,33 @@ td.recreated {
 .steps li.failed {
   color: var(--bad);
 }
+
+/* The metadata panel. A value can be a pinning profile, several lines of
+   YAML, so the cell keeps its newlines and scrolls rather than stretching the
+   table to the width of the longest one. */
+.vms textarea {
+  width: 100%;
+  max-width: 32rem;
+  margin-top: 0.3rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+}
+
+td.meta-value {
+  max-width: 32rem;
+}
+
+td.meta-value pre {
+  margin: 0;
+  max-height: 8rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8rem;
+}
+
+/* A key SEAPATH itself reads, told apart from a site's own label: the first
+   changes what Pacemaker does with the guest, the second changes nothing. */
+td.meta-key code.reserved {
+  color: var(--accent);
+}

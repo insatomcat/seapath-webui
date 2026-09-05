@@ -25,6 +25,7 @@
   // decides whether the acting buttons exist at all, and the mode decides what
   // the stop confirmation has to warn about.
   let canAct = false;
+  let canWrite = false;
   let mode = "standalone";
 
   function element(id) {
@@ -153,6 +154,12 @@
   // a substation function. The confirmation names the guest and says what the
   // act does, the way an apply names the machines it disturbs.
   const DISRUPTION = {
+    reconfigure:
+      "Stops the guest, removes its Pacemaker resource and creates it again " +
+      "from the metadata. That is what makes a metadata change take effect, " +
+      "and it is an outage: Pacemaker reads those keys only when it creates " +
+      "the resource, so there is no way to apply one without the guest going " +
+      "down and coming back.",
     start:
       "Starts the guest. In a cluster this asks Pacemaker to run it and " +
       "Pacemaker chooses the node, which is not necessarily the one it last " +
@@ -164,7 +171,7 @@
   };
 
   function confirmAct(name, action) {
-    const verb = action === "stop" ? "Stop" : "Start";
+    const verb = { stop: "Stop", start: "Start", reconfigure: "Apply" }[action];
     element("confirm-title").textContent = verb + " " + name;
     element("confirm-disruption").textContent = DISRUPTION[action];
     element("confirm-note").hidden = action !== "stop" || mode === "cluster";
@@ -200,6 +207,187 @@
     element("confirm").hidden = true;
   });
 
+  // The metadata panel. A guest's Pacemaker configuration lives as metadata on
+  // its RBD image, so this is where it is read and changed. Reading costs a
+  // run, so the panel shows what was last seen and offers to look again.
+  let openGuest = null;
+
+  function metaButton(name) {
+    const cell = document.createElement("td");
+    if (mode !== "cluster") {
+      // The metadata is on an RBD image, and a standalone machine has no Ceph
+      // to hold one. Saying nothing here beats a button that always fails.
+      return cell;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "Metadata";
+    button.addEventListener("click", () => openMetadata(name));
+    cell.append(button);
+    return cell;
+  }
+
+  async function openMetadata(name) {
+    openGuest = name;
+    element("meta-card").hidden = false;
+    element("meta-title").textContent = "Metadata of " + name;
+    element("meta-error").hidden = true;
+    element("meta-key").value = "";
+    element("meta-value").value = "";
+    await showMetadata();
+    element("meta-card").scrollIntoView({ block: "nearest" });
+  }
+
+  async function showMetadata() {
+    const view = await API.get(
+      "/vms/" + encodeURIComponent(openGuest) + "/metadata"
+    );
+
+    element("meta-lead").textContent = view.run_id
+      ? "Read from " + view.image + (view.finished_at
+          ? " on " + new Date(view.finished_at).toLocaleString()
+          : "")
+      : view.image;
+    element("meta-note").textContent = view.note;
+    element("meta-note").hidden = !view.note;
+
+    const rows = element("meta-rows");
+    rows.replaceChildren();
+    const entries = Object.entries(view.entries || {}).sort();
+    entries.forEach(([key, value]) => {
+      const line = document.createElement("tr");
+      line.append(metaKey(key), metaValue(value), metaActions(key, value));
+      rows.append(line);
+    });
+    element("meta-table").hidden = !entries.length;
+
+    // The outage that applies a change is offered only when the image
+    // actually moved, which is the whole point of reading it twice.
+    const changes = view.changes || [];
+    element("meta-pending").hidden = !changes.length;
+    element("meta-pending-note").textContent = changes.length
+      ? changes.map((change) => change.key).join(", ") +
+        " changed on the image. Pacemaker reads these keys when it creates " +
+        "the resource, so the guest is still running with the old ones."
+      : "";
+  }
+
+  // A key SEAPATH itself reads starts with an underscore. A site's own label
+  // does not, and changes nothing about how the guest runs.
+  function metaKey(key) {
+    const cell = document.createElement("td");
+    cell.className = "meta-key";
+    const code = document.createElement("code");
+    code.textContent = key;
+    if (key.startsWith("_")) {
+      code.className = "reserved";
+    }
+    cell.append(code);
+    return cell;
+  }
+
+  function metaValue(value) {
+    const cell = document.createElement("td");
+    cell.className = "meta-value";
+    const block = document.createElement("pre");
+    block.textContent = value;
+    cell.append(block);
+    return cell;
+  }
+
+  function metaActions(key, value) {
+    const cell = document.createElement("td");
+    if (!canWrite) {
+      return cell;
+    }
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "secondary";
+    edit.textContent = "Edit";
+    edit.addEventListener("click", () => {
+      element("meta-key").value = key;
+      element("meta-value").value = value;
+      element("meta-key").focus();
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "secondary";
+    remove.textContent = "Remove";
+    remove.addEventListener("click", () => writeMetadata(key, null));
+    cell.append(edit, remove);
+    return cell;
+  }
+
+  // Every metadata act is a run, so the page waits for it and then reads what
+  // it brought back. A read takes no lock, a write does.
+  async function runMetadata(start) {
+    const error = element("meta-error");
+    error.hidden = true;
+    element("meta-loading").hidden = false;
+    try {
+      const started = await start();
+      await settled(started.run_id);
+      await showMetadata();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      element("meta-loading").hidden = true;
+    }
+  }
+
+  async function settled(runId) {
+    for (let attempt = 0; attempt < 300; attempt += 1) {
+      const record = await API.get("/runs/" + encodeURIComponent(runId));
+      if (record.state !== "pending" && record.state !== "running") {
+        if (record.state !== "success") {
+          throw new Error(
+            "The run ended " + record.state + ". Its log says what happened."
+          );
+        }
+        return record;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error("The run is still going. The Runs page follows it.");
+  }
+
+  function writeMetadata(key, value) {
+    return runMetadata(() =>
+      API.put("/vms/" + encodeURIComponent(openGuest) + "/metadata", {
+        key,
+        value,
+      })
+    );
+  }
+
+  element("meta-close").addEventListener("click", () => {
+    element("meta-card").hidden = true;
+    openGuest = null;
+  });
+
+  element("meta-refresh").addEventListener("click", () =>
+    runMetadata(() =>
+      API.post("/vms/" + encodeURIComponent(openGuest) + "/metadata/read")
+    )
+  );
+
+  element("meta-set").addEventListener("click", () => {
+    const key = element("meta-key").value.trim();
+    if (!key) {
+      const error = element("meta-error");
+      error.textContent = "A key is needed. It is what rbd stores the value under.";
+      error.hidden = false;
+      return;
+    }
+    return writeMetadata(key, element("meta-value").value);
+  });
+
+  element("meta-apply").addEventListener("click", () => {
+    confirmAct(openGuest, "reconfigure");
+  });
+
   function renderGuests(view) {
     element("loading").hidden = true;
 
@@ -225,6 +413,7 @@
         file(guest, guest.vm_template || guest.xml_path),
         ondeploy(guest),
         acts(guest),
+        metaButton(guest.name),
       ]);
     });
     element("guest-table").hidden = !(view.guests || []).length;
@@ -245,6 +434,7 @@
         // stopping, since a convergence will not touch it and nothing else
         // here can reach it.
         acts({ name: resource.id, resource }),
+        metaButton(resource.id),
       ]);
     });
   }
@@ -372,6 +562,9 @@
     // Starting a guest changes no desired state, so it is the operator's act
     // rather than the administrator's, the way cancelling a run is.
     canAct = me.role === "operator" || Chrome.isAdmin(me);
+    // Changing what a guest is configured with is an administrator's act, the
+    // way every other write in this service is.
+    canWrite = Chrome.isAdmin(me);
     const view = await API.get("/vms");
     renderGuests(view);
     renderUndeclared(view);

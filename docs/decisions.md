@@ -1492,3 +1492,72 @@ commands; there is no `set_metadata`, and `pinning_profile` is a parameter of
 here. And `preferred_host`, `pinned_host`, `priority` and `live_migration` are
 baked at creation: a panel presenting them beside the things that change live
 would be lying about half of them.
+
+## D31 - Settled: the RBD metadata is read and written with `rbd`, from the VMs page
+
+A guest's Pacemaker configuration lives as metadata on its system disk image.
+`_preferred_host`, `_pinned_host`, `_priority`, `_live_migration`,
+`_migration_user`, `_stop_timeout`, `_migrate_to_timeout`,
+`_migration_downtime`, `_crm_config_cmd`, `_disk_bus`, `_pacemaker_meta` and
+its family, `_seapath_alloc`. `vm_manager` writes them in `create`, and
+`enable_vm` reads them all back to build the Pacemaker primitive.
+
+Changing one on a guest that exists has no supported path, and the search for
+one is worth recording so it is not repeated:
+
+- **`cluster_vm` has no `set_metadata`.** Its nineteen commands include
+  `list_metadata` and `get_metadata`; the two that write metadata are `create`
+  and `clone`, which build a guest rather than change one.
+- **The CLI cannot write these keys either.** `vm_manager set_metadata` runs
+  `_check_name`, which is `^[a-zA-Z0-9]*$` and rejects every name with an
+  underscore in it. It is for a site's own labels, which nothing in SEAPATH
+  reads. The exception is `set-pinning-profile`, which writes `_seapath_alloc`
+  by going around `_check_name`.
+- **`create` with `force` works and costs the disk.** It is what
+  `deploy_vms_cluster` does for a guest whose entry carries `force`: the guest
+  is destroyed and recreated from its seed image, so everything it had written
+  is gone. Fine for a guest that takes its configuration from cloud-init on
+  every boot, useless for one with state.
+
+So the metadata is read and written directly, with `rbd image-meta`, on a
+cluster member, inside an ordinary run. This is the one place where the service
+touches state a role would normally own, and the bounds are what make it
+acceptable:
+
+- it writes metadata on an RBD image and nothing else. No file on a host, no
+  service restarted, no `crm` command;
+- the pool and the `system_` prefix are `vm_manager`'s own constants,
+  hardcoded there and hardcoded here, named so the two can be compared rather
+  than guessed at;
+- every `rbd` invocation is `argv`, a list, so no shell parses it and a value
+  holding a quote or a newline is one argument either way. The key is checked
+  against a pattern before it reaches the play;
+- a write reads the image before and after in the same run. "Did this change
+  anything" is answered by the image rather than by what a browser believed the
+  value was a minute ago.
+
+### Applying a change is an outage, and the page says so
+
+`enable_vm` reads those keys **only when the guest is not already a Pacemaker
+resource**. So a metadata write changes nothing about a running guest until the
+resource is created again, and creating it again means `disable` then `enable`:
+`disable_vm` force-deletes the resource, which stops the guest.
+
+The page therefore separates the two acts. Writing is immediate and harmless.
+Applying is a second, explicit button that names the outage, and it is offered
+only when the two readings actually differ. A write that set a key to the value
+it already held offers nothing, which is the distinction the double read exists
+to make.
+
+### What this is not
+
+It is not a second way to configure a machine. The inventory still holds the
+desired state, `deploy_vms_cluster` still creates guests from it, and a guest
+recreated from the inventory gets the metadata the inventory names. What this
+covers is the gap between those two facts: an existing guest whose Pacemaker
+options have to change without losing its disk.
+
+The clean fix stays upstream, and it is two small changes: a `set_metadata`
+command on `cluster_vm` with an allow-list of the `_` keys, and a way for
+`enable_vm` to re-read them without a full stop. When they land, this service
+switches to the module and keeps the same page.
