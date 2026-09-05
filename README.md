@@ -91,8 +91,9 @@ and never again, and the only upstream way to change one is to recreate the
 guest from its seed image and lose its disk. So the page asks Ceph directly,
 with `rbd image-meta`, the way the cluster view asks the exporters: a window
 lists what the image carries, another edits one value, wide enough for the
-libvirt domain that lives in there under `xml`. Every write reads the image
-before and after and says what moved. Applying a change stops the guest and
+libvirt domain that lives in there under `xml`, and removing a key is asked
+before it happens because nothing here puts back what it took away. Every write
+reads the image before and after and says what moved. Applying a change stops the guest and
 rebuilds its Pacemaker resource, so it is a second button that names the outage
 and appears only when something did move.
 

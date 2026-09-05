@@ -175,27 +175,25 @@
       "leaves it down until it is started again, a node failure included.",
   };
 
-  function confirmAct(name, action) {
-    const verb = { stop: "Stop", start: "Start", reconfigure: "Apply" }[action];
-    element("confirm-title").textContent = verb + " " + name;
-    element("confirm-disruption").textContent = DISRUPTION[action];
-    element("confirm-note").hidden = action !== "stop" || mode === "cluster";
-    element("confirm-note").textContent =
-      "This machine has no Pacemaker, so the guest is asked to shut down " +
-      "through ACPI. One that ignores ACPI keeps running.";
+  // One window for every act that cannot be undone by clicking again. It names
+  // the thing and says what happens, the way an apply names the machines it
+  // disturbs, and the caller says what to do when the operator agrees.
+  function confirm({ title, body, note, label, act }) {
+    element("confirm-title").textContent = title;
+    element("confirm-disruption").textContent = body;
+    element("confirm-note").textContent = note || "";
+    element("confirm-note").hidden = !note;
     element("confirm-error").hidden = true;
 
     const go = element("confirm-go");
-    go.textContent = verb;
+    go.textContent = label;
     go.disabled = false;
     go.onclick = async () => {
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        const started = await API.post(
-          "/vms/" + encodeURIComponent(name) + "/" + action
-        );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        await act();
+        element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
         error.textContent = failure.message;
@@ -206,6 +204,26 @@
       }
     };
     element("confirm").hidden = false;
+  }
+
+  function confirmAct(name, action) {
+    const verb = { stop: "Stop", start: "Start", reconfigure: "Apply" }[action];
+    confirm({
+      title: verb + " " + name,
+      body: DISRUPTION[action],
+      note:
+        action === "stop" && mode !== "cluster"
+          ? "This machine has no Pacemaker, so the guest is asked to shut " +
+            "down through ACPI. One that ignores ACPI keeps running."
+          : "",
+      label: verb,
+      act: async () => {
+        const started = await API.post(
+          "/vms/" + encodeURIComponent(name) + "/" + action
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
   }
 
   element("confirm-cancel").addEventListener("click", () => {
@@ -328,10 +346,44 @@
     remove.type = "button";
     remove.className = "secondary";
     remove.textContent = "Remove";
-    remove.addEventListener("click", () => write(key, null));
+    remove.addEventListener("click", () => confirmRemove(key));
 
     cell.append(edit, remove);
     return cell;
+  }
+
+  // Removing a key is a write to the image and nothing here puts back what it
+  // took away, so it is asked before it happens. What the key is decides how
+  // much the sentence has to say.
+  function confirmRemove(key) {
+    confirm({
+      title: "Remove " + key + " from " + openGuest,
+      body:
+        "The key is deleted from the image. The guest keeps running and keeps " +
+        "the configuration it started with, because Pacemaker reads these " +
+        "keys when it creates the resource.",
+      note: removalNote(key),
+      label: "Remove it",
+      act: () => write(key, null),
+    });
+  }
+
+  function removalNote(key) {
+    if (key === "xml" || key === "_base_xml") {
+      return (
+        key +
+        " holds the libvirt domain this guest was built from. vm_manager " +
+        "reads it to clone the guest and to tell two UUIDs apart, so removing " +
+        "it takes those away with it."
+      );
+    }
+    if (key.startsWith("_")) {
+      return (
+        "SEAPATH reads this key. Without it the guest takes vm_manager's own " +
+        "default the next time its resource is created."
+      );
+    }
+    return "";
   }
 
   // The editor, wide and tall, because two of these keys hold a libvirt domain
@@ -486,8 +538,7 @@
   }
 
   function showAdd(open) {
-    element("add-card").hidden = !open;
-    element("add").hidden = open;
+    element("add-modal").hidden = !open;
     if (open) {
       element("add-error").hidden = true;
       element("add-steps").hidden = true;

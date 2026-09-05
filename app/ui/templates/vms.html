@@ -10,8 +10,9 @@ right now is one line of the Cluster page's resource table. An operator asking
 "is my VM there, and is it running" had to read four pages and know that a
 Pacemaker resource and an inventory host with the same name are the same guest.
 
-Adding a VM is the one act this page performs, and it performs it whole: the
-disk image, the libvirt XML, the entry in the inventory and the deployment run.
+Adding a VM is one of the acts this page performs, and it performs it whole:
+the disk image, the libvirt XML, the entry in the inventory and the deployment
+run.
 Underneath, those are the three writes this service has always made and the
 upstream playbook it has always run. The operator is spared the trip through
 two other pages and a group name they have no reason to know. D30 is why the
@@ -21,7 +22,7 @@ Starting and stopping are the runtime plane, and they reach a machine the way
 everything else here does: one task calling the upstream module, over the SSH
 path a convergence uses, under the same lock.
 
-The metadata panel is the same shape and the one place where this service
+The metadata windows are the same shape and the one place where this service
 touches state a role would normally own. A guest's Pacemaker configuration
 lives as metadata on its RBD image, `vm_manager` writes those keys at creation
 and never again, so the only alternative was recreating the guest from its seed
@@ -93,11 +94,24 @@ image and losing its disk. D31 records the bounds.
     </div>
   </section>
 
-  {# The one form on this page. It asks for what a guest is made of and
-     nothing else: a name, a disk image, and the libvirt XML that describes
-     it. Everything the roles can read off an entry beyond that is edited in
-     the file, on the Inventory page, where a site's own variables live. #}
-  <section class="card" id="add-card" hidden>
+  <p class="hint" id="how">
+    A guest is an entry of the <code>VMs</code> group in the inventory, naming
+    its disk image and its libvirt XML. The image goes in the artefacts, which
+    git does not carry, and the XML is committed with the inventory: both are
+    uploaded from the <a href="inventory">Inventory</a> page, and a run mounts
+    them under the same root, so the path the entry writes resolves either way.
+    Deploying them is a run of the playbook named above, from the
+    <a href="deployment">Deployment</a> page.
+  </p>
+
+</main>
+
+{# The one form on this page. It asks for what a guest is made of and nothing
+   else: a name, a disk image, and the libvirt XML that describes it.
+   Everything the roles can read off an entry beyond that is edited in the
+   file, on the Inventory page, where a site's own variables live. #}
+<div class="modal" id="add-modal" hidden>
+  <div class="modal-body wide">
     <h2>Add a VM</h2>
     <p class="lead">
       The image and the XML are uploaded, the guest is written into the
@@ -139,19 +153,8 @@ image and losing its disk. D31 records the bounds.
 
     <ol class="steps" id="add-steps" hidden></ol>
     <p class="error" id="add-error" hidden></p>
-  </section>
-
-  <p class="hint" id="how">
-    A guest is an entry of the <code>VMs</code> group in the inventory, naming
-    its disk image and its libvirt XML. The image goes in the artefacts, which
-    git does not carry, and the XML is committed with the inventory: both are
-    uploaded from the <a href="inventory">Inventory</a> page, and a run mounts
-    them under the same root, so the path the entry writes resolves either way.
-    Deploying them is a run of the playbook named above, from the
-    <a href="deployment">Deployment</a> page.
-  </p>
-
-</main>
+  </div>
+</div>
 
 {# The metadata of one image. A modal rather than a panel on the page: a value
    here can be a whole libvirt XML, `vm_manager` stores the domain under `xml`
@@ -223,9 +226,10 @@ image and losing its disk. D31 records the bounds.
   </div>
 </div>
 
-{# Starting or stopping a guest stops what it was serving, and on these
-   machines that is a substation function. The confirmation names the guest and
-   says what the act does, the way an apply names the machines. #}
+{# One window for every act that cannot be undone by clicking again: starting
+   or stopping a guest, applying a metadata change, removing a key. It names
+   the thing and says what happens, the way an apply names the machines it
+   disturbs. #}
 <div class="modal" id="confirm" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>

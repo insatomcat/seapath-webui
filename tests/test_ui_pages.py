@@ -758,17 +758,30 @@ def test_the_vms_page_joins_the_definition_and_the_state(
     assert 'href="deployment"' in body
 
 
-def test_stopping_a_guest_is_confirmed_before_it_happens(
+def test_every_act_that_cannot_be_undone_is_confirmed_first(
     signed_in: TestClient,
 ) -> None:
-    # It stops what the guest was serving, and on these machines that is a
-    # substation function. The confirmation names the guest and says what the
-    # act does, the way an apply names the machines it disturbs.
+    # Stopping a guest stops what it was serving, and on these machines that
+    # is a substation function. Removing a metadata key is a write to an image
+    # and nothing here puts back what it took away. One window for both, which
+    # names the thing and says what happens.
     body = signed_in.get("/vms").text
+    script = signed_in.get("/static/vms.js").text
 
     assert 'id="confirm"' in body
     assert 'id="confirm-title"' in body
     assert 'id="confirm-disruption"' in body
+    assert "function confirmRemove(" in script
+    assert 'label: "Remove it"' in script
+
+
+def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
+    # The form asks for three things and shows four steps while it works, so
+    # it takes a window rather than growing the page under the guest list.
+    body = signed_in.get("/vms").text
+
+    assert '<div class="modal" id="add-modal" hidden>' in body
+    assert 'id="add-steps"' in body
 
 
 def test_the_vms_page_offers_no_migration_or_snapshot_yet(
