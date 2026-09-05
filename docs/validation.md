@@ -185,6 +185,8 @@ carrying production traffic the first time it is run.
 | 22 | Editing `isolcpus` for **another** node, converging it and not rebooting it shows the mismatch on that node's column, from the machine the browser is on | The finding this reversal exists for. Before it, the mismatch was invisible from anywhere but that machine | |
 | 23 | Fetching `localhost:9100/metrics` on a converged hypervisor returns a `seapath_rt_` block carrying the tuned profile, the command line, the sysctls and the interrupt count | The exporter side, on a real machine, before believing anything the page says about it | |
 | 24 | The tuning columns and the pool grid come from one request per node: `tcpdump` or the exporter's own access log shows one GET per node per refresh | Two panels of the same reading must not double what a page refresh costs a hypervisor | |
+| 25 | On a cluster of four machines with 48 threads each, no value in the conformance view is cut, and the pool view holds every machine without scrolling | The layout of D28. A laptop cannot produce four real machines of that width, which is where the old three panel page was truncating everything | |
+| 26 | Each of the four tabs carries its own status and figure before it is opened, and switching between them asks no node for anything | The bar is the page's summary, and a view is a show and a hide. `tcpdump` on the exporter port answers the second half | |
 
 ### Result
 

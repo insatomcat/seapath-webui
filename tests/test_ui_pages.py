@@ -550,7 +550,7 @@ def test_the_real_time_page_checks_every_machine(
     # the other hypervisors of the same cluster, and the commonest findings in
     # a substation are exactly the ones that hide on the machine nobody is
     # looking at.
-    assert "Conformance, every machine" in body
+    assert 'data-view="checks"' in body
     assert 'id="check-head"' in body
 
     # A machine that published nothing is not a machine that failed a check,
@@ -564,38 +564,46 @@ def test_the_real_time_page_offers_both_measurements(
 ) -> None:
     body = signed_in.get("/realtime").text
 
-    # Both, on one pane, because they answer complementary questions: what the
-    # scheduler delivered and what the firmware took without telling the
-    # kernel. Each is launched behind a confirmation, since both load every
-    # machine the inventory declares.
-    assert 'data-kind="cyclictest"' in body
-    assert 'data-kind="hwlatdetect"' in body
+    # Both, because they answer complementary questions: what the scheduler
+    # delivered and what the firmware took without telling the kernel. Each is
+    # launched behind a confirmation, since both load every machine the
+    # inventory declares.
+    assert 'data-view="cyclictest"' in body
+    assert 'data-view="hwlatdetect"' in body
+    assert 'id="panel-cyclictest"' in body
+    assert 'id="panel-hwlatdetect"' in body
     assert 'id="measure-confirm"' in body
 
 
-def test_the_real_time_page_is_laid_out_as_one_screen(
+def test_the_real_time_page_shows_one_panel_at_a_time(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/realtime").text
 
-    # An application layout rather than a document. The page answers one
-    # question at a glance, and an answer that has to be scrolled for is one an
-    # operator stops reading, so the panes are placed and each scrolls inside
-    # itself.
+    # An application layout rather than a document, and one panel of it on
+    # screen. Three panels sharing one screen each got a third of the room
+    # their content needs, and every one of them answered by truncating: the
+    # conformance values, the cluster's fourth node, the histogram's axis.
     assert 'class="page realtime"' in body
     assert body.count('class="card pane"') == 3
+    assert body.count('class="card pane" id="card-map" hidden') == 1
+    assert body.count('class="card pane" id="card-measure" hidden') == 1
 
 
-def test_the_measurement_panel_can_take_the_page(
+def test_the_real_time_view_bar_carries_each_panel_s_answer(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/realtime").text
 
-    # One screen is the right shape for the question the page answers at a
-    # glance, and the wrong one for reading a result: a run measures every
-    # machine of the inventory and brings back a verdict and a histogram for
-    # each. The panel borrows the page for that and gives it back.
-    assert 'id="measure-expand"' in body
+    # The bar is the summary before it is a navigation. Only one panel is on
+    # screen, so each tab carries its own status dot and the line the panel
+    # would lead with, and the page still answers at a glance without an
+    # operator opening the three panels that are hidden.
+    bar = body.split('<nav class="views"')[1].split("</nav>")[0]
+    for view in ["checks", "pool", "cyclictest", "hwlatdetect"]:
+        assert f'data-view="{view}"' in bar
+    assert bar.count('class="view-answer"') == 4
+    assert bar.count('<span class="dot ') == 4
 
 
 # The property a reverse proxy depends on: nothing this service serves names a

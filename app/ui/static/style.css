@@ -1301,73 +1301,110 @@ button.secondary {
    is on screen without a scrollbar between its halves. The other pages are
    documents and keep flowing. */
 
-/* Every panel is placed explicitly. Left to auto-placement the banner took
-   the first row when it appeared, and one warning pushed the whole layout down
-   a track: the checks pane collapsed to a single visible row. A hidden banner
-   is `display: none` and its track collapses to nothing, so the same rules
-   hold whether or not there is something to warn about. */
+/* One panel at a time, on a page that is the viewport: the banner, the view
+   bar, and the panel the bar points at. Three panels sharing one screen gave
+   each of them a third of the room its content needs, and every one of them
+   answered by cutting: a range truncated to `4-23,28-...`, a cluster of four
+   nodes shown down to the third, a histogram with no room for its own axis.
+   Every panel is placed on the same track explicitly, because a hidden banner
+   collapses its track and auto-placement then moved the panel up a row. */
 .page.realtime {
   height: calc(100vh - var(--chrome));
-  grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
-  /* The measurement row has a floor, and the pool above it scrolls. A cluster
-     of eight machines would otherwise take the whole column and leave the
-     panel a couple of lines, which is the one place on this page where a
-     result is actually read. */
-  grid-template-rows: auto minmax(0, auto) minmax(20rem, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
 .page.realtime > .banner {
-  grid-column: 1 / -1;
   grid-row: 1;
 }
 
-#card-checks {
-  grid-column: 1;
-  grid-row: 2 / 4;
-}
-
-#card-map {
-  grid-column: 2;
+.page.realtime > .views {
   grid-row: 2;
 }
 
-#card-measure {
-  grid-column: 2;
+/* The panel takes the room it needs and no more, up to the screen. Stretched
+   to the track it left a field of empty card under the ten conformance rows,
+   which reads as a panel still loading something. */
+.page.realtime > .card {
   grid-row: 3;
+  align-self: start;
   min-height: 0;
+  max-height: 100%;
 }
 
-/* The panel, taken to the whole page. A run has no --limit, so a measurement
-   comes back with one result per machine of the inventory, and reading four of
-   them in the corner the layout can spare is the thing an operator gives up
-   on. Expanded, it is the same panel with the room the results need. */
-.page.realtime.expanded > #card-checks,
-.page.realtime.expanded > #card-map {
+/* The panels the bar is not pointing at. `.pane` sets `display: flex` with the
+   same weight as the stylesheet's own `[hidden]` rule and after it, so hiding
+   one has to be said again here to be heard. */
+.page.realtime > .card[hidden] {
   display: none;
 }
 
-.page.realtime.expanded > #card-measure {
-  grid-column: 1 / -1;
-  grid-row: 2 / 4;
+/* The view bar, which is the navigation and the summary at once. Only one
+   panel is on screen now, so what the other three have to say has to reach an
+   operator without a click: each tab carries its panel's worst status and the
+   one number that says whether it is worth opening. Equal columns rather than
+   content width, because the four are read as a row and a bar that reflows as
+   the readings land is one nobody can aim at. */
+.views {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.5rem;
 }
 
-.pane-expand {
-  flex: 0 0 auto;
-  padding: 0.2rem 0.6rem;
-  background: transparent;
+.view {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.15rem 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--panel);
   border: 1px solid var(--line);
-  border-radius: 5px;
+  border-radius: 8px;
   color: var(--muted);
   font: inherit;
-  font-size: 0.75rem;
-  font-weight: 400;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  text-align: left;
+  cursor: pointer;
 }
 
-.pane-expand:hover {
+/* The dot stands for the whole tab, so it is pinned to the two rows rather
+   than centred on one of them. */
+.view > .dot {
+  grid-row: 1 / 3;
+  align-self: center;
+}
+
+.view-name {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text);
+}
+
+/* The answer. Two lines at most: it is a verdict and a number, and a tab that
+   grows with its sentence moves the panel under it. */
+.view-answer {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.view:hover {
+  border-color: var(--accent);
+}
+
+.view.current {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+}
+
+.view.current .view-name {
+  color: var(--accent);
 }
 
 /* A pane is a card that owns its height: the heading and the footnote stay
@@ -1379,20 +1416,18 @@ button.secondary {
   padding: 0.75rem 1rem;
 }
 
-.pane > h2 {
-  display: flex;
-  align-items: baseline;
-  gap: 0.75rem;
-  margin: 0 0 0.5rem;
+/* What the tab could not hold: the provenance of a reading, or the sentence
+   that says what a measurement is of. It is one line under the bar, above the
+   panel's own content. */
+.pane-lead {
   flex: 0 0 auto;
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
-.pane-note {
-  font-size: 0.75rem;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--muted);
-  margin-left: auto;
+.pane-lead:empty {
+  display: none;
 }
 
 .pane-foot {
@@ -1457,22 +1492,39 @@ button.secondary {
   white-space: nowrap;
 }
 
-/* One machine's answer to one check: the status, and the value behind it. The
-   value is truncated rather than wrapped, because a row that grows with its
-   longest cell costs the pane a check. The whole of it is one click away. */
+/* One machine's answer to one check: the status, and the value behind it. On a
+   third of a screen every value was cut at its first few characters, which is
+   how `4-23,28-47` and `4-6,17-18` came to look alike in the column where the
+   difference is the finding. With the panel on the whole page the value wraps,
+   and only a boot command line long enough to bury the rows below it is still
+   clamped. The whole of it stays one click away. */
 .check-cell {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.35rem;
   min-width: 0;
+}
+
+/* The dot marks the row's first line rather than the middle of a value that
+   wrapped to three. It refuses to shrink: a flex item that may, squeezed
+   beside a boot command line whose min-content width is the whole line, was
+   drawn as a two pixel bar instead of a dot. */
+.check-cell > .dot {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 0.3rem;
 }
 
 .check-cell .value {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 0.78rem;
-  white-space: nowrap;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .check-cell .value.differs {
@@ -1614,34 +1666,6 @@ button.secondary {
   border-color: var(--warn);
 }
 
-/* The two measurements as tabs rather than as two stacked cards. They answer
-   complementary questions and an operator reads one at a time, so stacking
-   them cost a screen height to show a panel nobody was looking at. */
-.tabs {
-  display: flex;
-  gap: 0.25rem;
-}
-
-.tab {
-  padding: 0.2rem 0.6rem;
-  white-space: nowrap;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  color: var(--muted);
-  font: inherit;
-  font-size: 0.8rem;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.tab.current {
-  border-color: var(--line);
-  background: var(--bg);
-  color: var(--text);
-}
-
 .measure {
   display: flex;
   flex-direction: column;
@@ -1657,8 +1681,11 @@ button.secondary {
   flex: 0 0 auto;
 }
 
+/* The panel is as wide as the page now, and a duration in seconds asked for
+   in a box 40rem wide reads as a field expecting an essay. They keep the width
+   their content wants and the row stays left aligned. */
 .measure-form .field {
-  flex: 1 1 7rem;
+  flex: 0 1 14rem;
   margin-bottom: 0.5rem;
 }
 
@@ -1689,23 +1716,17 @@ button.secondary {
 
 /* One column per machine that fits. A run measures every machine of the
    inventory, and reading four results one under the other was the scrolling
-   this panel is meant to spare an operator. A histogram is legible from about
-   34rem, so a narrow window gets one column and a wide one gets two. */
+   this panel is meant to spare an operator. The panel owns the page, so the
+   columns are asked to be wide rather than numerous: two large histograms read
+   better than three small ones, and four machines still land on one screen. */
 .measure-result {
   overflow-y: auto;
   min-height: 0;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(34rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(44rem, 1fr));
   gap: 0 2rem;
   align-items: start;
-}
-
-/* Expanded there is width to spend, so the columns are asked to be wider
-   rather than more numerous: two large histograms read better than three
-   small ones, and four machines still land on one screen. */
-.page.realtime.expanded .measure-result {
-  grid-template-columns: repeat(auto-fit, minmax(46rem, 1fr));
 }
 
 .measure-picker {
@@ -1807,21 +1828,17 @@ button.secondary {
 }
 
 @media (max-width: 70rem) {
-  /* Below this the two columns cannot both be useful, so the page goes back to
-     being a document and scrolls like the others. */
+  /* Below this a panel cannot be given a screen worth reading, so the page
+     goes back to being a document and scrolls like the others. The view bar
+     stays: it is the summary before it is a layout. */
   .page.realtime {
     height: auto;
-    grid-template-columns: minmax(0, 1fr);
     overflow: visible;
   }
 
-  #card-checks,
-  #card-map,
-  #card-measure {
-    grid-row: auto;
-    grid-column: auto;
-  }
-
+  /* The rows stay named. Left to auto-placement here the panel took the first
+     free track and the bar, still pinned to its own, was drawn underneath the
+     panel it navigates. */
   .page.realtime .pane {
     max-height: none;
   }
@@ -1848,10 +1865,13 @@ button.secondary {
 /* The cluster pool: one block per node, one column per physical core, one cell
    per thread. The same shape as the Grafana dashboard this repository ships
    over the same metrics, because an operator who has seen one should recognise
-   the other. */
+   the other. The blocks stack from the top: given a panel taller than they
+   are, a wrapping flex container spreads its lines over the height, and four
+   machines came out separated by fields of nothing. */
 .pool {
   display: flex;
   flex-wrap: wrap;
+  align-content: flex-start;
   gap: 0.75rem 1.25rem;
   overflow-y: auto;
   min-height: 0;

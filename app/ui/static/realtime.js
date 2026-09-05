@@ -7,6 +7,12 @@
 // this machine and costs nothing. The measurement half is an Ansible run
 // against every machine of the inventory, and it is confirmed like one.
 //
+// Four views, one on screen at a time, and a bar that says what the other
+// three found. The bar is the page's summary: a tab holds the worst status of
+// its panel and the one number an operator reads from it, so the glance the
+// old three panel layout paid for by truncating everything is kept, and the
+// panel behind the tab gets the whole screen.
+//
 // Nothing here writes to a host. The launch button posts to /runs, which is
 // the same path the System page uses, so there is one lock, one history and
 // one confirmation across everything that touches a machine.
@@ -36,7 +42,9 @@
         "the machines over the same SSH path a convergence uses, so nothing " +
         "measures inside this container and nothing here runs at real time " +
         "priority.",
-      note: "every machine the run measured, this one first",
+      note:
+        "What the scheduler delivered, on every machine the run measured, " +
+        "this one first.",
       fields: {
         cyclictest_duration: "measure-duration",
         cyclictest_priority: "measure-priority",
@@ -59,9 +67,11 @@
         "measurements are still listed below.",
       empty:
         "The firmware has not been measured from this node yet. A machine " +
-        "that passes every check above and still misses its deadline is the " +
-        "case this answers.",
-      note: "what the firmware took without telling the kernel",
+        "that passes every conformance check and still misses its deadline " +
+        "is the case this answers.",
+      note:
+        "What the firmware took without telling the kernel, on every machine " +
+        "the run measured.",
       fields: {
         hwlatdetect_duration: "hwlat-duration",
         hwlatdetect_threshold: "hwlat-threshold",
@@ -123,6 +133,18 @@
 
   function element(id) {
     return document.getElementById(id);
+  }
+
+  // What a panel has to say, said on its tab. Three of the four panels are off
+  // screen at any moment, and an operator has to know which one is worth
+  // opening without opening it: the status is the worst thing the panel found
+  // and the answer is the one line it would lead with.
+  function summarise(view, status, answer) {
+    const tab = document.querySelector(
+      '#views .view[data-view="' + view + '"]'
+    );
+    tab.querySelector(".dot").className = "dot status-" + status;
+    tab.querySelector(".view-answer").textContent = answer;
   }
 
   // Warnings accumulate for the load, and a later success never clears them.
@@ -213,11 +235,29 @@
       0
     );
     const answering = nodes.filter((node) => (node.checks || []).length).length;
-    element("checks-lead").textContent =
-      (wanting
+    const statuses = nodes.reduce(
+      (all, node) => all.concat((node.checks || []).map((check) => check.status)),
+      []
+    );
+    summarise(
+      "checks",
+      !statuses.length
+        ? "absent"
+        : wanting
+          ? "warning"
+          : statuses.includes("ok")
+            ? "ok"
+            : "unknown",
+      wanting
         ? wanting + " worth a look on " + machines(answering)
-        : "nothing worth a look on " + machines(answering)) +
-      (commit ? ", against the inventory at " + commit.slice(0, 8) : "");
+        : "nothing worth a look on " + machines(answering)
+    );
+    // Which inventory the comparison was made against belongs to the panel
+    // rather than to the tab: it is read once, when an operator wonders why a
+    // machine is said to differ from something.
+    element("checks-lead").textContent = commit
+      ? "Compared with the inventory at " + commit.slice(0, 8) + "."
+      : "";
   }
 
   function machines(count) {
@@ -431,6 +471,13 @@
           "publishes it."
         : "There is no inventory yet, so there is no node to ask.";
       blocked.hidden = false;
+      summarise(
+        "pool",
+        "absent",
+        pool.nodes.length
+          ? "no node published a pool"
+          : "no inventory yet, so no node to ask"
+      );
       return;
     }
     blocked.hidden = true;
@@ -444,14 +491,33 @@
     const stale = reachable
       .map((node) => node.scrape_age_seconds)
       .filter((age) => age !== null && age !== undefined);
-    element("map-note").textContent =
-      reachable.length +
-      " of " +
-      pool.nodes.length +
-      " nodes answered" +
-      (stale.length
-        ? ", " + Math.round(Math.max.apply(null, stale)) + "s ago"
-        : "");
+    // A machine worth opening the panel for: one isolating something other
+    // than what the inventory declares, one running an actor on a housekeeping
+    // core, or one whose kernel is not the real time one.
+    const troubled = reachable.filter(
+      (node) =>
+        node.isolation_matches === false ||
+        node.hard_fallbacks ||
+        node.soft_fallbacks ||
+        (node.slot_warnings || []).length ||
+        (node.preemption && node.preemption !== "PREEMPT_RT")
+    ).length;
+    summarise(
+      "pool",
+      troubled
+        ? "warning"
+        : reachable.length < pool.nodes.length
+          ? "unknown"
+          : "ok",
+      (troubled ? machines(troubled) + " worth a look, " : "") +
+        reachable.length +
+        " of " +
+        pool.nodes.length +
+        " nodes answered" +
+        (stale.length
+          ? ", " + Math.round(Math.max.apply(null, stale)) + "s ago"
+          : "")
+    );
   }
 
   function renderNode(node, thisHost) {
@@ -792,9 +858,6 @@
     element(spec.loading).hidden = true;
     element(spec.panel).hidden = false;
     const done = items.filter((item) => spec.results(item).length);
-    // The empty sentence goes where the results would be, so a panel with no
-    // history says why rather than showing a blank rectangle.
-    element(spec.body).textContent = done.length ? "" : spec.empty;
     state.selected[kind] = done.length ? done[0].run_id : null;
     renderPicker(kind);
     renderMeasurement(kind);
@@ -830,6 +893,12 @@
       (item) => item.run_id === state.selected[kind]
     );
     if (!measurement) {
+      // The sentence goes where the results would be, so a panel with no
+      // history says why rather than showing a blank rectangle. Here rather
+      // than in the loader: this is the function that empties the body, and it
+      // runs right after it.
+      body.textContent = spec.empty;
+      summarise(kind, "absent", "never measured from this node");
       return;
     }
 
@@ -859,7 +928,7 @@
 
     // Every machine the run measured, this one first. A run has no --limit, so
     // a measurement plays the whole inventory and brings back one file each,
-    // and the pool above reads every node too: the page is the cluster's, and
+    // and the pool view reads every node too: the page is the cluster's, and
     // showing one machine of a measurement that took three would be the odd
     // panel out. Local first, because it is the one the operator is standing
     // on and the one every other reading here is about.
@@ -875,6 +944,66 @@
       body.append(render(result));
     });
 
+    // The tab says what the measurement on screen came out as, over every
+    // machine it played rather than over the local one: a run measures the
+    // cluster, and the worst machine is the one that decides whether the
+    // cluster meets its deadline.
+    const [status, answer] =
+      kind === "cyclictest"
+        ? latencySummary(results)
+        : interruptionSummary(results);
+    summarise(kind, status, answer);
+  }
+
+  // The worst thread of the worst machine, and where it ran. No colour claims
+  // a verdict: nothing in the inventory declares a latency budget, so this is
+  // a number an operator holds against the deadline their application has,
+  // and a green dot here would be this page inventing a threshold.
+  function latencySummary(results) {
+    let worst = null;
+    results.forEach((result) =>
+      (result.threads || []).forEach((thread) => {
+        if (
+          thread.max_us !== null &&
+          (worst === null || thread.max_us > worst.max)
+        ) {
+          worst = { max: thread.max_us, host: result.host };
+        }
+      })
+    );
+    return worst
+      ? ["info", "worst " + worst.max + "us on " + worst.host]
+      : ["unknown", "no thread reported a latency"];
+  }
+
+  // hwlatdetect does have a verdict, because the threshold is the operator's
+  // own: anything above it is time the kernel never saw.
+  function interruptionSummary(results) {
+    const measured = results.filter(
+      (result) => result.supported && !result.message
+    );
+    if (!measured.length) {
+      return ["unknown", "the kernel could not be asked"];
+    }
+    let worst = 0;
+    let gaps = 0;
+    measured.forEach((result) =>
+      result.interruptions.forEach((item) => {
+        gaps += 1;
+        worst = Math.max(worst, item.inner_us, item.outer_us);
+      })
+    );
+    return gaps
+      ? [
+          "warning",
+          gaps +
+            " interruption" +
+            (gaps > 1 ? "s" : "") +
+            " above the threshold, the worst " +
+            worst +
+            "us",
+        ]
+      : ["ok", "nothing above the threshold on " + machines(measured.length)];
   }
 
   // hwlatdetect returns a list of gaps rather than a distribution, and usually
@@ -1360,46 +1489,55 @@
     );
   }
 
-  // The two measurements share the pane. Switching is local: both histories
-  // are already loaded, so a tab is a show and a hide rather than a fetch.
-  function showTab(kind) {
-    document.querySelectorAll("#measure-tabs .tab").forEach((tab) => {
-      tab.classList.toggle("current", tab.dataset.kind === kind);
+  // The four views and the panel each one shows. Both measurements live in the
+  // same card, which is why two views land on it: they share a form area and a
+  // history picker, and an operator switching between them is comparing two
+  // readings of the same machines rather than opening a different page.
+  const VIEWS = {
+    checks: { card: "card-checks" },
+    pool: { card: "card-map" },
+    cyclictest: { card: "card-measure", panel: "panel-cyclictest" },
+    hwlatdetect: { card: "card-measure", panel: "panel-hwlatdetect" },
+  };
+
+  // Switching is local. Everything on this page is loaded before the first tab
+  // is drawn, so a view is a show and a hide rather than a fetch: no reading
+  // is asked of a substation hypervisor twice because an operator looked at
+  // the pool and came back.
+  function showView(name) {
+    const view = VIEWS[name];
+    document.querySelectorAll("#views .view").forEach((tab) => {
+      const current = tab.dataset.view === name;
+      tab.classList.toggle("current", current);
+      // Said rather than only drawn: the bar is this page's navigation, and a
+      // border is not something a screen reader announces.
+      if (current) {
+        tab.setAttribute("aria-current", "true");
+      } else {
+        tab.removeAttribute("aria-current");
+      }
     });
-    Object.keys(MEASUREMENTS).forEach((name) => {
-      element("panel-" + name).hidden = name !== kind;
+    Object.values(VIEWS).forEach((entry) => {
+      element(entry.card).hidden = entry.card !== view.card;
     });
-    element("measure-note").textContent = MEASUREMENTS[kind].note;
+    if (view.panel) {
+      Object.keys(MEASUREMENTS).forEach((kind) => {
+        element("panel-" + kind).hidden = kind !== name;
+      });
+      element("measure-note").textContent = MEASUREMENTS[name].note;
+    }
   }
 
-  document.querySelectorAll("#measure-tabs .tab").forEach((tab) => {
-    tab.addEventListener("click", () => showTab(tab.dataset.kind));
-  });
-
-  // The panel over the whole page, and back. The page is laid out as one
-  // screen, which is right for the question it answers at a glance and wrong
-  // for the moment an operator sits down with a result: a run measured every
-  // machine of the inventory, and each of them is a verdict, a histogram and a
-  // fold. Expanding hides the two panes above rather than opening a window, so
-  // it is the same panel with the same state, only larger.
-  const page = document.querySelector(".page.realtime");
-
-  function setExpanded(expanded) {
-    page.classList.toggle("expanded", expanded);
-    const button = element("measure-expand");
-    button.textContent = expanded ? "Collapse" : "Expand";
-    button.setAttribute("aria-expanded", String(expanded));
-  }
-
-  element("measure-expand").addEventListener("click", () => {
-    setExpanded(!page.classList.contains("expanded"));
+  document.querySelectorAll("#views .view").forEach((tab) => {
+    tab.addEventListener("click", () => showView(tab.dataset.view));
   });
 
   document.addEventListener("keydown", (event) => {
-    // The confirmation is the thing Escape is about while it is up, and it
-    // sits over the panel that would otherwise collapse under it.
-    if (event.key === "Escape" && element("measure-confirm").hidden) {
-      setExpanded(false);
+    // A confirmation names the machines a run is about to load at real time
+    // priority. Escape is the way out of it that does not involve aiming at a
+    // button.
+    if (event.key === "Escape" && !element("measure-confirm").hidden) {
+      element("measure-confirm").hidden = true;
     }
   });
 
@@ -1427,7 +1565,10 @@
     // priority for as long as the operator asked, on a live substation. That
     // is a run like any other, and POST /runs asks for the admin role.
     state.canLaunch = Chrome.isAdmin(me);
-    showTab("cyclictest");
+    // Conformance first. It is the question the page exists to answer, and the
+    // only panel that says something on a machine where nothing has been
+    // deployed yet.
+    showView("checks");
     // The inventory first, on its own. It names the machines a run plays and
     // which of them is this one, and the measurement panels filter to that
     // name: fetching it beside them is a race the panels lost, so every

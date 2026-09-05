@@ -1238,3 +1238,54 @@ of the same reading.
 `isolcpus=4-7` is right for a machine is a question about what that machine was
 told, which lives in the repository this service writes. The collector reports
 what it read, and the comparison stays here.
+
+## D28 - Settled: the Real time page is four views and a bar that summarises them
+
+[D26](#d26) and [D27](#d27) made every panel of the Real time page answer for
+the whole cluster, and the layout did not survive it. Three panels shared one
+screen: ten conformance rows across four machines on the left, four pools of
+forty-eight threads and a measurement of four histograms on the right. Each
+panel got a third of the room its content needs, and each answered by cutting.
+`4-23,28-47` and `4-6,17-18` were both drawn as `4-23,28-…` in the column where
+the difference between them is the finding. The fourth machine of the pool sat
+below the fold. A histogram lost its axis, and an operator reading a result
+pressed Expand, which hid the other two panels, which is this decision taken
+one panel at a time.
+
+**One panel at a time, and a bar that carries what the other three found.** The
+page is a bar of four tabs, Conformance, CPU pool, Latency and Firmware, and
+the panel one of them points at. Each tab holds its own worst status as a dot
+and the one line its panel would lead with: `9 worth a look on 4 machines`,
+`1 machine worth a look, 4 of 4 nodes answered, 12s ago`,
+`worst 26us on ccv-admin`. The glance the old layout paid for by truncating
+everything is what the bar does, and the panel behind it has the screen.
+
+Switching is local. Every reading the page shows is fetched before the first
+tab is drawn, so a view is a show and a hide: an operator who looks at the pool
+and comes back costs a substation hypervisor nothing.
+
+### What the dots may claim
+
+A dot is the worst thing the panel found, and no panel is given a verdict it
+cannot support. Conformance and the pool have one, because both compare a
+machine with what the inventory told it. hwlatdetect has one, because the
+threshold is the operator's own and anything above it is time the kernel never
+saw.
+
+**Latency has none.** Nothing in the inventory declares a latency budget, so a
+number is a number: the tab reports the worst case and the machine it happened
+on, in the colour that means "nothing to compare", and the deadline it is held
+against is the one the application has. A green dot here would be this page
+inventing a threshold that no one wrote down.
+
+### What was refused
+
+**A machine picker, with everything about the machine chosen on one screen.**
+It answers "is this machine tuned right" and makes "do these machines agree"
+the thing an operator has to assemble by clicking through four of them. The
+comparison across machines is what [D27](#d27) was for.
+
+**Keeping the three panels and showing only the status dots, values on click.**
+It fits, and it costs the reading that makes the matrix worth having: the
+values are the finding, and a page that hides them behind a click is a page
+where nobody sees that two machines isolate different CPUs.

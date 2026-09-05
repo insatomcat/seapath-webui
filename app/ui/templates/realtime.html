@@ -3,9 +3,14 @@ Copyright (C) 2026, RTE (http://www.rte-france.com)
 SPDX-License-Identifier: CC-BY-4.0
 
 An application layout rather than a document: the shell is the viewport, and
-what overflows scrolls inside its own panel. The page answers one question at a
-glance, "is this machine tuned the way it was told, and what does it deliver",
-and an answer that has to be scrolled for is one an operator stops reading.
+one panel is on screen at a time. The page answers one question, "is this
+machine tuned the way it was told, and what does it deliver", and it used to
+answer it by putting three panels on one screen, where each got a third of the
+room it needs: values truncated mid range, a cluster of four nodes cut after
+the third, a histogram with no axis left. The view bar carries the answer now.
+Each tab holds its own worst status and the one number that says whether it is
+worth opening, so the glance still costs no click, and the panel behind it has
+the whole screen.
 #}
 {% extends "base.html" %}
 {% block title %}Real time - SEAPATH{% endblock %}
@@ -14,11 +19,34 @@ and an answer that has to be scrolled for is one an operator stops reading.
 <main class="page realtime">
   <p class="banner" id="banner" hidden></p>
 
+  {# The summary and the navigation are the same object. A tab that only named
+     its panel would hide three of the four answers behind a click. #}
+  <nav class="views" id="views" aria-label="Real time">
+    <button type="button" class="view current" data-view="checks"
+            aria-current="true">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Conformance</span>
+      <span class="view-answer">Reading this machine</span>
+    </button>
+    <button type="button" class="view" data-view="pool">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">CPU pool</span>
+      <span class="view-answer">Asking each node's exporter</span>
+    </button>
+    <button type="button" class="view" data-view="cyclictest">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Latency</span>
+      <span class="view-answer">Reading past measurements</span>
+    </button>
+    <button type="button" class="view" data-view="hwlatdetect">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Firmware</span>
+      <span class="view-answer">Reading past measurements</span>
+    </button>
+  </nav>
+
   <section class="card pane" id="card-checks">
-    <h2>
-      Conformance, every machine
-      <span class="pane-note" id="checks-lead"></span>
-    </h2>
+    <p class="pane-lead" id="checks-lead"></p>
     <div class="loading" id="checks-loading">Reading this machine</div>
     {# One row per check, one column per machine. The local column is read
        from this machine's own files and the others from each node's exporter,
@@ -42,11 +70,7 @@ and an answer that has to be scrolled for is one an operator stops reading.
     </p>
   </section>
 
-  <section class="card pane" id="card-map">
-    <h2>
-      CPU pool, every machine
-      <span class="pane-note" id="map-note"></span>
-    </h2>
+  <section class="card pane" id="card-map" hidden>
     <div class="loading" id="map-loading">Asking each node's exporter</div>
     <div class="pool" id="pool" hidden></div>
     <p class="warning" id="pool-blocked" hidden></p>
@@ -59,30 +83,17 @@ and an answer that has to be scrolled for is one an operator stops reading.
         what is on it. Read from each node's own exporter, which is where
         <code>seapath-alloc</code> publishes what it pinned: this container
         cannot see the threads itself. The same reading carries each machine's
-        tuning, which is what the conformance panel above compares with the
-        inventory.
+        tuning, which is what the conformance view compares with the inventory.
       </span>
     </p>
   </section>
 
-  <section class="card pane" id="card-measure">
-    <h2>
-      <span class="tabs" id="measure-tabs">
-        <button type="button" class="tab current" data-kind="cyclictest">
-          Latency
-        </button>
-        <button type="button" class="tab" data-kind="hwlatdetect">
-          Firmware
-        </button>
-      </span>
-      <span class="pane-note" id="measure-note"></span>
-      {# A measurement plays every machine of the inventory and brings back a
-         verdict, a histogram and a fold for each. The third of a screen this
-         panel is given beside the pool shows one of them, so it can take the
-         page when an operator is reading a result and give it back after. #}
-      <button type="button" class="pane-expand" id="measure-expand"
-              aria-expanded="false">Expand</button>
-    </h2>
+  {# A measurement plays every machine of the inventory and brings back a
+     verdict, a histogram and a fold for each. Both measurements live in this
+     one panel and the view bar picks between them, so a result is read on a
+     whole screen rather than in the third of one the old layout could spare. #}
+  <section class="card pane" id="card-measure" hidden>
+    <p class="pane-lead" id="measure-note"></p>
 
     <div class="measure" id="panel-cyclictest">
       <div class="measure-form" id="measure-form" hidden>
