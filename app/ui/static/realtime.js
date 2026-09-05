@@ -878,6 +878,22 @@
     renderMeasurement(kind);
   }
 
+  // Every instant on this page is the browser's, because the operator reading
+  // it is comparing a measurement with what they saw on a screen beside it.
+  // The service stamps runs in UTC and the tracer stamps its samples in epoch
+  // seconds, so both are converted here rather than shown as the machine
+  // wrote them.
+  function localTime(iso) {
+    return new Date(iso).toLocaleString([], {
+      dateStyle: "short",
+      timeStyle: "short",
+    });
+  }
+
+  function localClock(milliseconds) {
+    return new Date(milliseconds).toLocaleTimeString([], { hour12: false });
+  }
+
   function renderPicker(kind) {
     const spec = MEASUREMENTS[kind];
     const picker = element(spec.picker);
@@ -889,7 +905,7 @@
         button.classList.add("current");
       }
       button.textContent =
-        (item.started_at ? item.started_at.slice(0, 16).replace("T", " ") : "?") +
+        (item.started_at ? localTime(item.started_at) : "?") +
         (spec.results(item).length ? "" : " - " + item.state);
       button.addEventListener("click", () => {
         state.selected[kind] = item.run_id;
@@ -1104,7 +1120,7 @@
       [
         item.timestamp === null
           ? "unknown"
-          : new Date(item.timestamp * 1000).toISOString().slice(11, 19),
+          : localClock(item.timestamp * 1000),
         item.cpu === null ? "unknown" : String(item.cpu),
         item.inner_us + "us",
         item.outer_us + "us",
