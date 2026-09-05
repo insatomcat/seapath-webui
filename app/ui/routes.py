@@ -121,6 +121,10 @@ def install(app: FastAPI) -> None:
         # in people's history and in the first deployment's notes.
         return RedirectResponse("inventory", status_code=308)
 
+    @app.get("/vms", response_class=HTMLResponse, include_in_schema=False)
+    def vms(request: Request):
+        return _page(request, "vms.html", "vms")
+
     @app.get("/cluster", response_class=HTMLResponse, include_in_schema=False)
     def cluster(request: Request):
         return _page(request, "cluster.html", "cluster")

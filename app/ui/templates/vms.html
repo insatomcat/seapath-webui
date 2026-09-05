@@ -1,0 +1,93 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+The guests, which are the one object of this product whose parts are spread
+across three of the other pages. Its definition is an entry of the `VMs` group
+on the Inventory page, the files it names are in the two stores that page
+lists, the run that deploys it is on the Deployment page, and what it is doing
+right now is one line of the Cluster page's resource table. An operator asking
+"is my VM there, and is it running" had to read four pages and know that a
+Pacemaker resource and an inventory host with the same name are the same guest.
+
+Read only, for now and deliberately. Every change a guest needs is a commit on
+the Inventory page and a run on the Deployment page, and the buttons that would
+start, stop or migrate one are the runtime plane, which arrives with
+`vm_manager`. Putting them here before they exist would be the plane mixing
+SPEC section 5.2 refuses.
+#}
+{% extends "base.html" %}
+{% block title %}VMs - SEAPATH{% endblock %}
+
+{% block body %}
+<main class="page single vms">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card">
+    <h2>Guests</h2>
+    <p class="lead" id="lead" hidden></p>
+    <div class="loading" id="loading">Reading the inventory</div>
+    <p class="warning" id="empty" hidden></p>
+
+    <div class="table-scroll" id="guest-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Guest</th>
+            <th>State</th>
+            <th>Node</th>
+            <th>Disk image</th>
+            <th>libvirt XML</th>
+            <th>On deployment</th>
+          </tr>
+        </thead>
+        <tbody id="guest-rows"></tbody>
+      </table>
+    </div>
+
+    <p class="pane-foot">
+      <span class="pane-foot-note" id="runtime-note"></span>
+    </p>
+  </section>
+
+  {# A guest the cluster runs and the inventory does not declare. Silence here
+     would hide a VM deployed by hand, or one left behind by an inventory
+     somebody edited: it keeps running, and it keeps a name a later deployment
+     would collide with. #}
+  <section class="card" id="undeclared-card" hidden>
+    <h2>Running, and not declared</h2>
+    <p class="lead">
+      Pacemaker runs these and the inventory describes none of them. A
+      convergence will not touch them, and a guest added under one of these
+      names would collide with what is already there.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Resource</th>
+            <th>Node</th>
+            <th>Role</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody id="undeclared-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="hint" id="how">
+    A guest is an entry of the <code>VMs</code> group in the inventory, naming
+    its disk image and its libvirt XML. The image goes in the artefacts, which
+    git does not carry, and the XML is committed with the inventory: both are
+    uploaded from the <a href="inventory">Inventory</a> page, and a run mounts
+    them under the same root, so the path the entry writes resolves either way.
+    Deploying them is a run of the playbook named above, from the
+    <a href="deployment">Deployment</a> page.
+  </p>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="static/vms.js"></script>
+{% endblock %}

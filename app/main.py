@@ -55,6 +55,7 @@ from app.services.node import NodeService
 from app.services.realtime import RealtimeService
 from app.services.storage import StorageService
 from app.services.update import UpdateService
+from app.services.vms import VmService
 from app.trust.service import TrustService
 from app.ui import routes as ui_routes
 
@@ -290,6 +291,12 @@ def create_app(
         inventory=app.state.inventory_service,
         client=exporters,
         port=settings.ceph_exporter_port,
+    )
+    # The guests: their definition from the inventory, their files from the two
+    # stores, and their Pacemaker resource from the cluster service above.
+    app.state.vm_service = VmService(
+        inventory=app.state.inventory_service,
+        cluster=app.state.cluster_service,
     )
 
     install_error_handlers(app)

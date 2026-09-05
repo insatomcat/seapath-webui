@@ -2138,3 +2138,10 @@ button.secondary {
 tr.row-bad > td {
   background: var(--bad-wash);
 }
+
+/* VMs. A guest that carries `force` is reinstalled by the next deployment
+   run, disk and all, so the cell that says so is coloured like the other
+   things on this UI that an operator must not read past. */
+td.recreated {
+  color: var(--warn);
+}

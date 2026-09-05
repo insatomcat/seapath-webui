@@ -12,7 +12,8 @@ from fastapi.testclient import TestClient
 
 
 @pytest.mark.parametrize(
-    "path", ["/", "/inventory", "/deployment", "/cluster", "/realtime", "/runs"]
+    "path",
+    ["/", "/inventory", "/deployment", "/vms", "/cluster", "/realtime", "/runs"],
 )
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
@@ -27,6 +28,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/", "node.js"),
         ("/inventory", "inventory.js"),
         ("/deployment", "deployment.js"),
+        ("/vms", "vms.js"),
         ("/cluster", "cluster.js"),
         ("/realtime", "realtime.js"),
         ("/runs", "runs.js"),
@@ -652,7 +654,8 @@ _ROOT_ANCHORED = re.compile(
 
 
 @pytest.mark.parametrize(
-    "path", ["/", "/inventory", "/deployment", "/realtime", "/runs", "/login"]
+    "path",
+    ["/", "/inventory", "/deployment", "/vms", "/realtime", "/runs", "/login"],
 )
 def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> None:
     body = signed_in.get(path).text
@@ -672,6 +675,7 @@ def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> 
         "realtime.js",
         "runs.js",
         "deployment.js",
+        "vms.js",
     ],
 )
 def test_no_script_anchors_a_url_to_the_root(signed_in: TestClient, asset: str) -> None:
@@ -737,3 +741,29 @@ def test_the_cluster_page_never_reads_ceph_s_absence_as_a_fault(
     # A Pacemaker cluster with local storage is a supported SEAPATH
     # configuration (docs/ceph.md), so the tab is hollow rather than amber.
     assert 'summarise("storage", "absent", "No Ceph on this cluster")' in script
+
+
+def test_the_vms_page_joins_the_definition_and_the_state(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/vms").text
+
+    # The two halves are on one row and labelled as two: the definition
+    # columns are the desired state, the state and node columns are what
+    # Pacemaker reports at this moment.
+    for column in ("Guest", "State", "Node", "Disk image", "libvirt XML"):
+        assert f"<th>{column}</th>" in body
+    # And where each of them is changed, since nothing on this page writes.
+    assert 'href="inventory"' in body
+    assert 'href="deployment"' in body
+
+
+def test_the_vms_page_offers_no_way_to_start_or_migrate_a_guest(
+    signed_in: TestClient,
+) -> None:
+    # The runtime plane arrives with `vm_manager`. A button here before it
+    # exists would be the plane mixing SPEC section 5.2 refuses, and the page
+    # says what it is instead of implying it.
+    body = signed_in.get("/vms").text
+
+    assert "<button" not in body.split('<main class="page single vms">')[1]

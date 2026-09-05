@@ -67,6 +67,17 @@ and the image is not out yet, and this service itself, which is
 `seapath_webui_image` in the inventory and changes the way every other change
 to a machine does, by an apply.
 
+**VMs** is the guests, and it exists because a guest is one object whose parts
+sit on three other pages. Its definition is an entry of the `VMs` group in the
+inventory, the disk image and the libvirt XML it names are in the two stores
+around that file, and what it is doing right now is one line of the Pacemaker
+resource table. The page puts them on one row: the guest, whether it is running
+and where, whether a deployment would find the two files it names, and what the
+next run does to it, `force` being the word that matters there since the roles
+destroy and recreate a guest that carries it. It is read only. A guest is
+changed by a commit on the Inventory page and deployed by a run from the
+Deployment page.
+
 ![The Cluster page: the three view tabs and their summaries, over the Pacemaker members, quorum and fencing](img/cluster.png)
 
 **Cluster** is what the machines are doing right now, which is the one question
@@ -154,7 +165,10 @@ service each machine runs is an inventory variable that an apply carries.
 [docs/validation.md](docs/validation.md) holds the checklists for M0, M1 and
 the Real time page, and all three are still to be run on a real machine.
 
-M2, next, is the VM runtime plane through `vm_manager`.
+M2 is the VMs. Its declarative half is in: the `VMs` group is read as guests
+rather than as machines, and the VMs page joins what the inventory declares to
+what Pacemaker reports. Its imperative half, starting, stopping and migrating a
+guest through `vm_manager`, is next.
 
 ## Development
 

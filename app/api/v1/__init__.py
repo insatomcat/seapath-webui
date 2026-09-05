@@ -16,6 +16,7 @@ from app.api.v1 import (
     runs,
     storage,
     trust,
+    vms,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -29,3 +30,4 @@ router.include_router(inventory.router)
 router.include_router(realtime.router)
 router.include_router(runs.router)
 router.include_router(trust.router)
+router.include_router(vms.router)
