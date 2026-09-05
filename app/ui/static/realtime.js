@@ -114,7 +114,9 @@
   };
 
   // The colour of one thread, which is its position in the ramp in force.
-  function series(index) {
+  // Not `series`: in the histogram that word already means one thread's
+  // buckets, and the two met inside the loop that draws them.
+  function rampColour(index) {
     const ramp = RAMPS[Theme.current()];
     return ramp[index % ramp.length];
   }
@@ -225,12 +227,18 @@
   function nodeHeading(node, thisHost) {
     const box = document.createElement("span");
     box.className = "check-node";
-    box.textContent = node.host;
+    // The name in its own element rather than as a bare text node, so the
+    // heading can stack it above the tag instead of running the two together
+    // into one wrapping line.
+    const name = document.createElement("span");
+    name.className = "check-host";
+    name.textContent = node.host;
+    box.append(name);
     if (node.host === thisHost) {
       const tag = document.createElement("span");
       tag.className = "tag";
       tag.textContent = "this node";
-      box.append(" ", tag);
+      box.append(tag);
     }
     return box;
   }
@@ -1083,7 +1091,7 @@
         const cell = document.createElement("td");
         cell.textContent = value;
         if (column === 0) {
-          cell.style.color = series(index);
+          cell.style.color = rampColour(index);
         }
         row.append(cell);
       });
@@ -1184,7 +1192,7 @@
 
     counts.forEach((series, index) => {
       const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      group.setAttribute("fill", series(index));
+      group.setAttribute("fill", rampColour(index));
       for (let bucket = 0; bucket <= lastUsed; bucket += 1) {
         const count = series[bucket];
         if (count <= 0) {
@@ -1253,7 +1261,7 @@
     result.threads.forEach((thread, index) => {
       const item = document.createElement("span");
       const swatch = document.createElement("i");
-      swatch.style.background = series(index);
+      swatch.style.background = rampColour(index);
       item.append(
         swatch,
         document.createTextNode(
