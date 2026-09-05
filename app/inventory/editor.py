@@ -33,7 +33,8 @@ from typing import Any
 
 from ruamel.yaml import YAML
 
-from app.inventory.resolve import ROOT, groups
+from app.inventory.model import GUEST_GROUP
+from app.inventory.resolve import ROOT, groups, resolve
 
 
 class UneditableInventory(Exception):
@@ -270,3 +271,131 @@ def _members(table: dict, name: str) -> set[str]:
         hosts.update(table[current].hosts)
         stack.extend(table[current].children)
     return hosts
+
+
+def add_guest(document: str, name: str, variables: dict[str, Any]) -> str:
+    """Declare a guest in the `VMs` group, creating the group if it is absent.
+
+    The one write this module makes that adds a host rather than changing one.
+    It is bounded to guests on purpose: adding a *machine* is cluster
+    formation, which moves addresses, ring neighbours and group membership at
+    once, and is refused here. A guest is an entry with a name and the files it
+    is built from, and the group it goes in has no variables of its own in any
+    reference inventory.
+
+    The entry is spliced in like every other change, so the rest of the file
+    survives byte for byte, and `fidelity` checks afterwards that exactly this
+    host appeared and nothing else moved.
+    """
+    yaml = _yaml()
+    loaded = yaml.load(document)
+    if loaded is None:
+        raise UneditableInventory("The inventory is empty.")
+    if not isinstance(loaded, dict):
+        raise UneditableInventory("The inventory is not a mapping of groups.")
+
+    if name in resolve(document):
+        raise UneditableInventory(
+            f"{name} is already in this inventory. A guest is named after the "
+            "libvirt domain it becomes, so two of them cannot share a name."
+        )
+
+    lines = document.splitlines(keepends=True)
+    group = _named_group(loaded, GUEST_GROUP)
+    splice = (
+        _guest_group(lines, loaded, name, variables)
+        if group is None
+        else _guest_into(lines, group, name, variables)
+    )
+    lines[splice.start : splice.end] = splice.replacement
+    return "".join(lines)
+
+
+def _guest_into(
+    lines: list[str], group: Any, name: str, variables: dict[str, Any]
+) -> _Splice:
+    """The entry, into a `VMs` group the file already has."""
+    hosts = group.get("hosts")
+    if isinstance(hosts, dict) and hosts:
+        column = _mapping_column(hosts)
+        start = _mapping_end(lines, hosts)
+        return _Splice(start, start, _guest_lines(name, variables, column))
+
+    if "hosts" in group:
+        # The key is there and holds nothing, which is `hosts:` on its own or
+        # `hosts: {}`. Both are replaced whole rather than appended to: there
+        # is no first key to take an indentation from.
+        key_line, key_column = group.lc.key("hosts")
+        end = _block_end(lines, key_line + 1, key_column)
+        return _Splice(key_line, end, _hosts_lines(name, variables, key_column))
+
+    column = _mapping_column(group)
+    start = _mapping_end(lines, group)
+    return _Splice(start, start, _hosts_lines(name, variables, column))
+
+
+def _guest_group(
+    lines: list[str], loaded: Any, name: str, variables: dict[str, Any]
+) -> _Splice:
+    """The whole group, for an inventory that declares no guest yet.
+
+    It goes where the other groups are. Both shapes are valid Ansible and a
+    hand written file uses either, so a file keeping its groups under
+    `all.children` gets one more child rather than a top level group beside a
+    file that has none.
+    """
+    root = loaded.get("all")
+    children = root.get("children") if isinstance(root, dict) else None
+    if isinstance(children, dict) and children:
+        column = _mapping_column(children)
+        start = _mapping_end(lines, children)
+        return _Splice(start, start, _group_lines(name, variables, column))
+
+    end = len(lines)
+    while end > 0 and not lines[end - 1].strip():
+        end -= 1
+    block = _group_lines(name, variables, 0)
+    if end > 0 and not lines[end - 1].endswith("\n"):
+        lines[end - 1] += "\n"
+    return _Splice(end, end, ["\n", *block])
+
+
+def _guest_lines(name: str, variables: dict[str, Any], column: int) -> list[str]:
+    """The guest: its name on a line, and the variables it carries under it.
+
+    Written key by key rather than dumped as one mapping, so a guest with no
+    variables is `name:` and not `name: {}`. Adopting a VM that is already
+    running is exactly that entry, because the deployment role skips every
+    task that would read a file when the guest exists and carries no `force`.
+    """
+    written = [f"{' ' * column}{name}:\n"]
+    for variable, value in variables.items():
+        written.extend(_emit(variable, value, column + 2))
+    return written
+
+
+def _hosts_lines(name: str, variables: dict[str, Any], column: int) -> list[str]:
+    return [f"{' ' * column}hosts:\n", *_guest_lines(name, variables, column + 2)]
+
+
+def _group_lines(name: str, variables: dict[str, Any], column: int) -> list[str]:
+    return [
+        f"{' ' * column}{GUEST_GROUP}:\n",
+        *_hosts_lines(name, variables, column + 2),
+    ]
+
+
+def _named_group(loaded: Any, name: str) -> Any | None:
+    """One group by name, declared at the top level or under `all.children`."""
+    if isinstance(loaded.get(name), dict):
+        return loaded[name]
+    stack = [body for body in loaded.values() if isinstance(body, dict)]
+    while stack:
+        body = stack.pop()
+        children = body.get("children")
+        if not isinstance(children, dict):
+            continue
+        if isinstance(children.get(name), dict):
+            return children[name]
+        stack.extend(child for child in children.values() if isinstance(child, dict))
+    return None

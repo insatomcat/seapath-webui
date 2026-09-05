@@ -155,3 +155,109 @@ def test_a_viewer_may_read_the_guests(signed_in_viewer: TestClient) -> None:
 
 def test_the_guests_need_a_session(client: TestClient) -> None:
     assert client.get("/api/v1/vms").status_code == 401
+
+
+# 3. Adding one, which is the act this page performs.
+
+
+def test_adding_a_guest_writes_it_into_the_vms_group(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "vm_disk": "../files/newvm.qcow2",
+            "vm_template": "../files/newvm.xml.j2",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["name"] == "newvm"
+    # And the run to launch next, so the page does not have to work it out.
+    assert body["playbook"] == "deploy_vms_standalone"
+
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    assert "VMs:" in written
+    assert "newvm:" in written
+    assert signed_in.get("/api/v1/vms").json()["guests"][0]["name"] == "newvm"
+
+
+def test_the_group_is_created_once_and_added_to_afterwards(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    signed_in.post("/api/v1/vms", json={"name": "first"})
+    signed_in.post("/api/v1/vms", json={"name": "second"})
+
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+
+    assert written.count("VMs:") == 1
+    assert [item["name"] for item in signed_in.get("/api/v1/vms").json()["guests"]] == [
+        "first",
+        "second",
+    ]
+
+
+def test_adding_a_guest_leaves_the_machines_alone(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The write is a splice and `fidelity` checks it: the whole point of doing
+    # this through the inventory rather than around it is that the file keeps
+    # meaning what it meant.
+    before = signed_in.get("/api/v1/inventory").json()["inventory"]["hosts"]
+
+    signed_in.post("/api/v1/vms", json={"name": "newvm"})
+
+    assert signed_in.get("/api/v1/inventory").json()["inventory"]["hosts"] == before
+
+
+def test_adding_a_guest_is_a_commit_that_names_it(signed_in: TestClient) -> None:
+    signed_in.post("/api/v1/vms", json={"name": "newvm"})
+
+    history = signed_in.get("/api/v1/inventory/history").json()
+
+    assert history[0]["message"] == "vms: declare newvm"
+    assert history[0]["author"] == "admin"
+
+
+def test_a_guest_declined_at_start_says_so_and_the_others_say_nothing(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # `enable` defaults to true in the roles, so an entry spelling it out says
+    # nothing and reads as if it did.
+    signed_in.post("/api/v1/vms", json={"name": "running"})
+    signed_in.post("/api/v1/vms", json={"name": "stopped", "enable": False})
+
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+
+    assert "enable: false" in written
+    assert "enable: true" not in written
+
+
+def test_a_name_that_is_already_in_the_inventory_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # It becomes the libvirt domain and the Pacemaker resource, and a machine
+    # of the inventory holds the name just as firmly as a guest does.
+    signed_in.post("/api/v1/vms", json={"name": "newvm"})
+
+    again = signed_in.post("/api/v1/vms", json={"name": "newvm"})
+    machine = signed_in.post("/api/v1/vms", json={"name": "seapath-machine"})
+
+    assert again.status_code == 409
+    assert machine.status_code == 409
+
+
+def test_a_name_that_could_not_be_a_domain_is_refused(signed_in: TestClient) -> None:
+    response = signed_in.post("/api/v1/vms", json={"name": "not a name"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_guest"
+
+
+def test_only_an_administrator_may_add_a_vm(signed_in_viewer: TestClient) -> None:
+    # It commits the desired state and the run that follows creates a machine.
+    assert (
+        signed_in_viewer.post("/api/v1/vms", json={"name": "newvm"}).status_code == 403
+    )

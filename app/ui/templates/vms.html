@@ -10,11 +10,15 @@ right now is one line of the Cluster page's resource table. An operator asking
 "is my VM there, and is it running" had to read four pages and know that a
 Pacemaker resource and an inventory host with the same name are the same guest.
 
-Read only, for now and deliberately. Every change a guest needs is a commit on
-the Inventory page and a run on the Deployment page, and the buttons that would
-start, stop or migrate one are the runtime plane, which arrives with
-`vm_manager`. Putting them here before they exist would be the plane mixing
-SPEC section 5.2 refuses.
+Adding a VM is the one act this page performs, and it performs it whole: the
+disk image, the libvirt XML, the entry in the inventory and the deployment run.
+Underneath, those are the three writes this service has always made and the
+upstream playbook it has always run. The operator is spared the trip through
+two other pages and a group name they have no reason to know. D30 is why the
+mechanism stays and the mechanism stops being the interface.
+
+Starting, stopping and migrating a guest are the runtime plane, and they are
+not here yet.
 #}
 {% extends "base.html" %}
 {% block title %}VMs - SEAPATH{% endblock %}
@@ -24,7 +28,10 @@ SPEC section 5.2 refuses.
   <p class="banner" id="banner" hidden></p>
 
   <section class="card">
-    <h2>Guests</h2>
+    <div class="card-head">
+      <h2>Guests</h2>
+      <button type="button" id="add" hidden>Add a VM</button>
+    </div>
     <p class="lead" id="lead" hidden></p>
     <div class="loading" id="loading">Reading the inventory</div>
     <p class="warning" id="empty" hidden></p>
@@ -74,6 +81,54 @@ SPEC section 5.2 refuses.
         <tbody id="undeclared-rows"></tbody>
       </table>
     </div>
+  </section>
+
+  {# The one form on this page. It asks for what a guest is made of and
+     nothing else: a name, a disk image, and the libvirt XML that describes
+     it. Everything the roles can read off an entry beyond that is edited in
+     the file, on the Inventory page, where a site's own variables live. #}
+  <section class="card" id="add-card" hidden>
+    <h2>Add a VM</h2>
+    <p class="lead">
+      The image and the XML are uploaded, the guest is written into the
+      inventory as a commit, and the deployment playbook is run. Existing
+      guests are left alone by that run.
+    </p>
+
+    <label for="add-name">Name</label>
+    <input type="text" id="add-name" autocomplete="off" spellcheck="false">
+    <p class="help">
+      It becomes the libvirt domain name and the Pacemaker resource, so it is
+      what every other tool will call this VM.
+    </p>
+
+    <label for="add-disk">Disk image</label>
+    <input type="file" id="add-disk" accept=".qcow2,.img,.gz">
+    <p class="help" id="add-disk-help">
+      The image a creation starts from, stored outside git. In a cluster it is
+      imported into the Ceph pool and the guest runs from there afterwards.
+    </p>
+
+    <label for="add-xml">libvirt XML</label>
+    <input type="file" id="add-xml" accept=".xml,.j2">
+    <p class="help">
+      Committed with the inventory. A file ending in <code>.j2</code> is taken
+      as a Jinja2 template and rendered per guest, anything else is used as it
+      is.
+    </p>
+
+    <label class="switch">
+      <input type="checkbox" id="add-enable" checked>
+      Start it once it is created
+    </label>
+
+    <div class="card-actions">
+      <button type="button" id="add-go">Add and deploy</button>
+      <button type="button" id="add-cancel" class="secondary">Cancel</button>
+    </div>
+
+    <ol class="steps" id="add-steps" hidden></ol>
+    <p class="error" id="add-error" hidden></p>
   </section>
 
   <p class="hint" id="how">

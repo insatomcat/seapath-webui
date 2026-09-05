@@ -23,11 +23,15 @@ service holds no second source of truth for what the cluster is doing.
 
 from __future__ import annotations
 
+import re
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app.cluster.ha import PacemakerResource
 from app.inventory.model import Mode
 from app.inventory.references import Reference
+from app.inventory.repository import Commit
 from app.inventory.service import InventoryService
 from app.services.cluster import ClusterService
 
@@ -43,6 +47,11 @@ DEPLOY_PLAYBOOK = {
     Mode.CLUSTER: "deploy_vms_cluster",
     Mode.STANDALONE: "deploy_vms_standalone",
 }
+
+# The name is the host key, the libvirt domain name and the Pacemaker resource
+# id at once, so it has to survive all three. The same shape a machine's key
+# has, for the same reason.
+_NAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
 _NO_INVENTORY = (
     "There is no inventory yet, so no guest is declared. The Inventory page is "
@@ -111,10 +120,47 @@ class GuestsView(BaseModel):
     inventory_commit: str | None = None
 
 
+class InvalidGuest(Exception):
+    """The declaration cannot become an entry, and the message says why."""
+
+
 class VmService:
     def __init__(self, inventory: InventoryService, cluster: ClusterService) -> None:
         self._inventory = inventory
         self._cluster = cluster
+
+    def deploy_playbook(self) -> str:
+        state = self._inventory.state()
+        mode = state.inventory.mode if state.inventory else Mode.STANDALONE
+        return DEPLOY_PLAYBOOK[mode]
+
+    def declare(
+        self,
+        name: str,
+        definition: dict[str, Any],
+        author: str,
+        expected_head: str | None = None,
+    ) -> Commit:
+        """Write one guest into the `VMs` group, as a commit.
+
+        The page calls this "add a VM" and the operator never sees the group,
+        the commit or the playbook that follows. What happens underneath is the
+        ordinary path: a splice into the inventory, checked by `fidelity`, then
+        an upstream playbook. See D30.
+        """
+        if not _NAME.match(name):
+            raise InvalidGuest(
+                f"{name!r} cannot be a guest name. It becomes the libvirt "
+                "domain and the Pacemaker resource, so it takes letters, "
+                "digits and dashes."
+            )
+        variables = {
+            key: value for key, value in definition.items() if value not in (None, "")
+        }
+        commit, _ = self._inventory.declare_guest(
+            name, variables, author, expected_head
+        )
+        return commit
 
     def guests(self) -> GuestsView:
         state = self._inventory.state()

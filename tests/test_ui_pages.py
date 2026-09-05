@@ -764,6 +764,31 @@ def test_the_vms_page_offers_no_way_to_start_or_migrate_a_guest(
     # The runtime plane arrives with `vm_manager`. A button here before it
     # exists would be the plane mixing SPEC section 5.2 refuses, and the page
     # says what it is instead of implying it.
+    body = signed_in.get("/vms").text.lower()
+
+    for act in (">start", ">stop", ">migrate", ">snapshot", ">restart"):
+        assert act not in body
+
+
+def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(
+    signed_in: TestClient,
+) -> None:
+    # The page performs the whole act rather than sending an operator to two
+    # other pages and a group name they have no reason to know. See D30.
     body = signed_in.get("/vms").text
 
-    assert "<button" not in body.split('<main class="page single vms">')[1]
+    assert 'id="add-name"' in body
+    assert 'id="add-disk"' in body
+    assert 'id="add-xml"' in body
+    assert "Add and deploy" in body
+
+
+def test_adding_a_vm_says_what_it_will_do_before_it_does_it(
+    signed_in: TestClient,
+) -> None:
+    # Four requests behind one button, two of which move a file that can be
+    # very large. The page says so rather than presenting a spinner.
+    body = signed_in.get("/vms").text
+
+    assert "the guest is written into the" in body
+    assert "the deployment playbook is run" in body

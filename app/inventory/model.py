@@ -34,6 +34,11 @@ class Role(str, Enum):
 # all say the same two words.
 WEBUI_IMAGE_VARIABLE = "seapath_webui_image"
 
+# The group the VM roles loop over, and the line between a machine and a guest.
+# It is spelled in capitals in every reference inventory and in the playbooks,
+# so it is matched and written as written.
+GUEST_GROUP = "VMs"
+
 
 class NodeConfig(BaseModel):
     """The variables of one machine.

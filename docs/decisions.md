@@ -1391,3 +1391,94 @@ that has lost a member, and one dot for the pair hides whichever is worse.
 **Reading the local node only.** It is one GET instead of three and it answers
 the wrong question. The node the browser happens to be pointed at is the one
 node whose state an operator can already see; the cluster is what they cannot.
+
+## D30 - Settled: a VM is added from one page, and the mechanism underneath is unchanged
+
+The VMs page in its first form was a reading. It listed what the inventory
+declared, whether a run would find each file, and what Pacemaker reported. Use
+answered it the way use answered [D16](#d16): to add a VM an operator had to
+upload an image on the Inventory page, upload an XML there too, write an entry
+into a group called `VMs` by hand, then cross to the Deployment page and pick a
+playbook out of a list of twenty. Four screens, one of which asked them to know
+a group name and a YAML shape.
+
+The reading was also wrong about the files. A VM deployed from a conventional
+control machine has no image and no XML on this node, and there is no reason it
+should: in a cluster the disk lives in Ceph and the image is a seed a creation
+started from. The page reported four such VMs as eight missing files, which is
+a page inventing work.
+
+So the page performs the act. **Add a VM** takes a name, a disk image and a
+libvirt XML, and does the four things itself: the image to the artefacts, the
+XML committed with the inventory, the guest declared in the `VMs` group, and
+the deployment playbook run.
+
+### What does not change, which is the point
+
+Every one of those four is a write this service already made:
+
+- the two uploads go to the two stores of [D18](#d18), through the endpoints
+  the Inventory page uses;
+- the entry is a splice into `inventory.yaml`, checked by `fidelity` the way
+  every other write is, and committed with the authenticated user. `git log`
+  still holds it, `git revert` still undoes it;
+- the run is a whole playbook of the collection, `deploy_vms_cluster` or
+  `deploy_vms_standalone`, launched through `/runs` with its own preconditions
+  and its own lock.
+
+No machine is touched outside an Ansible run. The rule that overrides
+everything is intact, and it is worth saying why plainly: the rule governs what
+this service **writes**, and it says nothing about how many screens an operator
+crosses to ask for it. Making the mechanism the interface was a habit.
+
+### Adopting a VM needs no files at all
+
+The corollary, and the thing that removes the noise rather than hiding it. A
+guest that already runs is declared by its name alone:
+
+```yaml
+VMs:
+  hosts:
+    ABB15:
+```
+
+`deploy_vms_cluster` asks `cluster_vm status` first and skips its whole
+creation block when the guest exists and carries no `force`. `vm_disk` and
+`xml_path` are read inside that block, so an adopted guest never needs them.
+The service therefore writes a file reference only where it was given the file,
+and a guest with nothing to upload has nothing reported missing.
+
+### The runtime plane, and how it will reach a machine
+
+Starting, stopping and migrating a guest are next, and they are the first thing
+this service will do that is neither a commit nor a whole playbook of the
+catalogue. The decision is taken here so the VMs page is designed against a
+settled answer:
+
+**A runtime action is a one task play calling the upstream `cluster_vm`
+module,** run through `ansible-runner` over the SSH path a convergence already
+uses.
+
+[D8](#d8) says whole playbooks, and its reasoning is that the tags of
+`seapath-ansible` were never designed as a public interface, so a tag selector
+produces combinations nobody has executed. A module's `command:` argument is
+the opposite of that: it is the module's documented interface, one value at a
+time, and `cluster_vm` is the same module `deploy_vms_cluster` calls. The rule
+does not extend to it, and this is where that is written down rather than
+assumed.
+
+The alternative was the libvirt socket and `vm_manager` in process, which
+[section 5.1 of SPEC.md](../SPEC.md) contemplates. It reaches the local node
+only, and the guests of a three node cluster move between all three, so the
+page would answer for one machine and stay silent about the others. The run
+reaches any node and adds no mount.
+
+One constraint is worth recording before it is discovered: the module reads
+metadata and does not write it. `list_metadata` and `get_metadata` are
+commands; there is no `set_metadata`, and `pinning_profile` is a parameter of
+`create` and `clone`. Changing `_seapath_alloc` on a running guest is
+`vm_manager set-pinning-profile` on the target, so it waits for a
+`set_metadata` command upstream rather than being done with a `command:` task
+here. And `preferred_host`, `pinned_host`, `priority` and `live_migration` are
+baked at creation: a panel presenting them beside the things that change live
+would be lying about half of them.

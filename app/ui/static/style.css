@@ -2145,3 +2145,60 @@ tr.row-bad > td {
 td.recreated {
   color: var(--warn);
 }
+
+/* VMs. The heading and the one act the page offers, on one line: the act
+   belongs to the table under it and reads as a caption anywhere else. */
+.card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.card-head h2 {
+  margin-bottom: 0;
+}
+
+.vms label {
+  display: block;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.vms input[type="text"],
+.vms input[type="file"] {
+  width: 100%;
+  max-width: 32rem;
+  margin-top: 0.3rem;
+}
+
+.vms label.switch {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
+}
+
+/* Adding a VM is four acts, two of which move a file that can be very large.
+   A single spinner would leave an operator watching nothing for ten minutes
+   with no way of telling an upload from a hung request, so each act says
+   where it got to. */
+.steps {
+  margin: 1rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.steps li.doing {
+  color: var(--text);
+}
+
+.steps li.done {
+  color: var(--ok);
+}
+
+.steps li.failed {
+  color: var(--bad);
+}

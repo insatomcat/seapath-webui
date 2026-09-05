@@ -18,13 +18,17 @@ describes exactly one machine.
 
 from __future__ import annotations
 
+import difflib
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
+from app.inventory.editor import UneditableInventory, add_guest
+from app.inventory.fidelity import unintended_changes
 from app.inventory.parser import parse
+from app.inventory.resolve import resolve
 from app.inventory.validation import validate
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -186,3 +190,90 @@ def test_editing_a_machine_leaves_the_guests_where_they_are(
     written = (settings.inventory_dir / "inventory.yaml").read_text()
     assert "gateway_addr: 192.168.200.254" in written
     assert written.endswith(GUESTS)
+
+
+# 3. Declaring one, which is a splice like every other write.
+
+
+def test_a_guest_is_added_to_a_group_the_file_already_has() -> None:
+    document = OURS.read_text() + GUESTS
+
+    edited = add_guest(document, "third", {"vm_disk": "../files/third.qcow2"})
+
+    assert resolve(edited)["third"] == {
+        "ansible_user": "ansible",
+        "vm_disk": "../files/third.qcow2",
+    }
+    # Everything that was there is still there, byte for byte. The edit is an
+    # insertion and nothing else, which is what a splice has to be: a line
+    # changed here is a line of somebody's inventory nobody asked to change.
+    removed = [
+        line
+        for line in difflib.ndiff(document.splitlines(), edited.splitlines())
+        if line.startswith("- ")
+    ]
+    assert removed == []
+
+
+def test_the_group_is_created_where_the_other_groups_live() -> None:
+    # Both shapes are valid Ansible and a hand written file uses either. A
+    # file keeping its groups under `all.children` gets one more child.
+    nested = """
+all:
+  hosts:
+    node1:
+      ansible_host: 10.0.0.1
+  children:
+    standalone_machine:
+      hosts:
+        node1:
+"""
+    edited = add_guest(nested, "guest1", {})
+
+    assert "    VMs:\n" in edited
+    assert resolve(edited)["guest1"] == {}
+    assert list(resolve(edited)) == ["guest1", "node1"]
+
+
+def test_a_guest_with_no_variables_is_a_name_and_nothing_else() -> None:
+    # Adopting a VM that is already running is exactly that entry: the
+    # deployment role skips every task that would read a file when the guest
+    # exists and carries no `force`, so it needs no image and no XML.
+    edited = add_guest(OURS.read_text(), "ABB15", {})
+
+    # The golden file keeps its groups at the top level, so the group it gains
+    # sits there too and its host is two levels in.
+    assert "    ABB15:\n" in edited
+    assert "{}" not in edited
+
+
+def test_a_name_the_inventory_already_carries_is_refused() -> None:
+    with pytest.raises(UneditableInventory):
+        add_guest(OURS.read_text(), "seapath-machine", {})
+
+
+def test_the_write_changes_nothing_but_the_guest_it_declares() -> None:
+    # What `fidelity` is asked on every declaration. A splice that landed in
+    # the wrong mapping would show up here as a machine changing, and a group
+    # that swallowed a neighbour as a variable lost.
+    document = OURS.read_text()
+    edited = add_guest(document, "ABB15", {"vm_disk": "../files/ABB15.qcow2"})
+
+    divergences = unintended_changes(
+        document, edited, {"ABB15": {"vm_disk": "../files/ABB15.qcow2"}}, {"ABB15"}
+    )
+
+    assert divergences == []
+
+
+def test_a_host_that_appears_without_being_asked_for_is_a_refusal() -> None:
+    # The check the declaration relies on, asserted from the other side: a
+    # write that invents a host in the `VMs` group has invented a VM the next
+    # deployment run creates.
+    document = OURS.read_text()
+    edited = add_guest(document, "ABB15", {})
+
+    divergences = unintended_changes(document, edited, {}, set())
+
+    assert [d.kind for d in divergences] == ["host_added"]
+    assert divergences[0].hosts == ["ABB15"]

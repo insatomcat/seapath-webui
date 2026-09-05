@@ -74,9 +74,16 @@ around that file, and what it is doing right now is one line of the Pacemaker
 resource table. The page puts them on one row: the guest, whether it is running
 and where, whether a deployment would find the two files it names, and what the
 next run does to it, `force` being the word that matters there since the roles
-destroy and recreate a guest that carries it. It is read only. A guest is
-changed by a commit on the Inventory page and deployed by a run from the
-Deployment page.
+destroy and recreate a guest that carries it.
+
+Adding a VM is the one act it performs, and it performs it whole. Name the
+guest, pick a disk image and a libvirt XML, and the page uploads both, commits
+the entry and launches the deployment. Underneath, those are the writes this
+service has always made and the upstream playbook it has always run: the image
+to the store git does not carry, the XML committed with the inventory, the
+guest a splice into the file checked like every other write, and a whole
+playbook of the collection. The operator is spared the trip through two pages
+and a group name they have no reason to know.
 
 ![The Cluster page: the three view tabs and their summaries, over the Pacemaker members, quorum and fencing](img/cluster.png)
 
@@ -166,9 +173,10 @@ service each machine runs is an inventory variable that an apply carries.
 the Real time page, and all three are still to be run on a real machine.
 
 M2 is the VMs. Its declarative half is in: the `VMs` group is read as guests
-rather than as machines, and the VMs page joins what the inventory declares to
-what Pacemaker reports. Its imperative half, starting, stopping and migrating a
-guest through `vm_manager`, is next.
+rather than as machines, the VMs page joins what the inventory declares to what
+Pacemaker reports, and adding a guest is one act on that page. Its imperative
+half, starting, stopping and migrating a guest through `vm_manager`, follows as
+one task plays calling the upstream module.
 
 ## Development
 

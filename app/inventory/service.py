@@ -20,7 +20,7 @@ from app.inventory import files as tree
 from app.inventory import references
 from app.inventory.artefacts import ArtefactStore
 from app.inventory.discovery import Discovery, discover, seed_inventory
-from app.inventory.editor import UneditableInventory, edit
+from app.inventory.editor import UneditableInventory, add_guest, edit
 from app.inventory.fidelity import Divergence, unintended_changes
 from app.inventory.model import Inventory, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
@@ -424,6 +424,58 @@ class InventoryService:
             author=author,
             expected_head=expected_head,
         )
+        return commit, result
+
+    def declare_guest(
+        self,
+        name: str,
+        variables: dict[str, Any],
+        author: str,
+        expected_head: str | None = None,
+    ) -> tuple[Commit, ValidationResult]:
+        """Add one guest to the `VMs` group, as a commit like any other.
+
+        The VMs page offers this as "deploy a VM" and never as "edit the
+        inventory", which is a decision about the screen rather than about the
+        mechanism: the desired state is still this file, the audit trail is
+        still `git log`, and the guest is still created by the upstream
+        playbook. See D30.
+
+        The write is a splice and it is checked the way every other write is,
+        with one addition: exactly this host may appear, and nothing else may
+        move.
+        """
+        document = self._repository.read()
+        if not document.strip():
+            raise RefusedWrite(
+                "There is no inventory on this node yet, so there is nothing "
+                "to declare a guest in.",
+                [],
+            )
+        try:
+            edited = add_guest(document, name, variables)
+        except UneditableInventory as error:
+            raise RefusedWrite(str(error), []) from error
+
+        unintended = unintended_changes(document, edited, {name: variables}, {name})
+        if unintended:
+            raise RefusedWrite(
+                f"Declaring {name} could not be written without changing other "
+                "things in the file, so nothing was written.",
+                unintended,
+            )
+
+        result = self.check_document(edited)
+        if not result.valid:
+            raise ImportRefused(result.errors()[0].message, result)
+
+        commit = self._repository.commit(
+            content=edited,
+            message=f"vms: declare {name}",
+            author=author,
+            expected_head=expected_head,
+        )
+        logger.info("Declared the guest %s", name)
         return commit, result
 
     def revert(self, commit: str, author: str) -> Commit:

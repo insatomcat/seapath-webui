@@ -12,13 +12,16 @@ thirty group variables, three machine names and a group it had never heard of,
 silently, on the first form submission. The editor no longer works that way.
 This is what proves it on every write instead of trusting it.
 
-Three failures are caught here, and each is silent without it:
+Four failures are caught here, and each is silent without it:
 
 - a variable nobody touched changed anyway, which is a splice landing in the
   wrong place;
 - a variable disappeared, which is a block edit swallowing its neighbour;
 - a variable the operator asked for did not change, which is a save that
-  reports success and does nothing.
+  reports success and does nothing;
+- a host appeared or vanished. A host the write did not ask for is a splice
+  that landed in the wrong mapping, and in the `VMs` group a host is a VM the
+  next deployment run creates.
 """
 
 from __future__ import annotations
@@ -46,10 +49,12 @@ _MAX_NAMED_HOSTS = 4
 _ORDER = {
     "unsupported": 0,
     "host_lost": 1,
-    "not_applied": 2,
-    "changed": 3,
-    "invented": 4,
-    "lost": 5,
+    "host_added": 2,
+    "host_missing": 3,
+    "not_applied": 4,
+    "changed": 5,
+    "invented": 6,
+    "lost": 7,
 }
 
 # The two variables the roles accept as either a string or a list: the template
@@ -61,21 +66,41 @@ _LIST_OR_SCALAR = frozenset({"dns_servers", "ntp_servers"})
 class Divergence(BaseModel):
     """One thing a rewrite would change, named precisely enough to act on."""
 
-    kind: str = Field(description="lost, changed, invented, host_lost or unsupported")
+    kind: str = Field(
+        description=(
+            "lost, changed, invented, not_applied, host_lost, host_added, "
+            "host_missing or unsupported"
+        )
+    )
     message: str
     variable: str | None = None
     hosts: list[str] = Field(default_factory=list)
 
 
 def unintended_changes(
-    before: str, after: str, intended: dict[str, dict[str, Any]]
+    before: str,
+    after: str,
+    intended: dict[str, dict[str, Any]],
+    added: set[str] = frozenset(),
 ) -> list[Divergence]:
     """What this write changed beyond what was asked. Empty means the write is
-    exactly its intent."""
+    exactly its intent.
+
+    `added` names the hosts this write is allowed to create, which is a guest
+    being declared and nothing else. Left empty, a write that invents a host is
+    a splice that landed inside the wrong mapping, and that is worth catching:
+    a name in the `VMs` group is a VM the next deployment run creates.
+    """
     resolved_before = resolve(before)
     resolved_after = resolve(after)
 
     raw: list[tuple[str, str | None, str, Any, Any]] = []
+
+    appeared = set(resolved_after) - set(resolved_before)
+    for host in sorted(appeared - set(added)):
+        raw.append(("host_added", None, host, None, None))
+    for host in sorted(set(added) - appeared):
+        raw.append(("host_missing", None, host, None, None))
 
     for host, variables in resolved_before.items():
         if host not in resolved_after:
@@ -164,6 +189,13 @@ def _message(
 
     if kind == "host_lost":
         return f"{hosts} would disappear from the inventory."
+    if kind == "host_added":
+        return (
+            f"{hosts} would appear in the inventory, and this write asked for "
+            "no such host."
+        )
+    if kind == "host_missing":
+        return f"{hosts} was to be declared and is not in the result."
     if kind == "not_applied":
         wanted = {repr(before) for _, before, _ in occurrences}
         got = {repr(after) for _, _, after in occurrences}

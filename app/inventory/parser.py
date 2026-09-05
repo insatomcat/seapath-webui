@@ -22,7 +22,14 @@ from typing import Any
 
 import yaml
 
-from app.inventory.model import Guest, Inventory, Mode, NodeConfig, Role
+from app.inventory.model import (
+    GUEST_GROUP,
+    Guest,
+    Inventory,
+    Mode,
+    NodeConfig,
+    Role,
+)
 from app.inventory.renderer import FIXED_HOST_VAR_NAMES, PTP_DOMAIN_ALIASES
 from app.inventory.resolve import Group, resolve
 from app.inventory.resolve import groups as declared_groups
@@ -58,10 +65,6 @@ _MODELLED_GUEST = frozenset(
         "enable",
     }
 )
-
-# The group the VM roles loop over. It is spelled in capitals in every
-# reference inventory and in the playbooks, so it is matched as written.
-GUEST_GROUP = "VMs"
 
 
 class InvalidInventory(Exception):

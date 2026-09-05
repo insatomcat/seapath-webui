@@ -190,6 +190,12 @@ Mixing them is the mistake Proxmox made and that this design refuses.
 A start button has nothing to do in an inventory. An OVS bridge has nothing to
 do behind an imperative API call. `vm_manager` already draws roughly this line.
 
+The line is about where the truth lives and not about where the button is. The
+VMs page adds a guest in one act, uploading its image and its XML, committing
+the entry and running the playbook, and every one of those is the configuration
+plane doing what it always did. D30 records why the mechanism stays and stops
+being the interface.
+
 ### 5.3 Running a playbook
 
 `ansible-runner` drives the upstream playbooks and emits a JSON event per task
@@ -309,8 +315,11 @@ machine. At
 the end of M1 the ISO produces a machine configurable from a browser with no
 fourth machine, which is the core of the request.
 
-**M2 - VM runtime.** `vm_manager` integration for the runtime plane, and VM
-definitions in the inventory for the declarative side.
+**M2 - VMs.** The declarative half is in: the `VMs` group is read as guests
+rather than as machines, the VMs page joins what the inventory declares to what
+Pacemaker reports, and adding a guest is one act on that page. The imperative
+half, starting, stopping and migrating through `vm_manager`, follows as one
+task plays calling the upstream module. See D30.
 
 **M3 - cluster.** Trust exchange, inventory merge and replication, cluster
 network forms, `cluster_setup_ha.yaml` and the rest of the cluster playbooks,

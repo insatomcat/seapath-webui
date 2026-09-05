@@ -10,8 +10,15 @@
 // report of this moment, which no commit here can change and which a
 // convergence does not describe.
 //
-// Nothing on this page writes. A guest is defined on the Inventory page and
-// deployed from the Deployment page.
+// One act writes: adding a VM. It is four requests behind one button, the two
+// uploads, the commit and the run, and each one says where it got to, because
+// two of them move a file that can be very large and a lone spinner cannot
+// tell an upload from a hung request.
+//
+// Underneath it is the ordinary path, and it stays ordinary: the image lands
+// in the artefacts, the XML is committed with the inventory, the guest is a
+// commit in the `VMs` group, and the guest is created by the upstream
+// playbook. What D30 settles is that the operator is not made to walk it.
 
 (function () {
   function element(id) {
@@ -156,11 +163,132 @@
     });
   }
 
+  // Adding a VM
+
+  // One line per act, so a ten minute upload is legible while it happens.
+  function steps(names) {
+    const list = element("add-steps");
+    list.replaceChildren();
+    names.forEach((name) => {
+      const item = document.createElement("li");
+      item.textContent = name;
+      list.append(item);
+    });
+    list.hidden = false;
+    return {
+      at(index, className, text) {
+        const item = list.children[index];
+        item.className = className;
+        if (text) {
+          item.textContent = text;
+        }
+      },
+    };
+  }
+
+  function showAdd(open) {
+    element("add-card").hidden = !open;
+    element("add").hidden = open;
+    if (open) {
+      element("add-error").hidden = true;
+      element("add-steps").hidden = true;
+      element("add-name").focus();
+    }
+  }
+
+  // The role reads a `.j2` as a template and renders it per guest, and takes
+  // anything else as the XML itself. The extension is the only thing that
+  // says which, so the page reads it rather than asking the operator to.
+  function xmlVariable(filename) {
+    return filename.endsWith(".j2") ? "vm_template" : "xml_path";
+  }
+
+  // The name under which a file is stored, which is also the path the entry
+  // writes. `files/` is where the reference resolver expects it and where the
+  // reference inventories put it.
+  function stored(name, filename) {
+    const dot = filename.indexOf(".");
+    const suffix = dot === -1 ? "" : filename.slice(dot);
+    return "files/" + name + suffix;
+  }
+
+  async function addGuest() {
+    const name = element("add-name").value.trim();
+    const disk = element("add-disk").files[0];
+    const xml = element("add-xml").files[0];
+    const error = element("add-error");
+    error.hidden = true;
+
+    if (!name || !disk || !xml) {
+      error.textContent =
+        "A VM needs a name, a disk image and a libvirt XML. All three are " +
+        "what the deployment run is given.";
+      error.hidden = false;
+      return;
+    }
+
+    const diskPath = stored(name, disk.name);
+    const xmlPath = stored(name, xml.name);
+    const progress = steps([
+      "Uploading " + diskPath,
+      "Committing " + xmlPath,
+      "Declaring " + name + " in the inventory",
+      "Launching the deployment",
+    ]);
+
+    const go = element("add-go");
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    try {
+      progress.at(0, "doing");
+      await API.upload("/inventory/artefacts/" + diskPath, disk);
+      progress.at(0, "done");
+
+      progress.at(1, "doing");
+      await API.upload("/inventory/files/" + xmlPath, xml);
+      progress.at(1, "done");
+
+      progress.at(2, "doing");
+      const declaration = { name, vm_disk: "../" + diskPath, enable: true };
+      declaration[xmlVariable(xml.name)] = "../" + xmlPath;
+      const declared = await API.post("/vms", declaration);
+      progress.at(2, "done");
+
+      progress.at(3, "doing");
+      const started = await API.post("/runs", { playbook: declared.playbook });
+      progress.at(3, "done");
+      window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+    } catch (failure) {
+      const doing = [...element("add-steps").children].findIndex(
+        (item) => item.className === "doing"
+      );
+      if (doing !== -1) {
+        progress.at(doing, "failed");
+      }
+      // What has already happened is on screen above the message, which is
+      // the part that decides what to do next: a guest declared and a run
+      // that would not start is deployed from the Deployment page, and
+      // nothing has to be uploaded twice.
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      go.disabled = false;
+      go.removeAttribute("aria-busy");
+    }
+  }
+
+  element("add").addEventListener("click", () => showAdd(true));
+  element("add-cancel").addEventListener("click", () => showAdd(false));
+  element("add-go").addEventListener("click", addGuest);
+
   async function start() {
-    await Chrome.load();
+    const { me } = await Chrome.load();
     const view = await API.get("/vms");
     renderGuests(view);
     renderUndeclared(view);
+    // Adding a VM commits the inventory and launches a run, which is an
+    // administrator's act like every other write in this service.
+    element("add").hidden = !Chrome.isAdmin(me);
   }
 
   start().catch((failure) => {
