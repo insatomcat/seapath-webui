@@ -516,10 +516,11 @@ conventions.
 | `seapath_webui_cpu_affinity` | no | computed from `isolcpus` | Housekeeping CPUs |
 | `seapath_webui_ansible_user` | no | `{{ ansible_user }}` | The account the trust targets, must match the inventory |
 | `seapath_webui_ansible_user_home` | no | looked up with `getent` | Source of the `.ssh` mount, never hardcoded to `/home/ansible` |
+| `deploy_seapath_webui_image_retention` | no | `2` | How many versions of this image the machine keeps once the new one is in place. Two, because that is what a rollback costs: [D23](decisions.md#d23) makes `seapath_webui_image` the update lever, and a substation is not necessarily connected to a registry, so the previous version has to already be on the machine. The image the quadlet names, the one running, and the `latest` the ISO preloads are kept whatever their age. `0` keeps everything |
 
 Tasks: create the state directories, initialise the inventory repository if
 absent, create the three Unix groups, template the quadlet, `daemon-reload`,
-enable and start. Strictly idempotent, with a handler restarting only the
+enable and start, then bound the number of images kept. Strictly idempotent, with a handler restarting only the
 service and only when the quadlet or the configuration changed.
 
 ### The one constraint the role has to honour: the restart is detached

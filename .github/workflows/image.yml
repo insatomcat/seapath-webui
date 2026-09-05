@@ -83,6 +83,7 @@ jobs:
               --build-arg "SEAPATH_ANSIBLE_REF=${SEAPATH_ANSIBLE_REF}" \
               --build-arg "SEAPATH_ANSIBLE_COMMIT=${{ steps.collection.outputs.sha }}" \
               --build-arg "COLLECTION_VERSION=${{ steps.collection.outputs.version }}" \
+              --build-arg "VERSION=${{ steps.version.outputs.version }}" \
               -t "${IMAGE}:${GITHUB_SHA:0:7}" \
               -t "${IMAGE}:${{ steps.version.outputs.version }}" \
               -t "${IMAGE}:latest" \

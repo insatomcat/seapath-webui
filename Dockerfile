@@ -132,6 +132,19 @@ ENV PATH="/opt/venv/bin:${PATH}" \
     PYTHONDONTWRITEBYTECODE=1
 
 
+# What this image is, in the labels an OCI reader already knows. They exist for
+# one operational reason: a pull that moves a floating tag leaves the image it
+# replaced with no name at all, and an untagged image cannot be told from any
+# other service's leftovers. The label survives the untagging, so the machine
+# can still recognise its own old versions and remove them. See the retention
+# step of `deploy_seapath_webui`.
+ARG VERSION=unknown
+LABEL org.opencontainers.image.title="seapath-webui" \
+      org.opencontainers.image.description="Node local management UI and API for SEAPATH machines" \
+      org.opencontainers.image.source="https://github.com/insatomcat/seapath-webui" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.version="${VERSION}"
+
 # Reported by GET /api/v1/node, and recorded next to the inventory commit on
 # every run. A deployment is reproducible from that pair, so it has to be
 # stamped at build time rather than guessed at.

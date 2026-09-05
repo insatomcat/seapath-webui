@@ -159,6 +159,26 @@ def test_the_image_reference_is_pinned_to_this_version() -> None:
     assert "app/__init__.py" in buildpush
 
 
+def test_the_image_says_what_it_is_in_its_labels() -> None:
+    # A machine has to recognise its own old versions in order to remove them,
+    # and a pull that moves a floating tag leaves the image it replaced with no
+    # name at all. The title label survives that untagging, so it is what the
+    # retention step of deploy_seapath_webui matches on. Without it, an old
+    # image is indistinguishable from any other service's leftovers and the
+    # only safe action is to keep it forever.
+    assert 'org.opencontainers.image.title="seapath-webui"' in _DOCKERFILE
+    assert "ARG VERSION=unknown" in _DOCKERFILE
+    assert 'org.opencontainers.image.version="${VERSION}"' in _DOCKERFILE
+
+    # The version reaches the label only if every build path passes it. Both
+    # of them are here, because a label filled on a laptop and empty in CI is
+    # worse than no label: it reads as a version and names the wrong one.
+    buildpush = (_ROOT / "buildpush.sh").read_text()
+    workflow = (_ROOT / ".github/workflows/image.yml").read_text()
+    assert '--build-arg "VERSION=${VERSION}"' in buildpush
+    assert "--build-arg \"VERSION=${{ steps.version.outputs.version }}\"" in workflow
+
+
 def test_the_site_collection_rides_in_the_state_volume() -> None:
     # A collection installed on the node has to reach the container, and the
     # cheapest way to reach it is to need no new mount at all. D23 puts it

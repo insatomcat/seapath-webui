@@ -41,6 +41,7 @@ podman build \
     --build-arg "SEAPATH_ANSIBLE_REF=${SEAPATH_ANSIBLE_REF}" \
     --build-arg "SEAPATH_ANSIBLE_COMMIT=${SEAPATH_ANSIBLE_COMMIT}" \
     --build-arg "COLLECTION_VERSION=${COLLECTION_VERSION}" \
+    --build-arg "VERSION=${VERSION}" \
     -t "${IMAGE}:${VERSION}" .
 podman tag "${IMAGE}:${VERSION}" "${IMAGE}:latest"
 
