@@ -382,10 +382,10 @@ YAML. So the page split along the line the whole design already draws:
 | Page | Question |
 |---|---|
 | `/inventory` | What should these machines be? The folder and its history |
-| `/system` | What makes it so? The site key, the host keys, and the runs |
+| `/deployment` | What makes it so? The site key, the host keys, and the runs |
 
 The related request was for a "system configuration" tab, for fixing a machine
-when the ISO got something wrong. It is answered by `/inventory` plus `/system`
+when the ISO got something wrong. It is answered by `/inventory` plus `/deployment`
 and by nothing else, because **there is no path in this design where the UI
 writes to a machine's files.** A wrong administration address is fixed by
 declaring the right one and applying, which is the ordinary commissioning flow
@@ -606,7 +606,7 @@ What that costs, named rather than discovered:
 - **The expert section went with the form**, so `isolcpus` is typed like every
   other variable. The rule it served, that the UI never makes a real time
   relevant change look routine, now lives entirely where the machine actually
-  changes: the apply confirmation on `/system`, which names the disruption and
+  changes: the apply confirmation on `/deployment`, which names the disruption and
   the machines before anything runs. Editing the file changes no machine.
 
 What the page gained is the folder. Every file the inventory names is listed,

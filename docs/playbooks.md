@@ -363,7 +363,7 @@ operator changes one thing and wants to converge that thing, and the UI states
 which playbook covers which part of the inventory so the choice is obvious from
 the form the operator just edited.
 
-The System page is shaped like that sentence. `seapath_setup_main` is a card of
+The Deployment page is shaped like that sentence. `seapath_setup_main` is a card of
 its own with its two buttons, and the rest of the catalogue is one picker: an
 entry, its scope, what it disturbs and its buttons, one at a time. Stacking
 thirteen entries put the one an operator came for below the fold, and the one

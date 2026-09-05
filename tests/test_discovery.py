@@ -238,7 +238,7 @@ def test_a_reference_somebody_decided_is_seeded_as_it_stands(reference: str) -> 
 
 def test_a_machine_whose_unit_file_could_not_be_read_pins_nothing() -> None:
     # A variable naming a repository this service invented would be worse than
-    # the silence: the System page says the inventory names no image, and that
+    # the silence: the Deployment page says the inventory names no image, and that
     # is true.
     reader = FakeHostReader()
     reader.service_image = None

@@ -1,7 +1,7 @@
 // Copyright (C) 2026, RTE (http://www.rte-france.com)
 // SPDX-License-Identifier: Apache-2.0
 
-// The system page: what turns a desired state into a configured machine.
+// The deployment page: what turns a desired state into a configured machine.
 //
 // One playbook is the page: `seapath_setup_main`, the commissioning path and
 // the one the CI runs. The rest of the catalogue is a picker, because thirteen

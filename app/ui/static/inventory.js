@@ -86,7 +86,7 @@
 
   // One line for every act that has to ask once before it happens. A modal
   // belongs to the one act that disturbs a running machine, which is the apply
-  // on the System page; nothing here leaves this browser until it is saved.
+  // on the Deployment page; nothing here leaves this browser until it is saved.
   function ask(question, label, action) {
     state.confirm = action;
     element("confirm-question").textContent = question;
@@ -616,7 +616,7 @@
       path +
         " is saved" +
         (hash ? " as " + hash.slice(0, 12) : "") +
-        ". Nothing has been pushed to any machine: that is the System page.",
+        ". Nothing has been pushed to any machine: that is the Deployment page.",
     ]);
   }
 
@@ -916,7 +916,7 @@
         showBanner([
           stored.join(", ") +
             (stored.length > 1 ? " are stored. " : " is stored. ") +
-            "Nothing has been pushed to any machine: that is the System page.",
+            "Nothing has been pushed to any machine: that is the Deployment page.",
         ]);
       }
     }

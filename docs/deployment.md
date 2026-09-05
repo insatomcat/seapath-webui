@@ -135,7 +135,7 @@ and no new host surface.
 
 ### Installing one
 
-`PUT /api/v1/collection`, and the panel at the bottom of the System page. The
+`PUT /api/v1/collection`, and the panel at the bottom of the Deployment page. The
 file is the tarball `ansible-galaxy collection build` writes, built from the
 SEAPATH `ansible` repository:
 
@@ -144,7 +144,7 @@ SEAPATH `ansible` repository:
 git clone -b seapathalloc https://github.com/seapath/ansible && cd ansible
 ./prepare.sh
 ansible-galaxy collection build --output-path /tmp
-# Then upload /tmp/seapath-ansible-2.0.0.tar.gz through the System page.
+# Then upload /tmp/seapath-ansible-2.0.0.tar.gz through the Deployment page.
 ```
 
 What the node does with it, in order: read the manifest and refuse anything
@@ -452,11 +452,11 @@ fetches the git submodules, then installs the collection, which is the sequence
 the Dockerfile follows for the same reason.
 
 Without that first command **every catalogue entry is unavailable and nothing
-on the System page can be launched**, because the playbooks live in the
+on the Deployment page can be launched**, because the playbooks live in the
 collection and the image is what usually installs it. That is correct behaviour
 and it read as a broken page the first time it happened, so the service now
-says it in the journal at startup and the System page says it once, at the top,
-above the commissioning entry and the picker.
+says it in the journal at startup and the Deployment page says it once, at the
+top, above the commissioning entry and the picker.
 
 Three things a source checkout does not reproduce. The CPU row is the one
 that can perturb a running machine; the other two only mislead:
@@ -593,7 +593,7 @@ because nothing this service serves names a path from the root of the origin:
 every link, script, `fetch`, `EventSource`, websocket and redirect is relative.
 
 That property rests on an invariant. Every page sits exactly one segment deep
-(`/`, `/inventory`, `/system`, `/realtime`, `/runs`, `/login`), so all of them
+(`/`, `/inventory`, `/deployment`, `/realtime`, `/runs`, `/login`), so all of them
 resolve a relative URL against the same base directory. A page nested deeper
 would break the others, silently and only behind a proxy. `test_ui_pages.py`
 asserts the property on the served bytes, pages and scripts alike, so a

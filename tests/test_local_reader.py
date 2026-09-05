@@ -177,7 +177,7 @@ def test_a_machine_with_no_unit_file_reports_no_image_and_no_warning(
     tmp_path: Path,
 ) -> None:
     # A development checkout, or a container that was handed no host /etc. The
-    # seed pins nothing, and the System page already says the inventory names
+    # seed pins nothing, and the Deployment page already says the inventory names
     # no image, so there is nothing here for a warning to add.
     identity = LocalHostReader(root=tmp_path / "empty").node_identity()
 

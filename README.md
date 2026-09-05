@@ -53,9 +53,9 @@ quadlet, rule and template it names, with the history of who changed what. The
 editor parses, checks the rules and asks `ansible-inventory` about the result
 before committing anything.
 
-![The System page: the playbooks, the SSH trust to the other machines, and the code this node runs](img/system.png)
+![The Deployment page: the playbooks, the SSH trust to the other machines, and the code this node runs](img/deployment.png)
 
-**System** is where a machine actually changes. Commissioning runs the full
+**Deployment** is where a machine actually changes. Commissioning runs the full
 convergence; the picker beside it runs a single playbook when a single thing
 was edited, and every entry says what it plays, what it will restart, and why
 this node may not be allowed to run it. Under them sit two panels, shut until

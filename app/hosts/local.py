@@ -173,7 +173,7 @@ class LocalHostReader:
             admin_account=admin_account,
             # Missing raises no warning. Outside a deployed node there is no
             # unit file to read, and the consequence is already said where it
-            # is actionable: a seed that pins nothing, and a System page that
+            # is actionable: a seed that pins nothing, and a Deployment page that
             # reports the inventory naming no image for this machine.
             service_image=self._service_image(),
             warnings=warnings,

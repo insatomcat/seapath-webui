@@ -104,9 +104,16 @@ def install(app: FastAPI) -> None:
     def inventory(request: Request):
         return _page(request, "inventory.html", "inventory")
 
-    @app.get("/system", response_class=HTMLResponse, include_in_schema=False)
+    @app.get("/deployment", response_class=HTMLResponse, include_in_schema=False)
+    def deployment(request: Request):
+        return _page(request, "deployment.html", "deployment")
+
+    @app.get("/system", include_in_schema=False)
     def system(request: Request):
-        return _page(request, "system.html", "system")
+        # What the page was called until it was named after what it does.
+        # Kept as a redirect for the same reason as `/setup` below: it is in
+        # people's history and in the notes of the deployments already made.
+        return RedirectResponse("deployment", status_code=308)
 
     @app.get("/setup", include_in_schema=False)
     def setup(request: Request):

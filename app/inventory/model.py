@@ -30,7 +30,7 @@ class Role(str, Enum):
 # The variable naming the container image of this service. It lives in `extra`
 # rather than as a field of NodeConfig: no form edits it, the seed writes it
 # from what the machine is already running, and a site changes it by hand or
-# from the System page. Named here so the schema, the seed, the API and the UI
+# from the Deployment page. Named here so the schema, the seed, the API and the UI
 # all say the same two words.
 WEBUI_IMAGE_VARIABLE = "seapath_webui_image"
 

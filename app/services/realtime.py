@@ -88,7 +88,7 @@ class MeasurementKind(str, Enum):
 
 # The catalogue entry behind each, and the variable the service fills with the
 # run's own results directory. Keyed by playbook id, which is what a run record
-# carries, so a run launched from the System page is recognised here too.
+# carries, so a run launched from the Deployment page is recognised here too.
 MEASUREMENT_PLAYBOOKS = {
     "test_run_cyclictest": MeasurementKind.CYCLICTEST,
     "test_run_hwlatdetect": MeasurementKind.HWLATDETECT,

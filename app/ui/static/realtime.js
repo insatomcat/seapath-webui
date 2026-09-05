@@ -14,7 +14,7 @@
 // panel behind the tab gets the whole screen.
 //
 // Nothing here writes to a host. The launch button posts to /runs, which is
-// the same path the System page uses, so there is one lock, one history and
+// the same path the Deployment page uses, so there is one lock, one history and
 // one confirmation across everything that touches a machine.
 
 (function () {

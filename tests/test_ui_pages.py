@@ -11,7 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/realtime", "/runs"])
+@pytest.mark.parametrize(
+    "path", ["/", "/inventory", "/deployment", "/realtime", "/runs"]
+)
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
 
@@ -24,7 +26,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     [
         ("/", "node.js"),
         ("/inventory", "inventory.js"),
-        ("/system", "system.js"),
+        ("/deployment", "deployment.js"),
         ("/realtime", "realtime.js"),
         ("/runs", "runs.js"),
     ],
@@ -48,14 +50,14 @@ def test_the_inventory_page_says_what_saving_does_and_does_not_do(
     # whole reason for the split: deciding what a machine should be, and making
     # it so.
     assert "Every change is a commit" in body
-    assert "that is the System page" in body
+    assert "that is the Deployment page" in body
 
 
 def test_the_inventory_page_is_an_editor_over_the_folder(
     signed_in: TestClient,
 ) -> None:
     inventory = signed_in.get("/inventory").text
-    system = signed_in.get("/system").text
+    deployment = signed_in.get("/deployment").text
 
     # The desired state of these machines is a folder, so the page is the
     # shape of one: the files on the left, the open file on the right.
@@ -63,8 +65,8 @@ def test_the_inventory_page_is_an_editor_over_the_folder(
     assert 'id="editor"' in inventory
     assert 'class="page split"' in inventory
     # And editing it happens here and nowhere else.
-    assert 'id="editor"' not in system
-    assert "inventory.js" not in system
+    assert 'id="editor"' not in deployment
+    assert "inventory.js" not in deployment
 
 
 def test_the_inventory_page_carries_the_folder_around_the_inventory(
@@ -137,10 +139,10 @@ def test_the_inventory_file_is_saved_against_the_commit_it_was_read_at(
     assert '"If-Match"' in script
 
 
-def test_the_system_page_carries_the_credentials_and_the_button(
+def test_the_deployment_page_carries_the_credentials_and_the_button(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
+    body = signed_in.get("/deployment").text
 
     assert "Reaching the other machines" in body
     assert 'id="site-key-file"' in body
@@ -150,11 +152,11 @@ def test_the_system_page_carries_the_credentials_and_the_button(
     assert 'id="tree"' not in body
 
 
-def test_the_system_page_says_which_collection_this_node_runs(
+def test_the_deployment_page_says_which_collection_this_node_runs(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
-    script = signed_in.get("/static/system.js").text
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
 
     # Which playbooks this node runs is answerable without opening the panel,
     # because the answer is a fact about the machine rather than a form.
@@ -169,8 +171,8 @@ def test_the_system_page_says_which_collection_this_node_runs(
 def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
-    script = signed_in.get("/static/system.js").text
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
 
     # Thirteen stacked entries put the one an operator came for below the fold,
     # and the one they came for is never the first. `seapath_setup_main` is the
@@ -191,7 +193,7 @@ def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
 def test_the_list_says_which_entries_nobody_reviewed(
     signed_in: TestClient,
 ) -> None:
-    script = signed_in.get("/static/system.js").text
+    script = signed_in.get("/static/deployment.js").text
 
     # Everything the collection ships is in the list. The entries nobody wrote
     # a sentence for are last, under a heading that says where the description
@@ -209,8 +211,8 @@ def test_the_list_says_which_entries_nobody_reviewed(
 def test_the_catalogue_says_it_is_being_read_before_it_is(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
-    script = signed_in.get("/static/system.js").text
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
     css = signed_in.get("/static/style.css").text
 
     # Reading the catalogue walks every playbook of the installed collection.
@@ -260,7 +262,7 @@ def test_the_history_is_beside_the_editor_and_bounded(
 def test_the_ssh_credentials_are_a_state_line_once_they_hold(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
+    body = signed_in.get("/deployment").text
     css = signed_in.get("/static/style.css").text
 
     # Set once, then read. A key upload above the playbook an operator came for
@@ -282,10 +284,21 @@ def test_the_old_configuration_url_still_leads_somewhere(
     assert response.headers["location"] == "inventory"
 
 
+def test_the_page_that_was_called_system_still_leads_somewhere(
+    signed_in: TestClient,
+) -> None:
+    # An operator's bookmark, and the URL every note written before the rename
+    # carries.
+    response = signed_in.get("/system", follow_redirects=False)
+
+    assert response.status_code == 308
+    assert response.headers["location"] == "deployment"
+
+
 def test_the_apply_confirmation_says_what_it_will_disturb(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
+    body = signed_in.get("/deployment").text
 
     # The single most dangerous button in the product asks once, in a modal
     # naming the disruption and the machines. Typing the host name was here
@@ -300,7 +313,7 @@ def test_the_apply_confirmation_says_what_it_will_disturb(
 def test_the_reboot_is_declined_by_default_on_a_node_the_run_plays(
     signed_in: TestClient,
 ) -> None:
-    script = signed_in.get("/static/system.js").text
+    script = signed_in.get("/static/deployment.js").text
 
     # The service usually runs on one of the machines it converges, and a
     # reboot there takes the page, the run and the operator's way back in with
@@ -330,7 +343,7 @@ def test_relaunching_asks_no_more_than_applying_does(
 def test_a_hidden_element_is_hidden_whatever_its_display_rule(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/system").text
+    body = signed_in.get("/deployment").text
     css = signed_in.get("/static/style.css").text
 
     # Everything in this UI is shown and dismissed with the `hidden` attribute,
@@ -343,7 +356,7 @@ def test_a_hidden_element_is_hidden_whatever_its_display_rule(
     assert "display: none !important" in css
 
 
-@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs", "/login"])
+@pytest.mark.parametrize("path", ["/", "/inventory", "/deployment", "/runs", "/login"])
 def test_a_page_is_styled_without_fetching_anything(
     signed_in: TestClient, path: str
 ) -> None:
@@ -364,7 +377,7 @@ def test_a_page_is_styled_without_fetching_anything(
     assert "html {\n  background: var(--bg);\n}" in css
 
 
-@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs", "/login"])
+@pytest.mark.parametrize("path", ["/", "/inventory", "/deployment", "/runs", "/login"])
 def test_the_palette_is_chosen_before_the_page_is_painted(
     signed_in: TestClient, path: str
 ) -> None:
@@ -468,21 +481,21 @@ def test_the_static_assets_are_served(signed_in: TestClient) -> None:
         "chrome.js",
         "node.js",
         "inventory.js",
-        "system.js",
+        "deployment.js",
         "runs.js",
         "style.css",
     ):
         assert signed_in.get(f"/static/{asset}").status_code == 200
 
 
-def test_the_system_page_says_once_why_nothing_can_run(
+def test_the_deployment_page_says_once_why_nothing_can_run(
     signed_in: TestClient, settings, tmp_path
 ) -> None:
     # A node running from source, or from an image built without the
     # collection, has every entry unavailable for the same reason. Nine dimmed
     # rows each repeating it in small print is how an operator ends up asking
     # why the buttons are greyed out.
-    body = signed_in.get("/system").text
+    body = signed_in.get("/deployment").text
 
     assert 'id="apply-blocked"' in body
 
@@ -617,7 +630,7 @@ _ROOT_ANCHORED = re.compile(
 
 
 @pytest.mark.parametrize(
-    "path", ["/", "/inventory", "/system", "/realtime", "/runs", "/login"]
+    "path", ["/", "/inventory", "/deployment", "/realtime", "/runs", "/login"]
 )
 def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> None:
     body = signed_in.get(path).text
@@ -636,7 +649,7 @@ def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> 
         "node.js",
         "realtime.js",
         "runs.js",
-        "system.js",
+        "deployment.js",
     ],
 )
 def test_no_script_anchors_a_url_to_the_root(signed_in: TestClient, asset: str) -> None:

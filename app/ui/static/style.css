@@ -758,7 +758,7 @@ button.secondary {
    commissioning playbook and the picker for everything else side by side, and
    the credentials that let this node reach the others last. What an operator
    came to press is above the fold, on a laptop, without scrolling. */
-.page.system {
+.page.deployment {
   /* Two fixed columns rather than the page's usual auto-fit: this screen is
      read as a whole, and a wide monitor spreading it over four columns puts
      the picker somewhere different on every machine. */
@@ -767,13 +767,13 @@ button.secondary {
 }
 
 @media (max-width: 62rem) {
-  .page.system {
+  .page.deployment {
     grid-template-columns: minmax(0, 1fr);
   }
 }
 
-.page.system > .warning,
-.page.system > .lead {
+.page.deployment > .warning,
+.page.deployment > .lead {
   grid-column: 1 / -1;
   margin: 0;
 }
