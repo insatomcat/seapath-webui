@@ -253,6 +253,9 @@ class InventoryService:
         if message is None:
             names = ", ".join(inventory.hosts)
             message = f"inventory: import a {inventory.mode.value} inventory of {names}"
+            if inventory.guests:
+                count = len(inventory.guests)
+                message += f" and {count} guest{'s' if count > 1 else ''}"
         commit = self._repository.commit(
             content=document, message=message, author=author
         )

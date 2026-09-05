@@ -129,6 +129,31 @@ not read**, having printed a warning and returned an empty inventory. Reading
 the exit status alone would wave through exactly the files the check exists to
 catch, so its output is read too.
 
+### Machines and guests
+
+A SEAPATH inventory holds two kinds of entry, and the difference decides what
+this service does with one. `cluster_machines`, `standalone_machine`,
+`hypervisors` and `observers` hold **machines**: this service reaches them over
+SSH, scrapes their exporter, and holds them against the rules of section 5.
+`VMs` holds **guests**: `deploy_vms_cluster.yaml` and
+`deploy_vms_standalone.yaml` loop over that group, one include per member, and
+take the host key as the libvirt domain name. Nothing here connects to a guest.
+
+So the model keeps them apart. `hosts` in `GET /inventory` are the machines,
+`guests` are the members of `VMs`, and a guest carries the files it names,
+`vm_disk`, `vm_template` and `xml_path`, plus `force` and `enable`. Everything
+else a VM entry holds is preserved the way a machine's unmodelled variables
+are: `guest.xml.j2` alone reads some thirty variables, and modelling them would
+be this service inventing an interface over a template a site is expected to
+replace.
+
+Reading a guest as a machine is what an early version did, and the cost was
+immediate. A standalone deployment running two VMs arrived as three machines,
+two of them without an administration interface, and the import was refused by
+the rule that a standalone inventory describes exactly one machine. The same
+mistake offered those guests to the exporter fan-out and counted them among the
+machines an apply has to be able to reach.
+
 ### Which entry describes this machine
 
 The host key is the obvious answer and frequently the wrong one. A site is free
@@ -457,4 +482,6 @@ run fight the cluster manager.
 
 The VM **definition**, meaning its image, its libvirt XML and its placement
 preferences, is configuration and does belong in the inventory, consumed by
-`deploy_vms_cluster.yaml` and `deploy_vms_standalone.yaml`.
+`deploy_vms_cluster.yaml` and `deploy_vms_standalone.yaml`. It is the `VMs`
+group, read as guests rather than as machines, which is the subsection
+["Machines and guests"](#machines-and-guests) above.

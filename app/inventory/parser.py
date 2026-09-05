@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from app.inventory.model import Inventory, Mode, NodeConfig, Role
+from app.inventory.model import Guest, Inventory, Mode, NodeConfig, Role
 from app.inventory.renderer import FIXED_HOST_VAR_NAMES, PTP_DOMAIN_ALIASES
 from app.inventory.resolve import Group, resolve
 from app.inventory.resolve import groups as declared_groups
@@ -44,6 +44,24 @@ _MODELLED = frozenset(
         "isolcpus",
     }
 )
+
+# The same, for a guest. Everything else the `VMs` group carries lands in
+# `extra`: `guest.xml.j2` alone reads some thirty variables, and modelling
+# them here would be this service inventing an interface over a template a
+# site is expected to replace.
+_MODELLED_GUEST = frozenset(
+    {
+        "vm_disk",
+        "vm_template",
+        "xml_path",
+        "force",
+        "enable",
+    }
+)
+
+# The group the VM roles loop over. It is spelled in capitals in every
+# reference inventory and in the playbooks, so it is matched as written.
+GUEST_GROUP = "VMs"
 
 
 class InvalidInventory(Exception):
@@ -68,14 +86,28 @@ def parse(document: str) -> Inventory:
     table = declared_groups(loaded)
     cluster_members = _members(table, "cluster_machines")
     observers = _members(table, "observers")
+    # A member of `VMs` is a guest, and the machines are everything else.
+    # Reading a guest as a machine is how a standalone deployment running two
+    # VMs arrived here as three machines, two of them without an administration
+    # interface, refused by the rule that a standalone inventory describes
+    # exactly one machine.
+    guests = _members(table, GUEST_GROUP)
 
     parsed: dict[str, NodeConfig] = {
-        name: _node(name, variables, observers) for name, variables in resolved.items()
+        name: _node(name, variables, observers)
+        for name, variables in resolved.items()
+        if name not in guests
+    }
+    defined: dict[str, Guest] = {
+        name: _guest(variables)
+        for name, variables in resolved.items()
+        if name in guests
     }
 
     return Inventory(
         mode=Mode.CLUSTER if cluster_members else Mode.STANDALONE,
         hosts=parsed,
+        guests=defined,
     )
 
 
@@ -123,6 +155,27 @@ def _node(name: str, variables: dict[str, Any], observers: set[str]) -> NodeConf
         grub_password=_optional_str(known.get("grub_password")),
         isolcpus=_optional_str(known.get("isolcpus")),
         extra=extra,
+    )
+
+
+def _guest(variables: dict[str, Any]) -> Guest:
+    """One VM entry, read the way the roles read it.
+
+    Variables are taken resolved here too: the reference VM inventory keeps
+    `ansible_user` on the group and a site keeps far more than that, and a
+    guest read from its own lines alone would lose it on the way back out.
+    """
+    return Guest(
+        vm_disk=_optional_str(variables.get("vm_disk")),
+        vm_template=_optional_str(variables.get("vm_template")),
+        xml_path=_optional_str(variables.get("xml_path")),
+        force=bool(variables.get("force", False)),
+        enable=bool(variables.get("enable", True)),
+        extra={
+            name: value
+            for name, value in variables.items()
+            if name not in _MODELLED_GUEST
+        },
     )
 
 

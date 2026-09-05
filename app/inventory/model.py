@@ -73,14 +73,50 @@ class NodeConfig(BaseModel):
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
+class Guest(BaseModel):
+    """One member of the `VMs` group, which is a guest and never a machine.
+
+    The distinction is load bearing. `deploy_vms_cluster` and
+    `deploy_vms_standalone` loop over this group and take the host key as the
+    libvirt domain name, while every other playbook of the collection plays
+    the machines. A guest read as a machine is a machine this service would
+    try to reach over SSH, scrape an exporter on, and hold against the rules
+    that describe a hypervisor.
+
+    The fields are the ones a confirmation and a file check have to name. The
+    rest of what the roles read off an entry, most of it consumed by
+    `guest.xml.j2`, is carried in `extra` unchanged, the way a machine's
+    unmodelled variables are.
+    """
+
+    vm_disk: str | None = None
+    vm_template: str | None = None
+    xml_path: str | None = None
+    """A libvirt XML that is not a template, which the cluster role also takes."""
+    force: bool = False
+    """Destroy and recreate the guest, rather than leave an existing one alone."""
+    enable: bool = True
+    extra: dict[str, Any] = Field(default_factory=dict)
+
+
 class Inventory(BaseModel):
-    """The whole desired state, as the forms edit it."""
+    """The whole desired state, as the forms edit it.
+
+    `hosts` holds the machines and `guests` the members of the `VMs` group.
+    They are two kinds of thing in one file, and everything that reaches a
+    machine, the SSH trust, the exporter fan out, the rules, reads the first
+    of the two.
+    """
 
     mode: Mode = Mode.STANDALONE
     hosts: dict[str, NodeConfig] = Field(default_factory=dict)
+    guests: dict[str, Guest] = Field(default_factory=dict)
 
     def host_names(self) -> list[str]:
         return list(self.hosts)
+
+    def guest_names(self) -> list[str]:
+        return list(self.guests)
 
     def hypervisors(self) -> list[str]:
         return [
