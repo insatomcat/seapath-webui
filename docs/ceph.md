@@ -63,7 +63,9 @@ An observer has no `ceph_osd_disks`, and the form enforces it.
 5. The storage view then reads the live cluster: health and the reason when it
    is not `HEALTH_OK`, monitors and their quorum, OSDs with host, device and
    usage, pools, raw and usable capacity, with a warning when the cluster
-   approaches full.
+   approaches full. It is the Storage tab of the Cluster page, read from the
+   active manager's own Prometheus module rather than from `ceph -s` over SSH.
+   See [D29](decisions.md#d29).
 
 ## 4. The image reference
 
@@ -90,3 +92,7 @@ OSD and points at the `ceph` CLI rather than pretending to own the operation.
 
 The whole node case is different and is supported, because
 `cluster_remove_machine.yaml` exists and already calls `ceph orch host rm`.
+
+[D29](decisions.md#d29) generalises this section to the whole Cluster page: the
+storage view reports a failed OSD, names its host and its device, and offers no
+button that would evict it.

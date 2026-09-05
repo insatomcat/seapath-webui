@@ -205,3 +205,47 @@ Checks 20 to 24 need a collection carrying `conformance.py` in
 block. Check 21 is the easiest to stage deliberately: stop
 `seapath-alloc-export.timer` on one node and delete its `.prom` file, which is
 what a node running an older collector looks like from here.
+
+## Cluster
+
+The Cluster page: Pacemaker membership, the resources and where they run, and
+Ceph. See D29 in [decisions.md](decisions.md).
+
+Every check below is a reading, and none of them changes a machine. That is
+also what makes the last one the important one: a page that monitors a cluster
+has to leave the cluster exactly as it found it.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | On a converged cluster, `curl localhost:9664/metrics` returns `ha_cluster_pacemaker_nodes` on every member | The exporter side, on a real machine, before believing anything the page says about it. `configure_ha` is what deploys it | |
+| 2 | Every member of the cluster has a row, with the coordinator tagged, and the page names the node its reading came from | Only a real cluster elects a DC | |
+| 3 | Putting one node in standby with `crm node standby` shows that node as `standby` and still online, and the Membership tab turns amber rather than red | A deliberate operator action must never read as a fault | |
+| 4 | Stopping `corosync` on one member of three leaves the cluster quorate, marks that member unclean or offline, and turns the tab red | The distinction the page is for. Two members losing each other is the case an operator opens it in | |
+| 5 | Stopping two of three shows the surviving node reporting no quorum, from the browser pointed at it | The reading is then the survivor's rather than the coordinator's, and `from_dc` must say so on screen | |
+| 6 | With the cluster partitioned, the two halves disagree and the page reports whose answer it is showing rather than merging them | The whole reason the coordinator's exposition is the one believed | |
+| 7 | A VM that has failed on its node shows its failure count and its migration threshold, and the Resources tab names it | A real `crm_mon` failure. `crm resource fail` stages it | |
+| 8 | A resource Pacemaker will not start anywhere reports `INFINITY` rather than a broken page | Pacemaker's INFINITY reaches the exporter as `+Inf`, which JSON cannot carry. The reader is tested; only a real cluster proves the exporter writes what the test assumes | |
+| 9 | A cloned resource running on three members has three rows, one per node | | |
+| 10 | Clearing the failure with `crm resource cleanup` on the machine is reflected on the next page load | The fix is on the machine, which is the boundary this page keeps | |
+| 11 | On a cluster with Ceph, the Storage tab reports the same health, capacity and daemon counts as `ceph -s` on the machine, figure for figure | The one comparison that says the reading is right. Binary units on both sides | |
+| 12 | Stopping one OSD shows it down and out with its host and device class, and lists `OSD_DOWN` among the messages Ceph itself raises | `ceph_health_detail` is published from Pacific on. A cluster older than that answers the health alone, which is check 13 | |
+| 13 | On a Ceph release too old to publish `ceph_health_detail`, the health is still reported and the page claims nothing about why | Degrading rather than blanking is the behaviour, and only an old cluster proves it | |
+| 14 | Failing the active manager over with `ceph mgr fail` leaves the Storage tab answering, from the new manager, with no configuration change | The reason every machine is asked instead of one | |
+| 15 | On a cluster with local storage and no Ceph, the Storage tab is hollow and says so, and the other two tabs are unaffected | A supported SEAPATH configuration must never render as a fault | |
+| 16 | With one member powered off, the Membership tab lists it as unreachable with the reason, and the members that answered are still drawn | A cluster half built, or half up, is the ordinary state | |
+| 17 | The page costs at most one GET per machine per exporter per load: the exporters' access logs, or `tcpdump`, answer it | Three readings on one page must not multiply what opening it costs a hypervisor | |
+| 18 | A viewer can open the page and read all three tabs | The role an operator on call is likely to have | |
+| 19 | Nothing changed on any machine: `crm configure show` and `ceph config dump` are identical before and after a session on this page, and `seapath_setup_main.yaml` from a conventional control machine still reports no change | **The acceptance criterion.** A monitoring page that configured something would be the worst kind of bug here | |
+
+### Result
+
+Not yet run. Checks 1 to 10 need a real Pacemaker cluster with
+`ha_cluster_exporter` deployed, which is `configure_ha` on a collection that
+carries it. Checks 11 to 15 need Ceph, and check 13 needs a cluster older than
+Pacific, which is worth staging only if a site runs one.
+
+Check 6 wants a partition rather than a stopped service: `iptables -j DROP` on
+the cluster interface of one member reproduces it and `crm_mon` on both halves
+says whether it took.

@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # the CPU pool is read from the port a cluster already has open rather than
     # from a new one.
     node_exporter_port: int = 9100
+    # Where `configure_ha` puts ha_cluster_exporter, which is what publishes
+    # the state of Pacemaker and Corosync. Same reasoning as above: the port a
+    # cluster already has open, asked rather than duplicated.
+    ha_cluster_exporter_port: int = 9664
+    # Where the Ceph manager's own Prometheus module listens. Not a SEAPATH
+    # choice: it is the module's default, and only the active manager serves
+    # it, so every machine is asked and the one that answers is the manager.
+    ceph_exporter_port: int = 9283
 
     # The inventory repository, separate from the service state so it can be
     # backed up, cloned and exported on its own. A folder rather than a file:

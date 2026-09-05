@@ -38,11 +38,11 @@ def stylesheet(name: str = "style.css") -> Markup:
 
     Carried in the document rather than linked. A linked stylesheet is a
     network round trip standing between the navigation and the first paint,
-    and these assets are served `no-cache`, so each of the four tabs waited on
-    a conditional request and painted the page unstyled while it was in
-    flight: serif text, browser blue links, no layout, on every hop. Twenty
-    three kilobytes in a document that is only fetched on a navigation buys
-    that away.
+    and these assets are served `no-cache`, so every page waited on a
+    conditional request and painted itself unstyled while it was in flight:
+    serif text, browser blue links, no layout, on every hop. Twenty three
+    kilobytes in a document that is only fetched on a navigation buys that
+    away.
 
     Read per render so an edit shows up on the next reload, and cached on the
     file's timestamp so the ordinary case is one `stat`.
@@ -120,6 +120,10 @@ def install(app: FastAPI) -> None:
         # The page that used to do both jobs. Kept as a redirect because it is
         # in people's history and in the first deployment's notes.
         return RedirectResponse("inventory", status_code=308)
+
+    @app.get("/cluster", response_class=HTMLResponse, include_in_schema=False)
+    def cluster(request: Request):
+        return _page(request, "cluster.html", "cluster")
 
     @app.get("/realtime", response_class=HTMLResponse, include_in_schema=False)
     def realtime(request: Request):

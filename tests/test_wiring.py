@@ -147,14 +147,18 @@ def test_the_run_service_and_the_inventory_read_the_same_collection(
 def test_the_suite_reaches_no_exporter_over_the_network(
     settings, reader, authenticator, directory, run_adapter, console_adapter
 ) -> None:
-    """No test may touch the network, including the one that reads the pool.
+    """No test may touch the network, and three readings now leave this machine.
 
-    The pool is read from each node's exporter over HTTP, so an application
-    built without a client would try to reach 192.168.200.125 on every request
-    that renders it. A suite that touches the network is one that fails on a
-    train, and slowly.
+    The CPU pool, the Pacemaker cluster and Ceph are each read from an exporter
+    over HTTP, so a service built without a client would try to reach
+    192.168.200.125 on every request that renders one. A suite that touches the
+    network is one that fails on a train, and slowly.
+
+    Asserted per service rather than on the factory, because the failure this
+    catches is a new reader wired up with the real client while the ones beside
+    it were injected properly.
     """
-    from app.cluster.pool import UrllibMetricsClient
+    from app.cluster.exporters import UrllibMetricsClient
     from app.main import create_app
 
     application = create_app(
@@ -168,5 +172,36 @@ def test_the_suite_reaches_no_exporter_over_the_network(
         metrics_client=FakeMetricsClient(),
     )
 
-    pool = application.state.realtime_service._pool
-    assert not isinstance(pool._client, UrllibMetricsClient)
+    clients = [
+        application.state.realtime_service._pool._client,
+        application.state.cluster_service._client,
+        application.state.storage_service._client,
+    ]
+    assert not any(isinstance(client, UrllibMetricsClient) for client in clients)
+
+
+def test_each_reading_asks_the_port_its_own_exporter_listens_on(
+    settings, reader, authenticator, directory, run_adapter, console_adapter
+) -> None:
+    """One machine serves three exporters, and they say different things.
+
+    A service pointed at the wrong port gets an answer it can parse into
+    nothing, which renders as a cluster that is not there rather than as a
+    mistake.
+    """
+    from app.main import create_app
+
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        session_secret=b"test-secret",
+        run_adapter=run_adapter,
+        console_adapter=console_adapter,
+        metrics_client=FakeMetricsClient(),
+    )
+
+    assert application.state.realtime_service._pool._port == 9100
+    assert application.state.cluster_service._port == 9664
+    assert application.state.storage_service._port == 9283

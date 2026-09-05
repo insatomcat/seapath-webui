@@ -67,6 +67,25 @@ and the image is not out yet, and this service itself, which is
 `seapath_webui_image` in the inventory and changes the way every other change
 to a machine does, by an apply.
 
+![The Cluster page: the three view tabs and their summaries, over the Pacemaker members, quorum and fencing](img/cluster.png)
+
+**Cluster** is what the machines are doing right now, which is the one question
+the other pages cannot answer: which node that VM is on, whether the cluster
+has quorum, whether an OSD went down last night. Membership leads with quorum,
+because a cluster without it moves nothing. Resources is the table with the
+failure in it, and in SEAPATH those are mostly VMs, one Pacemaker resource per
+guest. Storage is Ceph: health with the checks Ceph itself is raising,
+capacity, monitors, OSDs with their host and device, pools and placement
+groups. All of it is read from the `ha_cluster_exporter` and the Ceph manager
+that a deployed cluster already runs, one HTTP GET per machine, and every
+member is asked because which of them answers is itself part of the answer.
+
+The page monitors and administers nothing, deliberately. Putting a node in
+standby, clearing a failure count or evicting an OSD is a `crm` or a `ceph`
+command, and this service runs neither: adding a machine or a disk is an
+inventory change and a run, and the rest belongs to Pacemaker, to Ceph, or to
+the shell one click away on the Node page.
+
 ![The Real time page: the four view tabs and their summaries, over one conformance row per check and one column per machine](img/realtime.png)
 
 **Real time** answers whether the machines came out of a convergence with the

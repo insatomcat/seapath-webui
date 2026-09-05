@@ -40,20 +40,19 @@ these metrics. This is the same data, in the page an operator already has open.
 
 from __future__ import annotations
 
-import logging
 import time
-import urllib.error
-import urllib.request
-from concurrent.futures import ThreadPoolExecutor
-from typing import Protocol
 
 from pydantic import BaseModel, Field, computed_field
 
 from app.cluster import metrics, tuning
+from app.cluster.exporters import (
+    Exposition,
+    MetricsClient,
+    UrllibMetricsClient,
+    read_all,
+)
 from app.hosts.models import RealtimeReading
 from app.services.checks import Check
-
-logger = logging.getLogger(__name__)
 
 # What `deploy_prometheus_exporters` puts node_exporter on, and what
 # PROMETHEUS.md tells a site to scrape.
@@ -72,40 +71,6 @@ _NO_TUNING = (
     "adds it, and until then only the isolated set and the kernel can be "
     "checked here."
 )
-
-
-class MetricsClient(Protocol):
-    """Fetches one exporter's exposition, or explains why it could not.
-
-    Injected for the same reason the command runner is: the whole test suite
-    runs with no cluster, and the set of things this service may reach over the
-    network stays a short list in one place.
-    """
-
-    def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]: ...
-
-
-class UrllibMetricsClient:
-    """The stdlib, because this is one GET of a text document.
-
-    An HTTP library would be a dependency in a substation image for a request
-    `urllib` already makes. The timeout is short and the failure is a sentence:
-    a node that cannot be reached is an ordinary state on a cluster being
-    built, and the page says which one rather than failing whole.
-    """
-
-    def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
-        try:
-            with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
-                return response.read().decode("utf-8", errors="replace"), ""
-        except urllib.error.HTTPError as error:
-            return None, f"the exporter answered {error.code}"
-        except urllib.error.URLError as error:
-            return None, f"{error.reason}"
-        except (TimeoutError, OSError) as error:
-            return None, str(error)
-        except Exception as error:  # pragma: no cover - defensive
-            return None, str(error)
 
 
 class CpuSlot(BaseModel):
@@ -225,25 +190,22 @@ class PoolReader:
         self._timeout = timeout
 
     def read(self, targets: list[tuple[str, str]]) -> list[NodePool]:
-        """Every node's pool, fetched in parallel.
+        """Every node's pool, fetched in parallel."""
+        return [
+            self._node(exposition)
+            for exposition in read_all(
+                self._client, targets, self._port, timeout=self._timeout
+            )
+        ]
 
-        In parallel because the page waits on the slowest one, and a node that
-        is down costs the whole timeout: three nodes in series with one
-        unreachable is six seconds before anything renders.
-        """
-        if not targets:
-            return []
-        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
-            return list(pool.map(lambda item: self._node(*item), targets))
+    def _node(self, exposition: Exposition) -> NodePool:
+        host, address = exposition.host, exposition.address
+        if exposition.series is None:
+            return NodePool(
+                host=host, address=address, reachable=False, error=exposition.error
+            )
 
-    def _node(self, host: str, address: str) -> NodePool:
-        url = f"http://{address}:{self._port}/metrics"
-        text, error = self._client.fetch(url, timeout=self._timeout)
-        if text is None:
-            logger.debug("No metrics from %s: %s", url, error)
-            return NodePool(host=host, address=address, reachable=False, error=error)
-
-        series = metrics.parse(text)
+        series = exposition.series
         reading, cmdline = tuning.read(series)
         release, model = tuning.kernel(series)
         if _CPU_DETAIL not in series:

@@ -19,8 +19,9 @@ from fastapi import FastAPI
 
 from app import __version__
 from app.api import v1
+from app.cluster.exporters import MetricsClient
 from app.cluster.fake import FakeMetricsClient
-from app.cluster.pool import MetricsClient, PoolReader
+from app.cluster.pool import PoolReader
 from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
 from app.console.service import ConsoleService
 from app.core.auth import (
@@ -49,8 +50,10 @@ from app.runs.adapter import AnsibleRunnerAdapter, RunAdapter
 from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
+from app.services.cluster import ClusterService
 from app.services.node import NodeService
 from app.services.realtime import RealtimeService
+from app.services.storage import StorageService
 from app.services.update import UpdateService
 from app.trust.service import TrustService
 from app.ui import routes as ui_routes
@@ -255,6 +258,11 @@ def create_app(
         node_distribution=lambda: reader.node_identity().seapath_distro,
     )
 
+    # What this service is allowed to reach over the network, in one place.
+    # Injected like every other adapter, so the suite reaches no network;
+    # `use_fakes` covers the development switch, where nobody passes one in.
+    exporters = metrics_client or (FakeMetricsClient() if settings.use_fakes else None)
+
     # The real time page, which reads both halves of the same question: the
     # tuning this machine came out with, and the latency a cyclictest run
     # measured on it. The run half is the run service, filtered, so there is
@@ -266,14 +274,22 @@ def create_app(
         hostname=hostname,
         # The one reading that leaves this machine: each node's exporter, for
         # the CPU pool seapath-alloc computes and this container cannot.
-        pool=PoolReader(
-            # Injected like every other adapter, so the suite reaches no
-            # network. `use_fakes` covers the development switch, where nobody
-            # passes one in.
-            client=metrics_client
-            or (FakeMetricsClient() if settings.use_fakes else None),
-            port=settings.node_exporter_port,
-        ),
+        pool=PoolReader(client=exporters, port=settings.node_exporter_port),
+    )
+
+    # The cluster and the storage views: Pacemaker and Corosync from each
+    # node's ha_cluster_exporter, Ceph from whichever machine holds the active
+    # manager. Both are one GET per machine and neither writes anything, which
+    # is what lets them exist here at all.
+    app.state.cluster_service = ClusterService(
+        inventory=app.state.inventory_service,
+        client=exporters,
+        port=settings.ha_cluster_exporter_port,
+    )
+    app.state.storage_service = StorageService(
+        inventory=app.state.inventory_service,
+        client=exporters,
+        port=settings.ceph_exporter_port,
     )
 
     install_error_handlers(app)

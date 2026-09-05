@@ -1308,25 +1308,29 @@ button.secondary {
    nodes shown down to the third, a histogram with no room for its own axis.
    Every panel is placed on the same track explicitly, because a hidden banner
    collapses its track and auto-placement then moved the panel up a row. */
-.page.realtime {
+/* A paned page: a bar of views, and the one panel it points at. The Real time
+   page is where the shape came from (D28) and the Cluster page reuses it for
+   the same reason: several readings, each of which needs the screen, and a bar
+   that says what the ones off screen found. */
+.page.paned {
   height: calc(100vh - var(--chrome));
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
-.page.realtime > .banner {
+.page.paned > .banner {
   grid-row: 1;
 }
 
-.page.realtime > .views {
+.page.paned > .views {
   grid-row: 2;
 }
 
 /* The panel takes the room it needs and no more, up to the screen. Stretched
    to the track it left a field of empty card under the ten conformance rows,
    which reads as a panel still loading something. */
-.page.realtime > .card {
+.page.paned > .card {
   grid-row: 3;
   align-self: start;
   min-height: 0;
@@ -1336,7 +1340,7 @@ button.secondary {
 /* The panels the bar is not pointing at. `.pane` sets `display: flex` with the
    same weight as the stylesheet's own `[hidden]` rule and after it, so hiding
    one has to be said again here to be heard. */
-.page.realtime > .card[hidden] {
+.page.paned > .card[hidden] {
   display: none;
 }
 
@@ -1849,7 +1853,7 @@ button.secondary {
   /* Below this a panel cannot be given a screen worth reading, so the page
      goes back to being a document and scrolls like the others. The view bar
      stays: it is the summary before it is a layout. */
-  .page.realtime {
+  .page.paned {
     height: auto;
     overflow: visible;
   }
@@ -1857,7 +1861,7 @@ button.secondary {
   /* The rows stay named. Left to auto-placement here the panel took the first
      free track and the bar, still pinned to its own, was drawn underneath the
      panel it navigates. */
-  .page.realtime .pane {
+  .page.paned .pane {
     max-height: none;
   }
 }
@@ -1992,4 +1996,126 @@ button.secondary {
 
 .pool-status.differs {
   color: var(--warn);
+}
+
+/* A verdict this service will not soften. `warning` is amber and means worth a
+   look; a cluster that has lost quorum, a resource Pacemaker will not start
+   anywhere, or a Ceph cluster in HEALTH_ERR are not that. They were drawn
+   amber before this rule existed, next to a node in standby, which is a
+   choice somebody made deliberately. */
+.dot.status-error {
+  background: var(--bad);
+}
+
+/* The Cluster page. The panels are tables an operator scans, so the pane's
+   middle is what scrolls and the lead and the footnote stay put. */
+.pane-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.pane-body h3 {
+  margin: 1rem 0 0.4rem;
+}
+
+.pane-body h3:first-child {
+  margin-top: 0;
+}
+
+/* The numbers the tables answer "which one" about. A row of tiles rather than
+   a definition list: they are read across, and the eye stops at the one that
+   is not the colour of the others. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.stat strong {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.stat span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stat-ok strong {
+  color: var(--ok);
+}
+
+.stat-warn strong {
+  color: var(--warn);
+}
+
+.stat-bad strong {
+  color: var(--bad);
+}
+
+/* How full the cluster is, as a length. A ratio is read faster from a bar than
+   from a division, and the two thresholds in the fill are Ceph's own: it warns
+   at 85% and refuses writes at 95%. */
+.capacity {
+  margin-bottom: 0.5rem;
+}
+
+.capacity-label {
+  margin: 0 0 0.3rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.capacity .bar {
+  height: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.capacity .fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.capacity .fill.warn {
+  background: var(--warn);
+}
+
+.capacity .fill.bad {
+  background: var(--bad);
+}
+
+/* One tag per placement group state the cluster is in. States a cluster at
+   rest is not in are left out entirely: twenty families at zero bury the one
+   line that is not. */
+.pg-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  line-height: 1.9;
+}
+
+/* The row the panel was opened for. The state cell carries the colour and the
+   word; the wash is what makes the eye land on the right line of thirty
+   without reading the column. */
+tr.row-bad > td {
+  background: var(--bad-wash);
 }

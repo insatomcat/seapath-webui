@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.mark.parametrize(
-    "path", ["/", "/inventory", "/deployment", "/realtime", "/runs"]
+    "path", ["/", "/inventory", "/deployment", "/cluster", "/realtime", "/runs"]
 )
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
@@ -27,6 +27,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/", "node.js"),
         ("/inventory", "inventory.js"),
         ("/deployment", "deployment.js"),
+        ("/cluster", "cluster.js"),
         ("/realtime", "realtime.js"),
         ("/runs", "runs.js"),
     ],
@@ -597,7 +598,10 @@ def test_the_real_time_page_shows_one_panel_at_a_time(
     # screen. Three panels sharing one screen each got a third of the room
     # their content needs, and every one of them answered by truncating: the
     # conformance values, the cluster's fourth node, the histogram's axis.
-    assert 'class="page realtime"' in body
+    # `paned` is the layout, shared with the Cluster page, and `realtime` is
+    # this page. Both are asserted because the layout is what the test is about
+    # and the page is what makes the assertion about this one.
+    assert 'class="page paned realtime"' in body
     assert body.count('class="card pane"') == 3
     assert body.count('class="card pane" id="card-map" hidden') == 1
     assert body.count('class="card pane" id="card-measure" hidden') == 1
@@ -666,3 +670,52 @@ def test_a_redirect_stays_inside_the_mount_point(client: TestClient, path: str) 
 
     assert response.status_code in (303, 308)
     assert not response.headers["location"].startswith("/")
+
+
+def test_the_cluster_page_shows_one_panel_at_a_time(signed_in: TestClient) -> None:
+    body = signed_in.get("/cluster").text
+
+    # The Real time page's layout, reused for the same reason (D28): three
+    # tables that each need the screen, and a bar saying what the two behind it
+    # found.
+    assert 'class="page paned cluster"' in body
+    assert body.count('class="card pane"') == 3
+    assert body.count('class="card pane" id="card-resources" hidden') == 1
+    assert body.count('class="card pane" id="card-storage" hidden') == 1
+
+
+def test_the_cluster_view_bar_carries_each_panel_s_answer(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/cluster").text
+
+    bar = body.split('<nav class="views"')[1].split("</nav>")[0]
+    for view in ["members", "resources", "storage"]:
+        assert f'data-view="{view}"' in bar
+    assert bar.count('class="dot status-unknown"') == 3
+    assert bar.count("view-answer") == 3
+
+
+def test_the_cluster_page_says_where_a_cluster_is_changed_from(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/cluster").text
+
+    # The page is a reading, and it says so where an operator would otherwise
+    # look for the button: clearing a failure and moving a resource are `crm`
+    # on the machine, which this service never runs.
+    assert "never runs a cluster command" in body
+    assert "<code>crm resource</code>" in body
+    # And adding storage is the path every other change takes here.
+    assert "<code>ceph_osd_disks</code> in the" in body
+    assert "cluster_setup_cephadm" in body
+
+
+def test_the_cluster_page_never_reads_ceph_s_absence_as_a_fault(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/cluster.js").text
+
+    # A Pacemaker cluster with local storage is a supported SEAPATH
+    # configuration (docs/ceph.md), so the tab is hollow rather than amber.
+    assert 'summarise("storage", "absent", "No Ceph on this cluster")' in script

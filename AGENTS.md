@@ -57,10 +57,13 @@ app/
   main.py            app factory, router mounting, lifespan
   core/              settings, logging, errors, auth, sessions, security, tls
   hosts/             the host adapters and their fakes
+  cluster/           what the other machines publish: the exporter fan-out and
+                     its parsers, for the CPU pool, the tuning, Pacemaker, Ceph
+  console/           the shell this node serves over its own SSH path
   inventory/         git repository, schema, validation, discovery, forms
   trust/             invitations, CSR signing, SSH key provisioning, revocation
   runs/              ansible-runner driver, event stream, artefacts
-  services/          node.py, cluster.py, storage.py, vms.py
+  services/          node.py, realtime.py, cluster.py, storage.py, vms.py
   api/v1/            routers, one module per resource
   ui/                Jinja templates and static assets
 packaging/           the PAM service file the image ships

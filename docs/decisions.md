@@ -1289,3 +1289,105 @@ comparison across machines is what [D27](#d27) was for.
 It fits, and it costs the reading that makes the matrix worth having: the
 values are the finding, and a page that hides them behind a click is a page
 where nobody sees that two machines isolate different CPUs.
+
+## D29 - Settled: the cluster view reads the exporters, and administers nothing
+
+An operator running a SEAPATH cluster has one question this service could not
+answer at all: what is the cluster doing right now. Which node is that VM on.
+Does the cluster have quorum. Did an OSD go down last night. The Inventory page
+holds what the machines should be, the Deployment page makes it so, the Runs
+page says what a convergence did, and none of them says where a resource is
+running at this moment.
+
+The answer is the one [D26](#d26) reached for the CPU pool, applied twice more.
+
+### Asking rather than computing, again
+
+`configure_ha` deploys `ha_cluster_exporter` on every member, where it runs
+`crm_mon`, `corosync-quorumtool` and `cibadmin` and publishes what they said on
+port 9664. `roles/cephadm` enables the Ceph manager's own Prometheus module,
+which serves the whole cluster on port 9283: health, daemons, the OSD map,
+pools, placement groups. Both are already scraped by the site's Prometheus, and
+this repository ships a Grafana dashboard over each of them.
+
+So this service asks. One HTTP GET per machine per reading, no mount, no
+privilege, no route to a host daemon, and nothing computed twice. The same
+narrow thing [D26](#d26) established and [D13](#d13) allows: the exporter stays
+the source, Prometheus stays the history and the alerting, and this reads the
+current value into the page an operator already has open.
+
+### Whose answer is believed
+
+The two readings are gathered differently, because the two exporters differ.
+
+**Pacemaker: the coordinator's.** Every member's exporter reports the whole
+cluster, because `crm_mon` does. The members agree while the cluster is healthy
+and stop agreeing exactly when this page matters: a node cut off from the
+others reports itself online and everything else lost. The designated
+coordinator holds the CIB the cluster is acting on, so its exposition is the one
+reported, it is found by the member that names itself DC, and the page says
+which node answered and whether it was the coordinator. The SUSE dashboard
+takes the same view through a `dc_instance` variable.
+
+**Ceph: the active manager's.** Only one machine serves those metrics; a
+standby manager answers the request and publishes nothing. Every machine is
+asked and the first exposition carrying `ceph_health_status` is the cluster's,
+which finds the manager without asking Ceph where it is, and survives a
+failover with no configuration.
+
+Every machine of the inventory is asked in both cases, including the ones that
+turn out not to be members. A machine that cannot be reached is a row with its
+reason, because on a cluster half joined that row is the finding.
+
+### The line this page does not cross
+
+The page is called Cluster and it monitors. It does not administer, and that is
+a decision rather than an unfinished feature.
+
+Standby a node, clean up a failure count, move a resource, evict an OSD: every
+one of them is a `crm` or a `ceph` command running inside this container, which
+AGENTS.md forbids in the same words it forbids writing `corosync.conf`. The
+argument is not squeamishness about shelling out. It is that a cluster whose
+state can be moved from a web form is a cluster whose state is no longer a
+function of its inventory, and that function is the product.
+
+So each of them is offered where it belongs:
+
+| What an operator wants | Where it is |
+|---|---|
+| Add or remove a machine | The inventory, then `cluster_setup_ha` or `cluster_remove_machine` |
+| Add storage | `ceph_osd_disks` in the inventory, then `cluster_setup_cephadm` |
+| Move a VM, put a node in standby, clear a failure | `crm` on the machine, or Cockpit. The console is one click away ([D19](#d19)) |
+| Replace a failed OSD | The `ceph` CLI, for the reason [ceph.md](ceph.md) gives |
+| Alerting, history, capacity trends | Prometheus and the dashboards, which is what [D13](#d13) settled |
+
+This is the same boundary `docs/ceph.md` drew when it refused to offer the
+removal of a single OSD, generalised: the UI shows the failure, names it, and
+points at the thing that owns the operation.
+
+### What the page does with the room
+
+Three views on the layout [D28](#d28) settled, one panel at a time, each tab
+carrying its own worst status and the line an operator reads from it.
+Membership leads with quorum, because a cluster without it moves nothing and
+everything below is then a description of a cluster that is idle. Resources is
+the table with the failure in it, which in SEAPATH is usually a VM: `vm_manager`
+creates one Pacemaker resource per guest. Storage is Ceph, and it is hollow
+rather than amber when there is none, because a Pacemaker cluster with local
+storage is a supported SEAPATH configuration.
+
+### What was refused
+
+**Throughput, IOPS and latency histories.** Every one of them is a counter, a
+rate needs two scrapes and a memory of the first, and a service that keeps that
+memory is a monitoring system. The Grafana dashboards draw them because they
+have a time series database behind them. This page has one scrape, and says so.
+
+**One combined "cluster health" verdict.** Pacemaker and Ceph fail
+independently and are repaired by different people with different urgency. A
+cluster that is quorate with a degraded pool is not the same page as a cluster
+that has lost a member, and one dot for the pair hides whichever is worse.
+
+**Reading the local node only.** It is one GET instead of three and it answers
+the wrong question. The node the browser happens to be pointed at is the one
+node whose state an operator can already see; the cluster is what they cannot.

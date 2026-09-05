@@ -1,0 +1,240 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+What the cluster is doing right now, which is the one question the other pages
+cannot answer. The Inventory page holds what the machines should be, the
+Deployment page makes it so, and the Runs page says what a convergence did.
+None of them says which node a VM is running on at this moment, whether the
+cluster has quorum, or whether an OSD went down last night.
+
+The layout is the Real time page's (D28): a bar of views, each carrying its own
+worst status and the one line an operator reads from it, and the panel it
+points at gets the whole screen. Three readings that each need the room, and a
+glance that costs no click.
+
+Read only, and deliberately so. Every button an administration page would grow
+here - standby a node, clean up a failure, migrate a resource, evict an OSD -
+is a `crm` or a `ceph` command running inside this container, which is the one
+thing AGENTS.md forbids. What a machine should be is the inventory and a run.
+#}
+{% extends "base.html" %}
+{% block title %}Cluster - SEAPATH{% endblock %}
+
+{% block body %}
+<main class="page paned cluster">
+  <p class="banner" id="banner" hidden></p>
+
+  <nav class="views" id="views" aria-label="Cluster">
+    <button type="button" class="view current" data-view="members"
+            aria-current="true">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Membership</span>
+      <span class="view-answer">Asking each node's exporter</span>
+    </button>
+    <button type="button" class="view" data-view="resources">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Resources</span>
+      <span class="view-answer">Asking each node's exporter</span>
+    </button>
+    <button type="button" class="view" data-view="storage">
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Storage</span>
+      <span class="view-answer">Asking each node's manager</span>
+    </button>
+  </nav>
+
+  {# Membership: who is in the cluster, and whether it can act. Quorum leads,
+     because a cluster without it stops moving resources and everything below
+     is then a description of a cluster that is not doing anything. #}
+  <section class="card pane" id="card-members">
+    <p class="pane-lead" id="members-lead"></p>
+    <div class="loading" id="members-loading">Asking each node's exporter</div>
+    <p class="warning" id="members-blocked" hidden></p>
+    <div class="pane-body" id="members-body" hidden>
+      <div class="stats" id="quorum"></div>
+      <div class="table-scroll" id="member-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Node</th>
+              <th>State</th>
+              <th>Votes</th>
+              <th>Flags</th>
+              <th>Attributes</th>
+            </tr>
+          </thead>
+          <tbody id="member-rows"></tbody>
+        </table>
+      </div>
+      <div id="sbd" hidden>
+        <h3>SBD devices</h3>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Device</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="sbd-rows"></tbody>
+          </table>
+        </div>
+      </div>
+      <h3>Machines asked</h3>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Machine</th>
+              <th>Address</th>
+              <th>Exporter</th>
+            </tr>
+          </thead>
+          <tbody id="reach-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <p class="pane-foot">
+      <span class="pane-foot-note">
+        Read from <code>ha_cluster_exporter</code> on each machine of the
+        inventory, which publishes what <code>crm_mon</code> and
+        <code>corosync-quorumtool</code> said. Every member describes the whole
+        cluster, so the coordinator's answer is the one reported and the line
+        above names it.
+      </span>
+    </p>
+  </section>
+
+  {# Resources: what is running, and where. In SEAPATH most of them are VMs,
+     one Pacemaker resource per guest. #}
+  <section class="card pane" id="card-resources" hidden>
+    <p class="pane-lead" id="resources-lead"></p>
+    <div class="loading" id="resources-loading">Asking each node's exporter</div>
+    <p class="warning" id="resources-blocked" hidden></p>
+    <div class="pane-body" id="resources-body" hidden>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Resource</th>
+              <th>Agent</th>
+              <th>Node</th>
+              <th>Role</th>
+              <th>State</th>
+              <th>Failures</th>
+            </tr>
+          </thead>
+          <tbody id="resource-rows"></tbody>
+        </table>
+      </div>
+      <details id="constraints" hidden>
+        <summary>Location constraints</summary>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Constraint</th>
+                <th>Resource</th>
+                <th>Node</th>
+                <th>Role</th>
+                <th>Score</th>
+              </tr>
+            </thead>
+            <tbody id="constraint-rows"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+    <p class="pane-foot">
+      <span class="pane-foot-note">
+        Pacemaker decides where a resource runs, and this reports the decision.
+        A failure count is cleared and a resource is moved with
+        <code>crm resource</code> on the machine, or from Cockpit: this service
+        never runs a cluster command, which is what keeps the inventory the only
+        thing that configures a machine.
+      </span>
+    </p>
+  </section>
+
+  {# Storage: Ceph, when there is Ceph. Local storage is a supported SEAPATH
+     configuration and this panel says so rather than drawing an empty cluster. #}
+  <section class="card pane" id="card-storage" hidden>
+    <p class="pane-lead" id="storage-lead"></p>
+    <div class="loading" id="storage-loading">Asking each node's manager</div>
+    <p class="warning" id="storage-blocked" hidden></p>
+    <div class="pane-body" id="storage-body" hidden>
+      <div class="stats" id="ceph-stats"></div>
+      <ul class="findings" id="ceph-messages" hidden></ul>
+      <div class="capacity" id="ceph-capacity"></div>
+
+      <h3>Daemons</h3>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Daemon</th>
+              <th>Host</th>
+              <th>State</th>
+              <th>Version</th>
+            </tr>
+          </thead>
+          <tbody id="daemon-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>OSDs</h3>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>OSD</th>
+              <th>Host</th>
+              <th>Class</th>
+              <th>State</th>
+              <th>Used</th>
+              <th>PGs</th>
+              <th>Latency</th>
+            </tr>
+          </thead>
+          <tbody id="osd-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>Pools</h3>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Pool</th>
+              <th>Type</th>
+              <th>Stored</th>
+              <th>Used raw</th>
+              <th>Available</th>
+              <th>Objects</th>
+            </tr>
+          </thead>
+          <tbody id="pool-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>Placement groups</h3>
+      <p class="pg-states" id="pg-states"></p>
+    </div>
+    <p class="pane-foot">
+      <span class="pane-foot-note">
+        Read from the Ceph manager's own Prometheus module, which is Ceph's
+        view of itself. Adding storage is <code>ceph_osd_disks</code> in the
+        inventory and a run of <code>cluster_setup_cephadm</code>; replacing a
+        failed OSD is the <code>ceph</code> CLI, for the reason
+        <code>docs/ceph.md</code> gives. Throughput and IOPS are not here: a
+        rate needs two scrapes, and history and alerting are Prometheus's.
+      </span>
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="static/cluster.js"></script>
+{% endblock %}

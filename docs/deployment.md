@@ -354,6 +354,15 @@ The test `test_the_container_is_given_no_route_to_the_live_state` in
 `tests/test_packaging.py` fails if one of those mounts comes back, so that
 adding one is a decision taken on purpose rather than a line that slips in.
 
+What came back instead is the asking half, and it cost no mount at all. The
+CPU pool, each machine's real time tuning, the Pacemaker cluster and Ceph are
+read over HTTP from the exporters a deployed SEAPATH cluster already runs:
+`node_exporter` on 9100, `ha_cluster_exporter` on 9664, and the Ceph manager's
+Prometheus module on 9283. Three ports this container reaches on the
+administration network, no route to a host daemon, and Prometheus still owns
+the history and the alerting. See D26, D27 and D29 in
+[decisions.md](decisions.md).
+
 `/home/ansible/.ssh` is not created either, and that is deliberate too. The
 account comes from the ISO, and a service that invents a home directory for a
 user nobody created has invented a second problem. If that mount is missing, the
