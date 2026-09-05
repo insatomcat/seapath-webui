@@ -122,13 +122,18 @@ class Settings(BaseSettings):
     # `known_hosts` records it at every start. An address change therefore
     # cannot break the console.
     console_target: str = "127.0.0.1"
-    # Who may open one. The default is every authenticated account, which is
-    # what a node local UI on a machine whose operators already have accounts
-    # is for. Raise it to `operator` or `admin` on a site where reading the
-    # node view and holding a shell on it are meant to be different rights:
-    # the account the console reaches has passwordless sudo, so a console is
-    # root on this machine whatever the role that opened it.
-    console_min_role: str = "viewer"
+    # Who may open one. The console reaches the `ansible` account, which has
+    # passwordless sudo, so it is root on this machine whatever role opened it.
+    # `admin` is therefore the only default that hands out access the role
+    # already commands: an admin launches runs, so `ansible-playbook` already
+    # runs as that account, with that sudo, on every machine of the inventory.
+    #
+    # A viewer's whole surface is GET requests and an operator's adds exactly
+    # one thing, cancelling a run. For either of them a shell here would be a
+    # rise from what they can do to root on a live hypervisor, which is not a
+    # default this service gets to pick on a site's behalf. Lower it knowingly
+    # or leave it alone.
+    console_min_role: str = "admin"
     # Concurrent consoles. Enough for two operators and a forgotten tab, few
     # enough that a page reloading in a loop cannot exhaust the node's sshd.
     console_max_sessions: int = 4

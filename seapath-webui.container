@@ -116,10 +116,12 @@ Environment=SEAPATH_WEBUI_BIND_ADDRESS=auto
 #Environment=SEAPATH_WEBUI_TLS_ADDITIONAL_SANS=192.168.200.121,192.168.55.1
 # The console, meaning the terminal the node view opens on this machine over
 # the same ssh path a run uses. It lands on the `ansible` account, which has
-# passwordless sudo, so a site where signing in to this UI and holding a shell
-# on the machine are meant to be different rights raises the role, and one that
-# wants no shell served from here turns it off. See D19 in docs/decisions.md.
-#Environment=SEAPATH_WEBUI_CONSOLE_MIN_ROLE=admin
+# passwordless sudo, so it is root on this machine and the default role is
+# `admin`, the one that already commands that account through a run. A site
+# that wants operators or viewers to reach a shell lowers it deliberately, and
+# one that wants no shell served from here turns it off entirely. See D19 in
+# docs/decisions.md.
+#Environment=SEAPATH_WEBUI_CONSOLE_MIN_ROLE=operator
 #Environment=SEAPATH_WEBUI_CONSOLE_ENABLED=0
 
 [Service]

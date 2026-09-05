@@ -128,13 +128,20 @@ def metrics_client() -> FakeMetricsClient:
 @pytest.fixture
 def authenticator() -> FakeAuthenticator:
     return FakeAuthenticator(
-        {"admin": "secret", "viewer": "secret", "nobody": "secret"}
+        {
+            "admin": "secret",
+            "operator": "secret",
+            "viewer": "secret",
+            "nobody": "secret",
+        }
     )
 
 
 @pytest.fixture
 def directory() -> FakeRoleDirectory:
-    return FakeRoleDirectory({"admin": Role.ADMIN, "viewer": Role.VIEWER})
+    return FakeRoleDirectory(
+        {"admin": Role.ADMIN, "operator": Role.OPERATOR, "viewer": Role.VIEWER}
+    )
 
 
 @pytest.fixture

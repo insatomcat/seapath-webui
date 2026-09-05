@@ -536,13 +536,35 @@ What keeps this from being a hole in [D1](#d1---settled-the-ui-edits-the-invento
   the command line says it is. Sessions are capped and idle ones are closed.
 
 The cost, stated rather than hidden: **the `ansible` account has passwordless
-`sudo`, so a console is root on this node.** The role required to open one is
-therefore a setting, `SEAPATH_WEBUI_CONSOLE_MIN_ROLE`, and the console can be
-turned off entirely with `SEAPATH_WEBUI_CONSOLE_ENABLED=0`. The default is
-`viewer`, meaning every authenticated account: on a node local UI whose accounts
-are the machine's own Unix accounts, someone who can sign in here can already
-ssh to the machine. A site that wants those to be different rights raises the
-setting, and no release is needed to do it.
+`sudo`, so a console is root on this node.** That is what fixes the default at
+`admin`, and the rule it follows is that a console hands out the access the
+role already commands and nothing beyond it:
+
+| Role | What it can do through the API | A shell as `ansible` |
+|---|---|---|
+| `seapath-viewer` | GET requests, nothing else | root, from a read only account |
+| `seapath-operator` | the above, plus cancelling a run | root, from one extra verb |
+| `seapath-admin` | launch runs, write the inventory, the trust operations | what a run already runs as, on every machine of the inventory |
+
+An admin loses nothing by being handed a shell, since `POST /runs` already
+executes `ansible-playbook` as that account with that `sudo` on every machine
+the inventory declares. For the other two the console would be the thing that
+grants root, which is a decision no service should make on a site's behalf.
+
+The first version of this decision defaulted to `viewer`, on the argument that
+someone who can sign in here can already ssh to the machine. The argument does
+not hold. Signing in proves the account authenticates against PAM and sits in
+a SEAPATH group; it says nothing about that account holding `sudo`. The groups
+are supplementary ones, added to ordinary Unix accounts by
+`usermod --append --groups seapath-viewer alice`, and the console does not
+offer alice a shell as alice: it offers one as `ansible`. Read only in the UI
+and root on the hypervisor were one `usermod` apart, which is the opposite of
+what putting somebody in `seapath-viewer` is meant to express.
+
+`SEAPATH_WEBUI_CONSOLE_MIN_ROLE` still moves the bar in both directions, and
+`SEAPATH_WEBUI_CONSOLE_ENABLED=0` turns the endpoint off along with the button.
+A site that wants every account to reach a shell lowers it knowingly, which is
+a different act from inheriting it.
 
 The audit story is honest and thin. `git log` records who changed the desired
 state and a run record records who launched it; a shell records neither, so

@@ -75,7 +75,7 @@ node can run it right now.
 | Action | Role |
 |---|---|
 | Read anything: node, inventory, history, runs, catalogue, trust relations | `viewer` |
-| Open a console on this node | `viewer`, raised with `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` |
+| Open a console on this node | `admin`, moved with `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` |
 | Cancel a run | `operator` |
 | Commit an inventory change, revert, launch a run, revoke a trust relation | `admin` |
 
@@ -434,9 +434,11 @@ The console reaches the `ansible` account with the key the self trust
 provisioned, over the loopback, which is the connection a run makes. It opens
 exactly the access the configuration plane already has, and that account has
 passwordless `sudo`: a console is root on this node whatever role opened it.
-`SEAPATH_WEBUI_CONSOLE_MIN_ROLE` raises the bar for a site that wants reading
-the node view and holding a shell on it to be different rights, and
-`SEAPATH_WEBUI_CONSOLE_ENABLED=0` turns the endpoint off.
+`admin` is the default for that reason, since an admin already runs
+`ansible-playbook` as that account on every machine of the inventory, while a
+viewer's surface is GET requests and an operator's adds only cancelling a run.
+`SEAPATH_WEBUI_CONSOLE_MIN_ROLE` moves the bar in both directions and
+`SEAPATH_WEBUI_CONSOLE_ENABLED=0` turns the endpoint off. See D19.
 
 Nothing typed there is part of the desired state. The journal records who
 opened a console and when, and that is the whole audit trail a shell can have,

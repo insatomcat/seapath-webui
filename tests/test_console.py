@@ -82,13 +82,49 @@ def test_window_size_from_a_browser_is_bounded() -> None:
 
 
 def test_description_is_open_to_a_viewer(signed_in_viewer: TestClient) -> None:
+    # Reading what the console is stays open to everyone, so the button can say
+    # why it is not there. Opening one is a different question, below.
     info = signed_in_viewer.get("/api/v1/node/console").json()
 
     assert info["enabled"] is True
     assert info["user"] == "ansible"
     assert info["target"] == "127.0.0.1"
-    assert info["required_role"] == "viewer"
+    assert info["required_role"] == "admin"
     assert info["active_sessions"] == 0
+
+
+def test_a_viewer_is_refused_a_shell_by_default(signed_in_viewer: TestClient) -> None:
+    # The console reaches the `ansible` account, which has passwordless sudo.
+    # A viewer's whole surface is GET requests, so serving one here would raise
+    # a read only account to root on a live hypervisor. `seapath-viewer` is a
+    # supplementary group added to an ordinary Unix account: being in it says
+    # nothing about holding sudo, and the console must not be what grants it.
+    with connect(signed_in_viewer) as socket:
+        assert socket.receive_json()["code"] == "permission_denied"
+        assert socket.receive()["code"] == 4403
+
+
+def test_an_operator_is_refused_a_shell_by_default(
+    settings: Settings, reader, authenticator, directory, run_adapter
+) -> None:
+    # An operator adds exactly one thing to a viewer, cancelling a run. The
+    # distance from there to root is the same distance.
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        session_secret=b"test-secret",
+        run_adapter=run_adapter,
+        console_adapter=FakeConsoleAdapter(),
+    )
+    with TestClient(application, base_url=BASE_URL) as client:
+        client.post(
+            "/api/v1/auth/login", json={"username": "operator", "password": "secret"}
+        )
+        with connect(client) as socket:
+            assert socket.receive_json()["code"] == "permission_denied"
+            assert socket.receive()["code"] == 4403
 
 
 def test_a_session_carries_bytes_both_ways(
@@ -216,11 +252,14 @@ def test_a_refusal_says_why(
             assert socket.receive()["code"] == 4409
 
 
-def test_a_site_can_require_more_than_reading(
+def test_a_site_can_lower_the_bar_and_gets_what_it_asked_for(
     settings: Settings, reader, authenticator, directory, run_adapter
 ) -> None:
+    # The setting goes both ways, and a site that deliberately opens the
+    # console to every account gets exactly that. The default refuses; this is
+    # the site overriding it, which is the whole point of it being a setting.
     application = create_app(
-        settings=settings.model_copy(update={"console_min_role": "admin"}),
+        settings=settings.model_copy(update={"console_min_role": "viewer"}),
         reader=reader,
         authenticator=authenticator,
         role_directory=directory,
@@ -232,10 +271,11 @@ def test_a_site_can_require_more_than_reading(
         client.post(
             "/api/v1/auth/login", json={"username": "viewer", "password": "secret"}
         )
-        assert client.get("/api/v1/node/console").json()["required_role"] == "admin"
+        assert client.get("/api/v1/node/console").json()["required_role"] == "viewer"
         with connect(client) as socket:
-            assert socket.receive_json()["code"] == "permission_denied"
-            assert socket.receive()["code"] == 4403
+            # The refusal is what a default install answers here. This one gets
+            # a terminal, because the site asked for it.
+            assert socket.receive() != {"type": "websocket.close", "code": 4403}
 
 
 def test_a_node_without_its_own_key_says_so_before_opening_a_terminal(
