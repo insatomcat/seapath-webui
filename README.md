@@ -99,6 +99,11 @@ run can be read months later or replayed from a control machine. The event
 stream becomes the per host recap Ansible prints at the end, the task stream as
 it arrives, and where the time went. The log is downloadable whole.
 
+Every page is drawn in the palette the operator's system asks for, and the
+switch in the top bar overrides it in either direction or hands the choice
+back. The console keeps its dark ground in both, because what it draws is what
+a shell and an Ansible run wrote for a terminal.
+
 ## Status
 
 **M1**, pending validation on real hardware. A machine installed from the ISO

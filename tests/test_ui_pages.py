@@ -341,15 +341,90 @@ def test_a_page_is_styled_without_fetching_anything(
     # A linked stylesheet is a round trip between the navigation and the first
     # paint, and these assets are served `no-cache`, so every hop between the
     # tabs painted the page unstyled while the conditional request was in
-    # flight. The head carries the styles themselves, and the scheme the
+    # flight. The head carries the styles themselves, and the schemes the
     # browser paints its own surfaces in.
     head = body.split("</head>")[0]
-    assert '<meta name="color-scheme" content="dark">' in head
+    assert '<meta name="color-scheme" content="light dark">' in head
     assert '<link rel="stylesheet"' not in body
     assert css in head
     # Read whole, so a selector with a `>` in it survives the templating.
     assert ".card.wide" in head
     assert "html {\n  background: var(--bg);\n}" in css
+
+
+@pytest.mark.parametrize("path", ["/", "/inventory", "/system", "/runs", "/login"])
+def test_the_palette_is_chosen_before_the_page_is_painted(
+    signed_in: TestClient, path: str
+) -> None:
+    head = signed_in.get(path).text.split("</head>")[0]
+
+    # Inline and in the head, for the same reason the stylesheet is: an
+    # operator whose system is light and who chose dark would see a white page
+    # flash by on every navigation, and this UI is navigated all day. A fetched
+    # script cannot promise to run before the first paint.
+    assert 'src="static/theme.js"' not in head
+    assert 'localStorage.getItem("seapath-theme")' in head
+    assert "document.documentElement.dataset.theme = choice" in head
+    # The login page is reached before there is a session, and it is styled by
+    # the same head, so it is themed too.
+    assert "(prefers-color-scheme: light)" in head
+
+
+def test_the_two_palettes_are_the_only_place_a_colour_is_written(
+    signed_in: TestClient,
+) -> None:
+    css = signed_in.get("/static/style.css").text
+
+    # The claim the second palette rests on: every rule reads a token, so a
+    # theme is a block of values rather than a second stylesheet. Anything
+    # outside the two `:root` blocks that names a colour is a rule that will
+    # stay dark on a light page.
+    palettes, rules = css.split('[data-theme="light"]')[1].split("}", 1)
+    literals = re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\(", rules)
+    assert literals == [], literals
+    assert "--accent: #0b62c4" in palettes
+
+
+def test_the_theme_switch_offers_the_system_as_a_third_state(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/").text
+
+    # Two states cannot express "follow the system": once the operator has
+    # touched a toggle there is no way back to it, and the system is the
+    # default every other application on that laptop honours.
+    assert 'role="radiogroup"' in body
+    for choice in ("system", "light", "dark"):
+        assert f'data-theme-choice="{choice}"' in body
+
+
+def test_the_sign_in_page_is_themed_without_carrying_the_switch(
+    client: TestClient,
+) -> None:
+    body = client.get("/login").text
+
+    # The switch is chrome, and there is no chrome before there is a session.
+    # The palette still applies, because it is decided in the head every page
+    # shares rather than by the script that draws the switch.
+    assert "data-theme-choice" not in body
+    assert 'localStorage.getItem("seapath-theme")' in body
+
+
+def test_the_console_keeps_its_own_ground_in_both_palettes(
+    signed_in: TestClient,
+) -> None:
+    css = signed_in.get("/static/style.css").text
+    script = signed_in.get("/static/console.js").text
+
+    # The terminal draws what a shell and an Ansible run wrote for a terminal,
+    # in the sixteen ANSI colours of one, which are chosen against a dark
+    # ground. Remapping them for a light page would be rewriting output this
+    # service passes through untouched, so the console tokens are declared once
+    # and the light palette does not redeclare them.
+    light = css.split('[data-theme="light"]')[1].split("}", 1)[0]
+    assert "--console-bg:" in css.split('[data-theme="light"]')[0]
+    assert "--console-bg:" not in light
+    assert 'token("--console-bg")' in script
 
 
 def test_a_table_scrolls_inside_its_card_rather_than_over_the_next_one(

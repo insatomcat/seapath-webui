@@ -8,10 +8,36 @@ SPDX-License-Identifier: Apache-2.0
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}SEAPATH{% endblock %}</title>
-    {# The scheme the browser paints its own surfaces in, said before anything
-       is fetched: form controls, scrollbars, and the canvas behind the page
-       while the document is still arriving. Without it they are white. #}
-    <meta name="color-scheme" content="dark">
+    {# Both schemes are supported, and the stylesheet's own `color-scheme`
+       says which one is in force. This is what the browser paints its own
+       surfaces in: form controls, scrollbars, and the canvas behind the page
+       while the document is still arriving. #}
+    <meta name="color-scheme" content="light dark">
+
+    {# Which of the two palettes, decided before the first paint. An operator
+       whose system is light and who chose dark would otherwise see a white
+       page flash by on every navigation, and this UI is navigated all day.
+
+       Small, inline and ahead of the styles on purpose: it has to run before
+       anything is painted, and a fetch cannot promise that. The stored value
+       is `light`, `dark`, or absent, and absent means follow the system.
+       `static/theme.js` writes that key and reads it back for the switch. #}
+    <script>
+      (function () {
+        var choice = null;
+        try {
+          choice = localStorage.getItem("seapath-theme");
+        } catch (error) {
+          /* A browser refusing storage still has a system preference. */
+        }
+        if (choice !== "light" && choice !== "dark") {
+          choice = window.matchMedia("(prefers-color-scheme: light)").matches
+            ? "light"
+            : "dark";
+        }
+        document.documentElement.dataset.theme = choice;
+      })();
+    </script>
     {# The name of this node's CSRF cookie, which the front end reads the token
        from. It carries a per node suffix, because a browser reaching two nodes
        through two ssh tunnels sees one host, localhost, and keeps one cookie
@@ -46,6 +72,33 @@ SPDX-License-Identifier: Apache-2.0
         </nav>
       </div>
       <div class="topbar-right">
+        {# A radio group and not three buttons: the three are one setting with
+           one value, which is what a screen reader has to be told. The labels
+           are on the group and on each glyph, because the glyphs are the whole
+           control and carry no text of their own. #}
+        <div id="theme" class="theme" role="radiogroup" aria-label="Colour theme">
+          <button type="button" role="radio" data-theme-choice="system"
+                  aria-checked="false" aria-label="Follow the system"
+                  title="Follow the system">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <rect x="2" y="3.5" width="12" height="8.5" rx="1"></rect>
+              <path d="M6 14h4"></path>
+            </svg>
+          </button>
+          <button type="button" role="radio" data-theme-choice="light"
+                  aria-checked="false" aria-label="Light" title="Light">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="3.2"></circle>
+              <path d="M8 1.4v1.5M8 13.1v1.5M1.4 8h1.5M13.1 8h1.5M3.3 3.3l1.1 1.1M11.6 11.6l1.1 1.1M12.7 3.3l-1.1 1.1M4.4 11.6l-1.1 1.1"></path>
+            </svg>
+          </button>
+          <button type="button" role="radio" data-theme-choice="dark"
+                  aria-checked="false" aria-label="Dark" title="Dark">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M13.4 9.7A5.7 5.7 0 0 1 6.3 2.6a5.7 5.7 0 1 0 7.1 7.1z"></path>
+            </svg>
+          </button>
+        </div>
         <span id="identity"></span>
         <button id="logout" type="button">Sign out</button>
       </div>
@@ -62,7 +115,9 @@ SPDX-License-Identifier: Apache-2.0
       </span>
     </footer>
 
-    {% if nav %}<script src="static/api.js"></script>
+    {# Ahead of the page's own script, which may draw with the palette. #}
+    {% if nav %}<script src="static/theme.js"></script>
+    <script src="static/api.js"></script>
     <script src="static/chrome.js"></script>{% endif %}
     {% block scripts %}{% endblock %}
   </body>

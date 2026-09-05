@@ -3,7 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+/* Two palettes, one set of names. Every rule below this block reads a token
+   and never a literal colour, which is what makes the second palette a block
+   of values rather than a second stylesheet.
+
+   The dark one is the base declaration, so a page whose script has not run
+   yet, or cannot run, renders the way this service has always rendered. The
+   light one is an attribute on the root element, stamped before the first
+   paint by the resolver in the head of the document. The system preference is
+   read there rather than in a media query here, so that the operator's own
+   choice and the system's are decided in one place instead of two that have
+   to agree. */
 :root {
+  color-scheme: dark;
+
   --bg: #10141a;
   --panel: #171d26;
   --line: #263140;
@@ -14,10 +27,69 @@
   --warn: #d9a441;
   --bad: #d9534f;
   --isolated: #7a5cd6;
+
+  /* The surfaces derived from the ten above. They are tokens rather than
+     literals because a wash is a colour over a background: the same amber at
+     ten percent reads as a warning over #10141a and as nothing at all over
+     white, so the alpha belongs to the palette and not to the rule. */
+  --on-accent: #07101c;
+  --line-soft: rgba(38, 49, 64, 0.5);
+  --accent-wash: rgba(74, 158, 255, 0.12);
+  --row-hover: rgba(74, 158, 255, 0.07);
+  --row-active: rgba(74, 158, 255, 0.14);
+  --warn-wash: rgba(217, 164, 65, 0.1);
+  --warn-ink: #eccd93;
+  --bad-wash: rgba(217, 83, 79, 0.12);
+  --bad-ink: #f4b9b7;
+  --scrim: rgba(6, 9, 13, 0.75);
+  --shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+
+  /* The two that stay put. The console is a terminal drawing bytes an Ansible
+     run emitted for a terminal, and the CPU map's fills carry the same meaning
+     as the colours of the Grafana dashboard this repository ships: both are
+     read against their own ground, so neither follows the page. What sits on
+     that ground does not follow it either. */
+  --console-bg: #0b0f15;
+  --console-ink: #dfe6ee;
+  --console-cursor: #4a9eff;
+  --console-select: rgba(74, 158, 255, 0.3);
+  --pool-ink: #0d1117;
+
   /* The top bar plus the footer plus the page's own padding, which is what a
      full height page has to subtract from the viewport to fit without a
      scrollbar. Written once here because three rules need the same number. */
   --chrome: 8.5rem;
+}
+
+/* The status colours are darker here than their dark mode counterparts rather
+   than the same hues lightened: a green that reads on #10141a is a green that
+   disappears on white, and these four are the ones an operator reads a verdict
+   from. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --line: #d5dce6;
+  --text: #16202e;
+  --muted: #5b6a7d;
+  --accent: #0b62c4;
+  --ok: #1a7f43;
+  --warn: #8a5d00;
+  --bad: #c0322d;
+  --isolated: #5a3fbe;
+
+  --on-accent: #ffffff;
+  --line-soft: rgba(120, 137, 158, 0.35);
+  --accent-wash: rgba(11, 98, 196, 0.1);
+  --row-hover: rgba(11, 98, 196, 0.06);
+  --row-active: rgba(11, 98, 196, 0.12);
+  --warn-wash: rgba(203, 141, 20, 0.16);
+  --warn-ink: #6f4a00;
+  --bad-wash: rgba(192, 50, 45, 0.09);
+  --bad-ink: #8f231f;
+  --scrim: rgba(22, 32, 46, 0.45);
+  --shadow: 0 6px 18px rgba(22, 32, 46, 0.16);
 }
 
 * {
@@ -97,7 +169,7 @@ button {
   background: var(--accent);
   border: none;
   border-radius: 4px;
-  color: #07101c;
+  color: var(--on-accent);
   font-weight: 600;
   cursor: pointer;
 }
@@ -126,9 +198,9 @@ button[aria-busy="true"] {
 .error {
   margin-top: 1rem;
   padding: 0.6rem 0.8rem;
-  background: rgba(217, 83, 79, 0.12);
+  background: var(--bad-wash);
   border-left: 3px solid var(--bad);
-  color: #f4b9b7;
+  color: var(--bad-ink);
   white-space: pre-wrap;
 }
 
@@ -184,6 +256,60 @@ button[aria-busy="true"] {
   color: var(--warn);
 }
 
+/* The theme switch. Three states and not two: "follow the system" is a
+   position an operator can come back to, and a switch that only toggles
+   light and dark has no way back to it once it has been touched. The three
+   are shown at once rather than cycled, because a control that cycles states
+   cannot say which one it is in. */
+.theme {
+  display: flex;
+  gap: 1px;
+  padding: 1px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+/* Every property the page's own button rule sets is undone here: this is a
+   switch drawn as three glyphs, not an action. */
+.theme button {
+  display: grid;
+  place-items: center;
+  width: 1.7rem;
+  height: 1.4rem;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.theme button:hover {
+  color: var(--text);
+}
+
+.theme button[aria-checked="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
+.theme button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Stroked rather than filled, so one set of glyphs works on both grounds:
+   `currentColor` is whatever the switch's own colour resolved to. */
+.theme svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* `min(24rem, 100%)` rather than `24rem`, so a narrow window shrinks the single
    column instead of pushing the whole page sideways. */
 .page {
@@ -197,9 +323,9 @@ button[aria-busy="true"] {
   grid-column: 1 / -1;
   margin: 0;
   padding: 0.7rem 0.9rem;
-  background: rgba(217, 164, 65, 0.1);
+  background: var(--warn-wash);
   border-left: 3px solid var(--warn);
-  color: #eccd93;
+  color: var(--warn-ink);
 }
 
 /* The tracks are `1fr`, a flexible maximum, so a card's automatic minimum size
@@ -344,7 +470,7 @@ th {
 
 td {
   padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid rgba(38, 49, 64, 0.5);
+  border-bottom: 1px solid var(--line-soft);
 }
 
 td button {
@@ -469,7 +595,7 @@ td button {
 }
 
 .nav a.current {
-  background: rgba(74, 158, 255, 0.12);
+  background: var(--accent-wash);
   color: var(--accent);
 }
 
@@ -550,9 +676,9 @@ td.missing button {
 .warning {
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
-  background: rgba(217, 164, 65, 0.1);
+  background: var(--warn-wash);
   border-left: 3px solid var(--warn);
-  color: #eccd93;
+  color: var(--warn-ink);
   font-size: 0.85rem;
 }
 
@@ -659,7 +785,7 @@ button.secondary {
 /* One entry at a time now, so the separator only earns its place between the
    fields of the picker and the entry they chose. */
 #playbook-detail.playbook {
-  border-top: 1px solid rgba(38, 49, 64, 0.6);
+  border-top: 1px solid var(--line-soft);
 }
 
 .playbook.unavailable {
@@ -774,7 +900,7 @@ button.secondary {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(6, 9, 13, 0.75);
+  background: var(--scrim);
   z-index: 10;
 }
 
@@ -810,11 +936,11 @@ button.secondary {
 }
 
 .run:hover {
-  background: rgba(74, 158, 255, 0.07);
+  background: var(--row-hover);
 }
 
 .run.current {
-  background: rgba(74, 158, 255, 0.14);
+  background: var(--row-active);
 }
 
 .run .when {
@@ -917,7 +1043,7 @@ button.secondary {
 .findings {
   margin: 0.75rem 0 0;
   padding-left: 1.1rem;
-  color: #eccd93;
+  color: var(--warn-ink);
   font-size: 0.85rem;
   line-height: 1.5;
 }
@@ -968,11 +1094,11 @@ button.secondary {
 }
 
 .tree-item:hover {
-  background: rgba(74, 158, 255, 0.07);
+  background: var(--row-hover);
 }
 
 .tree-item.current {
-  background: rgba(74, 158, 255, 0.14);
+  background: var(--row-active);
   color: var(--accent);
 }
 
@@ -1073,9 +1199,9 @@ button.secondary {
   gap: 0.75rem;
   margin-top: 0.75rem;
   padding: 0.6rem 0.8rem;
-  background: rgba(217, 164, 65, 0.1);
+  background: var(--warn-wash);
   border-left: 3px solid var(--warn);
-  color: #eccd93;
+  color: var(--warn-ink);
 }
 
 #references-details summary {
@@ -1159,7 +1285,7 @@ button.secondary {
   flex: 1;
   min-height: 0;
   padding: 0.5rem;
-  background: #0b0f15;
+  background: var(--console-bg);
   border: 1px solid var(--line);
   border-radius: 4px;
 }
@@ -1380,7 +1506,7 @@ button.secondary {
   width: 100%;
   background: none;
   border: 0;
-  border-bottom: 1px solid rgba(38, 49, 64, 0.5);
+  border-bottom: 1px solid var(--line-soft);
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -1388,7 +1514,7 @@ button.secondary {
 }
 
 .check-row:hover {
-  background: rgba(74, 158, 255, 0.06);
+  background: var(--row-hover);
 }
 
 .check-row .name {
@@ -1752,7 +1878,7 @@ button.secondary {
   place-items: center;
   border-radius: 3px;
   font-size: 0.62rem;
-  color: #0d1117;
+  color: var(--pool-ink);
   font-weight: 600;
   overflow: hidden;
   white-space: nowrap;
@@ -1780,7 +1906,7 @@ button.secondary {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 6px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow);
   font-size: 0.75rem;
   pointer-events: none;
 }

@@ -14,13 +14,25 @@ const Console = (function () {
   const FIT_DEBOUNCE_MS = 120;
 
   // The page's own palette. xterm.js paints its own background, so leaving it
-  // to the library means a black rectangle in the middle of the panel.
-  const THEME = {
-    background: "#0b0f15",
-    foreground: "#dfe6ee",
-    cursor: "#4a9eff",
-    selectionBackground: "rgba(74, 158, 255, 0.3)",
-  };
+  // to the library means a black rectangle in the middle of the panel. Read
+  // from the stylesheet, where the frame around the terminal reads the same
+  // four tokens, so the panel and the terminal inside it cannot drift apart.
+  //
+  // The four are the same in both palettes, which is why nothing here listens
+  // for a change of theme. What the terminal draws is what a shell and an
+  // Ansible run wrote for a terminal, in the sixteen ANSI colours of one, and
+  // those are chosen against a dark ground. Remapping them for a light page
+  // would be rewriting output this service is meant to pass through untouched.
+  function palette() {
+    const style = getComputedStyle(document.documentElement);
+    const token = (name) => style.getPropertyValue(name).trim();
+    return {
+      background: token("--console-bg"),
+      foreground: token("--console-ink"),
+      cursor: token("--console-cursor"),
+      selectionBackground: token("--console-select"),
+    };
+  }
 
   const RANKS = { viewer: 0, operator: 1, admin: 2 };
 
@@ -55,7 +67,7 @@ const Console = (function () {
       return terminal;
     }
     terminal = new Terminal({
-      theme: THEME,
+      theme: palette(),
       fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
       fontSize: 13,
       cursorBlink: true,

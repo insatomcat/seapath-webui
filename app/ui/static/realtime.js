@@ -83,17 +83,41 @@
   };
 
   // Enough for a machine with more threads than anyone measures at once, and
-  // distinguishable at a 1.5px stroke on the dark background.
-  const SERIES = [
-    "#4a9eff",
-    "#46b16b",
-    "#d9a441",
-    "#d9534f",
-    "#7a5cd6",
-    "#3fbfb0",
-    "#c86bd0",
-    "#8d9bad",
-  ];
+  // distinguishable at a 1.5px stroke. One ramp per palette rather than one
+  // ramp over two grounds: a 1.5px stroke is the thinnest thing on the page,
+  // and the amber and the grey that carry it on #10141a are gone on white.
+  //
+  // These are drawn into an SVG and set as inline styles, so they cannot come
+  // from a rule the way the rest of the page's colours do. The panel redraws
+  // itself when the palette changes, at the bottom of this file.
+  const RAMPS = {
+    dark: [
+      "#4a9eff",
+      "#46b16b",
+      "#d9a441",
+      "#d9534f",
+      "#7a5cd6",
+      "#3fbfb0",
+      "#c86bd0",
+      "#8d9bad",
+    ],
+    light: [
+      "#1668c9",
+      "#157f43",
+      "#8a5d00",
+      "#c0322d",
+      "#6b3fc4",
+      "#10736a",
+      "#a4359f",
+      "#55637a",
+    ],
+  };
+
+  // The colour of one thread, which is its position in the ramp in force.
+  function series(index) {
+    const ramp = RAMPS[Theme.current()];
+    return ramp[index % ramp.length];
+  }
 
   function element(id) {
     return document.getElementById(id);
@@ -1059,7 +1083,7 @@
         const cell = document.createElement("td");
         cell.textContent = value;
         if (column === 0) {
-          cell.style.color = SERIES[index % SERIES.length];
+          cell.style.color = series(index);
         }
         row.append(cell);
       });
@@ -1160,7 +1184,7 @@
 
     counts.forEach((series, index) => {
       const group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      group.setAttribute("fill", SERIES[index % SERIES.length]);
+      group.setAttribute("fill", series(index));
       for (let bucket = 0; bucket <= lastUsed; bucket += 1) {
         const count = series[bucket];
         if (count <= 0) {
@@ -1229,7 +1253,7 @@
     result.threads.forEach((thread, index) => {
       const item = document.createElement("span");
       const swatch = document.createElement("i");
-      swatch.style.background = SERIES[index % SERIES.length];
+      swatch.style.background = series(index);
       item.append(
         swatch,
         document.createTextNode(
@@ -1409,6 +1433,18 @@
       loadMeasurements("hwlatdetect"),
     ]);
   }
+
+  // The palette changed under the page. Everything else on it is a rule away
+  // from the right colour already; the histogram, its legend and the per
+  // thread table are painted with the ramp, so they are redrawn. Both
+  // measurements are already in hand, so this is local and there is no fetch.
+  window.addEventListener(Theme.EVENT, () => {
+    Object.keys(MEASUREMENTS).forEach((kind) => {
+      if (state.selected[kind]) {
+        renderMeasurement(kind);
+      }
+    });
+  });
 
   start().catch((failure) => {
     showBanner([failure.message]);
