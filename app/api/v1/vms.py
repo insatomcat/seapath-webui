@@ -69,7 +69,34 @@ class GuestDeclaration(BaseModel):
         default=None, description="A libvirt XML taken as it is"
     )
     force: bool = False
-    enable: bool = True
+
+    # What `cluster_vm create` is given, and therefore what is written into the
+    # image's metadata once and for good. Changing one afterwards is the
+    # metadata window and an outage, which is why they are asked here.
+    enable: bool = Field(
+        default=True, description="Add it to the cluster once it is created"
+    )
+    nostart: bool = Field(default=False, description="Define it and leave it stopped")
+    live_migration: bool = False
+    migrate_to_timeout: int | None = Field(
+        default=None, ge=0, description="Seconds a live migration may take"
+    )
+    migration_downtime: int | None = Field(
+        default=None, ge=0, description="Milliseconds the guest may be paused"
+    )
+    priority: int | None = Field(
+        default=None, ge=0, description="Pacemaker resource priority"
+    )
+    preferred_host: str | None = Field(
+        default=None, description="Run it here when possible"
+    )
+    pinned_host: str | None = Field(default=None, description="Run it here or nowhere")
+    disk_bus: str | None = None
+    colocated_vms: list[str] = Field(default_factory=list)
+    strong_colocation: bool = False
+    vm_pinning_profile: str | None = Field(
+        default=None, description="The seapath-alloc profile, as YAML"
+    )
 
 
 class DeclarationResponse(BaseModel):
@@ -110,18 +137,7 @@ def declare(
     a machine. See [D30](decisions.md#d30).
     """
     service = _service(request)
-    definition: dict[str, Any] = {
-        "vm_disk": payload.vm_disk,
-        "vm_template": payload.vm_template,
-        "xml_path": payload.xml_path,
-    }
-    # Both switches default in the roles to what an ordinary deployment wants,
-    # so only a guest that departs from that carries one. An entry spelling out
-    # `force: false` and `enable: true` says nothing and reads as if it did.
-    if payload.force:
-        definition["force"] = True
-    if not payload.enable:
-        definition["enable"] = False
+    definition = _definition(payload)
 
     try:
         commit = service.declare(payload.name, definition, user.username, if_match)
@@ -195,6 +211,38 @@ def stop(request: Request, name: str, user: User = operator) -> ActionResponse:
     guest is asked through ACPI, so one that ignores ACPI keeps running.
     """
     return _act(request, name, Action.STOP, user)
+
+
+def _definition(payload: GuestDeclaration) -> dict[str, Any]:
+    """The entry to write, in the order it reads well in the file.
+
+    Only what departs from the roles' own defaults. An entry spelling out
+    `force: false` and `enable: true` on every guest says nothing and reads as
+    if it did, and the file is somebody's audit trail.
+    """
+    definition: dict[str, Any] = {
+        "vm_disk": payload.vm_disk,
+        "vm_template": payload.vm_template,
+        "xml_path": payload.xml_path,
+        "preferred_host": payload.preferred_host,
+        "pinned_host": payload.pinned_host,
+        "priority": payload.priority,
+        "migrate_to_timeout": payload.migrate_to_timeout,
+        "migration_downtime": payload.migration_downtime,
+        "disk_bus": payload.disk_bus,
+        "colocated_vms": payload.colocated_vms,
+        "vm_pinning_profile": payload.vm_pinning_profile,
+    }
+    for name, value, default in (
+        ("force", payload.force, False),
+        ("enable", payload.enable, True),
+        ("nostart", payload.nostart, False),
+        ("live_migration", payload.live_migration, False),
+        ("strong_colocation", payload.strong_colocation, False),
+    ):
+        if value != default:
+            definition[name] = value
+    return definition
 
 
 class MetadataWrite(BaseModel):

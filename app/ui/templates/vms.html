@@ -141,9 +141,81 @@ image and losing its disk. D31 records the bounds.
       is.
     </p>
 
+    {# Everything below is passed to `cluster_vm create` and written once into
+       the metadata of the guest's image. Changing one afterwards is the
+       metadata window and an outage, so this is where they are cheap to get
+       right. Folded away because the ordinary guest wants none of them. #}
+    <details id="add-more">
+      <summary>Placement, migration and real time</summary>
+
+      <label for="add-placement">Placement</label>
+      <select id="add-placement">
+        <option value="">Anywhere the cluster chooses</option>
+        <option value="preferred_host">Prefer a node</option>
+        <option value="pinned_host">Pin to a node, or nowhere</option>
+      </select>
+      <select id="add-host" hidden></select>
+      <p class="help">
+        A pinned guest runs on that node or stays down. A preferred one starts
+        there when it can and moves when it cannot.
+      </p>
+
+      <label for="add-priority">Pacemaker priority</label>
+      <input type="number" id="add-priority" min="0" placeholder="0">
+      <p class="help">
+        Which guests Pacemaker keeps running when it cannot run them all.
+        Higher wins.
+      </p>
+
+      <label class="switch">
+        <input type="checkbox" id="add-live-migration">
+        Allow live migration
+      </label>
+      <div id="add-migration" hidden>
+        <label for="add-migrate-timeout">Migration timeout, seconds</label>
+        <input type="number" id="add-migrate-timeout" min="0" placeholder="120">
+        <label for="add-downtime">Allowed downtime, milliseconds</label>
+        <input type="number" id="add-downtime" min="0" placeholder="0">
+        <p class="help">
+          The user the migration runs as is <code>livemigration_user</code>,
+          which is one value for the whole cluster and lives in the inventory
+          beside the other cluster variables.
+        </p>
+      </div>
+
+      <label for="add-colocated">Keep it beside</label>
+      <select id="add-colocated" multiple size="4"></select>
+      <label class="switch">
+        <input type="checkbox" id="add-strong">
+        Refuse to start it when they cannot be together
+      </label>
+
+      <label for="add-bus">Disk bus</label>
+      <select id="add-bus">
+        <option value="">virtio, the default</option>
+        <option value="sata">sata</option>
+        <option value="scsi">scsi</option>
+        <option value="ide">ide</option>
+        <option value="usb">usb</option>
+      </select>
+
+      <label for="add-profile">CPU pinning profile</label>
+      <textarea id="add-profile" rows="6" spellcheck="false" wrap="off"
+        placeholder="version: 1&#10;vcpus:&#10;  isolation: exclusive_physical&#10;  scheduler: FIFO&#10;  priority: 90"></textarea>
+      <p class="help">
+        Read by the seapath-alloc hook at every start and every migration.
+        What <code>deploy_seapath_alloc</code> documents, and an alternative to
+        a fixed <code>cpuset</code> in the XML.
+      </p>
+    </details>
+
     <label class="switch">
       <input type="checkbox" id="add-enable" checked>
-      Start it once it is created
+      Add it to the cluster once it is created
+    </label>
+    <label class="switch">
+      <input type="checkbox" id="add-nostart">
+      Leave it stopped rather than starting it
     </label>
 
     <div class="card-actions">

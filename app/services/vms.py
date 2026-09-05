@@ -26,6 +26,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, Field
 
 from app.cluster.ha import PacemakerResource
@@ -111,6 +112,8 @@ class GuestsView(BaseModel):
     hand, or one left behind by an inventory somebody edited, keeps running and
     keeps a name that a later deployment would collide with.
     """
+    machines: list[str] = Field(default_factory=list)
+    """The machines a guest may be placed on, for the form that asks."""
     playbook: str = ""
     """The catalogue entry that deploys the group in this mode."""
     runtime_note: str = ""
@@ -118,6 +121,12 @@ class GuestsView(BaseModel):
     note: str = ""
     """Said when there is nothing to list at all."""
     inventory_commit: str | None = None
+
+
+# The disk buses `cluster_vm` passes through to libvirt. A short list rather
+# than free text: the value reaches a domain definition, and a bus libvirt does
+# not know is a guest that fails to start with a message about its disk.
+DISK_BUSES = ("virtio", "sata", "scsi", "ide", "usb")
 
 
 class InvalidGuest(Exception):
@@ -180,12 +189,74 @@ class VmService:
                 "digits and dashes."
             )
         variables = {
-            key: value for key, value in definition.items() if value not in (None, "")
+            key: value
+            for key, value in definition.items()
+            if value not in (None, "", [])
         }
+        self._check_definition(name, variables)
         commit, _ = self._inventory.declare_guest(
             name, variables, author, expected_head
         )
         return commit
+
+    def _check_definition(self, name: str, variables: dict[str, Any]) -> None:
+        """What the entry says, held against what this inventory declares.
+
+        Every one of these is written once, at creation, into the metadata of
+        the guest's RBD image, and changing it afterwards means the metadata
+        window and an outage. A typo caught here is worth a great deal more
+        than a typo caught there: `preferred_host: nod2` is a guest Pacemaker
+        places nowhere, reported as a constraint nobody can read.
+        """
+        state = self._inventory.state()
+        machines = set(state.inventory.hosts) if state.inventory else set()
+        guests = set(state.inventory.guests) if state.inventory else set()
+
+        if "pinned_host" in variables and "preferred_host" in variables:
+            raise InvalidGuest(
+                "A guest is pinned or preferred, and not both. `cluster_vm` "
+                "reads `pinned_host` first and ignores the other, so writing "
+                "the pair would hide one of the two decisions."
+            )
+        for field in ("pinned_host", "preferred_host"):
+            host = variables.get(field)
+            if host and host not in machines:
+                raise InvalidGuest(
+                    f"{host!r} is not a machine of this inventory. Pacemaker "
+                    "places a guest on a node it knows, and this one it does "
+                    f"not: {', '.join(sorted(machines)) or 'none declared'}."
+                )
+
+        unknown = [
+            item for item in variables.get("colocated_vms", []) if item not in guests
+        ]
+        if unknown:
+            raise InvalidGuest(
+                f"{', '.join(unknown)} is not a guest of this inventory, so "
+                "there is nothing to keep this one beside."
+            )
+
+        bus = variables.get("disk_bus")
+        if bus and bus not in DISK_BUSES:
+            raise InvalidGuest(
+                f"{bus!r} is not a disk bus this service writes. One of "
+                f"{', '.join(DISK_BUSES)}."
+            )
+
+        profile = variables.get("vm_pinning_profile")
+        if profile:
+            try:
+                parsed = yaml.safe_load(profile)
+            except yaml.YAMLError as error:
+                raise InvalidGuest(
+                    f"The pinning profile is not YAML: {error}"
+                ) from error
+            if not isinstance(parsed, dict):
+                raise InvalidGuest(
+                    "The pinning profile is a mapping, the one "
+                    "`deploy_seapath_alloc` documents, starting with "
+                    "`version: 1`."
+                )
 
     def guests(self) -> GuestsView:
         state = self._inventory.state()
@@ -195,6 +266,7 @@ class VmService:
         mode = state.inventory.mode
         view = GuestsView(
             mode=mode.value,
+            machines=list(state.inventory.hosts),
             playbook=DEPLOY_PLAYBOOK[mode],
             inventory_commit=state.commit,
         )

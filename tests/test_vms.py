@@ -571,3 +571,126 @@ def test_applying_a_metadata_change_is_disable_then_enable(
         "disable",
         "enable",
     ]
+
+
+# 6. What a guest is created with, which is what its image then carries.
+
+
+def test_the_options_a_creation_bakes_in_are_written_into_the_entry(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # Every one of these reaches `cluster_vm create` and is written once into
+    # the metadata of the guest's image. Changing one afterwards is the
+    # metadata window and an outage, so the form asks while it is still cheap.
+    _declare_cluster(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "vm_disk": "../files/newvm.qcow2",
+            "preferred_host": "node2",
+            "priority": 20,
+            "live_migration": True,
+            "migrate_to_timeout": 300,
+            "migration_downtime": 50,
+            "disk_bus": "scsi",
+            "colocated_vms": ["vm-guest1"],
+            "strong_colocation": True,
+            "nostart": True,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    for line in (
+        "preferred_host: node2",
+        "priority: 20",
+        "live_migration: true",
+        "migrate_to_timeout: 300",
+        "migration_downtime: 50",
+        "disk_bus: scsi",
+        "strong_colocation: true",
+        "nostart: true",
+    ):
+        assert line in written
+
+
+def test_a_placement_naming_a_machine_the_inventory_lacks_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # `preferred_host: nod2` is a guest Pacemaker places nowhere, reported as
+    # a constraint nobody can read. Caught here it is a typo in a form.
+    _declare_cluster(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "preferred_host": "nod2"}
+    )
+
+    assert response.status_code == 400
+    assert "not a machine of this inventory" in response.json()["error"]["message"]
+
+
+def test_a_guest_is_pinned_or_preferred_and_not_both(signed_in: TestClient) -> None:
+    # `cluster_vm` reads `pinned_host` first and ignores the other, so writing
+    # the pair would hide one of the two decisions.
+    _declare_cluster(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "preferred_host": "node2", "pinned_host": "node3"},
+    )
+
+    assert response.status_code == 400
+
+
+def test_a_colocation_with_a_guest_nobody_declared_is_refused(
+    signed_in: TestClient,
+) -> None:
+    _declare_cluster(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "colocated_vms": ["ghost"]}
+    )
+
+    assert response.status_code == 400
+
+
+def test_a_pinning_profile_that_is_not_yaml_is_refused(signed_in: TestClient) -> None:
+    # It is read by the seapath-alloc hook at every start, so a broken one is a
+    # guest that fails to start long after the form was submitted.
+    _declare_cluster(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "vm_pinning_profile": "version: [1"},
+    )
+
+    assert response.status_code == 400
+    assert "not YAML" in response.json()["error"]["message"]
+
+
+def test_the_defaults_the_roles_already_have_are_not_written(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # An entry spelling out `force: false`, `enable: true` and
+    # `live_migration: false` on every guest says nothing and reads as if it
+    # did, and the file is somebody's audit trail.
+    _declare_cluster(signed_in)
+
+    signed_in.post("/api/v1/vms", json={"name": "newvm"})
+
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    # The entry it wrote is the name and nothing else, which is also the shape
+    # a guest already running is adopted with.
+    assert written.endswith("    newvm:\n")
+
+
+def test_the_form_is_offered_the_machines_a_guest_can_be_placed_on(
+    signed_in: TestClient,
+) -> None:
+    _declare_cluster(signed_in)
+
+    view = signed_in.get("/api/v1/vms").json()
+
+    assert view["machines"] == ["node1", "node2", "node3"]

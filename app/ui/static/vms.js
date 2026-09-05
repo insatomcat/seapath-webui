@@ -539,11 +539,69 @@
 
   function showAdd(open) {
     element("add-modal").hidden = !open;
+    // The placement and colocation choices are Pacemaker's, so they are
+    // offered where there is a Pacemaker. A standalone guest takes its start
+    // switches and its pinning profile and nothing else.
+    element("add-more").hidden = mode !== "cluster";
     if (open) {
       element("add-error").hidden = true;
       element("add-steps").hidden = true;
       element("add-name").focus();
     }
+  }
+
+  // The machines a guest may be placed on and the guests it may be kept
+  // beside, both filled from the reading the page already has.
+  function fillChoices(view) {
+    const hosts = clear(element("add-host"));
+    (view.machines || []).forEach((name) => {
+      hosts.append(new Option(name, name));
+    });
+    const beside = clear(element("add-colocated"));
+    (view.guests || []).forEach((guest) => {
+      beside.append(new Option(guest.name, guest.name));
+    });
+  }
+
+  element("add-placement").addEventListener("change", (event) => {
+    element("add-host").hidden = !event.target.value;
+  });
+
+  element("add-live-migration").addEventListener("change", (event) => {
+    element("add-migration").hidden = !event.target.checked;
+  });
+
+  // What the form holds beyond the three files, which is what
+  // `cluster_vm create` is given and what the image's metadata then carries.
+  function declaration() {
+    const placement = element("add-placement").value;
+    const chosen = [...element("add-colocated").selectedOptions].map(
+      (option) => option.value
+    );
+    const number = (id) => {
+      const raw = element(id).value.trim();
+      return raw === "" ? null : Number(raw);
+    };
+    const fields = {
+      enable: element("add-enable").checked,
+      nostart: element("add-nostart").checked,
+      vm_pinning_profile: element("add-profile").value.trim() || null,
+    };
+    if (mode !== "cluster") {
+      return fields;
+    }
+    if (placement) {
+      fields[placement] = element("add-host").value;
+    }
+    return Object.assign(fields, {
+      priority: number("add-priority"),
+      live_migration: element("add-live-migration").checked,
+      migrate_to_timeout: number("add-migrate-timeout"),
+      migration_downtime: number("add-downtime"),
+      disk_bus: element("add-bus").value || null,
+      colocated_vms: chosen,
+      strong_colocation: element("add-strong").checked,
+    });
   }
 
   // The role reads a `.j2` as a template and renders it per guest, and takes
@@ -599,9 +657,12 @@
       progress.at(1, "done");
 
       progress.at(2, "doing");
-      const declaration = { name, vm_disk: "../" + diskPath, enable: true };
-      declaration[xmlVariable(xml.name)] = "../" + xmlPath;
-      const declared = await API.post("/vms", declaration);
+      const entry = Object.assign(
+        { name, vm_disk: "../" + diskPath },
+        declaration()
+      );
+      entry[xmlVariable(xml.name)] = "../" + xmlPath;
+      const declared = await API.post("/vms", entry);
       progress.at(2, "done");
 
       progress.at(3, "doing");
@@ -642,6 +703,7 @@
     const view = await API.get("/vms");
     renderGuests(view);
     renderUndeclared(view);
+    fillChoices(view);
     // Adding a VM commits the inventory and launches a run, which is an
     // administrator's act like every other write in this service.
     element("add").hidden = !Chrome.isAdmin(me);

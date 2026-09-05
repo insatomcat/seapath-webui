@@ -525,6 +525,26 @@ that names them, then `POST /runs` with the playbook it answered. Every one of
 those is a write this service already made, and no machine is touched outside
 the run. See [D30](decisions.md#d30).
 
+`POST /vms` also takes what `cluster_vm create` is given, and that is where it
+belongs: every one of `preferred_host`, `pinned_host`, `priority`,
+`live_migration`, `migrate_to_timeout`, `migration_downtime`, `disk_bus`,
+`nostart`, `colocated_vms`, `strong_colocation` and `vm_pinning_profile` is
+written once into the metadata of the guest's image, and changing one
+afterwards is the metadata window and an outage. Only what departs from the
+roles' own defaults reaches the file.
+
+Three of them are checked against the inventory rather than passed through. A
+placement names a machine the inventory declares, since `preferred_host: nod2`
+is a guest Pacemaker places nowhere and reports as a constraint nobody can
+read. A guest is pinned or preferred and not both, because `cluster_vm` reads
+`pinned_host` first and ignores the other. And a colocation names guests this
+inventory has. The pinning profile has to parse as a YAML mapping, since the
+seapath-alloc hook reads it at every start.
+
+`livemigration_user` is not among them: the role takes it from the play rather
+than from the guest, so it is one value for the whole cluster and lives with
+the other cluster variables in the inventory.
+
 A guest that is already running is declared by its name alone, with no
 `vm_disk` and no `xml_path`: the deployment role skips its whole creation block
 when the guest exists and carries no `force`, and the two variables are read

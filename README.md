@@ -78,7 +78,11 @@ destroy and recreate a guest that carries it.
 
 Adding a VM is the act it performs whole. Name the
 guest, pick a disk image and a libvirt XML, and the page uploads both, commits
-the entry and launches the deployment. Underneath, those are the writes this
+the entry and launches the deployment. Folded under those three is what
+`cluster_vm create` is given: placement, priority, live migration and its
+timeouts, colocation, disk bus, the pinning profile. They are asked there
+because each is written once into the guest's image metadata, and changing one
+afterwards costs an outage. Underneath, those are the writes this
 service has always made and the upstream playbook it has always run: the image
 to the store git does not carry, the XML committed with the inventory, the
 guest a splice into the file checked like every other write, and a whole
