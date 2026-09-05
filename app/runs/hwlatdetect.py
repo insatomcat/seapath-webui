@@ -48,6 +48,11 @@ _COUNT = re.compile(
 )
 _COMMAND = re.compile(r"^hwlatdetect[^\n]*", re.MULTILINE)
 _UNSUPPORTED = re.compile(r"no\s+hwlat\s+tracer", re.IGNORECASE)
+# `hwlatdetect` is a Python script, and it dies like one. Seen in the field
+# when `rdmsr` is installed and prints its SMI counts labelled, which the tool
+# reads as bare integers: one machine of a cluster measures and its neighbour
+# stops before the tracer is ever started.
+_TRACEBACK = re.compile(r"^Traceback \(most recent call last\)", re.MULTILINE)
 
 
 class Interruption(BaseModel):
@@ -90,6 +95,16 @@ class HwlatdetectResult(BaseModel):
     interruptions: list[Interruption] = Field(default_factory=list)
     message: str | None = None
     """Why this machine returned nothing, when it returned nothing."""
+    output: list[str] = Field(default_factory=list)
+    """What the machine printed, when this module could not read it.
+
+    Two machines converged from the same inventory answering differently is
+    the finding a measurement is run for, and "no report was found" on one of
+    them is not an answer an operator can act on. So the lines themselves are
+    carried, and the panel shows them: a tool that is missing, a tracer that
+    is held by something else and a kernel too old all say so in the first
+    line they print.
+    """
 
     @property
     def worst_us(self) -> int | None:
@@ -150,10 +165,41 @@ def parse(host: str, raw: str) -> HwlatdetectResult:
         # how to read, and saying so beats an empty chart that reads as a clean
         # machine.
         result.message = (
-            "No hwlatdetect report was found in the fetched file. The run log "
-            "has what the machine printed."
+            _crash(raw)
+            or "No hwlatdetect report was found in the fetched file. What the "
+            "machine printed is below, and the run log has the rest."
         )
+        result.output = _excerpt(raw)
     return result
+
+
+def _crash(raw: str) -> str | None:
+    """The tool died before it measured, named by the exception it died on.
+
+    Worth telling apart from an unreadable file: the machine is not dirty, is
+    not clean and was never asked, and the answer is on the machine rather than
+    in the firmware. Ansible reports the task as failed, so the run says so
+    too, and this is the same fact where an operator is reading the results.
+    """
+    if not _TRACEBACK.search(raw):
+        return None
+    lines = [line.strip() for line in raw.splitlines() if line.strip()]
+    return (
+        "hwlatdetect stopped on an error before it measured anything, so this "
+        "machine was never asked: " + lines[-1] + "."
+    )
+
+
+# Enough to carry a usage message or a whole Python traceback, and short enough
+# to sit in a card beside the machines that answered properly. Indentation is
+# kept: a traceback read as a flat list of lines is harder than it needs to be.
+_EXCERPT_LINES = 12
+_EXCERPT_WIDTH = 200
+
+
+def _excerpt(raw: str) -> list[str]:
+    lines = [line.rstrip() for line in raw.splitlines() if line.strip()]
+    return [line[:_EXCERPT_WIDTH] for line in lines[:_EXCERPT_LINES]]
 
 
 def _interruptions(raw: str) -> list[Interruption]:

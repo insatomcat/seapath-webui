@@ -1024,6 +1024,12 @@
         worst = Math.max(worst, item.inner_us, item.outer_us);
       })
     );
+    // A machine of the run that brought nothing back is said on the tab, and
+    // it takes the dot off green. Two of four machines crashing the tool
+    // before it started is a finding, and a green dot over "nothing above the
+    // threshold" reads as a cluster that was measured and came back clean.
+    const silent = results.length - measured.length;
+    const missing = silent ? ", " + silent + " did not answer" : "";
     return gaps
       ? [
           "warning",
@@ -1032,9 +1038,13 @@
             (gaps > 1 ? "s" : "") +
             " above the threshold, the worst " +
             worst +
-            "us",
+            "us" +
+            missing,
         ]
-      : ["ok", "nothing above the threshold on " + machines(measured.length)];
+      : [
+          silent ? "unknown" : "ok",
+          "nothing above the threshold on " + machines(measured.length) + missing,
+        ];
   }
 
   // hwlatdetect returns a list of gaps rather than a distribution, and usually
@@ -1053,6 +1063,15 @@
       note.className = result.supported ? "warning" : "legend";
       note.textContent = result.message;
       section.append(note);
+      // What the machine actually printed, when this is the machine of the run
+      // that answered differently from the others. Without it the card sends
+      // an operator to the run log to read four lines.
+      if ((result.output || []).length) {
+        const printed = document.createElement("pre");
+        printed.className = "measure-output";
+        printed.textContent = result.output.join("\n");
+        section.append(printed);
+      }
       return section;
     }
 

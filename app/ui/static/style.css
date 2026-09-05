@@ -1775,6 +1775,24 @@ button.secondary {
   font-size: 0.75rem;
 }
 
+/* What a machine printed when nothing could be read from it. Kept as the tool
+   wrote it, and scrollable, so a long usage message does not widen the column
+   its three siblings are laid out against. */
+.measure-output {
+  margin: 0.3rem 0 0;
+  padding: 0.4rem 0.5rem;
+  overflow-x: auto;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line-soft);
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* The chart is a shape, read at a glance: where the bulk sits and how far the
    tail runs. One per machine, at the width of its column. */
 .chart {

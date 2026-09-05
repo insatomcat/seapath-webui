@@ -377,6 +377,12 @@ found nothing, and the distinction is load bearing: showing an unmeasurable
 machine as a machine with no interruptions tells an operator their firmware is
 clean when nobody looked.
 
+A machine whose fetched file holds no report at all carries `message` and, in
+`output`, the first lines the machine printed. One machine of a run answering
+differently from the others is what the measurement is for, and the reason is
+usually in the first line the tool wrote: a tracer already in use, a package
+missing, a kernel too old.
+
 **Measuring is a run, launched through `POST /runs` like any other playbook.**
 There is no endpoint here that starts one, and that is the design rather than
 an omission. `cyclictest` executes on the machines the inventory declares, over

@@ -56,6 +56,17 @@ measured here.
 """
 
 
+CRASHED = f"""{_COMMAND}
+
+Traceback (most recent call last):
+  File "/usr/sbin/hwlatdetect", line 443, in <module>
+    detect = Tracer()
+  File "/usr/sbin/hwlatdetect", line 146, in getsmicounts
+    counts = [int(x.strip()) for x in p.stdout.readlines()]
+ValueError: invalid literal for int() with base 10: b'CPU 0: 7851'
+"""
+
+
 def test_a_clean_machine_reports_no_interruption_and_stays_supported() -> None:
     result = parse("node1", CLEAN)
 
@@ -121,6 +132,39 @@ def test_a_file_with_no_report_says_so_rather_than_reading_as_clean() -> None:
     assert result.supported is True
     assert result.samples_recorded is None
     assert "run log" in result.message
+
+
+def test_a_file_with_no_report_carries_what_the_machine_printed() -> None:
+    # The case an operator meets on one machine of a run whose other machines
+    # answered: the difference is the finding, and it is in these lines.
+    result = parse(
+        "node2",
+        "hwlatdetect --duration=120\n\nERROR: hwlat tracer is in use\n",
+    )
+
+    assert result.output == [
+        "hwlatdetect --duration=120",
+        "ERROR: hwlat tracer is in use",
+    ]
+
+
+def test_a_tool_that_died_is_reported_as_a_machine_that_was_never_asked() -> None:
+    # hwlatdetect is a Python script: when it dies, the file holds a traceback
+    # and no report. The machine is neither clean nor dirty, and the exception
+    # is the sentence an operator needs.
+    result = parse("node2", CRASHED)
+
+    assert result.supported is True
+    assert "never asked" in result.message
+    assert result.message.endswith(
+        "ValueError: invalid literal for int() with base 10: b'CPU 0: 7851'."
+    )
+    # Indented as the interpreter printed it, so the frames stay readable.
+    assert "    detect = Tracer()" in result.output
+
+
+def test_a_machine_that_answered_carries_no_excerpt() -> None:
+    assert parse("node1", CLEAN).output == []
 
 
 def test_the_results_of_a_run_are_read_by_host_name(tmp_path: Path) -> None:
