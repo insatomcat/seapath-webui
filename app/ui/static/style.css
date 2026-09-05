@@ -1434,14 +1434,27 @@ button.secondary {
   padding: 0.3rem 0.25rem;
 }
 
-/* The machine a column stands for. It wraps rather than truncating: a
-   hostname an operator cannot read names nothing. */
+/* The machine a column stands for, and under it the tag saying it is the one
+   the browser is pointed at. Stacked rather than side by side: a column is as
+   wide as the inventory makes it, and beside a hostname the tag was broken
+   across two lines mid-word, which reads as damage rather than as a label. */
 .check-node {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+/* The name wraps rather than truncating: a hostname an operator cannot read
+   names nothing. */
+.check-host {
   overflow-wrap: anywhere;
 }
 
+/* The tag is two words and a border. It has a line of its own now, so it takes
+   it whole or the border ends up around half of it. */
 .check-node .tag {
-  margin-left: 0.2rem;
+  white-space: nowrap;
 }
 
 /* One machine's answer to one check: the status, and the value behind it. The
