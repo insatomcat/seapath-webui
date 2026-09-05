@@ -42,7 +42,8 @@ the UI runs is what the CI tests.
 isolated and housekeeping CPUs as the kernel command line and `sysfs` report
 them, the disks under the stable `by-path` name Ceph wants, and the interfaces.
 It is read only, and the console button opens a shell on the `ansible` account
-for the times a page is not enough.
+for the times a page is not enough. That account has passwordless sudo, so a
+console is root on the machine, and opening one asks for an administrator.
 
 ![The Inventory page: the folder on the left, the file being edited on the right](img/inventory.png)
 
@@ -52,16 +53,21 @@ quadlet, rule and template it names, with the history of who changed what. The
 editor parses, checks the rules and asks `ansible-inventory` about the result
 before committing anything.
 
-![The System page: the playbooks, and the SSH trust to the other machines](img/system.png)
+![The System page: the playbooks, the SSH trust to the other machines, and the code this node runs](img/system.png)
 
 **System** is where a machine actually changes. Commissioning runs the full
 convergence; the picker beside it runs a single playbook when a single thing
 was edited, and every entry says what it plays, what it will restart, and why
-this node may not be allowed to run it. The lower half is the SSH trust: the
-site key this node holds, and the host keys it has accepted, both undone in one
-click.
+this node may not be allowed to run it. Under them sit two panels, shut until
+they are needed. Reaching the other machines is the SSH trust: the site key
+this node holds, and the host keys it has accepted, both undone in one click.
+The code this node runs is the pair that decides what an apply executes: the
+`seapath.ansible` collection, which arrives as a file when the fix is upstream
+and the image is not out yet, and this service itself, which is
+`seapath_webui_image` in the inventory and changes the way every other change
+to a machine does, by an apply.
 
-![The Real time page: one conformance row per check and one column per machine, beside the cluster CPU pool and the measurements](img/realtime.png)
+![The Real time page: the four view tabs and their summaries, over one conformance row per check and one column per machine](img/realtime.png)
 
 **Real time** answers whether the machines came out of a convergence with the
 tuning they were told to have. One row per check, one column per machine: each
@@ -71,24 +77,27 @@ SSH command is issued to draw them. Opening a row says what each machine
 answered and what its own inventory entry asks of it. The commonest finding is
 a machine converged and never rebooted, which the kernel's boot-time reading of
 `isolcpus` hides from every other view, and which used to be visible only on
-the machine the browser happened to be pointed at. Beside the checks, two
-measurements,
+the machine the browser happened to be pointed at. Two measurements back it,
 both running on the machines through Ansible rather than inside this container:
 `cyclictest` for what the scheduler delivered, and `hwlatdetect` for what the
 firmware took without telling the kernel. A machine that passes every check and
 still misses its deadline is either a firmware problem or a configuration one,
 and the second measurement is the only thing that separates them.
 
-Beside them, the CPU pool of **every machine the inventory declares**, read
-from the same request as the tuning above: which core carries which guest,
-interrupt, container or shared slot. `seapath-alloc` computes that on
+The CPU pool has a view of its own, holding **every machine the inventory
+declares**, read from the same request as the tuning: which core carries which
+guest, interrupt, container or shared slot. `seapath-alloc` computes that on
 each host and publishes it, and this container could not compute it if it
 wanted to, since occupancy is the affinity of every QEMU thread in `/proc`.
 Asking the exporter is the opposite of holding a second source of truth for it.
 
-It is the one page laid out as an application rather than as a document: the
-panes are placed and each scrolls inside itself, because an answer that has to
-be scrolled for is one an operator stops reading. See D24, D25 and D26 in
+It is the one page laid out as an application rather than as a document. Four
+views, Conformance, CPU pool, Latency and Firmware, and a bar of tabs that
+carries what each of them found: its worst status as a dot, and the one line
+its panel would lead with. The glance costs no click, and the view behind the
+tab has the whole screen, which is what ten checks across four machines of
+forty-eight threads need. Every reading is fetched before the first tab is
+drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
 [docs/decisions.md](docs/decisions.md).
 
 ![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)
@@ -117,6 +126,14 @@ material generated at first boot, the read only node view and its API, the
 image, the quadlet and the test harness. The node view describes what the
 machine is, not what it is doing: live state stays with
 `prometheus-node-exporter`, which every SEAPATH node runs.
+
+Two things arrived after M1 and are validated separately. The **Real time**
+page, which reads the tuning every node publishes through its exporter and runs
+the two measurements as ordinary playbooks. And the update path of D23: the
+collection a node runs can be replaced by a file, and the version of this
+service each machine runs is an inventory variable that an apply carries.
+[docs/validation.md](docs/validation.md) holds the checklists for M0, M1 and
+the Real time page, and all three are still to be run on a real machine.
 
 M2, next, is the VM runtime plane through `vm_manager`.
 
