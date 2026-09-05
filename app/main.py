@@ -20,8 +20,9 @@ from fastapi import FastAPI
 from app import __version__
 from app.api import v1
 from app.cluster.exporters import MetricsClient
-from app.cluster.fake import FakeMetricsClient
+from app.cluster.fake import FakeMetricsClient, FakeRbdClient
 from app.cluster.pool import PoolReader
+from app.cluster.rbd import CommandRbdClient, RbdClient
 from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
 from app.console.service import ConsoleService
 from app.core.auth import (
@@ -51,6 +52,7 @@ from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
 from app.services.cluster import ClusterService
+from app.services.metadata import MetadataService
 from app.services.node import NodeService
 from app.services.realtime import RealtimeService
 from app.services.storage import StorageService
@@ -121,6 +123,7 @@ def create_app(
     run_adapter: RunAdapter | None = None,
     console_adapter: ConsoleAdapter | None = None,
     metrics_client: MetricsClient | None = None,
+    rbd_client: RbdClient | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -294,6 +297,13 @@ def create_app(
     )
     # The guests: their definition from the inventory, their files from the two
     # stores, and their Pacemaker resource from the cluster service above.
+    # A guest's Pacemaker configuration lives as metadata on its RBD image, and
+    # the quadlet has mounted /etc/ceph from the start for exactly this. Read
+    # over Ceph's own client rather than through a machine asked to read it on
+    # this service's behalf. See D31.
+    if rbd_client is None:
+        rbd_client = FakeRbdClient() if settings.use_fakes else CommandRbdClient()
+    app.state.metadata_service = MetadataService(rbd_client)
     app.state.vm_service = VmService(
         inventory=app.state.inventory_service,
         cluster=app.state.cluster_service,

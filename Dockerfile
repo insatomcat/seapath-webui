@@ -95,7 +95,7 @@ RUN ansible-galaxy collection list --collections-path=/opt/ansible/collections
 
 FROM python:3.11-slim
 
-# Four tools, each earning its place:
+# Five tools, each earning its place:
 #   git                     the inventory repository, which is the audit trail
 #   openssh-client          the configuration plane, which reaches every node
 #                           over SSH including the local one
@@ -108,6 +108,15 @@ FROM python:3.11-slim
 #                           and deploy_seapath_alloc. Without it the task fails
 #                           on every host with "Failed to find required
 #                           executable rsync", naming the container's PATH
+#   ceph-common             `rbd image-meta`, for the metadata a guest's
+#                           Pacemaker configuration lives in. The quadlet has
+#                           mounted /etc/ceph from the start and the container
+#                           runs on the host network, so the monitors are
+#                           reachable; this is the client that talks to them.
+#                           It is the largest of the five by a distance, and it
+#                           buys the only supported way to change a guest's
+#                           placement without recreating it from its seed
+#                           image. See D31.
 #
 # No `systemd` and no `chrony`. This image held both so it could ask the host
 # for unit states, the journal and the clock offset, which is live state that
@@ -117,6 +126,7 @@ FROM python:3.11-slim
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
+        ceph-common \
         git \
         iproute2 \
         libpam-modules \

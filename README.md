@@ -88,10 +88,13 @@ and a group name they have no reason to know.
 Editing a guest's metadata is there too. A guest's Pacemaker configuration
 lives as metadata on its RBD image, `vm_manager` writes those keys at creation
 and never again, and the only upstream way to change one is to recreate the
-guest from its seed image and lose its disk. The panel reads them with `rbd
-image-meta`, writes one, and reads the image again to say what actually moved.
-Applying a change stops the guest and rebuilds its Pacemaker resource, so it is
-a second button that names the outage and appears only when something did move.
+guest from its seed image and lose its disk. So the page asks Ceph directly,
+with `rbd image-meta`, the way the cluster view asks the exporters: a window
+lists what the image carries, another edits one value, wide enough for the
+libvirt domain that lives in there under `xml`. Every write reads the image
+before and after and says what moved. Applying a change stops the guest and
+rebuilds its Pacemaker resource, so it is a second button that names the outage
+and appears only when something did move.
 
 Starting and stopping a guest are there too, one button per row, offered as
 whichever of the two would change something. Each is a run: one task calling

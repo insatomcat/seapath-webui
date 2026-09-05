@@ -809,14 +809,27 @@ def test_adding_a_vm_says_what_it_will_do_before_it_does_it(
 
 def test_the_vms_page_edits_the_metadata_of_a_guest(signed_in: TestClient) -> None:
     # A guest's Pacemaker configuration lives as metadata on its RBD image,
-    # and `vm_manager` writes those keys at creation and never again. This
-    # panel is where they are read and changed. See D31.
+    # and `vm_manager` writes those keys at creation and never again. See D31.
     body = signed_in.get("/vms").text
 
-    assert 'id="meta-card"' in body
-    assert 'id="meta-key"' in body
-    assert 'id="meta-value"' in body
+    assert 'id="meta"' in body
+    assert 'id="edit-key"' in body
+    assert 'id="edit-value"' in body
     assert "rbd image-meta" in body
+
+
+def test_a_metadata_value_is_edited_in_a_window_wide_enough_for_it(
+    signed_in: TestClient,
+) -> None:
+    # `vm_manager` stores the running libvirt domain under `xml` and the
+    # template it was built from under `_base_xml`. Editing one of those in a
+    # three line box is how a closing tag goes missing, so the editor is its
+    # own window and takes the room.
+    body = signed_in.get("/vms").text
+
+    assert '<div class="modal-body wide tall">' in body
+    assert "<textarea" in body
+    assert ".modal-body.tall textarea" in body
 
 
 def test_applying_a_metadata_change_is_offered_as_the_outage_it_is(

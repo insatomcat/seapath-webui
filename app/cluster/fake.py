@@ -412,3 +412,55 @@ class FakeMetricsClient:
                 if f"{host}:{port}/" in url:
                     return text, ""
         return None, "No route to host"
+
+
+# The metadata `vm_manager` writes at creation, for the guests the fake cluster
+# runs. Enough of the real keys that the page can be built against it: one
+# guest pinned, one carrying a pinning profile, and a site's own label beside
+# them so the two kinds are told apart on screen.
+IMAGE_METADATA: dict[str, dict[str, str]] = {
+    "system_vm-guest1": {
+        "vm_name": "vm-guest1",
+        "_live_migration": "true",
+        "_priority": "10",
+        "_preferred_host": _CLUSTER_NODES[0],
+        "site_owner": "protection",
+    },
+    "system_vm-guest2": {
+        "vm_name": "vm-guest2",
+        "_pinned_host": _CLUSTER_NODES[1],
+        "_seapath_alloc": (
+            "version: 1\nvcpus:\n  isolation: exclusive_physical\n"
+            "  scheduler: FIFO\n  priority: 90\n"
+        ),
+    },
+    "system_vm-guest3": {"vm_name": "vm-guest3"},
+}
+
+
+class FakeRbdClient:
+    """An image store in memory, with the metadata above already on it.
+
+    Writes land here and the next read sees them, which is what makes the whole
+    edit path exercisable on a laptop with no Ceph: the double read that
+    decides whether anything actually changed is the same code either way.
+    """
+
+    def __init__(self, images: dict[str, dict[str, str]] | None = None) -> None:
+        self.images = {
+            name: dict(metadata)
+            for name, metadata in (
+                images if images is not None else IMAGE_METADATA
+            ).items()
+        }
+
+    def list_metadata(self, image: str) -> dict[str, str]:
+        # An image the cluster does not have is a guest declared and never
+        # deployed, which is an ordinary state and answers with nothing.
+        return dict(self.images.get(image, {}))
+
+    def set_metadata(self, image: str, key: str, value: str) -> None:
+        self.images.setdefault(image, {})[key] = value
+
+    def remove_metadata(self, image: str, key: str) -> None:
+        self.images.setdefault(image, {}).pop(key, None)

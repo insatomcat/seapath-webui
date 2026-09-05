@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.cluster.fake import FakeMetricsClient
+from app.cluster.fake import FakeMetricsClient, FakeRbdClient
 from app.console.fake import FakeConsoleAdapter
 from app.core.auth import Role
 from app.core.security import CookieNames
@@ -115,6 +115,17 @@ def console_adapter() -> FakeConsoleAdapter:
 
 
 @pytest.fixture
+def rbd_client() -> FakeRbdClient:
+    """The metadata of the guests the fake cluster runs, in memory.
+
+    Writes land in it and the next read sees them, so the double read that
+    decides whether anything actually changed is exercised here exactly as it
+    is against Ceph.
+    """
+    return FakeRbdClient()
+
+
+@pytest.fixture
 def metrics_client() -> FakeMetricsClient:
     """The exporters of a cluster that does not exist.
 
@@ -153,6 +164,7 @@ def client(
     run_adapter: FakeRunAdapter,
     console_adapter: FakeConsoleAdapter,
     metrics_client: FakeMetricsClient,
+    rbd_client: FakeRbdClient,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -163,6 +175,7 @@ def client(
         run_adapter=run_adapter,
         console_adapter=console_adapter,
         metrics_client=metrics_client,
+        rbd_client=rbd_client,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client
@@ -178,6 +191,7 @@ def second_node(
     run_adapter: FakeRunAdapter,
     console_adapter: FakeConsoleAdapter,
     metrics_client: FakeMetricsClient,
+    rbd_client: FakeRbdClient,
 ) -> Iterator[TestClient]:
     """Another node's service, reached by the same browser as `client`.
 
@@ -196,6 +210,7 @@ def second_node(
         run_adapter=run_adapter,
         console_adapter=console_adapter,
         metrics_client=metrics_client,
+        rbd_client=rbd_client,
     )
     # httpx copies a `Cookies`, and a copy would model two browsers. The jar
     # is handed over directly so both clients keep writing into the same one.
@@ -219,6 +234,7 @@ def signed_in_with(
     run_adapter: FakeRunAdapter,
     console_adapter: FakeConsoleAdapter,
     metrics_client: FakeMetricsClient,
+    rbd_client: FakeRbdClient,
 ) -> Iterator[Callable[[Path], TestClient]]:
     """A signed in client whose service reads the collection you hand it.
 
@@ -240,6 +256,7 @@ def signed_in_with(
                 run_adapter=run_adapter,
                 console_adapter=console_adapter,
                 metrics_client=metrics_client,
+                rbd_client=rbd_client,
             )
             client = stack.enter_context(TestClient(application, base_url=BASE_URL))
             return sign_in(client, "admin")

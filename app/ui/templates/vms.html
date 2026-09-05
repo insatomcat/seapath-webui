@@ -93,61 +93,6 @@ image and losing its disk. D31 records the bounds.
     </div>
   </section>
 
-  {# A guest's Pacemaker configuration lives as metadata on its RBD image,
-     `system_<name>`, and `vm_manager` writes those keys at creation and never
-     again. This is where they are read and changed. Reading costs a run, so
-     the panel shows what was last seen and offers to look again. #}
-  <section class="card" id="meta-card" hidden>
-    <div class="card-head">
-      <h2 id="meta-title">Metadata</h2>
-      <button type="button" id="meta-close" class="secondary">Close</button>
-    </div>
-    <p class="lead" id="meta-lead"></p>
-    <div class="loading" id="meta-loading" hidden>Reading the image</div>
-    <p class="warning" id="meta-note" hidden></p>
-
-    <div class="table-scroll" id="meta-table" hidden>
-      <table>
-        <thead>
-          <tr>
-            <th>Key</th>
-            <th>Value</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="meta-rows"></tbody>
-      </table>
-    </div>
-
-    {# A change is written to the image and takes effect at the next creation
-       of the Pacemaker resource. The panel says so, and offers the outage
-       that applies it only when something actually moved. #}
-    <p class="clear" id="meta-applied" hidden></p>
-    <div class="card-actions" id="meta-pending" hidden>
-      <button type="button" id="meta-apply">Stop and restart to apply</button>
-      <span class="legend" id="meta-pending-note"></span>
-    </div>
-
-    <h3>Add or change a key</h3>
-    <label for="meta-key">Key</label>
-    <input type="text" id="meta-key" autocomplete="off" spellcheck="false">
-    <label for="meta-value">Value</label>
-    <textarea id="meta-value" rows="3" spellcheck="false"></textarea>
-    <div class="card-actions">
-      <button type="button" id="meta-set">Write it</button>
-      <button type="button" id="meta-refresh" class="secondary">Read again</button>
-    </div>
-    <p class="error" id="meta-error" hidden></p>
-    <p class="pane-foot">
-      <span class="pane-foot-note">
-        Read and written with <code>rbd image-meta</code> on a cluster member,
-        through a run like every other act here. Pacemaker reads these keys
-        when it creates the resource, so a change waits until the resource is
-        created again.
-      </span>
-    </p>
-  </section>
-
   {# The one form on this page. It asks for what a guest is made of and
      nothing else: a name, a disk image, and the libvirt XML that describes
      it. Everything the roles can read off an entry beyond that is edited in
@@ -207,6 +152,76 @@ image and losing its disk. D31 records the bounds.
   </p>
 
 </main>
+
+{# The metadata of one image. A modal rather than a panel on the page: a value
+   here can be a whole libvirt XML, `vm_manager` stores the domain under `xml`
+   and the template it was built from under `_base_xml`, and a table of those
+   under the guest list would push everything else off the screen. #}
+<div class="modal" id="meta" hidden>
+  <div class="modal-body wide">
+    <div class="card-head">
+      <h2 id="meta-title"></h2>
+      <button type="button" id="meta-close" class="secondary">Close</button>
+    </div>
+    <p class="lead" id="meta-lead"></p>
+    <div class="loading" id="meta-loading" hidden>Asking Ceph</div>
+
+    <div class="table-scroll" id="meta-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Value</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="meta-rows"></tbody>
+      </table>
+    </div>
+    <p class="warning" id="meta-empty" hidden></p>
+
+    {# A change is written to the image and takes effect when Pacemaker creates
+       the resource again. The panel offers that outage only when the image
+       actually moved. #}
+    <div class="card-actions" id="meta-pending" hidden>
+      <button type="button" id="meta-apply">Stop and restart to apply</button>
+      <span class="legend" id="meta-pending-note"></span>
+    </div>
+
+    <div class="card-actions">
+      <button type="button" id="meta-add">Add a key</button>
+      <button type="button" id="meta-refresh" class="secondary">Read again</button>
+    </div>
+    <p class="error" id="meta-error" hidden></p>
+    <p class="pane-foot">
+      <span class="pane-foot-note">
+        Read and written with <code>rbd image-meta</code> against the Ceph
+        configuration this container is given. Pacemaker reads these keys when
+        it creates the resource, so a change waits until the resource is
+        created again.
+      </span>
+    </p>
+  </div>
+</div>
+
+{# One value, edited. Wide and tall on purpose: the two biggest keys hold a
+   libvirt domain each, and editing one in a three line box is how a closing
+   tag goes missing. #}
+<div class="modal" id="edit" hidden>
+  <div class="modal-body wide tall">
+    <h2 id="edit-title"></h2>
+    <label for="edit-key">Key</label>
+    <input type="text" id="edit-key" autocomplete="off" spellcheck="false">
+    <p class="help" id="edit-key-help"></p>
+    <label for="edit-value">Value</label>
+    <textarea id="edit-value" spellcheck="false" wrap="off"></textarea>
+    <div class="actions">
+      <button type="button" id="edit-cancel" class="secondary">Cancel</button>
+      <button type="button" id="edit-go">Write it</button>
+    </div>
+    <p class="error" id="edit-error" hidden></p>
+  </div>
+</div>
 
 {# Starting or stopping a guest stops what it was serving, and on these
    machines that is a substation function. The confirmation names the guest and

@@ -1493,17 +1493,18 @@ here. And `preferred_host`, `pinned_host`, `priority` and `live_migration` are
 baked at creation: a panel presenting them beside the things that change live
 would be lying about half of them.
 
-## D31 - Settled: the RBD metadata is read and written with `rbd`, from the VMs page
+## D31 - Settled: the RBD metadata is asked of Ceph, directly
 
 A guest's Pacemaker configuration lives as metadata on its system disk image.
 `_preferred_host`, `_pinned_host`, `_priority`, `_live_migration`,
 `_migration_user`, `_stop_timeout`, `_migrate_to_timeout`,
 `_migration_downtime`, `_crm_config_cmd`, `_disk_bus`, `_pacemaker_meta` and
-its family, `_seapath_alloc`. `vm_manager` writes them in `create`, and
-`enable_vm` reads them all back to build the Pacemaker primitive.
+its family, `_seapath_alloc`, and the libvirt domain itself under `xml` and
+`_base_xml`. `vm_manager` writes them in `create`, and `enable_vm` reads them
+all back to build the Pacemaker primitive.
 
 Changing one on a guest that exists has no supported path, and the search for
-one is worth recording so it is not repeated:
+one is recorded so it is not repeated:
 
 - **`cluster_vm` has no `set_metadata`.** Its nineteen commands include
   `list_metadata` and `get_metadata`; the two that write metadata are `create`
@@ -1519,35 +1520,70 @@ one is worth recording so it is not repeated:
   is gone. Fine for a guest that takes its configuration from cloud-init on
   every boot, useless for one with state.
 
-So the metadata is read and written directly, with `rbd image-meta`, on a
-cluster member, inside an ordinary run. This is the one place where the service
-touches state a role would normally own, and the bounds are what make it
-acceptable:
+So the metadata is read and written with `rbd image-meta`, **from this service
+directly**, as the request is served.
 
-- it writes metadata on an RBD image and nothing else. No file on a host, no
-  service restarted, no `crm` command;
+### Why directly, having first done it through Ansible
+
+The first version of this ran `rbd` in a generated play, through
+`ansible-runner`, on a cluster member. That was the rule "nothing reaches a
+machine except through ansible-runner" applied where it does not belong. The
+rule is about the configuration of a host, so that the roles keep what is
+theirs. RBD metadata is a Ceph object, and running `rbd` through Ansible made
+the same act no safer while adding a hop, a run record, a lock question and a
+results file round trip.
+
+The architecture already does the direct thing everywhere else it reads cluster
+state. The Cluster page asks `ha_cluster_exporter` for Pacemaker over HTTP and
+the Ceph manager for the pool, which is [D29](#d29): ask the thing that owns the
+state, over its own protocol. Ceph owns this, and the quadlet has mounted
+`/etc/ceph` since the first version, documented as the runtime plane's mount.
+The container is on the host network, so the monitors are reachable.
+
+What it costs is one package. `ceph-common` is by a distance the largest thing
+in the image, and it buys the only way to change a guest's placement without
+recreating it from its seed image. The Dockerfile says so beside it.
+
+What it buys, beyond size: the page opens filled instead of launching a run and
+polling it, a read needs no SSH trust with another node, and there is no
+question of whether reading should take the convergence lock.
+
+### The bounds
+
+This is the one place where the service touches state a role would normally
+own, and these are what keep it as narrow as it looks:
+
+- it reads and writes metadata on an RBD image, and nothing else. No file on a
+  host, no service restarted, no `crm` command;
 - the pool and the `system_` prefix are `vm_manager`'s own constants,
-  hardcoded there and hardcoded here, named so the two can be compared rather
-  than guessed at;
-- every `rbd` invocation is `argv`, a list, so no shell parses it and a value
-  holding a quote or a newline is one argument either way. The key is checked
-  against a pattern before it reaches the play;
-- a write reads the image before and after in the same run. "Did this change
-  anything" is answered by the image rather than by what a browser believed the
-  value was a minute ago.
+  hardcoded there and hardcoded here, named so the two can be compared;
+- commands go through the injected runner `app/hosts/reader.py` already
+  defines, so what this service may execute stays a short list in one place and
+  a test replays recorded output;
+- every invocation is `argv`, a list, so no shell parses it and a value holding
+  a quote or a newline is one argument either way. Keys are checked against a
+  pattern and values capped at 64 KB, which takes a pinning profile and a
+  libvirt domain and refuses a file;
+- every write is one `audit_event` line naming the guest, the key, the user and
+  whether anything moved.
 
 ### Applying a change is an outage, and the page says so
 
 `enable_vm` reads those keys **only when the guest is not already a Pacemaker
-resource**. So a metadata write changes nothing about a running guest until the
-resource is created again, and creating it again means `disable` then `enable`:
+resource**. So a write changes nothing about a running guest until the resource
+is created again, and creating it again means `disable` then `enable`:
 `disable_vm` force-deletes the resource, which stops the guest.
 
 The page therefore separates the two acts. Writing is immediate and harmless.
 Applying is a second, explicit button that names the outage, and it is offered
-only when the two readings actually differ. A write that set a key to the value
-it already held offers nothing, which is the distinction the double read exists
-to make.
+only when the two readings actually differ. Every write reads the image before
+and after, so a set that wrote the value already there offers nothing, and
+"did this change anything" is answered by the image rather than by what a
+browser believed a minute ago.
+
+Applying stays an ordinary run of `cluster_vm`, and that line is the principled
+one: reading and writing a Ceph object is a Ceph client operation, stopping a
+guest and rebuilding its Pacemaker resource is an operation on machines.
 
 ### What this is not
 
@@ -1559,5 +1595,5 @@ options have to change without losing its disk.
 
 The clean fix stays upstream, and it is two small changes: a `set_metadata`
 command on `cluster_vm` with an allow-list of the `_` keys, and a way for
-`enable_vm` to re-read them without a full stop. When they land, this service
-switches to the module and keeps the same page.
+`enable_vm` to re-read them without a full stop. The second is the one that
+matters, because it is what would turn the outage into a reconfiguration.

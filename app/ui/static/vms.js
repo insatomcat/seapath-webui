@@ -47,6 +47,11 @@
     return node;
   }
 
+  function clear(node) {
+    node.replaceChildren();
+    return node;
+  }
+
   function row(parent, cells) {
     const line = document.createElement("tr");
     cells.forEach((item) => line.append(item));
@@ -207,9 +212,12 @@
     element("confirm").hidden = true;
   });
 
-  // The metadata panel. A guest's Pacemaker configuration lives as metadata on
-  // its RBD image, so this is where it is read and changed. Reading costs a
-  // run, so the panel shows what was last seen and offers to look again.
+  // The metadata of one image, in a modal. A value here can be a whole libvirt
+  // domain: `vm_manager` stores the running XML under `xml` and the template
+  // it was built from under `_base_xml`, so a table of these under the guest
+  // list would push everything else off the screen.
+  //
+  // Read from Ceph as the request is served, so the window opens filled.
   let openGuest = null;
 
   function metaButton(name) {
@@ -230,40 +238,48 @@
 
   async function openMetadata(name) {
     openGuest = name;
-    element("meta-card").hidden = false;
     element("meta-title").textContent = "Metadata of " + name;
     element("meta-error").hidden = true;
-    element("meta-key").value = "";
-    element("meta-value").value = "";
-    await showMetadata();
-    element("meta-card").scrollIntoView({ block: "nearest" });
+    element("meta").hidden = false;
+    await loadMetadata();
   }
 
-  async function showMetadata() {
-    const view = await API.get(
-      "/vms/" + encodeURIComponent(openGuest) + "/metadata"
-    );
+  async function loadMetadata() {
+    element("meta-loading").hidden = false;
+    try {
+      render(
+        await API.get("/vms/" + encodeURIComponent(openGuest) + "/metadata")
+      );
+    } catch (failure) {
+      showMetaError(failure.message);
+    } finally {
+      element("meta-loading").hidden = true;
+    }
+  }
 
-    element("meta-lead").textContent = view.run_id
-      ? "Read from " + view.image + (view.finished_at
-          ? " on " + new Date(view.finished_at).toLocaleString()
-          : "")
-      : view.image;
-    element("meta-note").textContent = view.note;
-    element("meta-note").hidden = !view.note;
+  function showMetaError(message) {
+    const error = element("meta-error");
+    error.textContent = message;
+    error.hidden = !message;
+  }
 
-    const rows = element("meta-rows");
-    rows.replaceChildren();
+  function render(view) {
+    showMetaError("");
+    element("meta-lead").textContent = view.image;
+
+    const rows = clear(element("meta-rows"));
     const entries = Object.entries(view.entries || {}).sort();
     entries.forEach(([key, value]) => {
-      const line = document.createElement("tr");
-      line.append(metaKey(key), metaValue(value), metaActions(key, value));
-      rows.append(line);
+      row(rows, [metaKey(key), metaValue(value), metaActions(key, value)]);
     });
     element("meta-table").hidden = !entries.length;
+    element("meta-empty").hidden = Boolean(entries.length);
+    element("meta-empty").textContent =
+      "This image carries no metadata. A guest declared and never deployed " +
+      "has no image at all, and reads as this.";
 
-    // The outage that applies a change is offered only when the image
-    // actually moved, which is the whole point of reading it twice.
+    // The outage that applies a change is offered only when the image actually
+    // moved, which is what reading it before and after is for.
     const changes = view.changes || [];
     element("meta-pending").hidden = !changes.length;
     element("meta-pending-note").textContent = changes.length
@@ -298,6 +314,7 @@
 
   function metaActions(key, value) {
     const cell = document.createElement("td");
+    cell.className = "meta-actions";
     if (!canWrite) {
       return cell;
     }
@@ -305,87 +322,93 @@
     edit.type = "button";
     edit.className = "secondary";
     edit.textContent = "Edit";
-    edit.addEventListener("click", () => {
-      element("meta-key").value = key;
-      element("meta-value").value = value;
-      element("meta-key").focus();
-    });
+    edit.addEventListener("click", () => openEditor(key, value));
+
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "secondary";
     remove.textContent = "Remove";
-    remove.addEventListener("click", () => writeMetadata(key, null));
+    remove.addEventListener("click", () => write(key, null));
+
     cell.append(edit, remove);
     return cell;
   }
 
-  // Every metadata act is a run, so the page waits for it and then reads what
-  // it brought back. A read takes no lock, a write does.
-  async function runMetadata(start) {
-    const error = element("meta-error");
-    error.hidden = true;
+  // The editor, wide and tall, because two of these keys hold a libvirt domain
+  // each and editing one in a three line box is how a closing tag goes
+  // missing.
+  function openEditor(key, value) {
+    element("edit-title").textContent = key
+      ? "Edit " + key + " on " + openGuest
+      : "Add a key on " + openGuest;
+    element("edit-key").value = key || "";
+    element("edit-key").readOnly = Boolean(key);
+    element("edit-key-help").textContent = key
+      ? "The key this value is stored under. Rename it by removing this one " +
+        "and adding another."
+      : "Letters, digits, underscore, dot and dash. A key starting with an " +
+        "underscore is one SEAPATH itself reads.";
+    element("edit-value").value = value || "";
+    element("edit-error").hidden = true;
+    element("edit").hidden = false;
+    element(key ? "edit-value" : "edit-key").focus();
+  }
+
+  async function write(key, value) {
     element("meta-loading").hidden = false;
     try {
-      const started = await start();
-      await settled(started.run_id);
-      await showMetadata();
+      render(
+        await API.put("/vms/" + encodeURIComponent(openGuest) + "/metadata", {
+          key,
+          value,
+        })
+      );
+      return true;
     } catch (failure) {
-      error.textContent = failure.message;
-      error.hidden = false;
+      showMetaError(failure.message);
+      throw failure;
     } finally {
       element("meta-loading").hidden = true;
     }
   }
 
-  async function settled(runId) {
-    for (let attempt = 0; attempt < 300; attempt += 1) {
-      const record = await API.get("/runs/" + encodeURIComponent(runId));
-      if (record.state !== "pending" && record.state !== "running") {
-        if (record.state !== "success") {
-          throw new Error(
-            "The run ended " + record.state + ". Its log says what happened."
-          );
-        }
-        return record;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new Error("The run is still going. The Runs page follows it.");
-  }
-
-  function writeMetadata(key, value) {
-    return runMetadata(() =>
-      API.put("/vms/" + encodeURIComponent(openGuest) + "/metadata", {
-        key,
-        value,
-      })
-    );
-  }
-
   element("meta-close").addEventListener("click", () => {
-    element("meta-card").hidden = true;
+    element("meta").hidden = true;
     openGuest = null;
   });
 
-  element("meta-refresh").addEventListener("click", () =>
-    runMetadata(() =>
-      API.post("/vms/" + encodeURIComponent(openGuest) + "/metadata/read")
-    )
-  );
+  element("meta-refresh").addEventListener("click", loadMetadata);
+  element("meta-add").addEventListener("click", () => openEditor("", ""));
+  element("meta-apply").addEventListener("click", () => {
+    element("meta").hidden = true;
+    confirmAct(openGuest, "reconfigure");
+  });
 
-  element("meta-set").addEventListener("click", () => {
-    const key = element("meta-key").value.trim();
+  element("edit-cancel").addEventListener("click", () => {
+    element("edit").hidden = true;
+  });
+
+  element("edit-go").addEventListener("click", async () => {
+    const key = element("edit-key").value.trim();
+    const error = element("edit-error");
     if (!key) {
-      const error = element("meta-error");
-      error.textContent = "A key is needed. It is what rbd stores the value under.";
+      error.textContent = "A key is needed: it is what rbd stores the value under.";
       error.hidden = false;
       return;
     }
-    return writeMetadata(key, element("meta-value").value);
-  });
-
-  element("meta-apply").addEventListener("click", () => {
-    confirmAct(openGuest, "reconfigure");
+    const go = element("edit-go");
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    try {
+      await write(key, element("edit-value").value);
+      element("edit").hidden = true;
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      go.disabled = false;
+      go.removeAttribute("aria-busy");
+    }
   });
 
   function renderGuests(view) {

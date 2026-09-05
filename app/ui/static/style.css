@@ -2203,15 +2203,37 @@ td.recreated {
   color: var(--bad);
 }
 
-/* The metadata panel. A value can be a pinning profile, several lines of
-   YAML, so the cell keeps its newlines and scrolls rather than stretching the
-   table to the width of the longest one. */
-.vms textarea {
+/* The metadata modals. A value here can be a whole libvirt domain, so the
+   window is wide and the value cell scrolls inside its own row rather than
+   stretching the table to the width of the longest one. */
+.modal-body.wide {
+  width: min(72rem, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+/* The editor. A libvirt XML edited in a three line box is how a closing tag
+   goes missing, so the field takes the room the window has. */
+.modal-body.tall textarea {
   width: 100%;
-  max-width: 32rem;
+  min-height: 22rem;
   margin-top: 0.3rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.85rem;
+  white-space: pre;
+  overflow: auto;
+}
+
+.modal-body label {
+  display: block;
+  margin-top: 1rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.modal-body input[type="text"] {
+  width: 100%;
+  margin-top: 0.3rem;
 }
 
 td.meta-value {
@@ -2220,11 +2242,19 @@ td.meta-value {
 
 td.meta-value pre {
   margin: 0;
-  max-height: 8rem;
+  max-height: 7rem;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 0.8rem;
+}
+
+td.meta-actions {
+  white-space: nowrap;
+}
+
+td.meta-actions button {
+  margin-right: 0.3rem;
 }
 
 /* A key SEAPATH itself reads, told apart from a site's own label: the first

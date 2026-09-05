@@ -1,42 +1,40 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""A guest's RBD image metadata, read and changed by `rbd`.
+"""A guest's RBD image metadata, read and changed as one request.
 
-`vm_manager` stores what Pacemaker needs to know about a guest as metadata on
-its system disk image: `_preferred_host`, `_priority`, `_live_migration`,
-`_seapath_alloc` and the rest. It reads them all back in `enable_vm`, and it
-writes them at `create` alone. There is no supported way to change one on a
-guest that exists, which left a UI two choices: recreate the guest from its
-seed image and lose its disk, or reach the metadata directly.
+Asked of Ceph directly, through `app/cluster/rbd.py`, the way the Cluster page
+asks `ha_cluster_exporter` for Pacemaker. The state belongs to Ceph and this
+reads it over Ceph's own client, so the page opens filled rather than launching
+a run and polling it. D31 has the reasoning and the bounds.
 
-So this reaches it directly, with `rbd image-meta`, over the same SSH path as
-everything else and inside an ordinary run. The pool and the `system_` prefix
-are `vm_manager`'s own, hardcoded there and hardcoded here so the two can be
-compared rather than guessed at.
-
-The bounds are worth stating, because this is the one place where the service
-touches state a role would normally own:
-
-- it writes metadata on an RBD image, and nothing else. No file on a host, no
-  service restarted, no Pacemaker command;
-- every write reads the image before and after in the same run, so "did this
-  change anything" is answered by the image rather than by what a browser
-  believed a minute ago;
-- applying a change is `disable` then `enable` through `cluster_vm`, which is
-  the upstream path and an outage, and the page says so before it happens.
-
-See D31.
+What stays from the first design is the part that mattered: a write reads the
+image before and after, so "did this change anything" is answered by the image
+rather than by what a browser believed the value was a minute ago. The page
+offers the outage that applies a change only when there is a change to apply,
+and that outage is still an ordinary run of `cluster_vm`.
 """
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
+import logging
 
 from pydantic import BaseModel, Field
 
-from app.runs.actions import RESULTS_FILE
+from app.cluster.rbd import (
+    KEY,
+    MAX_VALUE_BYTES,
+    RbdClient,
+    RbdUnavailable,
+    image_of,
+)
+from app.core.logging import audit_event
+
+logger = logging.getLogger(__name__)
+
+
+class InvalidMetadata(Exception):
+    """The key or the value cannot be written, and the message says why."""
 
 
 class MetadataChange(BaseModel):
@@ -47,57 +45,89 @@ class MetadataChange(BaseModel):
     after: str | None = None
 
 
-class MetadataResult(BaseModel):
-    """What a metadata run brought back."""
+class MetadataView(BaseModel):
+    """What a guest's image carries, and what the last write moved."""
 
+    guest: str
+    image: str
     entries: dict[str, str] = Field(default_factory=dict)
-    """The metadata as it stands, which is the reading taken last."""
     changes: list[MetadataChange] = Field(default_factory=list)
-    """What the write actually altered. Empty on a read, and on a write that
-    set a key to the value it already held."""
+    """Empty on a read, and on a write that set a key to the value it held."""
 
     @property
     def changed(self) -> bool:
         return bool(self.changes)
 
 
-def read(results_dir: Path) -> MetadataResult | None:
-    """The result a metadata run wrote, or nothing if it wrote none.
+class MetadataService:
+    def __init__(self, client: RbdClient) -> None:
+        self._client = client
 
-    Nothing is the ordinary answer for a run still going and for one that died
-    before its last task, so it is a value rather than an error.
-    """
-    path = results_dir / RESULTS_FILE
-    if not path.is_file():
-        return None
-    try:
-        document = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return None
-    if not isinstance(document, dict):
-        return None
+    def read(self, guest: str) -> MetadataView:
+        image = image_of(guest)
+        return MetadataView(
+            guest=guest, image=image, entries=self._client.list_metadata(image)
+        )
 
-    before = _mapping(document.get("before"))
-    after = _mapping(document.get("after"))
-    return MetadataResult(entries=after, changes=_differences(before, after))
+    def write(
+        self, guest: str, key: str, value: str | None, author: str
+    ) -> MetadataView:
+        """Set one key, or remove it when `value` is `None`.
 
+        The image is read before and after. A set that wrote the value already
+        there reports no change, which is the whole point: applying a metadata
+        change stops the guest, and offering that for a write that moved
+        nothing would be an outage for nothing.
+        """
+        self._check(key, value)
+        image = image_of(guest)
+        before = self._client.list_metadata(image)
 
-def _mapping(value: object) -> dict[str, str]:
-    if not isinstance(value, dict):
-        return {}
-    return {str(key): str(item) for key, item in value.items()}
+        if value is None:
+            self._client.remove_metadata(image, key)
+        else:
+            self._client.set_metadata(image, key, value)
+
+        after = self._client.list_metadata(image)
+        changes = _differences(before, after)
+        audit_event(
+            "vm.metadata",
+            guest=guest,
+            image=image,
+            key=key,
+            removed=value is None,
+            changed=bool(changes),
+            user=author,
+        )
+        return MetadataView(guest=guest, image=image, entries=after, changes=changes)
+
+    @staticmethod
+    def _check(key: str, value: str | None) -> None:
+        if not KEY.match(key):
+            raise InvalidMetadata(
+                f"{key!r} is not an RBD metadata key this service writes. "
+                "Letters, digits, underscore, dot and dash, up to 128 of them."
+            )
+        if value is not None and len(value.encode()) > MAX_VALUE_BYTES:
+            raise InvalidMetadata(
+                f"A metadata value is at most {MAX_VALUE_BYTES} bytes. That "
+                "takes a pinning profile and refuses a file."
+            )
 
 
 def _differences(before: dict[str, str], after: dict[str, str]) -> list[MetadataChange]:
-    """Every key the write moved, in the order an operator reads them.
-
-    A set that wrote the value already there produces nothing here, which is
-    the whole point: the page offers the outage that applies a change only when
-    there is a change to apply.
-    """
-    changes = [
+    """Every key the write moved, by name."""
+    return [
         MetadataChange(key=key, before=before.get(key), after=after.get(key))
         for key in sorted(set(before) | set(after))
         if before.get(key) != after.get(key)
     ]
-    return changes
+
+
+__all__ = [
+    "InvalidMetadata",
+    "MetadataChange",
+    "MetadataService",
+    "MetadataView",
+    "RbdUnavailable",
+]
