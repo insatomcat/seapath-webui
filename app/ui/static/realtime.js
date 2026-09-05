@@ -180,7 +180,8 @@
         },
       ],
       report.this_host,
-      report.inventory_commit
+      report.inventory_commit,
+      "local"
     );
 
     // The report carries the CPU reading the checks were formed from, so the
@@ -198,8 +199,22 @@
   // in a substation, a machine converged and never rebooted or one left with
   // transparent hugepages on, are exactly the ones that hide on the machine
   // nobody is looking at.
-  function renderMatrix(nodes, thisHost, commit) {
-    state.matrix = { nodes: nodes, thisHost: thisHost, commit: commit };
+  //
+  // The two loads race, and the placeholder is the one that must lose. Both
+  // panels are fetched in parallel and both draw here, so a local reading that
+  // came back after the exporters did used to narrow the cluster back to one
+  // column, which is what an operator saw flicker. A draw is refused when the
+  // matrix already shows more than the one it carries.
+  function renderMatrix(nodes, thisHost, commit, scope) {
+    if (scope === "local" && state.matrix && state.matrix.scope === "cluster") {
+      return;
+    }
+    state.matrix = {
+      nodes: nodes,
+      thisHost: thisHost,
+      commit: commit,
+      scope: scope,
+    };
     const columns =
       "minmax(7rem, 1.3fr) repeat(" + nodes.length + ", minmax(5rem, 1fr))";
 
@@ -454,7 +469,7 @@
     // hypervisor for nothing.
     element("checks-loading").hidden = true;
     element("checks").hidden = false;
-    renderMatrix(pool.nodes, pool.this_host, pool.inventory_commit);
+    renderMatrix(pool.nodes, pool.this_host, pool.inventory_commit, "cluster");
 
     const reachable = pool.nodes.filter((node) => node.cpus.length);
     const blocked = element("pool-blocked");
