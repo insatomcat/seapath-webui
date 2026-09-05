@@ -37,6 +37,8 @@
   --accent-wash: rgba(74, 158, 255, 0.12);
   --row-hover: rgba(74, 158, 255, 0.07);
   --row-active: rgba(74, 158, 255, 0.14);
+  --ok-wash: rgba(70, 177, 107, 0.1);
+  --ok-ink: #9ed7b3;
   --warn-wash: rgba(217, 164, 65, 0.1);
   --warn-ink: #eccd93;
   --bad-wash: rgba(217, 83, 79, 0.12);
@@ -84,6 +86,8 @@
   --accent-wash: rgba(11, 98, 196, 0.1);
   --row-hover: rgba(11, 98, 196, 0.06);
   --row-active: rgba(11, 98, 196, 0.12);
+  --ok-wash: rgba(26, 127, 67, 0.12);
+  --ok-ink: #12572f;
   --warn-wash: rgba(203, 141, 20, 0.16);
   --warn-ink: #6f4a00;
   --bad-wash: rgba(192, 50, 45, 0.09);
@@ -679,6 +683,21 @@ td.missing button {
   background: var(--warn-wash);
   border-left: 3px solid var(--warn);
   color: var(--warn-ink);
+  font-size: 0.85rem;
+}
+
+/* The same box for the answer that came back clean. A measurement that found
+   nothing was a grey line under the heading, which an operator reads as a
+   panel with nothing in it rather than as a machine that was measured and came
+   back clean. The measuring is the expensive part, and both of its answers are
+   worth the same amount of room. The sentence carries the meaning on its own,
+   so the colour is a second cue and never the only one. */
+.clear {
+  margin: 0.75rem 0;
+  padding: 0.5rem 0.75rem;
+  background: var(--ok-wash);
+  border-left: 3px solid var(--ok);
+  color: var(--ok-ink);
   font-size: 0.85rem;
 }
 

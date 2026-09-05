@@ -589,6 +589,24 @@ def test_the_real_time_page_offers_both_measurements(
     assert 'id="measure-confirm"' in body
 
 
+def test_a_firmware_measurement_that_came_back_clean_says_so_in_green(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/realtime.js").text
+    css = signed_in.get("/static/style.css").text
+
+    # The clean result was a grey line under the heading, which reads as a
+    # panel with nothing in it. The measuring is the expensive part: it loads
+    # every machine and holds interrupts off for the whole run, and both of its
+    # answers are worth the same box.
+    assert 'verdict.className = "clear";' in script
+    assert ".clear {" in css
+    assert "--ok-wash" in css
+    # And the sentence carries the verdict on its own, so the colour is never
+    # the only cue.
+    assert "No interruption above the threshold." in script
+
+
 def test_the_real_time_page_shows_one_panel_at_a_time(
     signed_in: TestClient,
 ) -> None:

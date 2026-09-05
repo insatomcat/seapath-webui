@@ -1085,7 +1085,10 @@
         )
       : null;
     if (worst === null) {
-      verdict.className = "legend";
+      // Green, and in the same box the finding gets. This is a verdict rather
+      // than a footnote: the machine was loaded, the detector held interrupts
+      // off for the whole run, and it came back clean.
+      verdict.className = "clear";
       // The sample count is deliberately absent. hwlatdetect's "Samples
       // recorded" counts the gaps it saw, so on a clean machine it is zero,
       // and quoting it here read as "nothing was measured" on exactly the
