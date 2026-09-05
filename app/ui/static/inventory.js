@@ -163,13 +163,21 @@
     // A banner for what the tree cannot say. The missing files are in the
     // tree, where the answer is one click away, so repeating them here would
     // be noise over the thing that fixes them.
+    //
+    // Each line names the machine it is about. Almost every rule here is per
+    // host, and on a cluster the wording is identical for all of them: "No PTP
+    // interface" over four machines is four identical lines and no way to tell
+    // which one is missing it, or whether the one that is meant to be missing
+    // it is the one being reported.
     const messages = (inventory.validation.findings || [])
       .filter(
         (finding) =>
           finding.level === "warning" &&
           finding.rule !== "referenced_file_present"
       )
-      .map((finding) => finding.message);
+      .map((finding) =>
+        finding.host ? finding.host + ": " + finding.message : finding.message
+      );
     if (inventory.parse_error) {
       messages.unshift(
         "The inventory does not parse: " +

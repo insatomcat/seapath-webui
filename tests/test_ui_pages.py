@@ -86,6 +86,18 @@ def test_the_inventory_page_carries_the_folder_around_the_inventory(
     assert 'id="references-table"' in body
 
 
+def test_a_validation_warning_names_the_machine_it_is_about(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/inventory.js").text
+
+    # Almost every rule is per host and the wording is identical across them,
+    # so "No PTP interface" on a four machine inventory was four identical
+    # lines with nothing saying which machine was missing one. A finding
+    # carries the host; the banner has to show it.
+    assert 'finding.host + ": " + finding.message' in script
+
+
 def test_a_file_the_inventory_names_and_the_folder_lacks_is_in_the_list(
     signed_in: TestClient,
 ) -> None:
