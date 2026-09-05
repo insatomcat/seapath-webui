@@ -21,7 +21,9 @@ from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
 from app.inventory.service import ImportRefused, RefusedWrite
-from app.services.vms import GuestsView, InvalidGuest, VmService
+from app.runs.actions import Action
+from app.runs.service import RunService
+from app.services.vms import GuestsView, InvalidGuest, UnknownGuest, VmService
 
 router = APIRouter(
     prefix="/vms",
@@ -30,10 +32,15 @@ router = APIRouter(
 )
 
 admin = Depends(require_role(Role.ADMIN))
+operator = Depends(require_role(Role.OPERATOR))
 
 
 def _service(request: Request) -> VmService:
     return request.app.state.vm_service
+
+
+def _runs(request: Request) -> RunService:
+    return request.app.state.run_service
 
 
 class GuestDeclaration(BaseModel):
@@ -131,3 +138,50 @@ def declare(
         message=commit.message,
         playbook=service.deploy_playbook(),
     )
+
+
+class ActionResponse(BaseModel):
+    """The run that carries out the action, watched like any other."""
+
+    run_id: str
+    state: str
+    guest: str
+    action: str
+
+
+def _act(request: Request, name: str, action: Action, user: User) -> ActionResponse:
+    service = _service(request)
+    try:
+        service.check_known(name)
+    except UnknownGuest as error:
+        raise ApiError("unknown_guest", str(error), 404) from error
+
+    record = _runs(request).launch_action(action, name, user.username)
+    return ActionResponse(
+        run_id=record.id,
+        state=record.state.value,
+        guest=name,
+        action=action.value,
+    )
+
+
+@router.post("/{name}/start", status_code=202)
+def start(request: Request, name: str, user: User = operator) -> ActionResponse:
+    """Start one guest, as a run.
+
+    The runtime plane, and it reaches the machine the way everything else
+    does: one task calling the upstream module, over the SSH path a
+    convergence uses, under the same lock. See [D30](decisions.md#d30).
+    """
+    return _act(request, name, Action.START, user)
+
+
+@router.post("/{name}/stop", status_code=202)
+def stop(request: Request, name: str, user: User = operator) -> ActionResponse:
+    """Stop one guest, as a run.
+
+    In a cluster the resource is disabled as well as stopped, so Pacemaker
+    leaves it down until it is started again. On a standalone machine the
+    guest is asked through ACPI, so one that ignores ACPI keeps running.
+    """
+    return _act(request, name, Action.STOP, user)

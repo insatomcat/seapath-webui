@@ -18,8 +18,9 @@ from pydantic import BaseModel
 from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.hosts.local import parse_cpu_list
+from app.inventory.model import Mode
 from app.inventory.service import InventoryService, InventoryState
-from app.runs import catalogue, cyclictest, hwlatdetect, progress, staging
+from app.runs import actions, catalogue, cyclictest, hwlatdetect, progress, staging
 from app.runs.adapter import RunAdapter, RunRequest, build_command
 from app.runs.catalogue import (
     PlaybookEntry,
@@ -341,7 +342,39 @@ class RunService:
                 404,
                 {"available": sorted(entries)},
             )
+        return self._launch(entry, launched_by, variables, check)
 
+    def launch_action(
+        self, action: actions.Action, guest: str, launched_by: str
+    ) -> RunRecord:
+        """Start or stop one guest, as a run like any other.
+
+        The play is generated rather than taken from the collection, which is
+        the one exception D30 makes and its bounds: one task, one upstream
+        module, one command value. Everything around it is the ordinary path,
+        the lock included, so a start cannot slip in under a convergence.
+        """
+        mode = self._mode()
+        return self._launch(
+            actions.entry(action, guest, mode),
+            launched_by,
+            variables=None,
+            check=False,
+            play=actions.play(action, guest, mode),
+        )
+
+    def _mode(self) -> Mode:
+        state = self._inventory.state()
+        return state.inventory.mode if state.inventory else Mode.STANDALONE
+
+    def _launch(
+        self,
+        entry: PlaybookEntry,
+        launched_by: str,
+        variables: dict[str, Any] | None = None,
+        check: bool = False,
+        play: str | None = None,
+    ) -> RunRecord:
         blocking = self._blocking(
             entry, self._unmet_preconditions(), self._missing_playbooks()
         )
@@ -419,11 +452,20 @@ class RunService:
                 artefacts_dir=self._inventory.artefacts_root,
             )
             record.files = staged.files
+            playbook = entry.playbook
+            if play is not None:
+                # Into the mirror's own `playbooks/`, which is a real
+                # directory, so the generated play sits where every other
+                # playbook of this run sits and is part of the trace
+                # afterwards.
+                target = staged.site_root / "playbooks" / f"{entry.id}.yaml"
+                target.write_text(play)
+                playbook = str(target)
         except Exception:
             self._store.release(run_id)
             raise
 
-        request = self._request(record, entry, directory, staged, extra_vars)
+        request = self._request(record, entry, directory, staged, extra_vars, playbook)
         record.state = RunState.RUNNING
         record.started_at = datetime.now(tz=UTC)
         # Recorded before the thread starts, so the run view shows the exact
@@ -549,10 +591,11 @@ class RunService:
         directory: Path,
         staged: staging.Staging,
         extra_vars: dict[str, Any],
+        playbook: str | None = None,
     ) -> RunRequest:
         return RunRequest(
             run_id=record.id,
-            playbook=entry.playbook,
+            playbook=playbook or entry.playbook,
             inventory_file=staged.inventory_file,
             private_data_dir=directory,
             collections_path=self._paths.collections_path,

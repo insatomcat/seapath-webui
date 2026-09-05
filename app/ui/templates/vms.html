@@ -17,8 +17,10 @@ upstream playbook it has always run. The operator is spared the trip through
 two other pages and a group name they have no reason to know. D30 is why the
 mechanism stays and the mechanism stops being the interface.
 
-Starting, stopping and migrating a guest are the runtime plane, and they are
-not here yet.
+Starting and stopping are the runtime plane, and they reach a machine the way
+everything else here does: one task calling the upstream module, over the SSH
+path a convergence uses, under the same lock. Migration and the metadata are
+still to come.
 #}
 {% extends "base.html" %}
 {% block title %}VMs - SEAPATH{% endblock %}
@@ -46,6 +48,7 @@ not here yet.
             <th>Disk image</th>
             <th>libvirt XML</th>
             <th>On deployment</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="guest-rows"></tbody>
@@ -76,6 +79,7 @@ not here yet.
             <th>Node</th>
             <th>Role</th>
             <th>State</th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="undeclared-rows"></tbody>
@@ -140,7 +144,24 @@ not here yet.
     Deploying them is a run of the playbook named above, from the
     <a href="deployment">Deployment</a> page.
   </p>
+
 </main>
+
+{# Starting or stopping a guest stops what it was serving, and on these
+   machines that is a substation function. The confirmation names the guest and
+   says what the act does, the way an apply names the machines. #}
+<div class="modal" id="confirm" hidden>
+  <div class="modal-body">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-disruption"></p>
+    <p class="warning" id="confirm-note" hidden></p>
+    <p class="error" id="confirm-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
+      <button type="button" id="confirm-go"></button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

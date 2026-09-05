@@ -21,6 +21,12 @@
 // playbook. What D30 settles is that the operator is not made to walk it.
 
 (function () {
+  // Filled once the session and the reading are in: which role is signed in
+  // decides whether the acting buttons exist at all, and the mode decides what
+  // the stop confirmation has to warn about.
+  let canAct = false;
+  let mode = "standalone";
+
   function element(id) {
     return document.getElementById(id);
   }
@@ -120,6 +126,80 @@
     return cell(words.join(", ") || "left alone", guest.force ? "recreated" : "");
   }
 
+  // Starting and stopping. The button offered is the one that changes
+  // something: a guest Pacemaker reports as started is offered a stop, one it
+  // reports as stopped a start, and a guest nothing reports at all neither,
+  // because there is no domain to act on until it has been deployed.
+  function acts(guest) {
+    const cell = document.createElement("td");
+    if (!canAct || !guest.resource) {
+      return cell;
+    }
+    const running = guest.resource.role === "started";
+    cell.append(actButton(guest.name, running ? "stop" : "start"));
+    return cell;
+  }
+
+  function actButton(name, action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = action === "stop" ? "Stop" : "Start";
+    button.addEventListener("click", () => confirmAct(name, action));
+    return button;
+  }
+
+  // Stopping a guest stops what it was serving, and on these machines that is
+  // a substation function. The confirmation names the guest and says what the
+  // act does, the way an apply names the machines it disturbs.
+  const DISRUPTION = {
+    start:
+      "Starts the guest. In a cluster this asks Pacemaker to run it and " +
+      "Pacemaker chooses the node, which is not necessarily the one it last " +
+      "ran on.",
+    stop:
+      "Stops the guest, and whatever it was serving stops with it. In a " +
+      "cluster the resource is disabled as well as stopped, so Pacemaker " +
+      "leaves it down until it is started again, a node failure included.",
+  };
+
+  function confirmAct(name, action) {
+    const verb = action === "stop" ? "Stop" : "Start";
+    element("confirm-title").textContent = verb + " " + name;
+    element("confirm-disruption").textContent = DISRUPTION[action];
+    element("confirm-note").hidden = action !== "stop" || mode === "cluster";
+    element("confirm-note").textContent =
+      "This machine has no Pacemaker, so the guest is asked to shut down " +
+      "through ACPI. One that ignores ACPI keeps running.";
+    element("confirm-error").hidden = true;
+
+    const go = element("confirm-go");
+    go.textContent = verb;
+    go.disabled = false;
+    go.onclick = async () => {
+      go.disabled = true;
+      go.setAttribute("aria-busy", "true");
+      try {
+        const started = await API.post(
+          "/vms/" + encodeURIComponent(name) + "/" + action
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      } catch (failure) {
+        const error = element("confirm-error");
+        error.textContent = failure.message;
+        error.hidden = false;
+        go.disabled = false;
+      } finally {
+        go.removeAttribute("aria-busy");
+      }
+    };
+    element("confirm").hidden = false;
+  }
+
+  element("confirm-cancel").addEventListener("click", () => {
+    element("confirm").hidden = true;
+  });
+
   function renderGuests(view) {
     element("loading").hidden = true;
 
@@ -129,6 +209,7 @@
       : "";
     lead.hidden = !view.playbook;
 
+    mode = view.mode;
     element("runtime-note").textContent = view.runtime_note;
     element("empty").textContent = view.note;
     element("empty").hidden = !view.note;
@@ -143,6 +224,7 @@
         file(guest, guest.vm_disk),
         file(guest, guest.vm_template || guest.xml_path),
         ondeploy(guest),
+        acts(guest),
       ]);
     });
     element("guest-table").hidden = !(view.guests || []).length;
@@ -159,6 +241,10 @@
         cell(resource.node),
         cell(resource.role),
         cell(resource.failed ? "failed" : resource.state),
+        // Acted on like a declared guest: it is the one most likely to need
+        // stopping, since a convergence will not touch it and nothing else
+        // here can reach it.
+        acts({ name: resource.id, resource }),
       ]);
     });
   }
@@ -283,6 +369,9 @@
 
   async function start() {
     const { me } = await Chrome.load();
+    // Starting a guest changes no desired state, so it is the operator's act
+    // rather than the administrator's, the way cancelling a run is.
+    canAct = me.role === "operator" || Chrome.isAdmin(me);
     const view = await API.get("/vms");
     renderGuests(view);
     renderUndeclared(view);

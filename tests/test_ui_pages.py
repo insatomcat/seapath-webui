@@ -758,15 +758,28 @@ def test_the_vms_page_joins_the_definition_and_the_state(
     assert 'href="deployment"' in body
 
 
-def test_the_vms_page_offers_no_way_to_start_or_migrate_a_guest(
+def test_stopping_a_guest_is_confirmed_before_it_happens(
     signed_in: TestClient,
 ) -> None:
-    # The runtime plane arrives with `vm_manager`. A button here before it
-    # exists would be the plane mixing SPEC section 5.2 refuses, and the page
-    # says what it is instead of implying it.
+    # It stops what the guest was serving, and on these machines that is a
+    # substation function. The confirmation names the guest and says what the
+    # act does, the way an apply names the machines it disturbs.
+    body = signed_in.get("/vms").text
+
+    assert 'id="confirm"' in body
+    assert 'id="confirm-title"' in body
+    assert 'id="confirm-disruption"' in body
+
+
+def test_the_vms_page_offers_no_migration_or_snapshot_yet(
+    signed_in: TestClient,
+) -> None:
+    # Start and stop are one task calling an upstream module, which is what
+    # D30 settles. The rest of the runtime plane has no such answer yet, and
+    # the page implies none.
     body = signed_in.get("/vms").text.lower()
 
-    for act in (">start", ">stop", ">migrate", ">snapshot", ">restart"):
+    for act in (">migrate", ">snapshot", ">clone", ">remove"):
         assert act not in body
 
 

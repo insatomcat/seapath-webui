@@ -15,9 +15,11 @@ on `/runs`.
 
 from __future__ import annotations
 
+import yaml
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
+from app.runs.store import RunStore
 
 # The fake cluster runs `vm-guest1` and `vm-guest2`, and `vm-guest3` failed
 # where it last ran. Declaring two of the three is what lets one row be a guest
@@ -261,3 +263,103 @@ def test_only_an_administrator_may_add_a_vm(signed_in_viewer: TestClient) -> Non
     assert (
         signed_in_viewer.post("/api/v1/vms", json={"name": "newvm"}).status_code == 403
     )
+
+
+# 4. Starting and stopping one, which is the runtime plane.
+
+
+def test_starting_a_guest_is_a_run_like_any_other(signed_in: TestClient) -> None:
+    _declare(signed_in)
+
+    response = signed_in.post("/api/v1/vms/vm-guest1/start")
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["guest"] == "vm-guest1"
+    assert body["action"] == "start"
+    # Watched on the Runs page, with the same event stream and the same record
+    # a convergence has.
+    assert signed_in.get(f"/api/v1/runs/{body['run_id']}").status_code == 200
+
+
+def test_the_generated_play_calls_the_upstream_module_and_nothing_else(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The one exception D30 makes, and its bounds: one task, one upstream
+    # module, one command value. A play that grew a second task would be this
+    # service writing Ansible, which is the thing it does not do.
+    _declare(signed_in)
+
+    run = signed_in.post("/api/v1/vms/vm-guest1/stop").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_stop.yaml"))
+    assert len(written) == 1
+    document = yaml.safe_load(written[0].read_text())
+    assert len(document) == 1
+    assert document[0]["hosts"] == "standalone_machine"
+    tasks = document[0]["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["community.libvirt.virt"] == {
+        "name": "vm-guest1",
+        "state": "shutdown",
+    }
+
+
+def test_the_command_line_runs_the_generated_play(signed_in: TestClient) -> None:
+    # Recorded from the request, so a run says what it actually executed. The
+    # path is inside the run directory, which is how an operator reading the
+    # record can tell a generated play from one of the collection's.
+    _declare(signed_in)
+
+    run = signed_in.post("/api/v1/vms/vm-guest1/start").json()
+    record = signed_in.get(f"/api/v1/runs/{run['run_id']}").json()
+
+    assert record["command"][-1].endswith("/playbooks/vm_start.yaml")
+    # And the record does not claim the collection wrote it.
+    assert record["playbook"] == "seapath-webui.vm_start"
+
+
+def test_a_guest_nobody_has_heard_of_is_refused(signed_in: TestClient) -> None:
+    # The name reaches a module argument, so it is one this node has seen
+    # rather than whatever was typed into a URL.
+    _declare(signed_in)
+
+    response = signed_in.post("/api/v1/vms/not-a-guest/start")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "unknown_guest"
+
+
+def test_a_guest_the_cluster_runs_and_the_inventory_ignores_can_be_stopped(
+    signed_in: TestClient,
+) -> None:
+    # It is the guest most likely to need stopping: a convergence will not
+    # touch it and nothing else here can reach it.
+    _declare(signed_in)
+
+    assert signed_in.post("/api/v1/vms/vm-guest2/stop").status_code == 202
+
+
+def test_an_action_takes_the_same_lock_a_convergence_does(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # Two operators must not converge and restart the same machines at once,
+    # and a start slipping in under a convergence is the same hazard. One lock
+    # for both is what makes that true, so the action is refused by a
+    # convergence exactly as a second convergence would be.
+    _declare(signed_in)
+    RunStore(settings.runs_dir).acquire("an-earlier-run")
+
+    response = signed_in.post("/api/v1/vms/vm-guest1/start")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "run_in_progress"
+
+
+def test_an_operator_may_act_on_a_guest_and_a_viewer_may_not(
+    signed_in_viewer: TestClient,
+) -> None:
+    # Starting a VM changes nothing an inventory declares, so it is the
+    # operator's act rather than the administrator's, the way cancelling a run
+    # is.
+    assert signed_in_viewer.post("/api/v1/vms/vm-guest1/start").status_code == 403

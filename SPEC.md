@@ -315,11 +315,11 @@ machine. At
 the end of M1 the ISO produces a machine configurable from a browser with no
 fourth machine, which is the core of the request.
 
-**M2 - VMs.** The declarative half is in: the `VMs` group is read as guests
-rather than as machines, the VMs page joins what the inventory declares to what
-Pacemaker reports, and adding a guest is one act on that page. The imperative
-half, starting, stopping and migrating through `vm_manager`, follows as one
-task plays calling the upstream module. See D30.
+**M2 - VMs.** The `VMs` group is read as guests rather than as machines, the
+VMs page joins what the inventory declares to what Pacemaker reports, and
+adding a guest is one act on that page. Starting and stopping are one task
+plays calling the upstream module, run over the SSH path a convergence uses.
+Migration, the snapshots and the metadata follow the same shape. See D30.
 
 **M3 - cluster.** Trust exchange, inventory merge and replication, cluster
 network forms, `cluster_setup_ha.yaml` and the rest of the cluster playbooks,

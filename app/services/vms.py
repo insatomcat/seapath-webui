@@ -124,10 +124,35 @@ class InvalidGuest(Exception):
     """The declaration cannot become an entry, and the message says why."""
 
 
+class UnknownGuest(Exception):
+    """No guest of that name is declared here or reported by the cluster."""
+
+
 class VmService:
     def __init__(self, inventory: InventoryService, cluster: ClusterService) -> None:
         self._inventory = inventory
         self._cluster = cluster
+
+    def known(self) -> set[str]:
+        """The guests this node can act on.
+
+        The declared ones and the ones Pacemaker reports, because a guest the
+        cluster runs and the inventory forgot is exactly the one an operator
+        needs to be able to stop. What this is for is that a name reaching a
+        module argument is a name this node has seen, rather than whatever was
+        typed into a URL.
+        """
+        view = self.guests()
+        return {guest.name for guest in view.guests} | {
+            resource.id for resource in view.undeclared
+        }
+
+    def check_known(self, name: str) -> None:
+        if name not in self.known():
+            raise UnknownGuest(
+                f"No guest called {name!r} is declared in this inventory or "
+                "reported by the cluster."
+            )
 
     def deploy_playbook(self) -> str:
         state = self._inventory.state()

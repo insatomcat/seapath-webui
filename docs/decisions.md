@@ -1457,7 +1457,17 @@ settled answer:
 
 **A runtime action is a one task play calling the upstream `cluster_vm`
 module,** run through `ansible-runner` over the SSH path a convergence already
-uses.
+uses. Start and stop are built on it; migration and the snapshots follow the
+same shape.
+
+The play is generated into the run's own staged tree, beside the collection's
+own playbooks, and the run is otherwise ordinary: the same lock, so a start
+cannot slip in under a convergence; the same event stream and the same record,
+so an operator watches it on the Runs page like anything else; and a recorded
+command line naming a path inside the run directory, so the record never
+claims the collection wrote the play. A standalone machine has no Pacemaker,
+so there the module is `community.libvirt.virt`, which is what
+`deploy_vms_standalone` already uses.
 
 [D8](#d8) says whole playbooks, and its reasoning is that the tags of
 `seapath-ansible` were never designed as a public interface, so a tag selector

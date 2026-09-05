@@ -508,6 +508,8 @@ domain and the resource.
 |---|---|---|
 | GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `undeclared` lists the guests the cluster runs and the inventory does not describe; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty |
 | POST | `/vms` | Declare one guest in the `VMs` group, one commit, `If-Match` on the commit hash. Answers with the commit and the playbook that deploys it. `admin` |
+| POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
+| POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |
 
 Reading is open to the `viewer` role. `POST /vms` is an administrator's act,
 because it commits the desired state and the run that follows creates a
@@ -534,20 +536,50 @@ names the path. It is the answer worth having before the run rather than during
 it: with `any_errors_fatal`, a `copy` that cannot find its disk image ends the
 deployment on every host at once, three minutes in.
 
-### The runtime plane, still to come
+### The runtime plane
 
-Starting, stopping, migrating and snapshotting are imperative, backed by
-`vm_manager`, and none of them exists yet. The shape is settled here so that
-the read above did not have to guess at it:
+Starting and stopping are imperative, and they reach a machine the way every
+other act here does: `ansible-runner` executes a generated one task play
+calling the upstream module over the SSH path a convergence uses. The play is
+written into the run's own staged tree and the run is otherwise ordinary, with
+the same lock, the same event stream and the same record, so the answer is a
+`202` and a `run_id` that the Runs page shows. See [D30](decisions.md#d30).
+
+The lock is worth stating: one run at a time per cluster covers these too, so a
+start is refused while a convergence is going, with `409 run_in_progress`.
+
+`name` is checked against the guests this node knows about, the declared ones
+and the ones Pacemaker reports, and an unknown one is `404 unknown_guest`. The
+name reaches a module argument, so it is one this node has seen rather than
+whatever was typed into the URL.
+
+What each does differs by mode, and the page says which it is doing:
+
+- **Cluster.** `cluster_vm` with `command: start` or `stop`. A stop disables
+  the Pacemaker resource as well as stopping it, so the guest stays down until
+  it is started again, a node failure included. A start lets Pacemaker choose
+  the node.
+- **Standalone.** `community.libvirt.virt` with `state: running` or
+  `shutdown`, which is the module `deploy_vms_standalone` already uses.
+  `shutdown` asks the guest through ACPI, so one that ignores ACPI keeps
+  running.
+
+Reading is `viewer`, adding a VM is `admin`, and acting on one is `operator`:
+it changes no desired state, the way cancelling a run does not.
+
+### Still to come
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/vms/{name}` | Detail, XML, placement |
-| POST | `/vms/{name}/start` | |
-| POST | `/vms/{name}/stop` | `?force=true` |
 | POST | `/vms/{name}/migrate` | Cluster only |
 | GET POST | `/vms/{name}/snapshots` | List, create |
 | POST | `/vms/{name}/snapshots/{id}/rollback` | |
+
+Changing a guest's metadata is not in that list yet, and the reason is
+recorded in [D30](decisions.md#d30): `cluster_vm` reads metadata and does not
+write it, so `_seapath_alloc` waits for a `set_metadata` command upstream
+rather than for a `command:` task here.
 
 ## Internal
 

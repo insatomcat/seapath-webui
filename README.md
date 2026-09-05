@@ -76,7 +76,7 @@ and where, whether a deployment would find the two files it names, and what the
 next run does to it, `force` being the word that matters there since the roles
 destroy and recreate a guest that carries it.
 
-Adding a VM is the one act it performs, and it performs it whole. Name the
+Adding a VM is the act it performs whole. Name the
 guest, pick a disk image and a libvirt XML, and the page uploads both, commits
 the entry and launches the deployment. Underneath, those are the writes this
 service has always made and the upstream playbook it has always run: the image
@@ -84,6 +84,13 @@ to the store git does not carry, the XML committed with the inventory, the
 guest a splice into the file checked like every other write, and a whole
 playbook of the collection. The operator is spared the trip through two pages
 and a group name they have no reason to know.
+
+Starting and stopping a guest are there too, one button per row, offered as
+whichever of the two would change something. Each is a run: one task calling
+the upstream module, over the SSH path a convergence uses, under the same lock
+so a start cannot slip in under a convergence. The confirmation names the guest
+and says what stopping it does, because on these machines what a guest serves
+is a substation function.
 
 ![The Cluster page: the three view tabs and their summaries, over the Pacemaker members, quorum and fencing](img/cluster.png)
 
@@ -172,11 +179,10 @@ service each machine runs is an inventory variable that an apply carries.
 [docs/validation.md](docs/validation.md) holds the checklists for M0, M1 and
 the Real time page, and all three are still to be run on a real machine.
 
-M2 is the VMs. Its declarative half is in: the `VMs` group is read as guests
-rather than as machines, the VMs page joins what the inventory declares to what
-Pacemaker reports, and adding a guest is one act on that page. Its imperative
-half, starting, stopping and migrating a guest through `vm_manager`, follows as
-one task plays calling the upstream module.
+M2 is the VMs, and most of it is in: the `VMs` group is read as guests rather
+than as machines, the page joins what the inventory declares to what Pacemaker
+reports, adding a guest is one act, and starting and stopping one are runs.
+Migration, the snapshots and the metadata follow the same shape.
 
 ## Development
 
