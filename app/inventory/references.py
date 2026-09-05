@@ -71,6 +71,10 @@ KNOWN: tuple[Variable, ...] = (
     Variable("update_swu_image_path", Shape.SCALAR, "update"),
     Variable("vm_disk", Shape.SCALAR, "deploy_vms"),
     Variable("vm_template", Shape.SCALAR, "deploy_vms"),
+    # The libvirt XML a guest names when it is not rendered from a template.
+    # `deploy_vms_cluster` reads it with `lookup('file')` rather than through
+    # `copy`, which resolves the same way and fails just as hard.
+    Variable("xml_path", Shape.SCALAR, "deploy_vms"),
     Variable("additional_disk", Shape.LIST, "deploy_vms"),
     Variable("cloud_init", Shape.MAPPING, "cloud_init_seed", key="user_data_file"),
 )

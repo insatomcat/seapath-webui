@@ -35,6 +35,15 @@ all:
             - "../files/data.qcow2"
 """
 
+# A guest that brings its own libvirt XML rather than a template, which is how
+# a VM already running is adopted into the inventory.
+_GUEST = """
+VMs:
+  hosts:
+    guest1:
+      xml_path: "../files/guest1.xml"
+"""
+
 
 @pytest.fixture
 def roots(tmp_path: Path) -> Roots:
@@ -66,6 +75,20 @@ def test_a_group_variable_is_a_reference_on_every_host(roots: Roots) -> None:
     assert grouped["upload_extra_files_upload_files"][0].host == "node1"
     assert grouped["cloud_init"][0].value == "../inventories_private/user-data.yaml"
     assert grouped["additional_disk"][0].value == "../files/data.qcow2"
+
+
+def test_the_libvirt_xml_a_guest_names_is_a_reference_like_any_other(
+    roots: Roots,
+) -> None:
+    # A guest that brings its own XML rather than a template names it in
+    # `xml_path`, and `deploy_vms_cluster` reads it with `lookup('file')`.
+    # Left out of the list, it was the one path a guest names that the page
+    # said nothing about, which is worse than not looking at all: an operator
+    # reads "one file missing" as "one file missing".
+    grouped = _by_variable(check(_GUEST, roots))
+
+    assert grouped["xml_path"][0].host == "guest1"
+    assert grouped["xml_path"][0].expected == "files/guest1.xml"
 
 
 def test_a_file_is_found_in_whichever_store_holds_it(roots: Roots) -> None:

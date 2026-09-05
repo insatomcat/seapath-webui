@@ -209,7 +209,8 @@ and, in the same family, `iptables_rules_path`,
 `iptables_rules_template_path`, `syslog_conf_template`, `syslog_tls_ca`,
 `syslog_tls_key`, `syslog_tls_server_ca`, `cephadm_spec_path`,
 `configure_hypervisor_tuned_path`, `hosts_path`, `update_swu_image_path`,
-`vm_disk`, `vm_template`, `additional_disk`, `cloud_init.user_data_file`. A
+`vm_disk`, `vm_template`, `xml_path`, `additional_disk`,
+`cloud_init.user_data_file`. A
 folder holding `inventory.yaml` alone would describe machines that no run from
 here could converge.
 
