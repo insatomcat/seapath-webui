@@ -116,9 +116,32 @@ class Inventory(BaseModel):
     mode: Mode = Mode.STANDALONE
     hosts: dict[str, NodeConfig] = Field(default_factory=dict)
     guests: dict[str, Guest] = Field(default_factory=dict)
+    cluster_members: list[str] = Field(default_factory=list)
+    """The machines of `cluster_machines`, which is a smaller set than `hosts`.
+
+    A file may declare a cluster and a standalone machine at once, and several
+    do: an administration box beside the three hypervisors. `mode` says what
+    the file describes as a whole; this says which of its machines Pacemaker
+    knows about, and that is a different question.
+    """
 
     def host_names(self) -> list[str]:
         return list(self.hosts)
+
+    def placement_hosts(self) -> list[str]:
+        """The machines a guest may be placed on.
+
+        Cluster members that are hypervisors, which is `hypervisors:&cluster_machines`,
+        the pattern `cluster_setup_libvirt` plays. A standalone machine has no
+        Pacemaker to hear the constraint, and an observer is a cluster member
+        with no libvirt to run the guest: naming either is a guest that never
+        starts and a constraint nobody can read.
+        """
+        return [
+            name
+            for name in self.cluster_members
+            if name in self.hosts and self.hosts[name].role is Role.HYPERVISOR
+        ]
 
     def guest_names(self) -> list[str]:
         return list(self.guests)

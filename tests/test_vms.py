@@ -628,7 +628,9 @@ def test_a_placement_naming_a_machine_the_inventory_lacks_is_refused(
     )
 
     assert response.status_code == 400
-    assert "not a machine of this inventory" in response.json()["error"]["message"]
+    assert "not a machine a guest can be placed on" in (
+        response.json()["error"]["message"]
+    )
 
 
 def test_a_guest_is_pinned_or_preferred_and_not_both(signed_in: TestClient) -> None:
@@ -694,6 +696,49 @@ def test_the_form_is_offered_the_machines_a_guest_can_be_placed_on(
     view = signed_in.get("/api/v1/vms").json()
 
     assert view["machines"] == ["node1", "node2", "node3"]
+
+
+def test_only_a_cluster_member_that_runs_libvirt_is_offered_for_placement(
+    signed_in: TestClient,
+) -> None:
+    # A standalone machine has no Pacemaker to hear the constraint and an
+    # observer has no libvirt to run the guest. Offering either is offering a
+    # guest that never starts and a constraint nobody can read.
+    document = CLUSTER.read_text() + "\nobservers:\n  hosts:\n    node3:\n"
+    signed_in.post("/api/v1/inventory/import", json={"document": document + GUESTS})
+
+    view = signed_in.get("/api/v1/vms").json()
+
+    assert view["machines"] == ["node1", "node2"]
+
+
+def test_a_file_with_both_a_cluster_and_a_standalone_machine_says_so(
+    signed_in: TestClient,
+) -> None:
+    # Both deployment playbooks loop over the whole `VMs` group and neither
+    # takes a guest to deploy, so the file has no way of saying which
+    # deployment a guest belongs to. Said rather than resolved: inventing an
+    # answer here would be a variable the roles do not read.
+    document = (
+        CLUSTER.read_text()
+        + """
+standalone_machine:
+  hosts:
+    ccv-admin:
+      ansible_host: 10.132.159.74
+      network_interface: eno8303
+      admin_user: admin
+"""
+    )
+    signed_in.post("/api/v1/inventory/import", json={"document": document + GUESTS})
+
+    view = signed_in.get("/api/v1/vms").json()
+
+    assert len(view["warnings"]) == 1
+    assert "ccv-admin" in view["warnings"][0]
+    assert "a second time" in view["warnings"][0]
+    # And that machine is still not somewhere Pacemaker can place a guest.
+    assert "ccv-admin" not in view["machines"]
 
 
 def test_the_real_time_profile_is_offered_on_a_standalone_machine_too(

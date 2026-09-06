@@ -473,6 +473,10 @@
     lead.hidden = !view.playbook;
 
     mode = view.mode;
+    // What one `VMs` group cannot say about a file that declares both a
+    // cluster and a machine outside it. Said where the guests are listed,
+    // because that is where the reading would otherwise be trusted.
+    showBanner((view.warnings || []).join(" "));
     element("runtime-note").textContent = view.runtime_note;
     element("empty").textContent = view.note;
     element("empty").hidden = !view.note;

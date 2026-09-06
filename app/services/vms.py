@@ -30,7 +30,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.cluster.ha import PacemakerResource
-from app.inventory.model import Mode
+from app.inventory.model import Inventory, Mode
 from app.inventory.references import Reference
 from app.inventory.repository import Commit
 from app.inventory.service import InventoryService
@@ -113,7 +113,15 @@ class GuestsView(BaseModel):
     keeps a name that a later deployment would collide with.
     """
     machines: list[str] = Field(default_factory=list)
-    """The machines a guest may be placed on, for the form that asks."""
+    """The machines a guest may be placed on, for the form that asks.
+
+    Cluster members that are hypervisors, and not every host of the file. A
+    standalone machine has no Pacemaker to hear a constraint and an observer
+    has no libvirt to run the guest, so offering either is offering a guest
+    that never starts.
+    """
+    warnings: list[str] = Field(default_factory=list)
+    """What this page could not answer cleanly, in the operator's terms."""
     playbook: str = ""
     """The catalogue entry that deploys the group in this mode."""
     runtime_note: str = ""
@@ -148,6 +156,40 @@ STANDALONE_ONLY = ("autostart", "disk_extract")
 # than free text: the value reaches a domain definition, and a bus libvirt does
 # not know is a guest that fails to start with a message about its disk.
 DISK_BUSES = ("virtio", "sata", "scsi", "ide", "usb")
+
+
+def _warnings(inventory: Inventory) -> list[str]:
+    """What one `VMs` group cannot say, and this file needs it to.
+
+    Both deployment playbooks loop over the whole group, `deploy_vms_cluster`
+    from a cluster member and `deploy_vms_standalone` on the standalone
+    machine, and neither takes a guest to deploy. So a file declaring both
+    kinds of machine has no way of saying which deployment a guest belongs to,
+    and running the two playbooks would create every guest twice, once in Ceph
+    and once in the local pool.
+
+    Said rather than resolved: inventing a per guest answer here would be this
+    service adding a variable the roles do not read.
+    """
+    if not inventory.guests:
+        return []
+    standalone = [
+        name for name in inventory.hosts if name not in inventory.cluster_members
+    ]
+    if not standalone or not inventory.cluster_members:
+        return []
+    return [
+        "This inventory declares a cluster and "
+        + (
+            f"the standalone machine {standalone[0]}"
+            if len(standalone) == 1
+            else f"{len(standalone)} machines outside it"
+        )
+        + ". The `VMs` group is one group and both deployment playbooks loop "
+        "over all of it, so the guests below are treated as the cluster's: "
+        "running deploy_vms_standalone as well would create each of them a "
+        "second time, on that machine."
+    ]
 
 
 class InvalidGuest(Exception):
@@ -230,7 +272,7 @@ class VmService:
         places nowhere, reported as a constraint nobody can read.
         """
         state = self._inventory.state()
-        machines = set(state.inventory.hosts) if state.inventory else set()
+        machines = state.inventory.placement_hosts() if state.inventory else []
         guests = set(state.inventory.guests) if state.inventory else set()
         cluster = state.inventory is not None and state.inventory.mode is Mode.CLUSTER
 
@@ -257,9 +299,10 @@ class VmService:
             host = variables.get(field)
             if host and host not in machines:
                 raise InvalidGuest(
-                    f"{host!r} is not a machine of this inventory. Pacemaker "
-                    "places a guest on a node it knows, and this one it does "
-                    f"not: {', '.join(sorted(machines)) or 'none declared'}."
+                    f"{host!r} is not a machine a guest can be placed on. "
+                    "Pacemaker places one on a cluster member that runs "
+                    "libvirt, which here means "
+                    f"{', '.join(machines) or 'no machine of this inventory'}."
                 )
 
         unknown = [
@@ -301,7 +344,8 @@ class VmService:
         mode = state.inventory.mode
         view = GuestsView(
             mode=mode.value,
-            machines=list(state.inventory.hosts),
+            machines=state.inventory.placement_hosts(),
+            warnings=_warnings(state.inventory),
             playbook=DEPLOY_PLAYBOOK[mode],
             inventory_commit=state.commit,
         )

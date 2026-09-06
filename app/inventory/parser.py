@@ -111,6 +111,7 @@ def parse(document: str) -> Inventory:
         mode=Mode.CLUSTER if cluster_members else Mode.STANDALONE,
         hosts=parsed,
         guests=defined,
+        cluster_members=sorted(cluster_members & set(parsed)),
     )
 
 

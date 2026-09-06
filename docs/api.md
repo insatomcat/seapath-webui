@@ -506,7 +506,7 @@ domain and the resource.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `undeclared` lists the guests the cluster runs and the inventory does not describe; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty |
+| GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `undeclared` lists the guests the cluster runs and the inventory does not describe; `machines` are the cluster members that run libvirt, which is where a guest may be placed; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
 | POST | `/vms` | Declare one guest in the `VMs` group, one commit, `If-Match` on the commit hash. Answers with the commit and the playbook that deploys it. `admin` |
 | POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
 | POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |
@@ -534,9 +534,12 @@ afterwards is the metadata window and an outage. Only what departs from the
 roles' own defaults reaches the file.
 
 Three of them are checked against the inventory rather than passed through. A
-placement names a machine the inventory declares, since `preferred_host: nod2`
-is a guest Pacemaker places nowhere and reports as a constraint nobody can
-read. A guest is pinned or preferred and not both, because `cluster_vm` reads
+placement names a machine a guest can actually be placed on, which is a cluster
+member that runs libvirt, `hypervisors:&cluster_machines`. Every host of the
+file is a wider set than that and offering it is offering a guest that never
+starts: a standalone machine has no Pacemaker to hear the constraint and an
+observer has no libvirt to run the guest, and `preferred_host: nod2` is a
+constraint nobody can read. A guest is pinned or preferred and not both, because `cluster_vm` reads
 `pinned_host` first and ignores the other. And a colocation names guests this
 inventory has. The pinning profile has to parse as a YAML mapping, since the
 seapath-alloc hook reads it at every start.
