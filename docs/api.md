@@ -315,24 +315,33 @@ is where this service answers "who changed what, and when".
 | GET | `/conformance` | Result of the last check run per host, and its age |
 | POST | `/cluster/resources/{name}/refresh` | Clear one resource's operation history, failures included, and ask Pacemaker to probe it again: `crm resource refresh <name>` on a cluster member, as a run. `operator`. 202 with the `run_id` to watch, `404 unknown_resource` for a name the cluster does not report, `409 no_cluster` when none answered. See [D29](decisions.md#d29) |
 | POST | `/cluster/resources/refresh` | The same, for every resource on every node: `crm resource refresh` with nothing named. `operator`. It costs a probe per resource per node, so it is the larger of the two and the page says so |
+| POST | `/cluster/resources/{name}/move` | Ask Pacemaker to run a resource on a named node: `crm resource move <name> <node>` on a cluster member, as a run. Body `{"node": "elabo1"}`. `operator`. It writes the `cli-prefer-<name>` constraint, which is the object `preferred_host` produces and written by the same command. `404 unknown_resource`, `404 unknown_node` for a machine the cluster does not report, `409 node_in_standby`, `409 resource_pinned` for a guest `pinned_host` holds, `409 resource_is_cloned`, `409 no_cluster`. See [D34](decisions.md#d34) |
+| POST | `/cluster/resources/{name}/clear` | Give the placement back: `crm resource clear <name>`, followed by a `crm resource move` writing back the `preferred_host` the inventory declares, where it declares one the cluster reports. `operator`. `restored` in the answer names what is written back, empty when nothing is. Same refusals as the move |
+| POST | `/cluster/nodes/{name}/standby` | Empty a machine: `crm node standby <name>` on a cluster member, as a run. `operator`. Pacemaker moves every resource off it and places nothing there until it is brought back online. Quorum is untouched. `404 unknown_node`, `409 already_there`, `409 no_cluster` |
+| POST | `/cluster/nodes/{name}/online` | End the standby: `crm node online <name>`. `operator`. What moves back is Pacemaker's decision |
 
 Every reading is open to the `viewer` role, which is the whole point of having
 one. The one write in the table is `POST /node/update`, and what it writes is
 the inventory: it changes no machine, and the run that does is confirmed the
 way every other convergence is.
 
-Both cluster readings are GET. The one act beside them is the refresh, and it
-is a run: one generated task on `cluster_machines[0]`, over the SSH path a
-convergence uses, under the same lock and in the same history, so no `crm`
-executes inside this container. It qualifies because it holds nothing. Deleting
-an operation history is how Pacemaker is told to look again, and there is no
-version of that fact for this service to own.
+Both cluster readings are GET. Every act beside them is a run: one generated
+task on `cluster_machines[0]`, over the SSH path a convergence uses, under the
+same lock and in the same history, so no `crm` executes inside this container.
 
-Putting a node in standby, moving a VM or evicting an OSD stay out, because
-each of them decides where things run: what a machine should be is the
-inventory and a run, and where a resource runs belongs to Pacemaker.
-`/storage` says the same thing `docs/ceph.md` says about removing an OSD, and
-for the same reason.
+They qualify because each of them writes to the CIB and nowhere else. Deleting
+an operation history is how Pacemaker is told to look again. A placement is the
+`cli-prefer` constraint `vm_manager` itself writes for `preferred_host`, by
+calling the same `crm resource move`, so the move adds no kind of rule the
+cluster did not already carry; the return puts back what the inventory
+declares, because a bare clear removes the declared constraint along with the
+operator's one. Standby is the same question at the scale of a machine. None of
+them writes a file on a host, restarts a service or touches the inventory, and
+a redeployment of a guest restores its declared placement whatever was done
+here. [D34](decisions.md#d34) has the bounds.
+
+Evicting an OSD stays out: `/storage` says the same thing `docs/ceph.md` says
+about removing one, and for the same reason.
 
 **There is no endpoint here for what the machine is currently doing,** and that
 is the shape of this section rather than a gap in it. Unit states, the journal
@@ -549,7 +558,7 @@ domain and the resource.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `domain` is what libvirt says about it, read from libvirt-exporter on the machine running it, which is the only reading a guest with no Pacemaker resource has; `undeclared` lists the guests the cluster runs and the inventory does not describe, and `undeclared_domains` the same for the machines Pacemaker does not answer for; `machines` are the cluster members that run libvirt, which is where a guest may be placed; each guest carries the `deployment` it belongs to, whether the file `declared` it and the `playbook` that creates it; `deployments` names the kinds of machine this inventory has, and `split` says whether the file assigns its guests; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
+| GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `domain` is what libvirt says about it, read from libvirt-exporter on the machine running it, which is the only reading a guest with no Pacemaker resource has; `undeclared` lists the guests the cluster runs and the inventory does not describe, and `undeclared_domains` the same for the machines Pacemaker does not answer for; `machines` are the cluster members that run libvirt, which is where a guest may be placed, and `placement_nodes` narrows that to the ones the cluster currently reports online and out of standby, which is where a move may send one; each guest carries `preferred_host` and `pinned_host` from its entry beside the `constraints` Pacemaker holds for it, so the page can tell a declared placement from an operator's override, which the CIB cannot ([D34](decisions.md#d34)); each guest carries the `deployment` it belongs to, whether the file `declared` it and the `playbook` that creates it; `deployments` names the kinds of machine this inventory has, and `split` says whether the file assigns its guests; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
 | POST | `/vms` | Declare one guest, one commit, `If-Match` on the commit hash. `deployment` picks the group it goes into, `cluster` or `standalone`; absent leaves it in `VMs` itself. Answers with the commit and the playbook that creates it. `admin` |
 | POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
 | POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |

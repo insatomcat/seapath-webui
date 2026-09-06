@@ -274,7 +274,7 @@ has to leave the cluster exactly as it found it.
 | 16 | With one member powered off, the Membership tab lists it as unreachable with the reason, and the members that answered are still drawn | A cluster half built, or half up, is the ordinary state | |
 | 17 | The page costs at most one GET per machine per exporter per load: the exporters' access logs, or `tcpdump`, answer it | Three readings on one page must not multiply what opening it costs a hypervisor | |
 | 18 | A viewer can open the page and read all three tabs | The role an operator on call is likely to have | |
-| 19 | Nothing changed on any machine: `crm configure show` and `ceph config dump` are identical before and after a session on this page, and `seapath_setup_main.yaml` from a conventional control machine still reports no change | **The acceptance criterion.** A monitoring page that configured something would be the worst kind of bug here | |
+| 19 | Nothing changed on any machine from *reading*: with no button pressed, `crm configure show` and `ceph config dump` are identical before and after a session on this page, and `seapath_setup_main.yaml` from a conventional control machine still reports no change | **The acceptance criterion.** A monitoring page that configured something would be the worst kind of bug here. The acts the page offers are in the Placement section below, each one a run in the history | |
 | 20 | On a resource with a failure count, **Refresh** launches a run whose one task is `crm resource refresh <resource>`, and `crm_mon` on the machine reports the count cleared afterwards | The button exists for a state only a real cluster reaches. `crm resource fail` stages it | Pending |
 | 21 | Refreshing a resource that is running leaves it running, on the same node, and the guests on that machine are undisturbed | The whole reason this is offered rather than a stop and a start | Pending |
 | 22 | After 20, `crm configure show` is identical before and after: the refresh cleared history and changed no configuration | What makes this act belong on a page that configures nothing | Pending |
@@ -292,6 +292,49 @@ Pacific, which is worth staging only if a site runs one.
 Check 6 wants a partition rather than a stopped service: `iptables -j DROP` on
 the cluster interface of one member reproduces it and `crm_mon` on both halves
 says whether it took.
+
+## Placement
+
+Moving a resource, giving its placement back, and putting a node in standby.
+See D34 in [decisions.md](decisions.md).
+
+These are the only acts in this service that write to a live CIB on purpose, so
+what has to be proved on real hardware is twofold: that each one does exactly
+the one thing it says, and that the inventory still describes the cluster
+afterwards. Every check runs on a converged three node cluster with guests on
+it, and the guests are what an operator watches while it happens.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | On a guest deployed with `preferred_host`, `crm configure show` names a `cli-prefer-<guest>` constraint on that node | The premise of the whole design, read off a real deployment rather than off the `vm_manager` source | Pending |
+| 2 | **Move** on that guest launches a run whose one task is `crm resource move <guest> <node>`, and afterwards `crm configure show` names the same constraint id on the new node | The constraint is replaced rather than doubled, which only the real crmsh proves | Pending |
+| 3 | With `live_migration` on the guest's image, check 2 leaves the guest running throughout: `virsh list` on both machines, and a ping to the guest, show a migration rather than a stop and a start | What the confirmation promises. A guest under a substation function must not be stopped by a button that said it would not | Pending |
+| 4 | Without `live_migration`, check 2 stops the guest on one machine and starts it on the other, and the confirmation had said so | The other half of the same promise | Pending |
+| 5 | **Return** on that guest runs `crm resource clear` then `crm resource move` with the node the inventory declares, and `crm configure show` ends with the declared constraint back | The trap the second task exists for: a bare clear would drop a declared placement | Pending |
+| 6 | On a guest the inventory declares no `preferred_host` for, **Return** runs the clear alone and `crm configure show` names no `cli-prefer` for it afterwards | The other branch of the same act | Pending |
+| 7 | On a guest deployed with `pinned_host`, no Move or Return button is drawn and both endpoints refuse with `resource_pinned`, naming the `pin-` constraint | A pinned guest runs there or nowhere, and a clear would not remove that constraint anyway | Pending |
+| 8 | **Standby** on a member launches `crm node standby`, `crm_mon` shows the node standby and online, and every resource it held is placed elsewhere | The act with no per resource residue, and the one an operator uses before a reboot | Pending |
+| 9 | After check 8, `crm configure show` names no new constraint: a standby leaves nothing behind on any resource | What makes standby the better gesture than a move for showing a cluster place its guests | Pending |
+| 10 | During check 8, quorum is unchanged and the node still votes: `corosync-quorumtool` before and after | The confirmation says so, and a wrong claim here is one an operator acts on | Pending |
+| 11 | **Bring online** ends the standby, and Pacemaker places what it chooses to place, which may be nothing | A resource with nothing holding it elsewhere staying put is the cluster behaving correctly | Pending |
+| 12 | The Move button is absent for a member in standby as a destination, and the endpoint refuses one with `node_in_standby` | Pacemaker places nothing there, so the constraint would hold the guest where it already is | Pending |
+| 13 | On a cloned resource, no Move is drawn and the endpoint refuses with `resource_is_cloned` | Only a real cluster carries a clone with the exporter's `clone` label filled in | Pending |
+| 14 | The VMs page marks a guest whose `cli-prefer` constraint names a node its entry does not declare, and leaves an as declared guest unmarked | The only way an override is visible at all: the CIB cannot say who asked for a constraint | Pending |
+| 15 | A viewer sees no Move, Return or Standby button, and all four endpoints as a viewer are refused | They write to a live CIB, so they are an operator's act | Pending |
+| 16 | **The acceptance criterion.** After a session of moves and standbys, `disable` then `enable` on the guest through the VMs page restores the declared placement, and `deploy_vms_cluster` from a conventional Ansible control machine reports no change | Placement written here must never outlive a redeployment, or the inventory has stopped describing the cluster | Pending |
+| 17 | Every one of these appears in the run history with the machine it ran on, the command line, and the user who launched it | The audit trail is the product claim, and a CIB write with no run behind it would break it | Pending |
+
+### Result
+
+Not yet run. Every check needs a converged cluster with guests, and checks 3
+and 4 need two guests differing only in `live_migration` so the two costs can be
+watched side by side.
+
+Check 16 is the one to run last and the one to run twice: once after a move
+that was returned, and once after a move that was left in place, because the
+second is the state a demonstration actually leaves behind.
 
 ## Containers
 

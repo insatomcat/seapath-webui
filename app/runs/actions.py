@@ -1,7 +1,7 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Starting a guest, stopping one, refreshing a resource: the runtime plane.
+"""Starting a guest, moving one, putting a node in standby: the runtime plane.
 
 Everything else this service runs is a whole playbook of the collection, for
 the reason D8 gives: the tags of `seapath-ansible` were never designed as a
@@ -13,6 +13,13 @@ time, and the module is the same `cluster_vm` that `deploy_vms_cluster` calls.
 The play is generated into the run's own staged tree and the run is otherwise
 an ordinary one: the same lock, the same event stream, the same record, the
 same SSH path. Nothing here reaches a machine except through `ansible-runner`.
+
+Where no module covers the act, the task is the `crm` command an operator
+would type on the machine, with `argv` so no shell parses it and the name
+checked against what the cluster reported before it arrives here. Placement is
+that case and [D34](../../docs/decisions.md) has its bounds: a move writes the
+same `cli-prefer` constraint `preferred_host` writes, because upstream
+implements that field by running this very command.
 
 The alternative was the libvirt socket and `vm_manager` in process. It reaches
 the local node alone, and the guests of a three node cluster move between all
@@ -46,6 +53,10 @@ class Action(str, Enum):
     UNIT_STOP = "unit_stop"
     RESOURCE_START = "resource_start"
     RESOURCE_STOP = "resource_stop"
+    MOVE = "move"
+    CLEAR = "clear"
+    STANDBY = "standby"
+    ONLINE = "online"
 
 
 @dataclass(frozen=True)
@@ -55,10 +66,10 @@ class ActionSpec:
     disruption: str
     """What it acts on, in the sentence a confirmation carries."""
     subject: str = "guest"
-    """What the name in the play is: a guest of the inventory, or a resource
-    Pacemaker reports. They are usually the same object and never the same
-    list, since a cluster carries resources no inventory declares. `cluster`
-    means the action takes no name at all."""
+    """What the name in the play is: a guest of the inventory, a resource
+    Pacemaker reports, or a cluster member. The first two are usually the same
+    object and never the same list, since a cluster carries resources no
+    inventory declares. `cluster` means the action takes no name at all."""
     prefix: str = "vm"
     """What the run record calls this play, before the action's own name.
 
@@ -71,6 +82,12 @@ class ActionSpec:
     """The play runs on one named machine rather than on a group of the
     inventory. A quadlet is a systemd unit on the machine holding it, so the
     machine is part of the act and part of the confirmation."""
+    title: str = ""
+    """What the run is called, when `<verb> <name>` does not read as English.
+
+    A format string over `name` and `node`. "Standby elabo2" and "Move
+    vm-guest1 elabo2" are the two the verb alone produces, and an operator
+    scanning the run list reads the title before anything else."""
 
 
 _SPECS: dict[Action, ActionSpec] = {
@@ -179,6 +196,63 @@ _SPECS: dict[Action, ActionSpec] = {
             "with it."
         ),
     ),
+    Action.MOVE: ActionSpec(
+        verb="Move",
+        subject="resource",
+        prefix="resource",
+        record="resource_move",
+        title="Move {name} to {node}",
+        disruption=(
+            "Writes the cli-prefer constraint that names the node, which is "
+            "the same object `preferred_host` produces and written by the same "
+            "command. A guest whose image allows live migration moves without "
+            "stopping; one that does not is stopped where it runs and started "
+            "on the other node, and whatever it was serving stops in between. "
+            "The constraint stays until it is returned, and it overrides the "
+            "placement the inventory declares for as long as it is there."
+        ),
+    ),
+    Action.CLEAR: ActionSpec(
+        verb="Return",
+        subject="resource",
+        prefix="resource",
+        record="resource_clear",
+        title="Return {name} to the placement the inventory declares",
+        disruption=(
+            "Removes the cli-prefer constraint, and writes the placement the "
+            "inventory declares back where there is one. Pacemaker may move "
+            "the resource as a result, at the same cost the move had."
+        ),
+    ),
+    Action.STANDBY: ActionSpec(
+        verb="Put in standby",
+        subject="node",
+        prefix="node",
+        record="node_standby",
+        title="Put {name} in standby",
+        disruption=(
+            "Pacemaker moves every resource off that machine and places "
+            "nothing there until it is brought back online. It is what an "
+            "operator does before rebooting a hypervisor, and on a live "
+            "cluster it moves every guest the node was running: those whose "
+            "image allows live migration move without stopping, the rest are "
+            "stopped there and started elsewhere. Quorum is untouched, because "
+            "a node in standby is still a Corosync member and still votes."
+        ),
+    ),
+    Action.ONLINE: ActionSpec(
+        verb="Bring online",
+        subject="node",
+        prefix="node",
+        record="node_online",
+        title="Bring {name} back online",
+        disruption=(
+            "Ends the standby, so Pacemaker may place resources on that "
+            "machine again. What moves back is Pacemaker's decision and not "
+            "this one: a resource with no constraint holding it elsewhere may "
+            "well stay where it is."
+        ),
+    ),
 }
 
 
@@ -192,7 +266,9 @@ def record(action: Action) -> str:
     return detail.record or f"{detail.prefix}_{action.value}"
 
 
-def entry(action: Action, guest: str, mode: Mode, host: str = "") -> PlaybookEntry:
+def entry(
+    action: Action, guest: str, mode: Mode, host: str = "", node: str = ""
+) -> PlaybookEntry:
     """The catalogue shape of one action, built for one guest.
 
     It is never in the catalogue and never offered on the Deployment page: it
@@ -218,7 +294,7 @@ def entry(action: Action, guest: str, mode: Mode, host: str = "") -> PlaybookEnt
     return PlaybookEntry(
         id=identifier,
         playbook=f"{GENERATOR}.{identifier}",
-        title=_title(action, guest, host),
+        title=_title(action, guest, host, node),
         targets=[host] if detail.on_host else _targets(cluster),
         # There is nothing to preview: the play makes one call and the answer
         # is what the cluster does with it.
@@ -234,7 +310,7 @@ def _targets(cluster: bool) -> list[str]:
     return ["cluster_machines[0]"] if cluster else ["standalone_machine"]
 
 
-def play(action: Action, guest: str, mode: Mode, host: str = "") -> str:
+def play(action: Action, guest: str, mode: Mode, host: str = "", node: str = "") -> str:
     """The one task play, as YAML.
 
     Dumped rather than templated, so a guest name cannot become YAML of its
@@ -243,11 +319,11 @@ def play(action: Action, guest: str, mode: Mode, host: str = "") -> str:
     """
     document = [
         {
-            "name": _title(action, guest, host),
+            "name": _title(action, guest, host, node),
             "hosts": _hosts(Mode.CLUSTER if action in _CLUSTER_ONLY else mode, host),
             "gather_facts": False,
             "become": True,
-            "tasks": _tasks(action, guest, mode),
+            "tasks": _tasks(action, guest, mode, node),
         }
     ]
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
@@ -262,12 +338,19 @@ _CLUSTER_ONLY = (
     Action.REFRESH_ALL,
     Action.RESOURCE_START,
     Action.RESOURCE_STOP,
+    Action.MOVE,
+    Action.CLEAR,
+    Action.STANDBY,
+    Action.ONLINE,
 )
 
 
-def _title(action: Action, guest: str, host: str = "") -> str:
+def _title(action: Action, guest: str, host: str = "", node: str = "") -> str:
     """What the run is called, in the run list and in the play."""
-    verb = _SPECS[action].verb
+    detail = _SPECS[action]
+    verb = detail.verb
+    if detail.title and guest:
+        return detail.title.format(name=guest, node=node)
     if not guest:
         return verb
     # The machine is part of the act for a unit: the same container is a unit
@@ -287,9 +370,9 @@ def _hosts(mode: Mode, host: str = "") -> str:
     return "standalone_machine"
 
 
-def _tasks(action: Action, guest: str, mode: Mode) -> list[dict]:
+def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]:
     """The task or tasks the action is, named for the operator reading them."""
-    title = _title(action, guest)
+    title = _title(action, guest, node=node)
     if action in (Action.UNIT_START, Action.UNIT_STOP):
         # The unit podman's generator wrote from the quadlet, asked of systemd
         # through the module that owns units. `daemon_reload` is deliberately
@@ -321,11 +404,73 @@ def _tasks(action: Action, guest: str, mode: Mode) -> list[dict]:
                 "changed_when": True,
             }
         ]
+    if action in (Action.STANDBY, Action.ONLINE):
+        # `crm node standby|online`, the pair an operator types before and
+        # after taking a hypervisor down. It writes the node's `standby`
+        # attribute into the CIB and lets Pacemaker place what it holds, so it
+        # is the whole cluster's decision made from one node, exactly as a
+        # refresh is. No module covers it: `cluster_vm`'s nineteen commands
+        # are all about one guest, and a node is not a guest.
+        verb = "standby" if action is Action.STANDBY else "online"
+        return [
+            {
+                "name": title,
+                "ansible.builtin.command": {"argv": ["crm", "node", verb, guest]},
+                # The attribute is written whatever the node was doing, so
+                # there is nothing here for Ansible to call unchanged.
+                "changed_when": True,
+            }
+        ]
+    if action is Action.MOVE:
+        # `crm resource move <resource> <node>`, which writes the
+        # `cli-prefer-<resource>` location constraint. The same object
+        # `preferred_host` produces: `vm_manager` implements that field by
+        # calling this very command, so a deliberate move introduces no kind of
+        # rule the cluster did not already carry. The node is always named,
+        # because a bare `crm resource move` bans the resource from the node it
+        # is on, which is a different act with the same words.
+        return [
+            {
+                "name": title,
+                "ansible.builtin.command": {
+                    "argv": ["crm", "resource", "move", guest, node]
+                },
+                "changed_when": True,
+            }
+        ]
+    if action is Action.CLEAR:
+        # `crm resource clear` removes the `cli-prefer-<resource>` constraint,
+        # and that is the whole difficulty: the constraint a move overwrote was
+        # the one `preferred_host` had put there, so a bare clear would drop a
+        # declared placement and leave nothing saying it had gone. The second
+        # task writes it back. `node` is what the inventory declares, empty for
+        # a resource it says nothing about.
+        tasks = [
+            {
+                "name": title,
+                "ansible.builtin.command": {
+                    "argv": ["crm", "resource", "clear", guest]
+                },
+                "changed_when": True,
+            }
+        ]
+        if node:
+            tasks.append(
+                {
+                    "name": f"Write back the placement the inventory declares "
+                    f"for {guest}",
+                    "ansible.builtin.command": {
+                        "argv": ["crm", "resource", "move", guest, node]
+                    },
+                    "changed_when": True,
+                }
+            )
+        return tasks
     if action in (Action.REFRESH, Action.REFRESH_ALL):
         # `crm resource refresh`, which is what an operator would type on the
         # machine, and `vm_manager` reaches Pacemaker through the same `crm`.
-        # No module covers it: `cluster_vm` builds and moves guests, and a
-        # resource is not always a guest.
+        # No module covers it: `cluster_vm` creates guests and starts them, and
+        # a resource is not always a guest.
         #
         # `argv` rather than a string, so no shell parses it and a resource
         # name holding a quote is one argument either way. The name is checked

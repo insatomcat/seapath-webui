@@ -330,7 +330,8 @@ fourth machine, which is the core of the request.
 VMs page joins what the inventory declares to what Pacemaker reports, and
 adding a guest is one act on that page. Starting and stopping are one task
 plays calling the upstream module, run over the SSH path a convergence uses.
-Migration, the snapshots and the metadata follow the same shape. See D30. A
+Placement, the snapshots and the metadata follow the same shape. See D30 and
+D34. A
 container is the same page one layer down: the quadlets the inventory uploads,
 the unit each machine made of them, and the Pacemaker resource where the
 cluster holds one. See D33.

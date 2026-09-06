@@ -19,12 +19,22 @@
 // in the artefacts, the XML is committed with the inventory, the guest is a
 // commit in the `VMs` group, and the guest is created by the upstream
 // playbook. What D30 settles is that the operator is not made to walk it.
+//
+// Move and Return call `/cluster/resources/{name}`, which is deliberate rather
+// than a slip: what is being placed is a Pacemaker resource, `vm_manager`
+// names it after the guest, and one act with a button on two pages beats two
+// endpoints doing the same thing. See D34.
 
 (function () {
   // Filled once the session and the reading are in: which role is signed in
   // decides whether the acting buttons exist at all, and the mode decides what
   // the stop confirmation has to warn about.
   let canAct = false;
+
+  // Where a move may send a guest, as the last reading answered it: the
+  // machines the inventory allows, held against the members the cluster
+  // reports as online and out of standby. Empty means no move is offered.
+  let placementNodes = [];
   let canWrite = false;
   let mode = "standalone";
 
@@ -188,6 +198,138 @@
     return cell;
   }
 
+  // Where the guest is, and what is holding it there. One cell, because the
+  // second answers a question the first raises: a guest running on a node its
+  // entry never named is either Pacemaker's own choice or somebody's move, and
+  // the constraint is the only thing that says which.
+  //
+  // The comparison is the whole point. `preferred_host` and a move here write
+  // the same `cli-prefer` object, so the CIB cannot say who asked for it; held
+  // against the entry it can say whether anybody declared it.
+  function nodeCell(guest) {
+    const where = guest.resource
+      ? guest.resource.node
+      : guest.domain
+        ? guest.domain.host
+        : "";
+    const box = cell(where);
+    const held = preferenceOf(guest);
+    if (!held) {
+      return box;
+    }
+    const declared = guest.preferred_host || "";
+    const tag = document.createElement("span");
+    tag.className = declared === held.node ? "tag" : "tag warn";
+    tag.textContent =
+      declared === held.node
+        ? "held on " + held.node + ", as declared"
+        : declared
+          ? "held on " + held.node + ", declared " + declared
+          : "held on " + held.node + ", declared nowhere";
+    box.append(" ", tag);
+    return box;
+  }
+
+  // The `cli-prefer` constraint, which is what a move writes and what
+  // `preferred_host` writes: the same object, and telling them apart is the
+  // page's job rather than the cluster's. `pin-` is `pinned_host`, a different
+  // rule that a return does not remove.
+  function preferenceOf(guest) {
+    return (guest.constraints || []).find((item) =>
+      item.id.startsWith("cli-prefer-")
+    );
+  }
+
+  function pinOf(guest) {
+    return (guest.constraints || []).find((item) => item.id.startsWith("pin-"));
+  }
+
+  // Moving a guest, and giving its placement back. Offered on a guest
+  // Pacemaker holds and nowhere else: a standalone guest has no cluster to
+  // hear a constraint, and a pinned one runs where it is pinned or nowhere,
+  // which is a decision its inventory entry made.
+  function placement(guest) {
+    const box = document.createElement("td");
+    if (!canAct || !guest.resource || !placementNodes.length || pinOf(guest)) {
+      return box;
+    }
+    const move = document.createElement("button");
+    move.type = "button";
+    move.className = "secondary";
+    move.textContent = "Move";
+    move.addEventListener("click", () => confirmMove(guest));
+    box.append(move);
+    if (preferenceOf(guest)) {
+      const back = document.createElement("button");
+      back.type = "button";
+      back.className = "secondary";
+      back.textContent = "Return";
+      back.addEventListener("click", () => confirmReturn(guest));
+      box.append(" ", back);
+    }
+    return box;
+  }
+
+  function confirmMove(guest) {
+    const held = preferenceOf(guest);
+    confirm({
+      title: "Move " + guest.name,
+      body:
+        "Writes the cli-prefer constraint that names the node, which is the " +
+        "same object preferred_host produces and written by the same command. " +
+        "With live_migration on this guest's image Pacemaker migrates the " +
+        "domain and it keeps running; without it the guest is stopped where " +
+        "it is and started on the other node, and whatever it was serving " +
+        "stops in between. Choosing the node it is already on writes the " +
+        "constraint without moving anything, which holds it there.",
+      note: held
+        ? held.id + " already holds it on " + held.node + ", and this " +
+          "replaces it. Return puts back what the inventory declares."
+        : "The constraint stays until Return removes it or the guest's " +
+          "Pacemaker resource is rebuilt, and while it is there it overrides " +
+          "the placement the inventory declares.",
+      choose: {
+        label: "Run it on",
+        options: placementNodes,
+        selected: guest.resource ? guest.resource.node : "",
+      },
+      label: "Move",
+      act: async (node) => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(guest.name) + "/move",
+          { node }
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
+  }
+
+  function confirmReturn(guest) {
+    const held = preferenceOf(guest);
+    confirm({
+      title: "Return " + guest.name + " to the cluster",
+      body:
+        "Removes " +
+        (held ? held.id : "the cli-prefer constraint") +
+        (guest.preferred_host
+          ? ", and writes back preferred_host: " + guest.preferred_host + "."
+          : ", and the inventory declares no placement to write back, so " +
+            "Pacemaker places the guest by its own rules.") +
+        " It may move as a result, at the same cost the move had.",
+      note:
+        "What is written back is the inventory's preferred_host. Where that " +
+        "differs from _preferred_host on the guest's image, the metadata " +
+        "window is where the difference is settled.",
+      label: "Return",
+      act: async () => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(guest.name) + "/clear"
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
+  }
+
   function actButton(name, action) {
     const button = document.createElement("button");
     button.type = "button";
@@ -220,12 +362,29 @@
   // One window for every act that cannot be undone by clicking again. It names
   // the thing and says what happens, the way an apply names the machines it
   // disturbs, and the caller says what to do when the operator agrees.
-  function confirm({ title, body, note, label, act }) {
+  function confirm({ title, body, note, label, choose, act }) {
     element("confirm-title").textContent = title;
     element("confirm-disruption").textContent = body;
     element("confirm-note").textContent = note || "";
     element("confirm-note").hidden = !note;
     element("confirm-error").hidden = true;
+
+    // The destination a move needs, picked in the window that names the
+    // disruption: the node is part of the act, so it is read at the moment the
+    // act is confirmed rather than from a control left set on the row.
+    const picker = element("confirm-node");
+    element("confirm-choice").hidden = !choose;
+    if (choose) {
+      element("confirm-choice-label").textContent = choose.label;
+      picker.replaceChildren();
+      choose.options.forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        option.selected = name === choose.selected;
+        picker.append(option);
+      });
+    }
 
     const go = element("confirm-go");
     go.textContent = label;
@@ -234,7 +393,7 @@
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        await act();
+        await act(choose ? picker.value : undefined);
         element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
@@ -515,6 +674,7 @@
     lead.hidden = !view.playbook;
 
     mode = view.mode;
+    placementNodes = view.placement_nodes || [];
     // What one `VMs` group cannot say about a file that declares both a
     // cluster and a machine outside it. Said where the guests are listed,
     // because that is where the reading would otherwise be trusted.
@@ -530,17 +690,12 @@
         cell(guest.name),
         deployedBy(guest),
         state(guest),
-        cell(
-          guest.resource
-            ? guest.resource.node
-            : guest.domain
-              ? guest.domain.host
-              : ""
-        ),
+        nodeCell(guest),
         file(guest, guest.vm_disk),
         file(guest, guest.vm_template || guest.xml_path),
         ondeploy(guest),
         acts(guest),
+        placement(guest),
         metaButton(guest.name, guest.deployment),
       ]);
     });

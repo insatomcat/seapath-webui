@@ -57,6 +57,7 @@ image and losing its disk. D31 records the bounds.
             <th>On deployment</th>
             <th></th>
             <th></th>
+            <th></th>
           </tr>
         </thead>
         <tbody id="guest-rows"></tbody>
@@ -334,14 +335,20 @@ image and losing its disk. D31 records the bounds.
 </div>
 
 {# One window for every act that cannot be undone by clicking again: starting
-   or stopping a guest, applying a metadata change, removing a key. It names
-   the thing and says what happens, the way an apply names the machines it
-   disturbs. #}
+   or stopping a guest, moving one, applying a metadata change, removing a key.
+   It names the thing and says what happens, the way an apply names the
+   machines it disturbs. `confirm-choice` is the destination a move needs: the
+   node is part of the act, so it is chosen here rather than in a control on
+   the row that could be left set from last time. #}
 <div class="modal" id="confirm" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>
     <p class="warning" id="confirm-note" hidden></p>
+    <label id="confirm-choice" hidden>
+      <span id="confirm-choice-label"></span>
+      <select id="confirm-node"></select>
+    </label>
     <p class="error" id="confirm-error" hidden></p>
     <div class="actions">
       <button type="button" id="confirm-cancel" class="secondary">Cancel</button>

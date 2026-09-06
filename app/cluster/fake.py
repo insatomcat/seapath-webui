@@ -307,14 +307,30 @@ def _pacemaker(dc: str = _DC) -> str:
             f'role="{role}",managed="true",status="{status}",agent="{agent}",'
             f'group="",clone=""}} 1'
         )
+    # A clone, which runs one instance per member and is placed by Pacemaker
+    # rather than by anybody. The connectivity check a cluster commonly carries,
+    # and the one resource shape that has no node to be sent to.
+    for node in _CLUSTER_NODES:
+        lines.append(
+            f'ha_cluster_pacemaker_resources{{node="{node}",resource="ping",'
+            'role="started",managed="true",status="active",'
+            'agent="ocf::pacemaker:ping",group="",clone="ping-clone"} 1'
+        )
     # A resource that has failed three times on the node it ran on, which is
     # its migration threshold, so Pacemaker will not start it there again.
     lines += [
         f'ha_cluster_pacemaker_fail_count{{node="{first}",resource="vm-guest3"}} 3',
         f'ha_cluster_pacemaker_migration_threshold{{node="{first}",'
         'resource="vm-guest3"} 3',
+        # The two shapes a placement takes, because they behave differently
+        # and only their names say which is which. `cli-prefer` is what both
+        # `preferred_host` and an operator's move write, and a clear removes
+        # it; `pin-` is what `pinned_host` writes, and nothing short of
+        # rebuilding the resource removes that one.
         'ha_cluster_pacemaker_location_constraints{constraint="cli-prefer-vm-guest1"'
         f',node="{first}",resource="vm-guest1",role="Started"}} 1000000',
+        'ha_cluster_pacemaker_location_constraints{constraint="pin-vm-guest2-on'
+        f'{second}",node="{second}",resource="vm-guest2",role="Started"}} 1000000',
         "ha_cluster_pacemaker_stonith_enabled 1",
         "ha_cluster_pacemaker_config_last_change 1772000000",
         "ha_cluster_corosync_quorate 1",

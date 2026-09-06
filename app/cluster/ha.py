@@ -147,6 +147,54 @@ class LocationConstraint(BaseModel):
     """`INFINITY`, `-INFINITY` or a number, written the way `crm` writes it."""
 
 
+# What a location constraint's id says about who wrote it, which is the only
+# thing that distinguishes them: they are all the same kind of CIB object.
+#
+# `crm resource move` writes `cli-prefer-<resource>` and `crm resource ban`
+# writes `cli-ban-<resource>-on-<node>`, and `crm resource clear` removes both.
+# `vm_manager` writes all three: `preferred_host` is a `crm resource move`,
+# an observer is a ban, and `pinned_host` alone gets a constraint of its own,
+# named after the field and left alone by a clear.
+PREFER_PREFIX = "cli-prefer-"
+BAN_PREFIX = "cli-ban-"
+PIN_PREFIX = "pin-"
+
+
+def preference(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
+    """The `cli-prefer` constraint holding a resource, when there is one.
+
+    It says where the resource is being kept and says nothing about who asked:
+    `preferred_host` and an operator's move produce the same object, because
+    upstream implements the first by running the command that writes the
+    second. What the difference is worth is a comparison against the inventory,
+    and the page draws that.
+    """
+    return _constraint(cluster, resource, PREFER_PREFIX)
+
+
+def pin(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
+    """The constraint `pinned_host` writes, which is a different rule.
+
+    `resource-discovery=exclusive` and an infinite score: the guest runs there
+    or nowhere. A clear does not remove it and a move fights it, so it is what
+    makes a resource one this service refuses to place.
+    """
+    return _constraint(cluster, resource, PIN_PREFIX)
+
+
+def _constraint(
+    cluster: PacemakerCluster, resource: str, prefix: str
+) -> LocationConstraint | None:
+    return next(
+        (
+            item
+            for item in cluster.constraints
+            if item.resource == resource and item.id.startswith(prefix)
+        ),
+        None,
+    )
+
+
 class SbdDevice(BaseModel):
     device: str
     status: str = "unknown"

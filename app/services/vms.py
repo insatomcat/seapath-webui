@@ -13,8 +13,8 @@ already runs.
 This assembles the three into one answer, and writes nothing anywhere. The
 definition is changed on the Inventory page, one commit; the guest is deployed
 by a run of `deploy_vms_cluster` or `deploy_vms_standalone`; and starting,
-stopping or migrating one is the runtime plane, which arrives with `vm_manager`
-and is not here yet.
+stopping or placing one is the runtime plane, which reaches a machine as a
+generated run and never from here.
 
 The read costs one HTTP GET per machine. It is the same exposition the Cluster
 page reads, asked again rather than cached, for the reason D29 gives: this
@@ -30,7 +30,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.cluster.exporters import MetricsClient, UrllibMetricsClient, read_all
-from app.cluster.ha import PacemakerResource
+from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResource
 from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
@@ -121,6 +121,20 @@ class GuestView(BaseModel):
     resource: PacemakerResource | None = None
     """Pacemaker's line for it, absent when nothing reports one."""
 
+    preferred_host: str | None = None
+    """Where the entry says Pacemaker should run it, when it says."""
+    pinned_host: str | None = None
+    """Where the entry says it runs or does not run at all."""
+    constraints: list[LocationConstraint] = Field(default_factory=list)
+    """The location rules the cluster holds for this guest, right now.
+
+    The pair above is the desired state and this is what Pacemaker is acting
+    on, and they are worth showing together because the second can be an
+    operator's doing: a move writes the same `cli-prefer` constraint
+    `preferred_host` writes, so the only way to see that a guest is being held
+    somewhere it was not declared to be is to compare the two. See D34.
+    """
+
     domain: LibvirtDomain | None = None
     """What libvirt says about it, from the exporter on its own machine.
 
@@ -156,6 +170,14 @@ class GuestsView(BaseModel):
     """
     deployments: list[str] = Field(default_factory=list)
     """The deployments this inventory has machines for, so a form can ask."""
+    placement_nodes: list[str] = Field(default_factory=list)
+    """The machines a move may send a guest to, right now.
+
+    `machines` held against what the cluster reports: a member in standby is
+    one Pacemaker will place nothing on, so offering it is offering a
+    constraint that holds a guest where it already is. Empty whenever no
+    cluster answered, and the page then offers no move at all.
+    """
     machines: list[str] = Field(default_factory=list)
     """The machines a guest may be placed on, for the form that asks.
 
@@ -461,7 +483,20 @@ class VmService:
         )
 
         files = self._files_by_host()
-        resources, view.runtime_note = self._resources()
+        reading = self._cluster.pacemaker()
+        resources, constraints, view.runtime_note = self._resources(reading)
+        # Where a move may send a guest: a machine the inventory allows it on
+        # that the cluster also reports as online and out of standby. Both
+        # halves are needed. The inventory rules out an observer, which has no
+        # libvirt to run the guest, and the cluster rules out a member nothing
+        # can be placed on this afternoon.
+        view.placement_nodes = [
+            node.name
+            for node in reading.nodes
+            if node.name in view.machines
+            and node.online
+            and "standby" not in node.flags
+        ]
         domains = self._domains(state)
 
         for name, guest in state.inventory.guests.items():
@@ -477,8 +512,11 @@ class VmService:
                     xml_path=guest.xml_path,
                     force=guest.force,
                     enable=guest.enable,
+                    preferred_host=guest.extra.get("preferred_host"),
+                    pinned_host=guest.extra.get("pinned_host"),
                     files=files.get(name, []),
                     resource=resources.get(name),
+                    constraints=constraints.get(name, []),
                     domain=domains.get(name),
                 )
             )
@@ -542,7 +580,9 @@ class VmService:
             found.setdefault(reference.host, []).append(reference)
         return found
 
-    def _resources(self) -> tuple[dict[str, PacemakerResource], str]:
+    def _resources(
+        self, cluster: PacemakerCluster
+    ) -> tuple[dict[str, PacemakerResource], dict[str, list[LocationConstraint]], str]:
         """What Pacemaker says, by guest name, and one sentence about it.
 
         The resource id `vm_manager` creates is the VM name itself, which is
@@ -554,12 +594,24 @@ class VmService:
         desired state, and this column reports what is actually running: a node
         that is in a cluster its inventory has not caught up with is exactly
         when an operator opens this page.
+
+        The location constraints come back with it, keyed the same way. They
+        are what says a guest is being held somewhere, and the page cannot tell
+        an operator's move from a declared `preferred_host` without them: the
+        two are the same CIB object, so the only reading is the constraint
+        against the entry.
         """
-        cluster = self._cluster.pacemaker()
         if cluster.error:
-            return {}, f"{cluster.error} {_DESIRED_STATE_ONLY}"
-        return {
-            resource.id: resource
-            for resource in cluster.resources
-            if VM_AGENT in resource.agent
-        }, _FROM_PACEMAKER
+            return {}, {}, f"{cluster.error} {_DESIRED_STATE_ONLY}"
+        held: dict[str, list[LocationConstraint]] = {}
+        for constraint in cluster.constraints:
+            held.setdefault(constraint.resource, []).append(constraint)
+        return (
+            {
+                resource.id: resource
+                for resource in cluster.resources
+                if VM_AGENT in resource.agent
+            },
+            held,
+            _FROM_PACEMAKER,
+        )

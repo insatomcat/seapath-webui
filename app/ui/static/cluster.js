@@ -8,10 +8,11 @@
 // of these readings is a table an operator scans, and three of them sharing a
 // screen means three truncated tables and a scroll.
 //
-// Nothing here writes. There is no button on this page that reaches a machine,
-// and that is a design decision rather than an unfinished one: standby, cleanup
-// and migrate are `crm` commands, and this service does not run those. What a
-// machine should be is the inventory and a run.
+// What this page writes is placement. Refresh, Move and Standby are the runtime
+// plane: each is a generated one task run of `crm` on a cluster member, over the
+// SSH path a convergence uses, so no `crm` runs inside this container. What a
+// machine should be stays the inventory and a run, and nothing here touches it.
+// See D30 and D34.
 
 (function () {
   const VIEWS = {
@@ -24,6 +25,12 @@
   // button. Refreshing reaches a live cluster, so it is an operator's act, the
   // same role that starts and stops a guest.
   let canAct = false;
+
+  // The last reading, kept because the buttons are built from it: a move needs
+  // the members it may send a resource to, and a standby needs to know whether
+  // the machine is the last one online. Read once per page load, the way
+  // everything else here is.
+  let reading = null;
 
   function element(id) {
     return document.getElementById(id);
@@ -194,6 +201,7 @@
             .map(([key, value]) => `${key}=${value}`)
             .join(", ") || "–"
         ),
+        standbyCell(node, cluster),
       ]);
     });
     renderSbd(cluster.sbd_devices);
@@ -201,6 +209,77 @@
 
     element("members-lead").textContent = lead(cluster);
     summarise("members", membersStatus(cluster), membersAnswer(cluster, online));
+  }
+
+  // Emptying a machine and filling it again. The button offered is the one
+  // that changes something, the way the VMs page offers a stop or a start and
+  // never both: a node in standby is offered its way back and nothing else.
+  //
+  // Only a Corosync member. A `ping` pseudo node runs nothing, and a remote
+  // node's standby is Pacemaker's own business.
+  function standbyCell(node, cluster) {
+    const box = document.createElement("td");
+    if (!canAct || node.type !== "member") {
+      return box;
+    }
+    const held = node.flags.includes("standby");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = held ? "Bring online" : "Standby";
+    button.addEventListener("click", () => confirmStandby(node, cluster, !held));
+    box.append(button);
+    return box;
+  }
+
+  function confirmStandby(node, cluster, standby) {
+    // The one that has to be said before it happens: emptying the last member
+    // that can hold anything stops every resource in the cluster, and the
+    // guests on these machines are substation functions.
+    const others = cluster.nodes.filter(
+      (item) =>
+        item.type === "member" &&
+        item.name !== node.name &&
+        item.online &&
+        !item.flags.includes("standby")
+    );
+    const running = cluster.resources.filter(
+      (item) => item.node === node.name && item.role === "started"
+    );
+    confirm({
+      title: (standby ? "Put " : "Bring ") + node.name + (standby ? " in standby" : " back online"),
+      body: standby
+        ? "Pacemaker moves every resource off " +
+          node.name +
+          " and places nothing there until it is brought back online. It is " +
+          "what an operator does before rebooting a hypervisor. Guests whose " +
+          "image allows live migration move without stopping; the rest are " +
+          "stopped here and started elsewhere. Quorum is untouched, because a " +
+          "node in standby is still a Corosync member and still votes."
+        : "Ends the standby, so Pacemaker may place resources on " +
+          node.name +
+          " again. What moves back is its own decision: a resource with " +
+          "nothing holding it elsewhere may well stay where it is.",
+      note: standby
+        ? others.length === 0
+          ? "No other member is online and out of standby, so there is nowhere " +
+            "for these resources to go: every one of them stops, and whatever " +
+            "they were serving stops with them."
+          : running.length
+            ? `${plural(running.length, "resource")} started here: ` +
+              running.map((item) => item.id).join(", ") + "."
+            : ""
+        : "",
+      label: standby ? "Put in standby" : "Bring online",
+      act: async () => {
+        const started = await API.post(
+          "/cluster/nodes/" +
+            encodeURIComponent(node.name) +
+            (standby ? "/standby" : "/online")
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
   }
 
   function stateClass(word) {
@@ -329,7 +408,7 @@
           resource.failed ? "state-failed" : "state-free"
         ),
         cell(failures, resource.fail_count_infinite ? "state-failed" : ""),
-        refreshCell(resource),
+        actionCell(resource, cluster),
       ]);
       // The row an operator opened the panel for, washed rather than only
       // coloured in one cell: on a table of thirty resources the eye has to
@@ -361,23 +440,151 @@
     summarise("resources", resourcesStatus(cluster), resourcesAnswer(cluster));
   }
 
-  // Clearing what Pacemaker recorded about one resource. Offered on every
-  // resource rather than on the failed ones alone: a fail count that is
-  // already back to zero can still leave a stale operation history, and a
-  // button that appears only in the state an operator is trying to leave is a
-  // button they cannot find twice.
-  function refreshCell(resource) {
-    const cell = document.createElement("td");
+  // What a row offers: Refresh always, and the placement pair where placement
+  // is a thing this cluster will accept being told about.
+  //
+  // Refresh is offered on every resource rather than on the failed ones alone:
+  // a fail count that is already back to zero can still leave a stale
+  // operation history, and a button that appears only in the state an operator
+  // is trying to leave is a button they cannot find twice.
+  function actionCell(resource, cluster) {
+    const box = document.createElement("td");
     if (!canAct) {
-      return cell;
+      return box;
     }
+    box.append(action("Refresh", () => confirmRefresh(resource.id)));
+
+    // A pinned resource runs there or nowhere, and a clone is placed by
+    // Pacemaker one instance per node. Neither has a node to be sent to, and
+    // the constraint table below says which of the two this is.
+    if (pinOf(cluster, resource.id) || resource.clone) {
+      return box;
+    }
+    box.append(
+      " ",
+      action("Move", () => confirmMove(resource, cluster))
+    );
+    if (preferenceOf(cluster, resource.id)) {
+      box.append(
+        " ",
+        action("Return", () => confirmClear(resource, cluster))
+      );
+    }
+    return box;
+  }
+
+  function action(label, onclick) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = "Refresh";
-    button.addEventListener("click", () => confirmRefresh(resource.id));
-    cell.append(button);
-    return cell;
+    button.textContent = label;
+    button.addEventListener("click", onclick);
+    return button;
+  }
+
+  // The two constraint shapes, told apart by the only thing that tells them
+  // apart: their name. `crm resource move` writes the first and `crm resource
+  // clear` removes it; `vm_manager` writes the second for `pinned_host` and
+  // nothing short of rebuilding the resource removes that one.
+  function preferenceOf(cluster, id) {
+    return cluster.constraints.find(
+      (item) => item.resource === id && item.id.startsWith("cli-prefer-")
+    );
+  }
+
+  function pinOf(cluster, id) {
+    return cluster.constraints.find(
+      (item) => item.resource === id && item.id.startsWith("pin-")
+    );
+  }
+
+  // Where a resource may be sent: a member that is online, out of standby, and
+  // not banned from holding this one. The ban is how an observer is kept from
+  // running guests, and a preference on a node that carries one is a
+  // constraint Pacemaker adds up to a refusal, so the move would write a rule
+  // and change nothing.
+  //
+  // The node it is already on is left in, because writing the constraint
+  // without moving anything is a way of holding it there and an operator asks
+  // for it during a demonstration.
+  function destinations(cluster, id) {
+    const banned = cluster.constraints
+      .filter((item) => item.resource === id && item.id.startsWith("cli-ban-"))
+      .map((item) => item.node);
+    return cluster.nodes
+      .filter(
+        (node) =>
+          node.type !== "ping" &&
+          node.online &&
+          !node.flags.includes("standby") &&
+          !banned.includes(node.name)
+      )
+      .map((node) => node.name);
+  }
+
+  function confirmMove(resource, cluster) {
+    const held = preferenceOf(cluster, resource.id);
+    const options = destinations(cluster, resource.id);
+    if (!options.length) {
+      showBanner(
+        "No member of this cluster is online and out of standby, so there is " +
+          "nowhere to send " + resource.id + "."
+      );
+      return;
+    }
+    confirm({
+      title: "Move " + resource.id,
+      body:
+        "Writes the cli-prefer constraint that names the node, which is the " +
+        "same object preferred_host produces and written by the same command. " +
+        "A guest whose image allows live migration moves without stopping; " +
+        "one that does not is stopped where it runs and started on the other " +
+        "node, and whatever it was serving stops in between. Choosing the " +
+        "node it is already on writes the constraint without moving anything, " +
+        "which holds it there.",
+      note: held
+        ? `${held.id} already holds it on ${held.node}, and this replaces it. ` +
+          "Return puts back what the inventory declares."
+        : "The constraint stays until Return removes it, and while it is " +
+          "there it overrides the placement the inventory declares.",
+      choose: {
+        label: "Run it on",
+        options,
+        selected: resource.node,
+      },
+      label: "Move",
+      act: async (node) => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(resource.id) + "/move",
+          { node }
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
+  }
+
+  function confirmClear(resource, cluster) {
+    const held = preferenceOf(cluster, resource.id);
+    confirm({
+      title: "Return " + resource.id + " to the cluster",
+      body:
+        "Removes " +
+        (held ? held.id : "the cli-prefer constraint") +
+        ", and writes back the placement the inventory declares for this " +
+        "guest where it declares one. Pacemaker may move the resource as a " +
+        "result, at the same cost the move had.",
+      note:
+        "What is written back is the inventory's preferred_host. Where that " +
+        "differs from the value on the guest's image, the metadata window is " +
+        "where the difference is settled.",
+      label: "Return",
+      act: async () => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(resource.id) + "/clear"
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
   }
 
   element("refresh-all").addEventListener("click", () => {
@@ -420,10 +627,31 @@
 
   // One window for every act that reaches a machine. It names the resource and
   // says what happens, the way the VMs page does for a guest.
-  function confirm({ title, body, label, act }) {
+  //
+  // `choose` is the destination a move needs. The node is part of the act, so
+  // it is picked here, in the window that names the disruption, rather than in
+  // a control on the row that an operator could leave set from last time and
+  // then confirm without reading.
+  function confirm({ title, body, note, label, choose, act }) {
     element("confirm-title").textContent = title;
     element("confirm-disruption").textContent = body;
+    element("confirm-note").textContent = note || "";
+    element("confirm-note").hidden = !note;
     element("confirm-error").hidden = true;
+
+    const picker = element("confirm-node");
+    element("confirm-choice").hidden = !choose;
+    if (choose) {
+      element("confirm-choice-label").textContent = choose.label;
+      clear(picker);
+      choose.options.forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        option.selected = name === choose.selected;
+        picker.append(option);
+      });
+    }
 
     const go = element("confirm-go");
     go.textContent = label;
@@ -432,7 +660,7 @@
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        await act();
+        await act(choose ? picker.value : undefined);
         element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
@@ -703,6 +931,7 @@
 
   async function loadCluster() {
     const cluster = await API.get("/cluster");
+    reading = cluster;
     renderMembers(cluster);
     renderResources(cluster);
   }

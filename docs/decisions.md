@@ -2012,3 +2012,133 @@ every member and started by systemd on each of them already does that, and it
 is what a site does with an exporter. A clone is the answer where the container
 has to be one instance per node under the cluster's supervision, and nobody has
 asked for it yet.
+
+## D34 - Settled: a placement can be told to the cluster, and a return puts back what the inventory declares
+
+Moving a guest on purpose is the one act nobody would design a declarative
+service to offer. In production it does not happen: Pacemaker decides where a
+resource runs, and a failure is what makes it decide again. For a demonstration
+and for a test it happens constantly, and there was no way to do it from here
+short of an SSH session.
+
+**A move is offered, as a runtime action in [D30](#d30)'s shape, together with
+the node scoped act that has always been the honest form of the same question:
+putting a machine in standby.**
+
+### The finding that made this a small decision
+
+`preferred_host` is already `crm resource move`.
+
+`vm_manager` turns the guest's RBD metadata into Pacemaker rules in
+`enable_vm`, and the three placement fields become three different objects:
+
+- `pinned_host` calls `Pacemaker.pin_location`, which writes
+  `location pin-<resource>-on<node> ... resource-discovery=exclusive inf:`;
+- an observer calls `disable_location`, which is `crm resource ban` and leaves
+  a `cli-ban-<resource>-on-<node>`;
+- `preferred_host` calls `default_location`, whose body is
+  `crm resource move <resource> <node>`, and which therefore leaves the
+  `cli-prefer-<resource>` constraint crmsh writes for a manual move.
+
+So a deliberate move introduces no kind of rule the cluster did not already
+carry, and it is written by the same command upstream uses. The question stops
+being "may this service write to the CIB", which [D30](#d30) already answered
+for `crm resource start`, `stop` and `refresh`, and becomes the two questions
+below.
+
+### Which resources may be placed, and which may not
+
+**A pinned resource is refused.** `pinned_host` is a declaration that the guest
+runs on one machine or nowhere, and its constraint carries
+`resource-discovery=exclusive` and an infinite score. A `cli-prefer` on another
+node leaves two mandatory rules pulling against each other, and the return
+below would not remove the pin: `crm resource clear` removes the constraints
+crmsh writes and nothing else. Changing where a pinned guest lives is its
+inventory entry and a redeployment, which is the answer this service gives to
+every desired state question.
+
+**A guest that declares `preferred_host` is not refused.** The first design
+gated the move on a guest having no declared placement at all, on the reasoning
+that the ones with a declaration were already spoken for. That gets it exactly
+backwards: the guests worth demonstrating are the ones with a home, and the
+constraint being overwritten is the same object the move writes. Refusing there
+would have left the feature useful only on guests nobody had configured.
+
+**A clone instance is refused.** A clone runs one instance per member and
+Pacemaker places them; there is no single node to send one to.
+
+### The return, which is the half that keeps the inventory true
+
+A bare `crm resource clear` is the wrong command, and this is the trap worth
+recording. It removes `cli-prefer-<resource>`, which is the very constraint
+`preferred_host` had put there. A guest whose declared placement was overwritten
+by a move and then cleared would silently lose that placement, with nothing on
+any page saying so, until somebody rebuilt its Pacemaker resource with
+`disable` then `enable`. So the return is two tasks: the clear, and a
+`crm resource move` writing back what the inventory declares.
+
+**What it writes back is the inventory's `preferred_host`, and not the image's
+`_preferred_host`.** The image holds what Pacemaker was actually given, so it
+has a claim, and it was rejected for two reasons. Returning a placement is a
+desired state question and the inventory is this service's answer to those.
+And a return that depended on Ceph answering would fail exactly when an
+operator is trying to put a cluster back the way it was. Where the two differ,
+the difference belongs to the metadata window ([D31](#d31)) and the
+confirmation names the node it is about to write either way.
+
+A declared placement the cluster does not report is not written back at all.
+An inventory naming a machine this cluster has never heard of is a finding the
+Inventory page owns, and putting it into the CIB would end the run on a `crm`
+error three minutes later instead.
+
+### Standby, which is the better gesture and was the cheaper one
+
+`crm node standby` empties a machine and `crm node online` fills it again.
+For showing that a cluster places its own guests it is more faithful than
+moving one by hand: it exercises the path a real failure takes, it leaves no
+per resource constraint behind, and it is a genuine production act, which is
+what an operator does before rebooting a hypervisor. Quorum is untouched, since
+a node in standby is still a Corosync member and still votes.
+
+The confirmation names what it costs, the way every act that reaches these
+machines does: which resources are started on the node, and, when no other
+member is online and out of standby, that every one of them stops.
+
+### Why this does not reopen D1
+
+The rule AGENTS.md states is that this service never configures a machine.
+Placement is not configuration of a machine. It is the CIB, which is the
+cluster's own record of what it is doing right now, and it is [SPEC.md](../SPEC.md)
+§5.2's runtime plane, where `migrate` has been listed since the first version.
+Nothing here writes a file on a host, restarts a service, or touches the
+inventory. The acceptance criterion still holds: export the inventory, run the
+same playbooks from a conventional Ansible control machine, and observe no
+change. A `cli-prefer` constraint left behind by a move does not survive the
+next `disable`/`enable` of the resource, because deleting a resource deletes
+the constraints naming it, so a redeployment puts the declared placement back
+whatever an operator did in the meantime.
+
+**Where the override is made visible.** The Cluster page's constraint table
+already showed these rules and now says what each prefix means. The VMs page
+carries the constraint holding each guest beside the `preferred_host` its entry
+declares, and marks the row when the two disagree. That comparison is the only
+way to see an override at all: the CIB cannot say who asked for a
+`cli-prefer-<resource>`, so the reading that means something is the constraint
+held against the entry.
+
+### What was refused
+
+**A constraint editor.** Add, change and remove a location constraint from a
+form is a second configuration surface with state of its own and no inventory
+behind it. What is offered is one verb and its inverse, which is what the
+runtime plane is: imperative, ephemeral, and the truth lives in Pacemaker.
+
+**`--lifetime`, by default.** `crm resource move` takes a duration after which
+the constraint expires, which is attractive for a demonstration. It fires on
+`cluster-recheck-interval`, so the resource moves a second time at a moment
+nobody is watching, which on a test bench is a surprise and on these machines
+is an unannounced outage. The return button is the expiry, and it is asked for.
+
+**A move for a guest on a standalone machine.** There is no Pacemaker to hear a
+constraint. `virsh migrate` between two machines the inventory does not join
+into a cluster is not a thing this service knows how to make safe.

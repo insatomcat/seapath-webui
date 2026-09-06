@@ -13,10 +13,12 @@ worst status and the one line an operator reads from it, and the panel it
 points at gets the whole screen. Three readings that each need the room, and a
 glance that costs no click.
 
-Read only, and deliberately so. Every button an administration page would grow
-here - standby a node, clean up a failure, migrate a resource, evict an OSD -
-is a `crm` or a `ceph` command running inside this container, which is the one
-thing AGENTS.md forbids. What a machine should be is the inventory and a run.
+What this page writes is placement, and nothing else. Refreshing a resource,
+moving one and putting a node in standby are the runtime plane: they say where
+things run right now, and Pacemaker owns that. Each is a generated one task run
+of `crm` on a cluster member, over the SSH path a convergence uses, so no `crm`
+runs inside this container. What a machine should *be* stays the inventory and
+a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
 #}
 {% extends "base.html" %}
 {% block title %}Cluster - SEAPATH{% endblock %}
@@ -62,6 +64,7 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
               <th>Votes</th>
               <th>Flags</th>
               <th>Attributes</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="member-rows"></tbody>
@@ -101,7 +104,11 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
         inventory, which publishes what <code>crm_mon</code> and
         <code>corosync-quorumtool</code> said. Every member describes the whole
         cluster, so the coordinator's answer is the one reported and the line
-        above names it.
+        above names it. Standby is <code>crm node standby</code>, run on a
+        cluster member: Pacemaker empties the machine and places nothing there
+        until it is brought back online, which is what an operator does before
+        rebooting a hypervisor. It leaves no per resource constraint behind,
+        and a node in standby still votes, so quorum is unchanged.
       </span>
     </p>
   </section>
@@ -140,6 +147,15 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
 
       <details class="sub-panel" id="constraints" open hidden>
         <summary>Location constraints</summary>
+        <p class="editor-meta">
+          Where each resource is allowed or asked to run.
+          <code>cli-prefer-</code> is a placement somebody asked for, whether
+          that was <code>preferred_host</code> at deployment or a Move here:
+          the two write the same object and the CIB cannot tell them apart.
+          <code>pin-</code> is <code>pinned_host</code>, which Return does not
+          remove. <code>cli-ban-</code> keeps a resource off a node, which is
+          how an observer is kept from running guests.
+        </p>
         <div class="table-scroll">
           <table>
             <thead>
@@ -163,11 +179,16 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
         failures included, and asks it to probe the real state again: it is
         <code>crm resource refresh</code>, run on a cluster member over the
         connection a convergence uses, under the same lock and in the same run
-        history. Moving a resource stays Pacemaker's decision, and where a
-        resource is allowed to run is a constraint the roles write. A resource
-        whose agent is <code>systemd:</code> is a container the cluster holds,
-        and the <a href="containers">Containers</a> page says which quadlet it
-        came from and starts or stops it.
+        history. Move overrides the decision, with the
+        <code>cli-prefer</code> constraint below: it is the same object
+        <code>preferred_host</code> writes, because <code>vm_manager</code>
+        writes it by running the same command, and it holds the resource until
+        Return puts back what the inventory declares. A guest that is pinned is
+        not offered either, because <code>pinned_host</code> means it runs
+        there or nowhere. A resource whose agent is <code>systemd:</code> is a
+        container the cluster holds, and the
+        <a href="containers">Containers</a> page says which quadlet it came
+        from and starts or stops it.
       </span>
     </p>
   </section>
@@ -249,12 +270,20 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
   </section>
 </main>
 
-{# Refreshing writes to the CIB of a live cluster, so it asks once and names
-   the resource, the way every act that reaches a machine does here. #}
+{# Every act here writes to the CIB of a live cluster, so it asks once and
+   names what it touches, the way every act that reaches a machine does.
+   `confirm-choice` is the destination a move needs: the node is part of the
+   act, so it is chosen in the window that names the disruption rather than in
+   a control an operator can leave set from last time. #}
 <div class="modal" id="confirm" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>
+    <p class="warning" id="confirm-note" hidden></p>
+    <label id="confirm-choice" hidden>
+      <span id="confirm-choice-label"></span>
+      <select id="confirm-node"></select>
+    </label>
     <p class="error" id="confirm-error" hidden></p>
     <div class="actions">
       <button type="button" id="confirm-cancel" class="secondary">Cancel</button>

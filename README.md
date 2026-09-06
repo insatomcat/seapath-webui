@@ -164,16 +164,22 @@ groups. All of it is read from the `ha_cluster_exporter` and the Ceph manager
 that a deployed cluster already runs, one HTTP GET per machine, and every
 member is asked because which of them answers is itself part of the answer.
 
-The page monitors nothing and holds no state of its own, deliberately. It
-offers one act, at two scopes: **Refresh** on a resource clears the operation
-history Pacemaker keeps for it, so a failure that has been dealt with stops
-holding it down, and a second button does the same for every resource on every
-node. Both run as an ordinary one task run on a cluster member rather than as a
-command inside this container. Putting a node in standby, moving a
-resource or evicting an OSD is not offered, because each of those decides where
-things run: adding a machine or a disk is an inventory change and a run, and
-the rest belongs to Pacemaker, to Ceph, or to the shell one click away on the
-Node page.
+The page monitors nothing and holds no state of its own, deliberately. What it
+offers is placement, at both scopes. **Refresh** on a resource clears the
+operation history Pacemaker keeps for it, so a failure that has been dealt with
+stops holding it down, and a second button does the same for every resource on
+every node. **Move** asks Pacemaker to run a resource on a named node, and
+**Return** gives the placement back: a move writes the `cli-prefer` constraint
+that `preferred_host` already produces, because `vm_manager` honours that field
+by running the same `crm resource move`, and the return puts the declared
+placement back so a clear cannot drop it silently. **Standby** empties a
+machine and its inverse fills it again, which is what an operator does before
+rebooting a hypervisor and the honest way to watch a cluster place its own
+guests. Each of them runs as an ordinary one task run on a cluster member
+rather than as a command inside this container, and none of them writes a file
+on a host or touches the inventory. Evicting an OSD is not offered, for the
+reason `docs/ceph.md` gives, and adding a machine or a disk stays an inventory
+change and a run.
 
 ![The Real time page: the four view tabs and their summaries, over one conformance row per check and one column per machine](img/realtime.png)
 
@@ -248,8 +254,9 @@ to be run on a real machine.
 M2 is the VMs and the containers, and most of it is in. For a guest, the `VMs`
 group is read as guests rather than as machines, the page joins what the
 inventory declares to what Pacemaker reports, adding one is one act, starting
-and stopping one are runs, and the RBD metadata is read and edited from the
-same page. Migration and the snapshots follow the same shape. For a container,
+and stopping one are runs, the RBD metadata is read and edited from the same
+page, and a guest can be sent to a named node and given back to the cluster.
+The snapshots follow the same shape. For a container,
 the quadlets the inventory uploads are read back with the unit each machine
 made of them, declaring one writes the three variables the upstream roles
 already read, and starting or stopping one is a run.

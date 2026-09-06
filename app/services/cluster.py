@@ -3,17 +3,19 @@
 
 """The Pacemaker view: which machines are in the cluster, and what runs where.
 
-Read only, and it stays read only. `ha_cluster_exporter` publishes what
-`crm_mon` said, this asks it over HTTP and shapes the answer, and no command
-reaches a host. That is not a limitation of the current version: putting a
-resource in standby or cleaning up a failure means running `crm` from this
-container, which is the thing AGENTS.md forbids in the same words it forbids
-writing `corosync.conf`. What a machine should be is the inventory and a run;
-what the cluster is doing right now is Pacemaker's, and this reports it.
+This module reads. `ha_cluster_exporter` publishes what `crm_mon` said, this
+asks it over HTTP and shapes the answer, and no command reaches a host from
+here. The acts the page offers beside it, refreshing a resource, moving one and
+putting a node in standby, are generated one task runs over the SSH path a
+convergence uses: `crm` runs on a cluster member, never inside this container,
+which is the line AGENTS.md draws. What a machine should be is still the
+inventory and a run, and none of those acts touches it.
 
 The inventory decides who is asked. Every host it declares with an address is
 asked in parallel, so a member whose exporter is down is a line on the page
-rather than a page that fails.
+rather than a page that fails. It also answers the one question the CIB cannot:
+which node a guest is *declared* to prefer, which is what a placement returned
+to the cluster is returned to. See D34.
 """
 
 from __future__ import annotations
@@ -118,6 +120,31 @@ class ClusterService:
         declares, a fencing device and this site's `nginxquadlet` among them.
         """
         return {resource.id for resource in self.pacemaker().resources}
+
+    def declared_placement(self, resource: str) -> str:
+        """The node the inventory says this resource belongs on, if it says.
+
+        `preferred_host` on the guest's entry, and nothing else. The image's
+        `_preferred_host` is what Pacemaker was actually given and it is
+        deliberately not read here: returning a placement is a desired state
+        question, the inventory is this service's answer to those, and a clear
+        that depended on Ceph answering would fail exactly when an operator is
+        trying to put a cluster back the way it was. Where the two differ, the
+        difference is the metadata window's to show, and the confirmation names
+        the node it is about to write either way.
+
+        A resource that is not a guest of this inventory has no declared
+        placement, which is the ordinary case for a fencing device and for a
+        guest somebody deployed by hand.
+        """
+        state = self._inventory.state()
+        if state.inventory is None:
+            return ""
+        guest = state.inventory.guests.get(resource)
+        if guest is None:
+            return ""
+        declared = guest.extra.get("preferred_host")
+        return declared if isinstance(declared, str) else ""
 
     def _coordinator(self, reporting: list[Exposition]) -> Exposition:
         """The exposition to believe, which is the coordinator's when it answered.

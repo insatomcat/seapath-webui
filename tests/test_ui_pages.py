@@ -861,9 +861,12 @@ def test_the_cluster_page_says_where_a_cluster_is_changed_from(
     # operator knows the command reached a machine rather than this container.
     assert "<code>crm resource refresh</code>" in body
     assert "run on a cluster member over the connection a convergence uses" in prose
-    # Moving a resource is still Pacemaker's, and where one may run is written
-    # by the roles, so neither is a button.
-    assert "Moving a resource stays Pacemaker's decision" in prose
+    # Moving a resource is a button now, and the page says what the button
+    # writes: the same constraint `preferred_host` writes, which is why a
+    # deliberate placement is legible beside a declared one. See D34.
+    assert "Move overrides the decision" in prose
+    assert "the same object <code>preferred_host</code> writes" in prose
+    assert "Standby is <code>crm node standby</code>, run on a cluster member" in prose
     # And adding storage is the path every other change takes here.
     assert "<code>ceph_osd_disks</code> in the" in body
     assert "cluster_setup_cephadm" in body
@@ -882,8 +885,41 @@ def test_the_resources_panel_carries_the_refresh_and_opens_the_constraints(
     assert 'id="refresh-all"' in body
     assert "The button on a row is the smaller act." in " ".join(body.split())
     # The constraints are a panel of their own under the table, open, and
-    # spaced off it.
+    # spaced off it, and it says what each prefix means: the ids are the only
+    # thing that tells a pin from a preference.
     assert 'class="sub-panel" id="constraints" open' in body
+    assert "<code>cli-prefer-</code> is a placement somebody asked for" in body
+
+
+def test_the_resources_panel_places_a_resource_and_gives_it_back(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/cluster.js").text
+
+    # Move and its inverse, on the same endpoints the VMs page calls, with the
+    # destination chosen inside the confirmation.
+    assert '"/move"' in script or '/move"' in script
+    assert '"/clear"' in script or '/clear"' in script
+    assert "choose: {" in script
+    # A pinned resource and a clone have no node to be sent to, and neither is
+    # offered one.
+    assert "if (pinOf(cluster, resource.id) || resource.clone) {" in script
+
+
+def test_the_membership_panel_empties_a_machine_and_fills_it_again(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/cluster").text
+    prose = " ".join(body.split())
+    script = signed_in.get("/static/cluster.js").text
+
+    # One button, and it is the one that changes something: a node in standby
+    # is offered its way back and nothing else.
+    assert '(standby ? "/standby" : "/online")' in script
+    assert 'held ? "Bring online" : "Standby"' in script
+    # The two things the confirmation has to say before an operator agrees.
+    assert "No other member is online and out of standby" in script
+    assert "a node in standby still votes, so quorum is unchanged" in prose
 
 
 def test_the_cluster_page_never_reads_ceph_s_absence_as_a_fault(
@@ -953,16 +989,47 @@ def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
     assert 'id="add-steps"' in body
 
 
-def test_the_vms_page_offers_no_migration_or_snapshot_yet(
-    signed_in: TestClient,
-) -> None:
-    # Start and stop are one task calling an upstream module, which is what
-    # D30 settles. The rest of the runtime plane has no such answer yet, and
-    # the page implies none.
+def test_the_vms_page_offers_no_snapshot_yet(signed_in: TestClient) -> None:
+    # Start, stop and placement are one task calling an upstream module or one
+    # `crm` command, which is what D30 and D34 settle. The rest of the runtime
+    # plane has no such answer yet, and the page implies none.
     body = signed_in.get("/vms").text.lower()
 
-    for act in (">migrate", ">snapshot", ">clone", ">remove"):
+    for act in (">snapshot", ">clone", ">remove"):
         assert act not in body
+
+
+def test_the_vms_page_moves_a_guest_and_gives_the_placement_back(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/vms").text
+    script = signed_in.get("/static/vms.js").text
+
+    # The destination is chosen in the window that names the disruption, so an
+    # operator cannot confirm a node they set on a row some minutes ago.
+    assert 'id="confirm-choice"' in body
+    assert 'id="confirm-node"' in body
+    # The act is on the Pacemaker resource, which is where the one endpoint
+    # lives: the guest name is the resource id, so the page has one door.
+    assert '"/cluster/resources/" + encodeURIComponent(guest.name) + "/move"' in script
+    assert '"/cluster/resources/" + encodeURIComponent(guest.name) + "/clear"' in script
+    # And what the confirmation has to say: the same constraint the entry's own
+    # placement writes, and what it costs the guest.
+    assert "same object preferred_host produces" in script
+    assert "without it the guest is stopped where" in script
+
+
+def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
+    signed_in: TestClient,
+) -> None:
+    # The only reading that makes an override visible: `preferred_host` and a
+    # move write the same `cli-prefer` object, so the CIB cannot say who asked
+    # for it and the entry is what the constraint is held against. See D34.
+    script = signed_in.get("/static/vms.js").text
+
+    assert 'item.id.startsWith("cli-prefer-")' in script
+    assert 'item.id.startsWith("pin-")' in script
+    assert '"held on " + held.node + ", declared " + declared' in script
 
 
 def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(

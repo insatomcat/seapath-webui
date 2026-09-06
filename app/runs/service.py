@@ -373,6 +373,7 @@ class RunService:
         launched_by: str,
         deployment: Mode | None = None,
         host: str = "",
+        node: str = "",
     ) -> RunRecord:
         """Start or stop one guest, as a run like any other.
 
@@ -384,17 +385,22 @@ class RunService:
         `host` names the machine when the act is one machine's: a quadlet is a
         systemd unit on each machine the inventory sends it to, so a start
         without a machine would be a start of something that has three.
+
+        `node` is the machine an act *names*, which is a different thing: a
+        move says where the resource is to go, and the play still runs on
+        whichever cluster member answers. The caller has checked it against
+        what the cluster reported.
         """
         # The guest's own deployment, so a Pacemaker guest is started through
         # `cluster_vm` and a libvirt one through `community.libvirt.virt`, in a
         # file that holds both.
         mode = deployment or self._mode()
         return self._launch(
-            actions.entry(action, guest, mode, host),
+            actions.entry(action, guest, mode, host, node),
             launched_by,
             variables=None,
             check=False,
-            play=actions.play(action, guest, mode, host),
+            play=actions.play(action, guest, mode, host, node),
             guest=guest,
         )
 
