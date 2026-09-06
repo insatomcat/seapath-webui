@@ -220,7 +220,7 @@ carries git at all, and the file the peer's own service reads afterwards.
 
 | # | Check | Why it cannot be tested against a fake | Result |
 |---|---|---|---|
-| 1 | `sudo -n /bin/sh -c 'exec git-receive-pack "$0"' /etc/seapath/inventory` in the console of a peer starts and waits for input | The ISO's sudo rule is `NOPASSWD:EXEC:SETENV: /bin/sh`, and this is the exact line the push runs through it | Pending |
+| 1 | `sudo -n /bin/sh -c 'exec git receive-pack "$0"' /etc/seapath/inventory` in the console of a peer starts and waits for input | The ISO's sudo rule is `NOPASSWD:EXEC:SETENV: /bin/sh`, and this is the exact line the push runs through it. The subcommand rather than the `git-receive-pack` binary: node3 answered "not found" for the dashed form with git installed | Pending |
 | 2 | With no site key uploaded and no host key accepted, every machine reports unreachable with a sentence naming the reason, and the page still renders | Replication needs what a run needs, and a node that has neither must say so rather than hang | Pending |
 | 3 | After the trust exists, the page lists every other machine of the inventory with the commit it holds, and the guests of `VMs` are absent from it | A guest read as a machine is the mistake this list must not make | Pending |
 | 4 | Replicating from node1 leaves `git -C /etc/seapath/inventory log` on node2 and node3 carrying the same commits, authors included | The audit trail is what travels, and only a real push proves the history arrives with it | Pending |
@@ -232,8 +232,9 @@ carries git at all, and the file the peer's own service reads afterwards.
 | 10 | Nothing else changed on any peer: `seapath_setup_main.yaml` from a conventional control machine still reports no change after a replication | **The acceptance criterion.** The push writes the inventory repository and nothing else | Pending |
 | 11 | On a node whose repository predates this version, `git -C /etc/seapath/inventory symbolic-ref HEAD` says `refs/heads/main` after a restart, and `git log` still has its commits | The repair only matters on a repository nobody made here. Failed on ccv-admin, which sat on `master` and took a push into a branch it did not serve | Pending |
 | 12 | A machine that still serves another branch is reported as such rather than as updated, and its files are checked to be unchanged | The failure that shipped once: the page said up to date while three inventories were empty | Pending |
-| 13 | A file placed by hand on a peer, where the inventory carries one of the same name, stops the push with the file named, and is still there afterwards, forced or not | Git refuses even when the two are identical, and this service deletes nothing on another machine | Pending |
-| 14 | With **Force** ticked, a peer carrying its own commit is moved to this node's commit, its files follow, and the journal carries one `inventory.replicated.forced` line naming the machines | The one act here that destroys a commit | Pending |
+| 13 | A file placed by hand on a peer, where the inventory carries one of the same name, stops an ordinary push with the file named and is still there afterwards | Git refuses even when the two are byte for byte identical | Pending |
+| 14 | With **Force** ticked, that same peer is overwritten: the file matches this node's, its branch is this node's commit, and the journal carries one `inventory.replicated.forced` line naming the machines | The case ccv-admin hit, where an uncommitted `inventories/` stopped every replication. It runs through hooks the peer installed at its own start | Pending |
+| 15 | Forcing towards a node still running an older image reports that it cannot be forced, and that machine is unchanged | Doing the ordinary push under a button that says Force is the failure this avoids | Pending |
 
 ### Result
 

@@ -1694,21 +1694,39 @@ its `HEAD`, and nothing else is worth asking about.
 And a repository this service owns is moved to `main` at every start, unborn or
 not, so a node updated to this version stops being that machine.
 
-### Forcing, and the one refusal it does not override
+### Forcing, which makes a machine match this one
 
 The refusal that protects a machine's own commits is the safety of the design,
 and an operator still needs a way to say that this node holds the copy that
-wins. `force` on the replication is that way: the machine's branch is moved to
-this node's commit whatever it held, and what it held survives only in its
-reflog. It is asked for by name, it is an administrator's act, and it writes an
-audit line naming the machines, because it is the only thing here that can
-destroy a commit.
+wins. `force` is that way: the machine's branch moves to this node's commit
+whatever it held, and its files follow. It is asked for by name, it is an
+administrator's act, and it writes an audit line naming the machines, because
+it is the only thing here that can destroy work someone else did.
 
-It does not override the other refusal. A file nobody committed on that
-machine, sitting where the incoming commit carries one, stops the push whatever
-the flag says, and git refuses it even when the two are byte for byte
-identical. Deleting an operator's file on another host is not something this
-service does, so the machine is named and the sentence says what to do.
+**The files, and not only the branch.** The first version of this stopped at
+the branch, on the reasoning that deleting an operator's file on another host
+is not something this service does. On a real cluster that made the checkbox
+useless: a peer held an `inventories/` directory nobody had committed, and
+every replication stopped there, forced or not. A machine that ends a forced
+replication still holding a file this inventory carries is not the copy the
+operator asked for, so a forced replication overwrites it. The narrower rule
+survives where it belongs, which is the ordinary replication: it never
+overwrites a file nobody committed, whether or not the two are byte for byte
+identical.
+
+**It takes two hooks, because git splits the two halves of the answer.** Git
+carries a push option to `pre-receive` and does not carry it to
+`push-to-checkout`, which is the hook that owns the working tree. So the first
+records the request against the commit it arrives with, the second consumes it,
+and both run in the same `git-receive-pack`. The second replaces git's own
+`updateInstead` behaviour entirely, which is why its ordinary path reproduces
+that behaviour exactly, refusal included, and only its forced path differs.
+
+Both hooks are written by the receiving node itself, on its own repository, at
+every start. So the machine that is overwritten is the one that installed the
+means of overwriting it, and a node that has not been updated advertises no
+push options: a forced replication towards it reports that it cannot be forced,
+rather than quietly doing the ordinary thing under a button that says Force.
 
 ### Who receives, and what happens when one of them does not
 

@@ -339,10 +339,12 @@ lead elected under quorum with an automatic push, was traded for.
   there. The act has one direction, always from the node being looked at
   towards the others.
 - **Force says this node holds the copy that wins.** A checkbox beside the
-  button, an administrator's act, and one audit line naming the machines. It
-  moves each machine to this commit whatever it held, which survives there only
-  in its reflog. It leaves a file nobody committed on that machine alone,
-  whatever it says.
+  button, an administrator's act, and one audit line naming the machines. Each
+  machine is made to match this one: its branch moves to this commit whatever
+  it held, which survives there only in its reflog, and its files follow, a
+  file nobody committed there included. It is carried by hooks the receiving
+  node writes on its own repository at every start, so a node that has not been
+  updated reports that it cannot be forced.
 - **Each machine is reported on its own.** A node that is down is one line in
   the result, and the machines that were updated keep what they received.
 - **What a machine serves is its `HEAD`**, and that is what is asked of it,

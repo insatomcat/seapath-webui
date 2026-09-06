@@ -120,9 +120,10 @@ SPDX-License-Identifier: Apache-2.0
     </div>
 
     <p class="help" id="replicate-force-note" hidden>
-      A forced replication moves each machine to this node's commit whatever it
-      held, so a change made on another node is lost unless someone goes and
-      reads its reflog. A file nobody committed there is still left alone.
+      A forced replication makes each machine match this one: its branch moves
+      to this commit whatever it held, and the files follow, a file nobody
+      committed there included. A change made on another node is lost unless
+      someone goes and reads its reflog.
     </p>
 
     <p class="error" id="replicas-error" hidden></p>

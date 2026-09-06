@@ -40,6 +40,61 @@ INVENTORY_FILENAME = "inventory.yaml"
 # The one branch this service writes, and the one a replication moves.
 DEFAULT_BRANCH = "main"
 
+# How a replication says it is a forced one, and why it takes two hooks to hear
+# it. Git hands the push options to `pre-receive` and does not hand them to
+# `push-to-checkout`, which is the hook that owns the working tree. So the
+# first records the request for the commit it arrives with, and the second
+# consumes it. Both run in the same `git-receive-pack`, in that order.
+#
+# `push-to-checkout` replaces git's own `updateInstead` behaviour entirely,
+# which is why its ordinary path reproduces it exactly, refusal on an untracked
+# file included. Only the forced path differs, and `read-tree --reset` is what
+# makes it differ: it writes the incoming tree over whatever is there.
+_FORCE_OPTION = "seapath-webui:force"
+_FORCE_MARKER = "seapath-webui-force"
+
+_PRE_RECEIVE_HOOK = rf"""#!/bin/sh
+# Written by seapath-webui. Records a forced replication for push-to-checkout,
+# which git does not hand the push options to.
+dir="$(git rev-parse --git-dir)/{_FORCE_MARKER}"
+rm -rf "$dir"
+i=0
+while [ "$i" -lt "${{GIT_PUSH_OPTION_COUNT:-0}}" ]; do
+    eval "value=\$GIT_PUSH_OPTION_$i"
+    if [ "$value" = "{_FORCE_OPTION}" ]; then
+        mkdir -p "$dir"
+        while read -r _old new _ref; do
+            [ -n "$new" ] && : > "$dir/$new"
+        done
+    fi
+    i=$((i + 1))
+done
+exit 0
+"""
+
+_PUSH_TO_CHECKOUT_HOOK = rf"""#!/bin/sh
+# Written by seapath-webui. The checkout a replication performs on this
+# machine, replacing git's own updateInstead behaviour.
+commit="$1"
+dir="$(git rev-parse --git-dir)/{_FORCE_MARKER}"
+forced=0
+[ -e "$dir/$commit" ] && forced=1
+rm -rf "$dir"
+
+if [ "$forced" -eq 1 ]; then
+    # The operator asked for this node's copy to win, so the incoming tree is
+    # written over whatever is here, a file nobody committed included.
+    exec git read-tree -u --reset "$commit"
+fi
+
+# Git's own behaviour, reproduced: a file nobody committed is never overwritten
+# by an ordinary replication.
+if head=$(git rev-parse --verify --quiet HEAD); then
+    exec git read-tree -u -m "$head" "$commit"
+fi
+exec git read-tree -u -m "$(git hash-object -t tree /dev/null)" "$commit"
+"""
+
 # A git command that waits on another machine. Long enough for a slow link,
 # short enough that a page listing three nodes still renders when one is down.
 _NETWORK_TIMEOUT_SECONDS = 30.0
@@ -116,12 +171,43 @@ class InventoryRepository:
         files exactly as they were, which is a replication that reports success
         and changes nothing. Every node serves `main`, so a repository found on
         another branch is moved to it.
+
+        **The hooks.** They are what makes a forced replication reach the files
+        of this machine, and `_FORCE_OPTION` says why they are a pair.
         """
-        try:
-            self._git("config", "receive.denyCurrentBranch", "updateInstead")
-        except RepositoryError as error:  # pragma: no cover - defensive
-            logger.warning("Could not configure the repository for a push: %s", error)
+        for name, value in (
+            ("receive.denyCurrentBranch", "updateInstead"),
+            # What lets a peer say that its replication is a forced one. Git
+            # carries a push option to `pre-receive` and nowhere else, which is
+            # the whole reason there are two hooks below.
+            ("receive.advertisePushOptions", "true"),
+        ):
+            try:
+                self._git("config", name, value)
+            except RepositoryError as error:  # pragma: no cover - defensive
+                logger.warning("Could not set %s on the repository: %s", name, error)
+        self._install_hooks()
         self._serve_default_branch()
+
+    def _install_hooks(self) -> None:
+        """Write the two hooks a replication lands through.
+
+        This service owns this repository outright, so the hooks are written
+        rather than merged, and rewritten at every start so a node that was
+        updated gains them.
+        """
+        directory = self._path / ".git" / "hooks"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            for name, script in (
+                ("pre-receive", _PRE_RECEIVE_HOOK),
+                ("push-to-checkout", _PUSH_TO_CHECKOUT_HOOK),
+            ):
+                target = directory / name
+                target.write_text(script)
+                target.chmod(0o755)
+        except OSError as error:  # pragma: no cover - defensive
+            logger.warning("Could not install the replication hooks: %s", error)
 
     def _serve_default_branch(self) -> None:
         try:
@@ -433,11 +519,13 @@ class InventoryRepository:
         has never seen ends the push with an error naming it, and its history
         is still there afterwards. `force` is the operator overriding exactly
         that: the machine's branch is moved to this node's commit whatever it
-        held, and what it held is reachable there only through its reflog.
+        held, and what it held is reachable there only through its reflog. It
+        carries a push option the receiving hooks read, so a forced replication
+        writes that machine's files over whatever is in them.
         """
         argv = ["git", "push"]
         if force:
-            argv.append("--force")
+            argv += ["--force", f"--push-option={_FORCE_OPTION}"]
         if receive_pack is not None:
             argv.append(f"--receive-pack={receive_pack}")
         # `HEAD` as the source rather than a branch name: this node commits to

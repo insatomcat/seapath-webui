@@ -24,9 +24,12 @@ Two things about it are worth reading before changing anything:
   the escalation the trust already implies. The ISO grants it as `/bin/sh`,
   which is why the remote helper is spelled through `sh -c` rather than as a
   bare `sudo git-receive-pack`.
-- **The far side needs git.** The inventory repository on a SEAPATH node is a
-  git repository the host holds, so this is the same requirement the audit
-  trail already carries. A machine without it says so in git's own words.
+- **The far side needs `git`, and nothing else.** The helper is `git
+  receive-pack` rather than the `git-receive-pack` binary, which a distribution
+  may keep in the git exec directory where sudo's `secure_path` never looks.
+  The inventory repository on a SEAPATH node is a git repository the host
+  holds, so needing git there is the same requirement the audit trail already
+  carries. A machine without it is named, with what to do about it.
 """
 
 from __future__ import annotations
@@ -157,14 +160,20 @@ def build_ssh_command(
 
 
 def remote_helper(program: str) -> str:
-    """`git-receive-pack` or `git-upload-pack`, run as root on the far side.
+    """`receive-pack` or `upload-pack`, run as root on the far side.
 
     Git appends the repository path to this string and hands the whole line to
     the peer's login shell, so `"$0"` is that path. The `sh -c` wrapper is what
     the ISO's sudo rule allows: `NOPASSWD:EXEC:SETENV: /bin/sh`, which is the
     same rule Ansible's `become` goes through.
+
+    `git upload-pack` rather than `git-upload-pack`, because the dashed form is
+    a separate binary a distribution may keep off `PATH`: SEAPATH's own images
+    have it in the git exec directory and nowhere sudo's `secure_path` looks,
+    so the dashed form ends as "git-upload-pack: not found" on a machine that
+    has git. The subcommand needs `git` alone, and git finds its own helpers.
     """
-    return f"sudo -n /bin/sh -c 'exec {program} \"$0\"'"
+    return f"sudo -n /bin/sh -c 'exec git {program} \"$0\"'"
 
 
 class SshTransport:
@@ -199,10 +208,10 @@ class SshTransport:
         )
 
     def upload_pack(self) -> str | None:
-        return remote_helper("git-upload-pack")
+        return remote_helper("upload-pack")
 
     def receive_pack(self) -> str | None:
-        return remote_helper("git-receive-pack")
+        return remote_helper("receive-pack")
 
 
 class ReplicationService:
@@ -262,11 +271,13 @@ class ReplicationService:
 
         `force` overrides the refusal that protects a machine's own commits,
         and it is the operator saying that this node holds the copy that wins.
-        It is the only thing here that can destroy a commit, so it stays an act
-        someone asks for by name. It does not override the other refusal: a
-        file nobody committed on that machine is left alone whatever the flag
-        says, because deleting an operator's file on another host is not
-        something this service does.
+        It is the only thing here that can destroy work someone else did, so it
+        stays an act asked for by name. It reaches the files as well as the
+        branch: a file nobody committed on that machine, sitting where this
+        inventory carries one, is overwritten, which is what "this copy wins"
+        has to mean to be worth ticking. The receiving hooks are what carry
+        that out, so a machine running an older version reports that it cannot
+        be forced rather than quietly doing the weaker thing.
         """
         return self._fan_out(
             partial(self._push, force=force), self.targets(inventory, this_host)
@@ -420,14 +431,30 @@ def _refusal(target: Target, message: str) -> str | None:
             "UI on that machine and replicate from there, or revert what it "
             "holds. Nothing was overwritten."
         )
+    if "git: not found" in lowered or "git: command not found" in lowered:
+        return (
+            f"{target.host} has no git, so it can hold no inventory "
+            "repository. Install it there, or leave that machine out of the "
+            "inventory."
+        )
+    if "does not support push options" in lowered:
+        # A forced replication says so with a push option, which the hooks on
+        # the far side read. A machine running an older version advertises
+        # none, and doing the push without it would quietly do the weaker
+        # thing.
+        return (
+            f"{target.host} runs a version that cannot be forced. Update the "
+            "image there and restart seapath-webui, then replicate again. "
+            "Nothing was sent."
+        )
     if "untracked working tree file" in lowered:
         # A file nobody committed, sitting where the incoming commit carries
-        # one. Git refuses even when the two are byte for byte identical, and
-        # this service does not delete a file on another machine.
+        # one. An ordinary replication never overwrites it, whether or not the
+        # two are byte for byte identical.
         return (
             _sentence(message)
-            + f" Remove it on {target.host}, or commit it there, and replicate "
-            "again."
+            + f" Remove it on {target.host}, commit it there, or tick Force to "
+            "overwrite it."
         )
     if "rejected]" in lowered:
         return _sentence(message)

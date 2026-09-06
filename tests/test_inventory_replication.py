@@ -125,10 +125,15 @@ def test_the_remote_helper_goes_through_the_sudo_rule_the_iso_grants() -> None:
     """`NOPASSWD:EXEC:SETENV: /bin/sh`, which is what Ansible's become uses.
 
     A bare `sudo git-receive-pack` would be refused by that rule, and the
-    repository on the far side is root owned.
+    repository on the far side is root owned. The subcommand rather than the
+    dashed binary, which a machine with git may not have on `PATH`: node3
+    answered "git-receive-pack: not found" with git installed.
     """
-    assert remote_helper("git-receive-pack") == (
-        "sudo -n /bin/sh -c 'exec git-receive-pack \"$0\"'"
+    assert remote_helper("receive-pack") == (
+        "sudo -n /bin/sh -c 'exec git receive-pack \"$0\"'"
+    )
+    assert remote_helper("upload-pack") == (
+        "sudo -n /bin/sh -c 'exec git upload-pack \"$0\"'"
     )
 
 
@@ -397,9 +402,10 @@ def test_a_viewer_reads_the_copies_and_never_moves_them(signed_in_viewer) -> Non
 def _repository_on(path: Path, branch: str) -> InventoryRepository:
     """A repository as an earlier version of this service left it.
 
-    `git init` without `--initial-branch` produced `master`, and nothing set
-    `receive.denyCurrentBranch`. Both are what `accept_replication` repairs
-    now, and a machine that has not been updated still looks like this.
+    `git init` without `--initial-branch` produced `master`, and the only
+    thing set was `receive.denyCurrentBranch`. There are no hooks and no
+    `advertisePushOptions`, so this is also what a machine that has not been
+    updated looks like to a replication.
     """
     path.mkdir(parents=True)
     subprocess.run(
@@ -409,6 +415,18 @@ def _repository_on(path: Path, branch: str) -> InventoryRepository:
     )
     _git(path, "config", "receive.denyCurrentBranch", "updateInstead")
     return InventoryRepository(path)
+
+
+def _updated_repository_on(path: Path, branch: str) -> InventoryRepository:
+    """The same repository, on a node running this version.
+
+    `accept_replication` is what a start runs, so this is `_repository_on`
+    plus everything that start repairs: the hooks, the push options, and the
+    branch moved to `main`.
+    """
+    repository = _repository_on(path, branch)
+    repository.accept_replication()
+    return repository
 
 
 def test_a_machine_holding_the_commit_without_serving_it_is_not_up_to_date(
@@ -460,8 +478,12 @@ def test_a_machine_serving_master_receives_it_in_its_files(
 def test_a_file_nobody_committed_there_is_named_rather_than_overwritten(
     source: InventoryRepository, tmp_path: Path
 ) -> None:
-    """Git refuses even when the two files are byte for byte the same."""
-    peer = _repository_on(tmp_path / "node2", "main")
+    """An ordinary replication overwrites nothing nobody committed.
+
+    Git refuses even when the two files are byte for byte the same, and the
+    refusal says the three things an operator can do about it.
+    """
+    peer = _updated_repository_on(tmp_path / "node2", "main")
     (peer.path / "inventory.yaml").write_text(source.read())
 
     results = _service(source).replicate(
@@ -471,6 +493,7 @@ def test_a_file_nobody_committed_there_is_named_rather_than_overwritten(
     assert results[0].status is Status.REFUSED
     assert "inventory.yaml" in results[0].detail
     assert "Remove it on node2" in results[0].detail
+    assert "tick Force" in results[0].detail
 
 
 def test_a_repository_left_on_master_is_moved_to_the_branch_a_push_lands_on(
@@ -522,10 +545,37 @@ def test_forcing_moves_a_diverged_machine_to_this_commit(
     assert "isolcpus" not in peer.read()
 
 
-def test_forcing_still_leaves_a_file_nobody_committed_there_alone(
+def test_forcing_overwrites_a_file_nobody_committed_there(
     source: InventoryRepository, tmp_path: Path
 ) -> None:
-    """Deleting an operator's file on another machine is not on the table."""
+    """What ticking Force has to mean to be worth ticking.
+
+    The case a real cluster hit: a peer holding an `inventories/` directory
+    nobody had committed, which stopped every replication. Force reaches the
+    files as well as the branch.
+    """
+    peer = _updated_repository_on(tmp_path / "node2", "master")
+    (peer.path / "inventory.yaml").write_text("theirs: by hand\n")
+    inventory = _inventory("node1=ignored", f"node2={peer.path}")
+
+    refused = _service(source).replicate(inventory, this_host="node1")
+    forced = _service(source).replicate(inventory, this_host="node1", force=True)
+
+    assert refused[0].status is Status.REFUSED
+    assert forced[0].status is Status.UPDATED
+    assert peer.read() == source.read()
+    assert peer.head() == source.head()
+
+
+def test_a_machine_that_cannot_be_forced_says_so_rather_than_doing_less(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    """Forcing is carried by a push option the receiving hooks read.
+
+    A node that has not been updated advertises none, and sending the push
+    without it would quietly do the ordinary thing under a button that says
+    Force.
+    """
     peer = _repository_on(tmp_path / "node2", "main")
     (peer.path / "inventory.yaml").write_text("theirs: by hand\n")
 
@@ -536,7 +586,23 @@ def test_forcing_still_leaves_a_file_nobody_committed_there_alone(
     )
 
     assert results[0].status is Status.REFUSED
+    assert "cannot be forced" in results[0].detail
+    assert "Nothing was sent" in results[0].detail
     assert (peer.path / "inventory.yaml").read_text() == "theirs: by hand\n"
+
+
+def test_the_hooks_are_written_where_git_runs_them(tmp_path: Path) -> None:
+    """A repository made by an earlier version gains them at the next start."""
+    repository = _repository_on(tmp_path / "node", "master")
+
+    repository.accept_replication()
+
+    hooks = repository.path / ".git" / "hooks"
+    for name in ("pre-receive", "push-to-checkout"):
+        hook = hooks / name
+        assert hook.read_text().startswith("#!/bin/sh")
+        assert hook.stat().st_mode & 0o111, f"{name} is not executable"
+    assert _git(repository.path, "config", "receive.advertisePushOptions") == "true"
 
 
 def test_forcing_is_asked_for_by_name(signed_in) -> None:
