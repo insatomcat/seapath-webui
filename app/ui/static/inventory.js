@@ -980,9 +980,110 @@
     }
   }
 
+  // The other machines of the inventory
+
+  // What one machine's copy is, in the words an operator can act on. The
+  // states a survey answers and the states a push answers are the same list,
+  // because the page shows both in the same column.
+  const REPLICA_STATES = {
+    up_to_date: { label: "up to date", tone: "state-success" },
+    updated: { label: "updated", tone: "state-success" },
+    behind: { label: "behind this node", tone: "state-interrupted" },
+    diverged: {
+      label: "carries commits this node does not have",
+      tone: "state-failed",
+    },
+    refused: { label: "refused", tone: "state-failed" },
+    unreachable: { label: "not reachable", tone: "state-failed" },
+  };
+
+  function renderReplicas(payload) {
+    const card = element("replicas-card");
+    const replicas = payload.replicas || [];
+    // A standalone node has nowhere to replicate to, so the card is not there
+    // to be explained away.
+    card.hidden = replicas.length === 0;
+    if (card.hidden) {
+      return;
+    }
+
+    const body = document.querySelector("#replicas-table tbody");
+    body.replaceChildren();
+    replicas.forEach((replica) => {
+      const row = document.createElement("tr");
+      const state = REPLICA_STATES[replica.status] || {
+        label: replica.status,
+        tone: "",
+      };
+      [replica.host, replica.address, shortCommit(replica.commit)].forEach(
+        (value) => {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        }
+      );
+      const last = document.createElement("td");
+      const label = document.createElement("span");
+      label.className = state.tone;
+      label.textContent = state.label;
+      last.append(label);
+      if (replica.detail) {
+        const detail = document.createElement("div");
+        detail.className = "help";
+        detail.textContent = replica.detail;
+        last.append(detail);
+      }
+      row.append(last);
+      body.append(row);
+    });
+
+    const button = element("replicate");
+    button.disabled = !admin();
+    button.textContent =
+      "Replicate to " + replicas.map((replica) => replica.host).join(", ");
+    element("replicas-meta").textContent = payload.commit
+      ? "This node holds " + shortCommit(payload.commit)
+      : "";
+  }
+
+  function shortCommit(commit) {
+    return commit ? commit.slice(0, 12) : "no commit";
+  }
+
+  async function loadReplicas() {
+    try {
+      renderReplicas(await API.get("/inventory/replicas"));
+    } catch (failure) {
+      showError("replicas-error", failure.message);
+    }
+  }
+
+  element("replicate").addEventListener("click", async () => {
+    const button = element("replicate");
+    button.disabled = true;
+    showError("replicas-error", "");
+    try {
+      const payload = await API.post("/inventory/replicate");
+      renderReplicas(payload);
+      const missed = (payload.replicas || []).filter(
+        (replica) => replica.status !== "updated" && replica.status !== "up_to_date"
+      );
+      showBanner(
+        missed.length === 0
+          ? ["Every machine of the inventory holds " + shortCommit(payload.commit) + "."]
+          : missed.map((replica) => replica.host + ": " + (replica.detail || replica.status))
+      );
+    } catch (failure) {
+      showError("replicas-error", failure.message);
+    } finally {
+      button.disabled = !admin();
+    }
+  });
+
   async function refresh() {
     await loadFolder();
     await loadHistory();
+    await loadReplicas();
     render();
   }
 

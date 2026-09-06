@@ -31,6 +31,7 @@ from app.core.auth import Role
 from app.core.security import CookieNames
 from app.core.settings import Settings
 from app.hosts.fake import FakeHostReader
+from app.inventory.fake import FakePeerTransport
 from app.main import create_app
 from app.runs.fake import FakeRunAdapter
 from app.services.registry import FakeTagSource
@@ -169,6 +170,16 @@ def directory() -> FakeRoleDirectory:
 
 
 @pytest.fixture
+def replication_transport(tmp_path: Path, settings: Settings) -> FakePeerTransport:
+    """The other machines of the inventory, as directories on this laptop.
+
+    A push in a test is a real `git push` into a real repository, so what the
+    suite exercises is what git does with one. Only the transport is faked.
+    """
+    return FakePeerTransport(tmp_path / "peers", settings.inventory_dir)
+
+
+@pytest.fixture
 def client(
     settings: Settings,
     reader: FakeHostReader,
@@ -179,6 +190,7 @@ def client(
     metrics_client: FakeMetricsClient,
     rbd_client: FakeRbdClient,
     tag_source: FakeTagSource,
+    replication_transport: FakePeerTransport,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -191,6 +203,7 @@ def client(
         metrics_client=metrics_client,
         rbd_client=rbd_client,
         tag_source=tag_source,
+        replication_transport=replication_transport,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client

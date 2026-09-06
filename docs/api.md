@@ -184,8 +184,24 @@ Ansible before it is written, and `PUT /inventory/raw` is where that happens. A
 path that would leave the folder, by `..` or through a symlink already in the
 tree, is refused with `400 unsafe_path`.
 
-Writes are forwarded transparently to the configuration lead when this node is
-not it. The client never has to know which node leads.
+### The other machines of the inventory
+
+A write lands in this node's own repository. Bringing the other machines to the
+same commit is a separate, explicit act, settled by [D32](decisions.md#d32): a
+`git push` over the SSH connection a run makes, to the machines the inventory
+declares, minus this one and minus the guests of the `VMs` group.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/inventory/replicas` | Which commit each of those machines holds, asked of the machines at every call, with `status` per machine: `up_to_date`, `behind`, `diverged` or `unreachable` |
+| POST | `/inventory/replicate` | Push this node's branch to each of them. `status` per machine: `updated`, `up_to_date`, `refused` or `unreachable` |
+
+Each machine is reported on its own, so a partial success is an ordinary
+answer and never an error: a node that is down is one entry carrying git's own
+sentence. A machine holding commits this node lacks comes back `refused` with
+nothing overwritten, because git accepts a fast forward only. `409
+no_replicas` where the inventory declares no other machine, and `409
+nothing_to_replicate` before the first commit exists.
 
 ## Runs
 

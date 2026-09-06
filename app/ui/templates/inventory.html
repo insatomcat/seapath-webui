@@ -91,6 +91,33 @@ SPDX-License-Identifier: Apache-2.0
     </div>
   </section>
 
+  <section class="card" id="replicas-card" hidden>
+    <h2>The other machines</h2>
+    <p class="lead">
+      Every node holds its own copy of this repository. Replicating sends this
+      one to the machines the inventory declares, over the connection a run
+      makes. A machine carrying commits this node does not have is refused
+      rather than overwritten, and nothing here converges anything: that is the
+      Deployment page.
+    </p>
+
+    <div class="table-scroll">
+      <table id="replicas-table">
+        <thead>
+          <tr><th>Machine</th><th>Address</th><th>Commit</th><th>State</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="replicate">Replicate</button>
+      <span class="editor-meta" id="replicas-meta"></span>
+    </div>
+
+    <p class="error" id="replicas-error" hidden></p>
+  </section>
+
   <section class="card" id="history-card">
     <h2>History</h2>
     <div class="table-scroll">

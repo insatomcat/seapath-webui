@@ -228,7 +228,8 @@ Once the mesh exists, there is nothing left to invent:
    fields for the new node, as described in [inventory.md](inventory.md).
 2. Validation runs. A ring that does not close, or a duplicate cluster address,
    is refused before anything touches a machine.
-3. The commit lands, replicated to the members.
+3. The commit lands, and the operator replicates it to the members from the
+   inventory page.
 4. The operator applies. The service runs `cluster_setup_ha.yaml` against
    `cluster_machines`, from the node the operator is on.
 5. `configure_ha` does the rest, unchanged: `corosync-keygen` on the first node,
@@ -263,9 +264,9 @@ revoked on every remaining member.
 | Fingerprint mismatch on paste | Abort, show both fingerprints, no override path |
 | Token expired or already used | Abort, offer to generate a new one on A |
 | Trust established but the playbook fails midway | The mesh and the inventory stay, the run is re-runnable, the run view names the hosts that were reached |
-| A member is unreachable when replicating the inventory | Commit succeeds on the lead, the stale member is flagged, applying from a stale copy is refused |
+| A member is unreachable when replicating the inventory | The push names that machine in its result, the machines that were reached hold the commit, and the page shows the commit each one holds |
 | Two operators join two nodes at once | The cluster wide run lock serialises them, the second is refused with the running run named |
-| Quorum lost | Inventory read only, no apply, cluster view degraded but still readable |
+| Quorum lost | The inventory stays writable and replicable, since git decides which copy wins. A run is still possible, which is what makes `cluster_remove_machine.yaml` usable from the surviving node. The cluster view is degraded but still readable |
 
 ## 8. Test plan
 

@@ -11,9 +11,10 @@ of building an application with the fakes instead of the real adapters.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from functools import partial
+from pathlib import Path
 
 from fastapi import FastAPI
 
@@ -45,6 +46,7 @@ from app.hosts.fake import FakeHostReader
 from app.hosts.local import LocalHostReader, read_hostname
 from app.hosts.reader import HostReader
 from app.inventory.artefacts import ArtefactStore
+from app.inventory.replication import ReplicationService, SshTransport, Transport
 from app.inventory.repository import InventoryRepository
 from app.inventory.service import InventoryService
 from app.runs.adapter import AnsibleRunnerAdapter, RunAdapter
@@ -96,6 +98,41 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("seapath-webui stopping")
 
 
+def _site_keys(settings: Settings) -> Callable[[], tuple[Path, ...]]:
+    """The keys this node offers a machine that is not itself.
+
+    Resolved at each act rather than held, because an operator can upload or
+    remove the site key while the service is up. The runs and the replication
+    share it: they make the same connection, to the same account.
+    """
+
+    def resolve() -> tuple[Path, ...]:
+        if settings.site_private_key_file.exists():
+            return (settings.site_private_key_file,)
+        return ()
+
+    return resolve
+
+
+def _replication_transport(settings: Settings, repository: Path) -> Transport:
+    """Where the other machines of the inventory are.
+
+    Every node of a SEAPATH deployment runs this image, so a peer holds its
+    repository where this one holds its own.
+    """
+    if settings.use_fakes:
+        from app.inventory.fake import FakePeerTransport
+
+        return FakePeerTransport(settings.state_dir / "fake-peers", repository)
+    return SshTransport(
+        user=settings.ansible_user,
+        private_key_file=settings.self_private_key_file,
+        known_hosts_file=settings.known_hosts_file,
+        remote_path=settings.inventory_dir,
+        extra_key_files=_site_keys(settings),
+    )
+
+
 def _default_console_adapter(settings: Settings) -> ConsoleAdapter:
     if settings.use_fakes:
         from app.console.fake import FakeConsoleAdapter
@@ -141,6 +178,7 @@ def create_app(
     metrics_client: MetricsClient | None = None,
     rbd_client: RbdClient | None = None,
     tag_source: TagSource | None = None,
+    replication_transport: Transport | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -228,8 +266,9 @@ def create_app(
     resolve_collections = partial(collections_root, settings)
     app.state.collections_root = resolve_collections
 
+    inventory_repository = InventoryRepository(settings.inventory_dir)
     app.state.inventory_service = InventoryService(
-        InventoryRepository(settings.inventory_dir),
+        inventory_repository,
         reader,
         # The two stores a run overlays: the versioned folder, and the large
         # files git has no business carrying.
@@ -274,11 +313,7 @@ def create_app(
             ssh_config_file=settings.client_ssh_config_file,
             # Looked up at each launch, so adding or removing the site key
             # takes effect on the next run rather than on the next restart.
-            extra_key_files=lambda: (
-                (settings.site_private_key_file,)
-                if settings.site_private_key_file.exists()
-                else ()
-            ),
+            extra_key_files=_site_keys(settings),
         ),
         hostname=hostname,
         collection_version=settings.collection_version,
@@ -286,6 +321,16 @@ def create_app(
         # tests and a machine reinstalled under a running service is read
         # again rather than remembered.
         node_distribution=lambda: reader.node_identity().seapath_distro,
+    )
+
+    # The inventory pushed to the other machines the inventory declares, over
+    # the connection a run makes, when an operator asks. The repository is the
+    # one the inventory service holds: a replication moves the branch that
+    # every commit from the editor lands on. See D32.
+    app.state.replication_service = ReplicationService(
+        inventory_repository,
+        replication_transport
+        or _replication_transport(settings, inventory_repository.path),
     )
 
     # What this service is allowed to reach over the network, in one place.

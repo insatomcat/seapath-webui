@@ -206,6 +206,36 @@ block. Check 21 is the easiest to stage deliberately: stop
 `seapath-alloc-export.timer` on one node and delete its `.prom` file, which is
 what a node running an older collector looks like from here.
 
+## Inventory replication
+
+The **Replicate** button: this node's repository pushed to the machines the
+inventory declares, over the connection a run makes. See
+[D32](decisions.md#d32).
+
+The suite pushes between real git repositories, so what a fake cannot rehearse
+is everything on the far side: the sudo rule the ISO grants, whether the host
+carries git at all, and the file the peer's own service reads afterwards.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | `sudo -n /bin/sh -c 'exec git-receive-pack "$0"' /etc/seapath/inventory` in the console of a peer starts and waits for input | The ISO's sudo rule is `NOPASSWD:EXEC:SETENV: /bin/sh`, and this is the exact line the push runs through it | Pending |
+| 2 | With no site key uploaded and no host key accepted, every machine reports unreachable with a sentence naming the reason, and the page still renders | Replication needs what a run needs, and a node that has neither must say so rather than hang | Pending |
+| 3 | After the trust exists, the page lists every other machine of the inventory with the commit it holds, and the guests of `VMs` are absent from it | A guest read as a machine is the mistake this list must not make | Pending |
+| 4 | Replicating from node1 leaves `git -C /etc/seapath/inventory log` on node2 and node3 carrying the same commits, authors included | The audit trail is what travels, and only a real push proves the history arrives with it | Pending |
+| 5 | The file on the peer changed too, meaning `receive.denyCurrentBranch=updateInstead` did its work and the peer's own page shows the new inventory without a restart | A branch that moved without the worktree is a copy whose service reads the old file | Pending |
+| 6 | Editing the inventory on node2, then replicating from node1, is refused with node2 named, and node2 keeps its commit | The refusal is the whole safety of pushing a branch rather than copying a folder | Pending |
+| 7 | Replicating from node2 afterwards is accepted, and node1 is then behind until it replicates in turn | The one direction the act has, seen from both ends | Pending |
+| 8 | With node3 powered off, node2 is updated and node3 is one line naming the timeout, in under a minute | A partial success is the ordinary outcome, and the page must not wait on a dead machine | Pending |
+| 9 | A machine whose repository was never created reports it by name, and nothing is created there | The service does not create a repository on a machine that runs no service | Pending |
+| 10 | Nothing else changed on any peer: `seapath_setup_main.yaml` from a conventional control machine still reports no change after a replication | **The acceptance criterion.** The push writes the inventory repository and nothing else | Pending |
+
+### Result
+
+Not yet run. It needs the trust of [cluster-join.md](cluster-join.md), which
+in the interim means the site key uploaded on the node that replicates.
+
 ## Cluster
 
 The Cluster page: Pacemaker membership, the resources and where they run, and

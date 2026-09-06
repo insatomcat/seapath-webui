@@ -253,8 +253,9 @@ Specified in [docs/cluster-join.md](docs/cluster-join.md). Summary:
 ## 7. Inventory
 
 Specified in [docs/inventory.md](docs/inventory.md). Summary: a git repository
-per node, a single writer under quorum, the commit hash as the version, an
-editor over every file in the folder, and hardware discovery to seed it.
+per node, replicated to the other machines of the inventory by an explicit
+push, the commit hash as the version, an editor over every file in the folder,
+and hardware discovery to seed it.
 
 The repository holds a folder rather than one file, because a dozen roles take
 a path to a file the control machine holds. A run mounts that folder where a
@@ -336,7 +337,7 @@ conformance view based on periodic check runs, `vmmgrapi` deprecation.
 | Risk | Mitigation |
 |---|---|
 | A UI apply restarts services under live VMs | Confirmation naming the impacted machines, preview where it is honest, and a catalogue that flags what each playbook disrupts |
-| The inventory diverges between nodes | Single writer under quorum, commit hash on every run, and a visible warning when a node's copy is stale |
+| The inventory diverges between nodes | An explicit push over the SSH path a run uses, refused when it would lose commits, the commit each machine holds read from the machine itself, and the commit hash recorded on every run |
 | The SSH mesh becomes the weak point of a hardened site | `ansible` user rather than root, `from=` restriction, per direction keys, revocation from the UI, and audit |
 | A run dies with the machine it converges | Idempotent re-run, artefacts persisted, and explicit warnings on the playbooks that reboot |
 | Scope creep towards a Proxmox clone | Section 2 is binding. The UI edits the inventory and runs playbooks. Anything that mutates a machine directly is a design bug |

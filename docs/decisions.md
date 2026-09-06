@@ -63,9 +63,10 @@ there.
 
 ## D3 - Settled: the inventory is a git repository replicated across nodes
 
-Single writer under quorum, the commit hash as the version of the desired
-state, `git log` as the audit trail, `git revert` as the rollback, and export
-as a tarball for a site that wants a conventional control machine.
+The commit hash as the version of the desired state, `git log` as the audit
+trail, `git revert` as the rollback, and export as a tarball for a site that
+wants a conventional control machine. Each node owns its copy and accepts
+writes to it; [D32](#d32) settles how the copies are brought together.
 
 Rejected alternatives: plain files synchronised by the service, which loses
 history and still has to solve concurrent edits; and an external git remote,
@@ -1609,3 +1610,122 @@ The clean fix stays upstream, and it is two small changes: a `set_metadata`
 command on `cluster_vm` with an allow-list of the `_` keys, and a way for
 `enable_vm` to re-read them without a full stop. The second is the one that
 matters, because it is what would turn the outage into a reconfiguration.
+
+## D32 - Settled: the inventory is replicated by an explicit push, over the SSH path a run already uses
+
+[D3](#d3) settled that the inventory is a git repository replicated across the
+nodes. How it replicates was left as a lead elected under quorum, an automatic
+push after every commit, and a write from a non lead node relayed to the lead
+over the mutual TLS channel of [cluster-join.md](cluster-join.md).
+
+The mechanism is now an operator act. A button on the inventory page pushes
+this node's repository to the other machines the inventory declares, over the
+same SSH connection a run makes.
+
+### Why the smaller mechanism is the right one
+
+**The transport is already there, and it is the one the product is built on.**
+The service reaches every machine of the inventory over SSH as the `ansible`
+account: the self trust at first boot, the site key in the interim path of
+[cluster-join.md](cluster-join.md) §2b, the full mesh at M3. Replication asks
+for no new credential, no new port and no new listener.
+
+**The cluster CA was a dependency of the relay, and of nothing else here.** A
+write accepted on node B and forwarded to the lead on node A needs an
+authenticated node to node HTTP channel. Removing the relay removes that
+requirement from the replication path. The CA keeps the job it was created for,
+which is the invitation handshake, and the two concerns stop being tangled.
+
+**The cadence of the thing being replicated is an operator's cadence.** An
+inventory changes when someone edits it, and every change worth propagating is
+already followed by a confirmation naming machines. A synchronisation that
+happens because a human asked for it fits that rhythm, and it costs no lead
+election in the window where corosync is not yet running, which was the
+hardest part of the automatic design to get right.
+
+### The mechanism is `git push`
+
+The obvious implementation of "copy the folder to the other nodes" is `rsync`
+over the same SSH connection, and pushing a branch does three things it cannot:
+
+- **The ref moves atomically.** An `rsync` over a live `.git` can arrive while
+  the receiving node's own service is committing, and there is no moment at
+  which the tree is guaranteed consistent.
+- **A divergence is refused and named.** Git rejects a push that is not a fast
+  forward, so a copy carrying commits this node lacks produces an error
+  identifying the machine. `rsync` would overwrite those commits leaving
+  nothing behind, and `git log` as the audit trail is a product claim.
+- **The receiving node keeps its history.** It ends up with the same commits,
+  reachable by the same hashes, which is what makes the commit hash usable as
+  the version of the desired state on any node.
+
+The receiving repository has a worktree checked out at
+`/etc/seapath/inventory`, and git refuses by default to push into the branch a
+non bare repository has checked out. `receive.denyCurrentBranch=updateInstead`
+is the setting for exactly this shape: the worktree is updated with the push,
+and the push is refused when that worktree has uncommitted changes. That
+refusal is a feature, so it is configured rather than worked around.
+
+### Who receives, and what happens when one of them does not
+
+The targets are the machines the inventory declares, minus this one and minus
+the guests of the `VMs` group. The confirmation names them, as every act that
+reaches other machines does.
+
+Each target is pushed to independently and each result is reported on its own:
+a partial success is the ordinary outcome of a node being down, and it is shown
+as such. Nothing is rolled back on the machines that succeeded, since they hold
+a commit that is the desired state either way.
+
+A machine with no repository at that path is reported by name with that reason.
+It is not created from here. Every node running this service has one, written
+at first boot, so a machine without one is a machine that does not run the
+service, and pushing an inventory into it would be a guess about what it is
+for.
+
+### Which node holds which commit is asked, never remembered
+
+The inventory page reads the commit each machine holds with `git ls-remote`
+over the same connection, when the page is opened. No replication state is
+stored, and there is no cached notion of which node is behind that could
+disagree with the machines.
+
+This is the boundary [D13](#d13), [D26](#d26), [D27](#d27) and [D29](#d29) draw
+everywhere else in this service, applied once more: ask the thing that owns the
+state, over its own protocol, rather than hold a second copy of the answer.
+
+### What is deliberately dropped
+
+- **The lead, the quorum gate and the write relay.** Every node accepts writes
+  to its own copy. Which copy wins is decided by git, when someone pushes.
+- **"Applying from a stale copy is refused."** A node that is behind is visible
+  on the page, with the commit it holds and the commit the others hold, and a
+  run records the commit it ran from, which it already did. Refusing the run
+  outright would block a repair on the one node still standing.
+- **Pulling.** The act has one direction, from the node the operator is on to
+  the others. A refused push names the node holding the commits this one lacks,
+  and the operator goes there and pushes from it. One direction keeps the
+  question "which copy am I looking at" answerable by looking at the address
+  bar.
+
+### What travels, and what does not
+
+The repository travels, which is the inventory and the configuration files it
+names. The artefacts store does not, by the same reasoning as [D18](#d18): it
+holds VM images and archives, git does not carry them, and a replication that
+silently pushed a few gigabytes over the administration network would be a
+surprise. A replica therefore holds an inventory that names images it does not
+have, and the run record listing every file a run was given remains the answer
+to which image a run pushed.
+
+The trust material and the TLS keys never travel. They are per node by
+construction.
+
+### The bound this keeps
+
+`AGENTS.md` allows this service to write two things: the inventory repository,
+and its own trust material. This extends the first from the local copy to the
+copy held by a machine the inventory declares, at the path
+`settings.inventory_dir` names, and it writes nothing else there. No host
+configuration file, no unit restarted, no command beyond what `git push` runs
+on the far side. A machine still changes only when a playbook converges it.

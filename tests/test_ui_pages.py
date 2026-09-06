@@ -114,6 +114,20 @@ def test_the_inventory_page_says_what_saving_does_and_does_not_do(
     assert "that is the Deployment page" in body
 
 
+def test_the_inventory_page_carries_the_other_copies_of_the_repository(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    prose = " ".join(body.split())
+
+    # The copies live where the repository is edited, and the card says what a
+    # replication is and what it refuses.
+    assert 'id="replicas-card"' in body
+    assert 'id="replicate"' in body
+    assert "over the connection a run makes" in prose
+    assert "is refused rather than overwritten" in prose
+
+
 def test_the_inventory_page_is_an_editor_over_the_folder(
     signed_in: TestClient,
 ) -> None:

@@ -25,6 +25,7 @@ from app.inventory.grub import hash_password
 from app.inventory.model import Inventory
 from app.inventory.parser import InvalidInventory
 from app.inventory.references import Reference
+from app.inventory.replication import Replica, ReplicationService
 from app.inventory.repository import Commit, RepositoryError, StaleWrite
 from app.inventory.service import (
     ImportRefused,
@@ -400,6 +401,64 @@ def folder(request: Request, user: User = viewer) -> FolderResponse:
 def file_references(request: Request, user: User = viewer) -> list[Reference]:
     """Which file every path in the inventory names, and whether it is here."""
     return _service(request).references()
+
+
+def _replication(request: Request) -> ReplicationService:
+    return request.app.state.replication_service
+
+
+class ReplicationResponse(BaseModel):
+    """This node's commit, and what each machine of the inventory holds."""
+
+    commit: str | None
+    replicas: list[Replica]
+
+
+@router.get("/replicas")
+def replicas(request: Request, user: User = viewer) -> ReplicationResponse:
+    """Which commit every other machine of the inventory holds.
+
+    Asked of the machines, at every call. A copy that is behind is shown with
+    the commit it actually holds, and there is no stored replication state that
+    could disagree with them. See [D32](decisions.md#d32).
+    """
+    replication = _replication(request)
+    state = _service(request).state()
+    return ReplicationResponse(
+        commit=replication.head(),
+        replicas=replication.survey(state.inventory, state.this_host),
+    )
+
+
+@router.post("/replicate")
+def replicate(request: Request, user: User = admin) -> ReplicationResponse:
+    """Push this node's inventory to the other machines it declares.
+
+    An administrator's act, like every write to the desired state: what lands
+    on those machines is what the next apply converges them to. Each machine is
+    reported on its own, and a push that would lose commits is refused with the
+    machine named.
+    """
+    replication = _replication(request)
+    state = _service(request).state()
+    head = replication.head()
+    if head is None:
+        raise ApiError(
+            "nothing_to_replicate",
+            "This node has no inventory commit yet, so there is nothing to send.",
+            409,
+        )
+    results = replication.replicate(state.inventory, state.this_host)
+    if not results:
+        raise ApiError(
+            "no_replicas",
+            (
+                "The inventory declares no machine other than this one, so "
+                "there is nowhere to replicate to."
+            ),
+            409,
+        )
+    return ReplicationResponse(commit=head, replicas=results)
 
 
 @router.get("/files/{path:path}")

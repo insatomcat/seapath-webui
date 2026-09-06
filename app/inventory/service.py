@@ -530,6 +530,10 @@ class InventoryService:
         candidate = seed_inventory(self.discovery())
         return render(candidate) if candidate is not None else None
 
+    def accept_replication(self) -> None:
+        """Let a peer's push land in this checkout. See `D32`."""
+        self._repository.accept_replication()
+
     def ensure_seed(self) -> bool:
         """Write the inventory a node produces about itself at first boot.
 

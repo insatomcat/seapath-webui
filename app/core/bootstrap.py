@@ -189,6 +189,9 @@ def run_startup_tasks(
 
     try:
         inventory.ensure_seed()
+        # A repository made by an earlier version gains the setting that lets a
+        # peer's replication land in it, without anyone reinstalling. See D32.
+        inventory.accept_replication()
     except Exception as error:  # pragma: no cover - defensive
         logger.error("Could not write the seed inventory: %s", error)
 

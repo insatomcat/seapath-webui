@@ -229,8 +229,12 @@ of [cluster-join.md](cluster-join.md) exists at M3. Importing, reading and
 editing all work today.
 
 The repository is an ordinary git repository, so a remote survives the clone.
-Nothing pushes or pulls it by itself: replication between nodes arrives with the
-cluster, at M3.
+Nothing pushes or pulls it by itself: replication towards the other machines of
+the inventory is an act the operator asks for, and section 2 describes it. It
+needs what a run needs, which is a key those machines accept and their host
+keys known here, so on a node that has neither it reports every machine as
+unreachable until the site key of [cluster-join.md](cluster-join.md) §2b is
+uploaded or the mesh exists.
 
 ## 1bis. The folder, because an inventory is rarely alone
 
@@ -315,30 +319,44 @@ A templated path, `../files/{{ inventory_hostname }}.qcow2`, is left alone.
 Guessing at its value would produce a confident wrong answer and tell an
 operator to upload a file named after a variable.
 
-## 2. Who may write
+## 2. Who may write, and how the copies meet
 
-Single writer, under quorum.
+Every node owns its own repository and accepts writes to it. The copies are
+brought together by an explicit act, and never by the service on its own.
+[D32](decisions.md#d32) records the reasoning and what the earlier design, a
+lead elected under quorum with an automatic push, was traded for.
 
-- **Standalone**: the node owns its repository outright. No coordination.
-- **Cluster**: writes are accepted only by the node holding the configuration
-  lead, and only while quorum holds. A UI opened on another node forwards the
-  write to the lead over the mutual TLS channel, so the operator never has to
-  know which node is the lead.
-- **Between the two**, from the first invitation until corosync is running,
-  there is no quorum and no nodeid to elect a lead from. During that window the
-  lead is the **founder**, meaning the node that issued the invitation, and it
-  is the only node that accepts writes. Once corosync is up, the lead becomes
-  the lowest live nodeid with quorum. Getting this window wrong is how two nodes
-  end up each believing they own the inventory while the cluster is being
-  formed.
-- After a successful commit, the lead pushes to every member. A member that
-  could not be updated is flagged, and the cluster view shows the stale copies
-  until they catch up. Applying from a stale copy is refused.
-- Without quorum the inventory is read only. A cluster that cannot agree on its
-  membership has no business rewriting its desired state.
+- **Standalone**: the node owns its repository outright. No coordination, and
+  nothing to replicate to.
+- **Cluster**: the inventory page carries a **Replicate** button. It pushes
+  this node's repository to the machines the inventory declares, minus this one
+  and minus the guests of the `VMs` group, over the SSH connection a run
+  already makes. The button names the machines it reaches, and the table above
+  it says what each of them holds right now.
+- **A push that would lose commits is refused.** Git accepts a fast forward
+  only, so a node carrying edits this one lacks comes back as a named failure
+  and keeps its history. The operator opens the UI on that node and pushes from
+  there. The act has one direction, always from the node being looked at
+  towards the others.
+- **Each machine is reported on its own.** A node that is down is one line in
+  the result, and the machines that were updated keep what they received.
+- **Each machine is asked which commit it holds.** The page reads it with `git
+  ls-remote` over the same connection, when it is opened. A copy that is behind
+  is shown with the commit it actually holds, and no stored replication state
+  exists that could disagree with the machines.
+- **A run records the commit it ran from**, which is what answers "which
+  version of the desired state converged these machines" whichever node the run
+  was launched from.
 
-This is not a distributed filesystem and not `pmxcfs`. It is a small repository
-synchronised on explicit writes, which is the whole reason it is affordable.
+What travels is the repository, meaning the inventory and the configuration
+files it names. The artefacts store stays where it is, by the reasoning of
+[D18](decisions.md#d18), so a replica holds an inventory naming images it does
+not have.
+
+The whole mechanism is a small repository pushed between nodes when an operator
+asks, which is the entire reason it is affordable. Proxmox answers the same
+need with `pmxcfs`, a replicated filesystem mounted on every node, and that is
+a far larger machine than this problem calls for.
 
 ## 3. Seeding by discovery
 

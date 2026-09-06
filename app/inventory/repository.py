@@ -37,6 +37,13 @@ logger = logging.getLogger(__name__)
 
 INVENTORY_FILENAME = "inventory.yaml"
 
+# The one branch this service writes, and the one a replication moves.
+DEFAULT_BRANCH = "main"
+
+# A git command that waits on another machine. Long enough for a slow link,
+# short enough that a page listing three nodes still renders when one is down.
+_NETWORK_TIMEOUT_SECONDS = 30.0
+
 _COMMITTER_NAME = "seapath-webui"
 _LOG_FORMAT = "%H%x1f%an%x1f%ae%x1f%aI%x1f%s"
 
@@ -86,7 +93,25 @@ class InventoryRepository:
             return
         self._path.mkdir(parents=True, exist_ok=True)
         self._git("init", "--initial-branch=main")
+        self.accept_replication()
         logger.info("Initialised the inventory repository at %s", self._path)
+
+    def accept_replication(self) -> None:
+        """Let a peer's push land in this checkout. Idempotent, and a repair.
+
+        This repository has a worktree, and git refuses by default to push into
+        the branch a worktree has checked out. `updateInstead` is the setting
+        for exactly this shape: the files move with the push, and the push is
+        refused when the worktree carries changes nobody committed. That
+        refusal is the safety, so it is configured rather than worked around.
+
+        Applied at every start rather than at creation only, so a repository
+        made by an earlier version gains it without anyone reinstalling.
+        """
+        try:
+            self._git("config", "receive.denyCurrentBranch", "updateInstead")
+        except RepositoryError as error:  # pragma: no cover - defensive
+            logger.warning("Could not configure the repository for a push: %s", error)
 
     # Reading
 
@@ -309,20 +334,97 @@ class InventoryRepository:
             archive.add(self._path, arcname="seapath-inventory")
         return buffer.getvalue()
 
+    # Replication
+
+    def contains(self, commit: str) -> bool:
+        """Whether this repository already holds that commit.
+
+        What tells "the peer is behind us" from "the peer carries work we have
+        never seen", which is the difference between a push that will land and
+        one git is about to refuse.
+        """
+        try:
+            self._git("cat-file", "-e", f"{commit}^{{commit}}")
+        except RepositoryError:
+            return False
+        return True
+
+    def remote_head(
+        self,
+        url: str,
+        *,
+        ssh_command: str | None = None,
+        upload_pack: str | None = None,
+        branch: str = DEFAULT_BRANCH,
+        timeout: float = _NETWORK_TIMEOUT_SECONDS,
+    ) -> str | None:
+        """Which commit that machine holds, asked of the machine itself.
+
+        None where the repository is there and its branch is empty. A machine
+        that cannot be reached, or that holds no repository at all, raises with
+        git's own words, which name the case better than anything invented
+        here would.
+        """
+        argv = ["git", "ls-remote"]
+        if upload_pack is not None:
+            argv.append(f"--upload-pack={upload_pack}")
+        argv += [url, f"refs/heads/{branch}"]
+        output = self._run(
+            argv, environment=_with_ssh(ssh_command), timeout=timeout
+        ).strip()
+        if not output:
+            return None
+        return output.split()[0]
+
+    def push(
+        self,
+        url: str,
+        *,
+        ssh_command: str | None = None,
+        receive_pack: str | None = None,
+        branch: str = DEFAULT_BRANCH,
+        timeout: float = _NETWORK_TIMEOUT_SECONDS,
+    ) -> None:
+        """Send this branch to that machine, or raise with git's refusal.
+
+        No force, ever. Git accepts a fast forward only, so a machine carrying
+        commits this one has never seen ends the push with an error naming it,
+        and its history is still there afterwards.
+        """
+        argv = ["git", "push"]
+        if receive_pack is not None:
+            argv.append(f"--receive-pack={receive_pack}")
+        argv += [url, f"{branch}:{branch}"]
+        self._run(argv, environment=_with_ssh(ssh_command), timeout=timeout)
+
     # Plumbing
 
     def _git(self, *arguments: str) -> str:
         return self._run(["git", *arguments])
 
-    def _run(self, argv: list[str], allowed_returncodes: tuple[int, ...] = (0,)) -> str:
-        completed = subprocess.run(  # noqa: S603 - fixed argv, never a shell
-            argv,
-            cwd=self._path,
-            capture_output=True,
-            text=True,
-            check=False,
-            env=self._environment(),
-        )
+    def _run(
+        self,
+        argv: list[str],
+        allowed_returncodes: tuple[int, ...] = (0,),
+        environment: dict[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> str:
+        try:
+            completed = subprocess.run(  # noqa: S603 - fixed argv, never a shell
+                argv,
+                cwd=self._path,
+                capture_output=True,
+                text=True,
+                check=False,
+                env=self._environment(environment),
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as error:
+            # Only the replication passes a timeout, and it is the one git
+            # command that waits on another machine.
+            raise RepositoryError(
+                f"no answer after {error.timeout:.0f} seconds"
+            ) from error
         if completed.returncode not in allowed_returncodes:
             raise RepositoryError(
                 (completed.stderr or completed.stdout).strip()
@@ -330,7 +432,7 @@ class InventoryRepository:
             )
         return completed.stdout
 
-    def _environment(self) -> dict[str, str]:
+    def _environment(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         environment = dict(os.environ)
         environment.update(
             {
@@ -344,7 +446,18 @@ class InventoryRepository:
                 "GIT_CONFIG_VALUE_0": str(self._path),
             }
         )
+        environment.update(extra or {})
         return environment
+
+
+def _with_ssh(ssh_command: str | None) -> dict[str, str]:
+    """How git is told which ssh to run, and with which key.
+
+    The connection credentials are a fact about this control machine rather
+    than about the desired state, which is why they travel in the environment
+    of one command and are written nowhere.
+    """
+    return {} if ssh_command is None else {"GIT_SSH_COMMAND": ssh_command}
 
 
 def _parse_commit(line: str) -> Commit:
