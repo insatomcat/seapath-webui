@@ -48,6 +48,39 @@ SPDX-License-Identifier: Apache-2.0
        paint, and every hop from one page to the next rendered unstyled until
        it answered. #}
     <style>{{ stylesheet() }}</style>
+
+    {# Every screen here is built by one script, and a script that dies before
+       its first statement has nothing to report: the page renders, the top bar
+       keeps its placeholders, and no failure appears anywhere on it. That was
+       read once as a service with nothing to run, and the cause was a browser
+       holding a script from another version. The version query below makes
+       that pairing impossible; this says so out loud when a page script dies
+       for any other reason.
+
+       Inline and in the head, ahead of every script it has to watch, because a
+       listener registered by one of them cannot report that one of them failed
+       to load. Capturing, because a `<script>` that never arrives fires an
+       error event that does not bubble. #}
+    <script>
+      window.addEventListener("error", function (event) {
+        var banner = document.getElementById("script-error");
+        var target = event.target;
+        var what = null;
+        if (target && target.tagName === "SCRIPT") {
+          what = target.src + " did not load";
+        } else if (event.message) {
+          what = event.message;
+        }
+        if (!banner || what === null) {
+          return;
+        }
+        banner.textContent =
+          "This page is not live: the script that fills it stopped before it " +
+          "could run (" + what + "). Reload the page bypassing the cache, " +
+          "with Ctrl+Shift+R, or Cmd+Shift+R on a Mac.";
+        banner.hidden = false;
+      }, true);
+    </script>
     {% block head %}{% endblock %}
   </head>
   <body>
@@ -107,6 +140,11 @@ SPDX-License-Identifier: Apache-2.0
     </header>
     {% endif %}
 
+    {# Written to by the head script above, and by nothing else. Outside the
+       page grid on purpose: it has to exist on every page, including the ones
+       whose own banner is built by the script that just died. #}
+    <p class="banner" id="script-error" hidden></p>
+
     {% block body %}{% endblock %}
 
     <footer class="footer">
@@ -118,9 +156,9 @@ SPDX-License-Identifier: Apache-2.0
     </footer>
 
     {# Ahead of the page's own script, which may draw with the palette. #}
-    {% if nav %}<script src="static/theme.js"></script>
-    <script src="static/api.js"></script>
-    <script src="static/chrome.js"></script>{% endif %}
+    {% if nav %}{{ script("theme.js") }}
+    {{ script("api.js") }}
+    {{ script("chrome.js") }}{% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

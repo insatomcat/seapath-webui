@@ -10,6 +10,8 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
+from app import __version__
+
 
 @pytest.mark.parametrize(
     "path",
@@ -42,6 +44,62 @@ def test_each_page_loads_its_own_script_and_the_shared_chrome(
     assert script in body
     assert "chrome.js" in body
     assert "api.js" in body
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/inventory", "/deployment", "/vms", "/cluster", "/realtime", "/runs"],
+)
+def test_every_script_a_page_loads_names_the_version_that_served_it(
+    signed_in: TestClient, path: str
+) -> None:
+    """A browser must never pair a script from one version with a page from another.
+
+    Both halves are served `no-cache`, and that check compares the copy a
+    browser holds against the file the same service has on disk, so a copy kept
+    from another version of this service is reported as current. The two then
+    disagree about the elements they name, the page script dies on the first
+    one that is missing, and the whole page renders and does nothing. That cost
+    an afternoon on a node once. The version in the URL makes the halves two
+    different resources.
+    """
+    body = signed_in.get(path).text
+    sources = re.findall(r'<script src="([^"]+)"', body)
+
+    assert sources
+    for source in sources:
+        assert source.endswith(f"?v={__version__}"), source
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/", "/inventory", "/deployment", "/vms", "/cluster", "/realtime", "/runs"],
+)
+def test_every_page_can_say_that_its_own_script_never_ran(
+    signed_in: TestClient, path: str
+) -> None:
+    """The one failure a page cannot report by itself.
+
+    Every screen here is built by a script, so a script that dies before its
+    first statement leaves a page with placeholders on it and no message
+    anywhere. The handler is in the head, ahead of the scripts it watches, and
+    the element it writes to is outside the page body, because the page's own
+    banner is built by the script that just died.
+    """
+    body = signed_in.get(path).text
+
+    assert 'id="script-error"' in body
+    assert 'window.addEventListener("error"' in body
+    assert "did not load" in body
+
+
+def test_the_login_page_reports_a_script_that_never_ran_too(
+    client: TestClient,
+) -> None:
+    body = client.get("/login").text
+
+    assert 'id="script-error"' in body
+    assert f"login.js?v={__version__}" in body
 
 
 def test_the_inventory_page_says_what_saving_does_and_does_not_do(

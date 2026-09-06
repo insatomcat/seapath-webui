@@ -51,7 +51,29 @@ def stylesheet(name: str = "style.css") -> Markup:
     return _read_stylesheet(path, path.stat().st_mtime)
 
 
+def script(name: str) -> Markup:
+    """A script tag of this service, stamped with the version that serves it.
+
+    The version in the URL is what keeps a browser from running two releases
+    at once. The assets are served `no-cache`, so an edit is always picked up,
+    and that check answers a different question: it compares the copy a
+    browser holds against the file the same service has on disk. A browser
+    holding `deployment.js` from one version, asking another version for the
+    page it belongs to, is told its copy is current, because for the service
+    it took it from it was.
+
+    The two halves then disagree about the elements they name, the page script
+    dies on the first one that is missing, and what an operator sees is a page
+    that renders and then does nothing, because a script that dies before its
+    first statement has nothing to report. Stamping the URL makes the two
+    halves two resources, so a browser has to fetch the one the page it is
+    looking at was written against.
+    """
+    return Markup('<script src="static/{}?v={}"></script>').format(name, __version__)
+
+
 templates.env.globals["stylesheet"] = stylesheet
+templates.env.globals["script"] = script
 
 
 class _RevalidatedStatics(StaticFiles):
