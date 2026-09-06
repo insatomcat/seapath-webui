@@ -541,6 +541,25 @@ read. A guest is pinned or preferred and not both, because `cluster_vm` reads
 inventory has. The pinning profile has to parse as a YAML mapping, since the
 seapath-alloc hook reads it at every start.
 
+Which of them a mode reads is checked too, because a variable written for the
+wrong one is silently inert: the operator asked, the file says they got it, and
+nothing anywhere does it. `deploy_vms_standalone` renders the whole domain from
+the template and has no Pacemaker, so placement, priority, migration and
+`disk_bus` are refused there; `deploy_vms_cluster` never reads `autostart` or
+`disk_extract`, so those are refused in a cluster.
+
+`vm_pinning_profile` is the one that crosses. A standalone deployment writes it
+to `/etc/seapath/alloc.d/<vm>.yaml` and the same libvirt hook reads it there,
+so it is offered in both modes.
+
+`disk_bus` is worth a line, because the obvious reading is wrong. The system
+disk of a cluster guest is absent from the XML the operator brings:
+`vm_manager` builds that element itself, since it has to name the RBD image,
+the Ceph monitor list and the libvirt secret, none of which is knowable when
+the XML is written. `disk_bus` is the one knob on the element it builds. In
+standalone the template carries the disk and hardcodes `virtio`, which is why
+the variable means nothing there.
+
 `livemigration_user` is not among them: the role takes it from the play rather
 than from the guest, so it is one value for the whole cluster and lives with
 the other cluster variables in the inventory.

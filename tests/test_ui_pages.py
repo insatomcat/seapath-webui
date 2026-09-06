@@ -775,6 +775,22 @@ def test_every_act_that_cannot_be_undone_is_confirmed_first(
     assert 'label: "Remove it"' in script
 
 
+def test_the_add_form_separates_what_each_deployment_role_reads(
+    signed_in: TestClient,
+) -> None:
+    # Placement, priority, migration and the disk bus are Pacemaker's and
+    # vm_manager's. The pinning profile is neither: a standalone deployment
+    # writes it to /etc/seapath/alloc.d and the same hook reads it there.
+    body = signed_in.get("/vms").text
+
+    assert "data-cluster" in body
+    assert "data-standalone" in body
+    assert 'id="add-autostart"' in body
+    # And the one field whose value is invisible in the XML the operator
+    # brings, because vm_manager builds that element itself.
+    assert "the RBD image, the Ceph monitors and the libvirt secret" in body
+
+
 def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
     # The form asks for three things and shows four steps while it works, so
     # it takes a window rather than growing the page under the guest list.

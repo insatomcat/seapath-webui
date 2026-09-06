@@ -123,6 +123,27 @@ class GuestsView(BaseModel):
     inventory_commit: str | None = None
 
 
+# What each role reads and the other ignores. A variable written for the wrong
+# mode is silently inert, which is the worst of the three outcomes: the
+# operator asked for something, the file says they got it, and nothing anywhere
+# does it. `deploy_vms_standalone` renders the whole domain from the template
+# and has no Pacemaker, so placement, priority, migration and the disk bus mean
+# nothing there; `deploy_vms_cluster` never reads `autostart` or
+# `disk_extract`.
+CLUSTER_ONLY = (
+    "preferred_host",
+    "pinned_host",
+    "priority",
+    "live_migration",
+    "migrate_to_timeout",
+    "migration_downtime",
+    "disk_bus",
+    "nostart",
+    "colocated_vms",
+    "strong_colocation",
+)
+STANDALONE_ONLY = ("autostart", "disk_extract")
+
 # The disk buses `cluster_vm` passes through to libvirt. A short list rather
 # than free text: the value reaches a domain definition, and a bus libvirt does
 # not know is a guest that fails to start with a message about its disk.
@@ -211,6 +232,20 @@ class VmService:
         state = self._inventory.state()
         machines = set(state.inventory.hosts) if state.inventory else set()
         guests = set(state.inventory.guests) if state.inventory else set()
+        cluster = state.inventory is not None and state.inventory.mode is Mode.CLUSTER
+
+        wrong = [
+            variable
+            for variable in (STANDALONE_ONLY if cluster else CLUSTER_ONLY)
+            if variable in variables
+        ]
+        if wrong:
+            role = "deploy_vms_cluster" if cluster else "deploy_vms_standalone"
+            raise InvalidGuest(
+                f"{', '.join(wrong)} is read by the other deployment role, so "
+                f"{role} would ignore it here. Writing it would say the guest "
+                "got something nothing does."
+            )
 
         if "pinned_host" in variables and "preferred_host" in variables:
             raise InvalidGuest(

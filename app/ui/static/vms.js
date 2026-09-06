@@ -539,10 +539,23 @@
 
   function showAdd(open) {
     element("add-modal").hidden = !open;
-    // The placement and colocation choices are Pacemaker's, so they are
-    // offered where there is a Pacemaker. A standalone guest takes its start
-    // switches and its pinning profile and nothing else.
-    element("add-more").hidden = mode !== "cluster";
+    // Placement, priority, migration and the disk bus are Pacemaker's and
+    // vm_manager's, so they are offered where those exist. The pinning profile
+    // is not: `deploy_vms_standalone` writes it to /etc/seapath/alloc.d and the
+    // same hook reads it there, so the section itself is shown in both modes.
+    const cluster = mode === "cluster";
+    document.querySelectorAll("#add-modal [data-cluster]").forEach((node) => {
+      node.hidden = !cluster;
+    });
+    document.querySelectorAll("#add-modal [data-standalone]").forEach((node) => {
+      node.hidden = cluster;
+    });
+    element("add-more-summary").textContent = cluster
+      ? "Placement, migration and real time"
+      : "Real time";
+    element("add-enable-label").textContent = cluster
+      ? "Add it to the cluster once it is created"
+      : "Start it once it is created";
     if (open) {
       element("add-error").hidden = true;
       element("add-steps").hidden = true;
@@ -584,12 +597,18 @@
     };
     const fields = {
       enable: element("add-enable").checked,
-      nostart: element("add-nostart").checked,
       vm_pinning_profile: element("add-profile").value.trim() || null,
     };
     if (mode !== "cluster") {
-      return fields;
+      return Object.assign(fields, {
+        autostart: element("add-autostart").checked,
+        // The role extracts a gzipped raw image before defining the domain,
+        // and the extension is the only thing that says which kind it is. The
+        // same rule as the `.j2` one on the XML above.
+        disk_extract: gzipped,
+      });
     }
+    fields.nostart = element("add-nostart").checked;
     if (placement) {
       fields[placement] = element("add-host").value;
     }
@@ -620,6 +639,9 @@
     return "files/" + name + suffix;
   }
 
+  // Set from the disk the operator picked, and read by `declaration()`.
+  let gzipped = false;
+
   async function addGuest() {
     const name = element("add-name").value.trim();
     const disk = element("add-disk").files[0];
@@ -635,6 +657,7 @@
       return;
     }
 
+    gzipped = disk.name.endsWith(".gz");
     const diskPath = stored(name, disk.name);
     const xmlPath = stored(name, xml.name);
     const progress = steps([

@@ -76,7 +76,15 @@ class GuestDeclaration(BaseModel):
     enable: bool = Field(
         default=True, description="Add it to the cluster once it is created"
     )
-    nostart: bool = Field(default=False, description="Define it and leave it stopped")
+    nostart: bool = Field(
+        default=False, description="Cluster: define it and leave it stopped"
+    )
+    autostart: bool = Field(
+        default=True, description="Standalone: start it when the hypervisor boots"
+    )
+    disk_extract: bool = Field(
+        default=False, description="Standalone: the image is a gzipped raw disk"
+    )
     live_migration: bool = False
     migrate_to_timeout: int | None = Field(
         default=None, ge=0, description="Seconds a live migration may take"
@@ -237,6 +245,8 @@ def _definition(payload: GuestDeclaration) -> dict[str, Any]:
         ("force", payload.force, False),
         ("enable", payload.enable, True),
         ("nostart", payload.nostart, False),
+        ("autostart", payload.autostart, True),
+        ("disk_extract", payload.disk_extract, False),
         ("live_migration", payload.live_migration, False),
         ("strong_colocation", payload.strong_colocation, False),
     ):

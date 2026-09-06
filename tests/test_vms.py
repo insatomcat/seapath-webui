@@ -694,3 +694,49 @@ def test_the_form_is_offered_the_machines_a_guest_can_be_placed_on(
     view = signed_in.get("/api/v1/vms").json()
 
     assert view["machines"] == ["node1", "node2", "node3"]
+
+
+def test_the_real_time_profile_is_offered_on_a_standalone_machine_too(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # `deploy_vms_standalone` writes it to /etc/seapath/alloc.d/<vm>.yaml and
+    # the same libvirt hook reads it there, so it is not a cluster feature.
+    _declare(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "vm_pinning_profile": "version: 1\n"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert (
+        "vm_pinning_profile:" in (settings.inventory_dir / "inventory.yaml").read_text()
+    )
+
+
+def test_a_variable_the_other_role_reads_is_refused_rather_than_written(
+    signed_in: TestClient,
+) -> None:
+    # A variable written for the wrong mode is silently inert, which is the
+    # worst outcome of the three: the operator asked, the file says they got
+    # it, and nothing anywhere does it.
+    _declare(signed_in)
+
+    response = signed_in.post("/api/v1/vms", json={"name": "newvm", "disk_bus": "scsi"})
+
+    assert response.status_code == 400
+    assert "deploy_vms_standalone would ignore it" in (
+        response.json()["error"]["message"]
+    )
+
+
+def test_the_libvirt_autostart_flag_is_standalone_only(
+    signed_in: TestClient,
+) -> None:
+    # In a cluster, whether a guest comes back is Pacemaker's and not
+    # libvirt's, and the cluster role never reads this.
+    _declare_cluster(signed_in)
+
+    response = signed_in.post("/api/v1/vms", json={"name": "newvm", "autostart": False})
+
+    assert response.status_code == 400
