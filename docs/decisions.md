@@ -805,6 +805,18 @@ itself, with the detached restart that lets the run reach its last task, lands
 with M5 and its contract is written down in
 [deployment.md](deployment.md#the-one-constraint-the-role-has-to-honour-the-restart-is-detached).
 
+Which versions exist is asked of the registry the reference already names.
+`GET /api/v1/node/update/latest` reads the tag list of that repository over
+HTTPS, orders the tags carrying a version and reports the highest one.
+`POST /api/v1/node/update` writes it as the tag of every machine that names an
+image, keeping each machine's repository, and produces a commit like every
+other change to the desired state. The two acts stay two: the commit stands on
+its own, and applying it is the catalogue entry with the confirmation every
+convergence gets, naming the machines and the interruption. The registry is
+asked on a click and never on page load, since a substation hypervisor may have
+no route to one, and a registry that cannot be reached is a sentence on the
+page rather than a page that fails.
+
 The pin is seeded rather than typed. The read only adapter reads the image
 reference out of the quadlet installed on the machine, and the seed inventory
 writes it into `seapath_webui_image`, resolving the `latest` the ISO installs to

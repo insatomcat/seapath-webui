@@ -21,6 +21,10 @@
     siteKey: null,
     collection: null,
     update: null,
+    // What the registry answered, once somebody asked. Never asked on page
+    // load: the answer costs an HTTPS request off the machine, and a node in a
+    // substation has no route to make one.
+    latest: null,
     hostKeys: [],
     catalogue: [],
     // Whether the panel at the bottom has already been opened or left shut for
@@ -136,6 +140,114 @@
     renderCollectionState();
     return update;
   }
+
+  // Which versions exist, which is the registry's answer and not this node's.
+  // Asked on a click, because it leaves the machine.
+  async function loadLatest() {
+    const button = element("update-check");
+    const error = element("update-error");
+    error.hidden = true;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      state.latest = await API.get("/node/update/latest");
+    } catch (failure) {
+      state.latest = null;
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      button.removeAttribute("aria-busy");
+      button.disabled = false;
+    }
+    renderLatest();
+  }
+
+  function renderLatest() {
+    const line = element("update-latest");
+    const go = element("update-go");
+    const latest = state.latest;
+    go.hidden = true;
+    if (!latest) {
+      line.hidden = true;
+      return;
+    }
+    line.hidden = false;
+    if (latest.reason) {
+      // A registry with no route to it, an image pinned by digest, a
+      // repository holding no version: three different situations, and the
+      // sentence says which one this is.
+      line.textContent = latest.reason;
+      line.className = "help warn";
+      return;
+    }
+    if (!latest.newer) {
+      line.textContent =
+        "The newest version " + latest.repository + " holds is " +
+        latest.latest + ", which is what the inventory already names.";
+      line.className = "help";
+      return;
+    }
+    line.textContent =
+      latest.repository + " holds " + latest.latest + ", above the " +
+      latest.pinned + " the inventory names for " +
+      latest.machines.join(", ") + ".";
+    line.className = "help warn";
+    // Writing it is an administrator's act, like every other write to the
+    // desired state on this page.
+    go.hidden = !Chrome.isAdmin(state.me);
+    go.textContent = "Pin " + latest.latest + " and apply";
+  }
+
+  // Two acts behind one button, and they stay two acts. The commit happens
+  // first and stands on its own: an operator who cancels the confirmation has
+  // changed the desired state and changed no machine, which is the state this
+  // whole service is built to make ordinary. The apply that follows is the
+  // catalogue entry, with the confirmation every other convergence gets.
+  async function pinAndApply() {
+    const go = element("update-go");
+    const error = element("update-error");
+    error.hidden = true;
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    let pinned = null;
+    try {
+      pinned = await API.post("/node/update", { version: state.latest.latest });
+      // What the inventory names has just changed, so the summary above is
+      // read again. The registry is not asked a second time: its answer has
+      // not changed, and it is the only thing on this page that leaves the
+      // machine.
+      state.latest.pinned = pinned.version;
+      state.latest.newer = false;
+      await loadUpdate();
+      renderLatest();
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      go.removeAttribute("aria-busy");
+      go.disabled = false;
+    }
+    if (!pinned) {
+      return;
+    }
+    const item = state.catalogue.find((row) => row.entry.id === pinned.playbook);
+    if (!item || !item.available) {
+      // The inventory now names the new version, and this node cannot apply
+      // it. Said here rather than swallowed: the commit is real either way.
+      error.textContent =
+        "The inventory now names " + pinned.image + ". Applying it is " +
+        (item
+          ? item.entry.title + ", which is not available here: " +
+            item.unmet.join(" ")
+          : "a playbook this collection does not ship.");
+      error.hidden = false;
+      return;
+    }
+    confirmRun(item.entry, false);
+  }
+
+  element("update-check").addEventListener("click", loadLatest);
+  element("update-go").addEventListener("click", pinAndApply);
 
   // The shut summary line carries both halves, so which code this node runs is
   // answerable without opening the panel.

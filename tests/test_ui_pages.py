@@ -171,6 +171,26 @@ def test_the_deployment_page_says_which_collection_this_node_runs(
     assert 'API.upload("/collection", file)' in script
 
 
+def test_the_deployment_page_offers_the_version_the_registry_holds(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
+
+    # Next to the collection, because they are the two halves of "which code
+    # this node runs" and they are updated in two different ways.
+    assert 'id="update-check"' in body
+    assert 'id="update-go"' in body
+    # Asked on a click and never on page load: the answer leaves the machine,
+    # and a substation hypervisor may have no route to make it.
+    assert 'API.get("/node/update/latest")' in script
+    assert 'element("update-check").addEventListener("click", loadLatest)' in script
+    # And what the button does is a commit, then the confirmation every other
+    # convergence gets.
+    assert 'API.post("/node/update", { version: state.latest.latest })' in script
+    assert "confirmRun(item.entry, false)" in script
+
+
 def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
     signed_in: TestClient,
 ) -> None:

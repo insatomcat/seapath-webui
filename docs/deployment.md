@@ -220,6 +220,10 @@ in a notice. That is the point: a tag that moves says nothing about which code
 answers on a machine, and the whole update path rests on it saying something.
 `seapath_webui_image` in the inventory names that tag, `deploy_seapath_webui`
 pulls it, and `GET /api/v1/node/update` compares it with the version answering.
+`GET /api/v1/node/update/latest` reads the tag list of that same repository and
+reports the highest version it holds, which is why the version tag is published
+once and never moved: an ordered list of published versions is what makes
+"there is a newer one" a fact rather than a guess.
 
 ### The listen socket
 

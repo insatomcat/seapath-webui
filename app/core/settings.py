@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # the state of Pacemaker and Corosync. Same reasoning as above: the port a
     # cluster already has open, asked rather than duplicated.
     ha_cluster_exporter_port: int = 9664
+    # How long the registry is given to answer when the Deployment page asks
+    # which versions of this service exist. Short on purpose: a substation
+    # hypervisor may have no route to a registry at all, and the operator
+    # asking the question is watching a button.
+    registry_timeout: float = 5.0
+
     # Where the Ceph manager's own Prometheus module listens. Not a SEAPATH
     # choice: it is the module's default, and only the active manager serves
     # it, so every machine is asked and the one that answers is the manager.

@@ -55,6 +55,7 @@ from app.services.cluster import ClusterService
 from app.services.metadata import MetadataService
 from app.services.node import NodeService
 from app.services.realtime import RealtimeService
+from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
 from app.services.storage import StorageService
 from app.services.update import UpdateService
 from app.services.vms import VmService
@@ -114,6 +115,21 @@ def _default_run_adapter(settings: Settings) -> RunAdapter:
     return AnsibleRunnerAdapter()
 
 
+def _fake_tags() -> list[str]:
+    """A tag list a registry could plausibly answer with, for the fake mode.
+
+    The version answering, and the next patch above it, so the Deployment page
+    of a laptop shows the update path rather than an empty one. `latest` is
+    there because a real repository has it and it must be ignored: it names no
+    version, and pinning a machine to a moving tag is what the seed already
+    refuses to do.
+    """
+    major, _, rest = __version__.partition(".")
+    minor, _, patch = rest.partition(".")
+    ahead = f"{major}.{minor}.{int(patch) + 1}" if patch.isdigit() else __version__
+    return ["latest", __version__, ahead]
+
+
 def create_app(
     settings: Settings | None = None,
     reader: HostReader | None = None,
@@ -124,6 +140,7 @@ def create_app(
     console_adapter: ConsoleAdapter | None = None,
     metrics_client: MetricsClient | None = None,
     rbd_client: RbdClient | None = None,
+    tag_source: TagSource | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -230,9 +247,18 @@ def create_app(
         image_dir=settings.collections_path,
         store=run_store,
     )
-    # What the inventory asks this service to be, next to what it is. Read
-    # only: replacing it is an Ansible run like any other.
-    app.state.update_service = UpdateService(app.state.inventory_service)
+    # What the inventory asks this service to be, next to what it is, and the
+    # registry that says which versions exist. Choosing one is a commit here;
+    # replacing the container is an Ansible run like any other.
+    if tag_source is None:
+        tag_source = (
+            FakeTagSource(_fake_tags())
+            if settings.use_fakes
+            else RegistryTagSource(timeout=settings.registry_timeout)
+        )
+    app.state.update_service = UpdateService(
+        app.state.inventory_service, tags=tag_source
+    )
 
     app.state.run_service = RunService(
         store=run_store,

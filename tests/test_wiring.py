@@ -27,6 +27,7 @@ from app.hosts.local import LocalHostReader
 from app.main import create_app
 from app.runs.adapter import AnsibleRunnerAdapter
 from app.runs.fake import FakeRunAdapter
+from app.services.registry import FakeTagSource, RegistryTagSource
 from tests.fakes import write_fake_collection
 
 
@@ -39,6 +40,7 @@ def test_a_default_service_reads_the_real_machine_and_uses_pam(
     assert isinstance(application.state.authenticator, PamAuthenticator)
     assert isinstance(application.state.role_directory, UnixGroupDirectory)
     assert isinstance(application.state.run_service._adapter, AnsibleRunnerAdapter)
+    assert isinstance(application.state.update_service._tags, RegistryTagSource)
 
 
 def test_the_development_switch_replaces_both_adapters_and_the_password_check(
@@ -54,6 +56,9 @@ def test_the_development_switch_replaces_both_adapters_and_the_password_check(
     # The run adapter too. A service serving invented readings that
     # nonetheless launched a real convergence would be the worst of both.
     assert isinstance(application.state.run_service._adapter, FakeRunAdapter)
+    # And the registry, which is the one question this service asks off the
+    # machine. A laptop running the fakes reaches nothing.
+    assert isinstance(application.state.update_service._tags, FakeTagSource)
 
 
 def test_a_node_with_no_collection_says_so_in_the_journal(

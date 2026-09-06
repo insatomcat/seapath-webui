@@ -80,7 +80,7 @@ node can run it right now.
 | Read anything: node, inventory, history, runs, catalogue, trust relations | `viewer` |
 | Open a console on this node | `admin`, moved with `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` |
 | Cancel a run | `operator` |
-| Commit an inventory change, revert, launch a run, revoke a trust relation | `admin` |
+| Commit an inventory change, revert, pin the version of this service, launch a run, revoke a trust relation | `admin` |
 
 Changing the inventory is an administrator's act because a commit here is a
 change to the desired state of a substation hypervisor, and the next apply
@@ -267,12 +267,14 @@ Both writes leave a commit with no diff in the inventory repository. The
 desired state did not move and the code that applies it did, and the repository
 is where this service answers "who changed what, and when".
 
-## Node and cluster, read only
+## Node and cluster, read only but for the version pin
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/node` | Hostname, distro, kernel, uptime, mode, role, collection version, inventory commit applied |
 | GET | `/node/update` | Which version of this service the inventory names for this machine (`seapath_webui_image`), which version is answering, and whether an apply would replace it. A reference pinned by digest carries no version, and the answer says so rather than guessing. The seed writes that variable from the quadlet the machine boots on, so a node nobody has edited already names a version. See [D23](decisions.md#d23) |
+| GET | `/node/update/latest` | The highest version the registry holds for the image this machine's reference names, next to the version the inventory pins. One HTTPS GET to that registry, and nothing else. A node with no route to one answers with a sentence saying so, which is a supported state here |
+| POST | `/node/update` | Write a version as the image tag of every machine that names one, keeping each machine's repository. `admin`. A commit in the inventory and nothing more: the answer names the playbook that applies it, and applying it is a run an operator confirms like any other. See [D23](decisions.md#d23) |
 | GET | `/node/cpu` | Topology, isolated set, per core busy ratio |
 | GET | `/node/network` | Interfaces, addresses, link state, default route |
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |
@@ -282,7 +284,10 @@ is where this service answers "who changed what, and when".
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
 
-Open to the `viewer` role, which is the whole point of having one.
+Every reading is open to the `viewer` role, which is the whole point of having
+one. The one write in the table is `POST /node/update`, and what it writes is
+the inventory: it changes no machine, and the run that does is confirmed the
+way every other convergence is.
 
 Both cluster readings are GET and nothing else. Putting a resource in standby,
 clearing a failure count, moving a VM or evicting an OSD are `crm` and `ceph`

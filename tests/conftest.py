@@ -33,6 +33,7 @@ from app.core.settings import Settings
 from app.hosts.fake import FakeHostReader
 from app.main import create_app
 from app.runs.fake import FakeRunAdapter
+from app.services.registry import FakeTagSource
 from tests.fakes import FakeAuthenticator, FakeRoleDirectory, write_fake_collection
 
 # The service is HTTPS only and sets its cookies `Secure`, so a test client on
@@ -137,6 +138,18 @@ def metrics_client() -> FakeMetricsClient:
 
 
 @pytest.fixture
+def tag_source() -> FakeTagSource:
+    """The tags a registry holds, without a registry.
+
+    Injected for the same reason as the metrics client: asked for real, the
+    Deployment page would reach a registry from a test suite. The list is a
+    plausible one below the version answering, so nothing is offered as newer
+    unless a test says so.
+    """
+    return FakeTagSource(["latest", "0.1.0", "0.2.0"])
+
+
+@pytest.fixture
 def authenticator() -> FakeAuthenticator:
     return FakeAuthenticator(
         {
@@ -165,6 +178,7 @@ def client(
     console_adapter: FakeConsoleAdapter,
     metrics_client: FakeMetricsClient,
     rbd_client: FakeRbdClient,
+    tag_source: FakeTagSource,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -176,6 +190,7 @@ def client(
         console_adapter=console_adapter,
         metrics_client=metrics_client,
         rbd_client=rbd_client,
+        tag_source=tag_source,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client
@@ -192,6 +207,7 @@ def second_node(
     console_adapter: FakeConsoleAdapter,
     metrics_client: FakeMetricsClient,
     rbd_client: FakeRbdClient,
+    tag_source: FakeTagSource,
 ) -> Iterator[TestClient]:
     """Another node's service, reached by the same browser as `client`.
 
@@ -211,6 +227,7 @@ def second_node(
         console_adapter=console_adapter,
         metrics_client=metrics_client,
         rbd_client=rbd_client,
+        tag_source=tag_source,
     )
     # httpx copies a `Cookies`, and a copy would model two browsers. The jar
     # is handed over directly so both clients keep writing into the same one.
@@ -235,6 +252,7 @@ def signed_in_with(
     console_adapter: FakeConsoleAdapter,
     metrics_client: FakeMetricsClient,
     rbd_client: FakeRbdClient,
+    tag_source: FakeTagSource,
 ) -> Iterator[Callable[[Path], TestClient]]:
     """A signed in client whose service reads the collection you hand it.
 
@@ -257,6 +275,7 @@ def signed_in_with(
                 console_adapter=console_adapter,
                 metrics_client=metrics_client,
                 rbd_client=rbd_client,
+                tag_source=tag_source,
             )
             client = stack.enter_context(TestClient(application, base_url=BASE_URL))
             return sign_in(client, "admin")
