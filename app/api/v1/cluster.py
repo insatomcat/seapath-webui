@@ -3,20 +3,30 @@
 
 """The Pacemaker cluster, as its coordinator reports it.
 
-One endpoint, and it is a GET. Everything that changes a cluster is elsewhere
-by design: joining a machine is an inventory edit and `cluster_setup_ha`,
-removing one is `cluster_remove_machine`, and moving a resource is Pacemaker's
-own decision. A POST here would be `crm` running inside this container, which
-is the boundary the whole service is built around.
+Reading is what this page is, and everything that **configures** a cluster is
+elsewhere by design: joining a machine is an inventory edit and
+`cluster_setup_ha`, and removing one is `cluster_remove_machine`.
+
+Refreshing a resource is the exception, and it is the same exception D30 makes
+for starting a guest. It changes no desired state: it deletes an operation
+history Pacemaker keeps, so a failure that has been dealt with stops holding a
+resource down. It reaches the machine the way every other act here does, as a
+generated one task run over the SSH path a convergence uses, under the same
+lock and in the same history. No `crm` runs inside this container, which is the
+line that matters.
 """
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
+from pydantic import BaseModel
 
 from app.cluster.ha import PacemakerCluster
-from app.core.auth import Role
+from app.core.auth import Role, User
+from app.core.errors import ApiError
 from app.core.security import require_role
+from app.runs.actions import Action
+from app.runs.service import RunService
 from app.services.cluster import ClusterService
 
 router = APIRouter(
@@ -25,9 +35,17 @@ router = APIRouter(
     dependencies=[Depends(require_role(Role.VIEWER))],
 )
 
+# Refreshing is the runtime plane, so it is an operator's act, exactly as
+# starting and stopping a guest are.
+operator = Depends(require_role(Role.OPERATOR))
+
 
 def _service(request: Request) -> ClusterService:
     return request.app.state.cluster_service
+
+
+def _runs(request: Request) -> RunService:
+    return request.app.state.run_service
 
 
 @router.get("", response_model=PacemakerCluster)
@@ -44,3 +62,45 @@ def cluster(request: Request) -> PacemakerCluster:
     and the members that did answer are still reported.
     """
     return _service(request).pacemaker()
+
+
+class RefreshResponse(BaseModel):
+    """The run that carries out the refresh, watched like any other."""
+
+    run_id: str
+    state: str
+    resource: str
+
+
+@router.post("/resources/{name}/refresh", status_code=202)
+def refresh(request: Request, name: str, user: User = operator) -> RefreshResponse:
+    """Clear one resource's operation history, as a run.
+
+    `crm resource refresh <resource>` on a cluster member, which is what an
+    operator would type on the machine and what `vm_manager` reaches Pacemaker
+    with. It deletes the failures Pacemaker recorded and asks it to probe the
+    resource again, so a resource held down by a fail count that reached its
+    migration threshold can be placed once the cause is fixed.
+
+    The name is checked against the resources the cluster reports, so this
+    cannot be pointed at anything Pacemaker does not know about.
+    """
+    known = _service(request).resource_names()
+    if not known:
+        raise ApiError(
+            "no_cluster",
+            (
+                "No cluster answered, so there is no resource to refresh. The "
+                "Cluster page says which machines could not be reached."
+            ),
+            409,
+        )
+    if name not in known:
+        raise ApiError(
+            "unknown_resource",
+            f"{name} is not a resource this cluster reports.",
+            404,
+        )
+
+    record = _runs(request).launch_action(Action.REFRESH, name, user.username)
+    return RefreshResponse(run_id=record.id, state=record.state.value, resource=name)

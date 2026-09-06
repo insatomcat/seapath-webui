@@ -66,12 +66,14 @@ Proxmox clone:
 - Running the upstream playbooks, with progress, logs, and history.
 - Read only observation of what a node **is**: its hardware, its identity and
   its cluster membership, which is what an inventory is written against.
-- Read only observation of what the **cluster** is doing: Pacemaker members and
-  quorum, the resources and the node each runs on, and Ceph's health, capacity,
-  daemons and pools. Read from the `ha_cluster_exporter` and the Ceph manager
-  that every deployed cluster already runs, so this asks rather than
-  duplicates, and it administers nothing. See D29 in
-  [decisions.md](docs/decisions.md).
+- Observation of what the **cluster** is doing: Pacemaker members and quorum,
+  the resources and the node each runs on, and Ceph's health, capacity, daemons
+  and pools. Read from the `ha_cluster_exporter` and the Ceph manager that
+  every deployed cluster already runs, so this asks rather than duplicates.
+  Refreshing one resource sits beside the reading and is the only act offered
+  there: it clears the operation history Pacemaker keeps, holds no state of its
+  own, and runs as an ordinary one task run on a member. Deciding where things
+  run stays Pacemaker's. See D29 in [decisions.md](docs/decisions.md).
 - Real time conformance, meaning whether the tuning a machine came out with
   matches what the inventory declared for it, for every machine the inventory
   declares. Each node publishes its own tuning through the exporter it already

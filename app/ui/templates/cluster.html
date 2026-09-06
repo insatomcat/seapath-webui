@@ -123,12 +123,13 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
               <th>Role</th>
               <th>State</th>
               <th>Failures</th>
+              <th></th>
             </tr>
           </thead>
           <tbody id="resource-rows"></tbody>
         </table>
       </div>
-      <details id="constraints" hidden>
+      <details class="sub-panel" id="constraints" open hidden>
         <summary>Location constraints</summary>
         <div class="table-scroll">
           <table>
@@ -149,10 +150,12 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
     <p class="pane-foot">
       <span class="pane-foot-note">
         Pacemaker decides where a resource runs, and this reports the decision.
-        A failure count is cleared and a resource is moved with
-        <code>crm resource</code> on the machine, or from Cockpit: this service
-        never runs a cluster command, which is what keeps the inventory the only
-        thing that configures a machine.
+        Refresh clears the operation history Pacemaker keeps for one resource,
+        failures included, and asks it to probe the real state again: it is
+        <code>crm resource refresh</code>, run on a cluster member over the
+        connection a convergence uses, under the same lock and in the same run
+        history. Moving a resource stays Pacemaker's decision, and where a
+        resource is allowed to run is a constraint the roles write.
       </span>
     </p>
   </section>
@@ -233,6 +236,20 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
     </p>
   </section>
 </main>
+
+{# Refreshing writes to the CIB of a live cluster, so it asks once and names
+   the resource, the way every act that reaches a machine does here. #}
+<div class="modal" id="confirm" hidden>
+  <div class="modal-body">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-disruption"></p>
+    <p class="error" id="confirm-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
+      <button type="button" id="confirm-go"></button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}

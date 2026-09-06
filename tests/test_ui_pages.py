@@ -817,15 +817,32 @@ def test_the_cluster_page_says_where_a_cluster_is_changed_from(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/cluster").text
+    prose = " ".join(body.split())
 
-    # The page is a reading, and it says so where an operator would otherwise
-    # look for the button: clearing a failure and moving a resource are `crm`
-    # on the machine, which this service never runs.
-    assert "never runs a cluster command" in body
-    assert "<code>crm resource</code>" in body
+    # The one act the page offers says what it is and where it runs, so an
+    # operator knows the command reached a machine rather than this container.
+    assert "<code>crm resource refresh</code>" in body
+    assert "run on a cluster member over the connection a convergence uses" in prose
+    # Moving a resource is still Pacemaker's, and where one may run is written
+    # by the roles, so neither is a button.
+    assert "Moving a resource stays Pacemaker's decision" in prose
     # And adding storage is the path every other change takes here.
     assert "<code>ceph_osd_disks</code> in the" in body
     assert "cluster_setup_cephadm" in body
+
+
+def test_the_resources_panel_carries_the_refresh_and_opens_the_constraints(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/cluster").text
+    script = signed_in.get("/static/cluster.js").text
+
+    # A confirmation, because this one reaches a live cluster.
+    assert 'id="confirm-go"' in body
+    assert "/cluster/resources/" in script
+    # The constraints are a panel of their own under the table, open, and
+    # spaced off it.
+    assert 'class="sub-panel" id="constraints" open' in body
 
 
 def test_the_cluster_page_never_reads_ceph_s_absence_as_a_fault(

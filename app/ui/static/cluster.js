@@ -20,6 +20,11 @@
     storage: { card: "card-storage" },
   };
 
+  // Who is signed in, which decides whether the resources carry a Refresh
+  // button. Refreshing reaches a live cluster, so it is an operator's act, the
+  // same role that starts and stops a guest.
+  let canAct = false;
+
   function element(id) {
     return document.getElementById(id);
   }
@@ -324,6 +329,7 @@
           resource.failed ? "state-failed" : "state-free"
         ),
         cell(failures, resource.fail_count_infinite ? "state-failed" : ""),
+        refreshCell(resource),
       ]);
       // The row an operator opened the panel for, washed rather than only
       // coloured in one cell: on a table of thirty resources the eye has to
@@ -350,6 +356,77 @@
       "VMs: vm_manager creates one Pacemaker resource per guest.";
     summarise("resources", resourcesStatus(cluster), resourcesAnswer(cluster));
   }
+
+  // Clearing what Pacemaker recorded about one resource. Offered on every
+  // resource rather than on the failed ones alone: a fail count that is
+  // already back to zero can still leave a stale operation history, and a
+  // button that appears only in the state an operator is trying to leave is a
+  // button they cannot find twice.
+  function refreshCell(resource) {
+    const cell = document.createElement("td");
+    if (!canAct) {
+      return cell;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = "Refresh";
+    button.addEventListener("click", () => confirmRefresh(resource.id));
+    cell.append(button);
+    return cell;
+  }
+
+  function confirmRefresh(name) {
+    confirm({
+      title: "Refresh " + name,
+      body:
+        "Deletes the operation history Pacemaker keeps for this resource on " +
+        "every node, failures included, and asks it to probe the real state " +
+        "again. A resource held down by a fail count that reached its " +
+        "migration threshold can be placed again once the cause is fixed. A " +
+        "resource that is running keeps running, and one that is genuinely " +
+        "still broken fails again on the next probe.",
+      label: "Refresh",
+      act: async () => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(name) + "/refresh"
+        );
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
+  }
+
+  // One window for every act that reaches a machine. It names the resource and
+  // says what happens, the way the VMs page does for a guest.
+  function confirm({ title, body, label, act }) {
+    element("confirm-title").textContent = title;
+    element("confirm-disruption").textContent = body;
+    element("confirm-error").hidden = true;
+
+    const go = element("confirm-go");
+    go.textContent = label;
+    go.disabled = false;
+    go.onclick = async () => {
+      go.disabled = true;
+      go.setAttribute("aria-busy", "true");
+      try {
+        await act();
+        element("confirm").hidden = true;
+      } catch (failure) {
+        const error = element("confirm-error");
+        error.textContent = failure.message;
+        error.hidden = false;
+        go.disabled = false;
+      } finally {
+        go.removeAttribute("aria-busy");
+      }
+    };
+    element("confirm").hidden = false;
+  }
+
+  element("confirm-cancel").addEventListener("click", () => {
+    element("confirm").hidden = true;
+  });
 
   function resourcesStatus(cluster) {
     if (cluster.resources.some((resource) => resource.failed)) {
@@ -613,7 +690,8 @@
   }
 
   async function start() {
-    await Chrome.load();
+    const chrome = await Chrome.load();
+    canAct = chrome.me.role === "operator" || Chrome.isAdmin(chrome.me);
     showView("members");
     // Both readings are fetched before either panel is looked at, so switching
     // views is a show and a hide. They are independent requests because they

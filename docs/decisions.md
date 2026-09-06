@@ -1405,6 +1405,42 @@ that has lost a member, and one dot for the pair hides whichever is worse.
 the wrong question. The node the browser happens to be pointed at is the one
 node whose state an operator can already see; the cluster is what they cannot.
 
+### Amended: one act sits beside the reading, and it is a run
+
+The page grew a **Refresh** button per resource, which runs `crm resource
+refresh <resource>` and clears the operation history Pacemaker keeps for it,
+failures included.
+
+"Administers nothing" was the right rule and it named the wrong boundary. What
+it protects is the desired state: a page that put a node in standby, moved a
+resource or evicted an OSD would hold a second source of truth for what the
+cluster should be, and the inventory would stop being the only thing that
+configures a machine. Clearing a failure count holds nothing. Pacemaker records
+what an operation did, a failure that has been dealt with keeps holding the
+resource down until that record is deleted, and deleting it is how the cluster
+is told to look again. There is no version of that fact for this service to
+own.
+
+The bounds are [D30](#d30)'s, unchanged, and it is why this cost one enum
+member rather than a mechanism:
+
+- **It is a run.** One generated task, on `cluster_machines[0]`, over the SSH
+  path a convergence uses, under the same lock and in the same history. No
+  `crm` runs inside this container, and the operator watching it reads the same
+  event stream a convergence produces.
+- **`ansible.builtin.command` rather than a module,** because no module covers
+  it: `cluster_vm` builds and moves guests, and a Pacemaker resource is not
+  always a guest. `argv` as a list, so no shell parses it, and the name is
+  checked against the resources the cluster itself reported before it gets
+  there.
+- **One resource at a time.** A bare `crm resource refresh` re-probes every
+  resource on every node, which on a live substation is a much larger act than
+  the one an operator came to the page for. The button is on the row.
+
+What stays refused is what the rule was always about: standby, migrate, evict,
+and every other verb that decides where things run. Pacemaker decides that, and
+where a resource is *allowed* to run is a constraint the roles write.
+
 ## D30 - Settled: a VM is added from one page, and the mechanism underneath is unchanged
 
 The VMs page in its first form was a reading. It listed what the inventory

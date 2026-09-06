@@ -312,18 +312,25 @@ is where this service answers "who changed what, and when".
 | GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
+| POST | `/cluster/resources/{name}/refresh` | Clear one resource's operation history, failures included, and ask Pacemaker to probe it again: `crm resource refresh <name>` on a cluster member, as a run. `operator`. 202 with the `run_id` to watch, `404 unknown_resource` for a name the cluster does not report, `409 no_cluster` when none answered. See [D29](decisions.md#d29) |
 
 Every reading is open to the `viewer` role, which is the whole point of having
 one. The one write in the table is `POST /node/update`, and what it writes is
 the inventory: it changes no machine, and the run that does is confirmed the
 way every other convergence is.
 
-Both cluster readings are GET and nothing else. Putting a resource in standby,
-clearing a failure count, moving a VM or evicting an OSD are `crm` and `ceph`
-commands, and this service runs neither: what a machine should be is the
-inventory and a run, and what the cluster is doing right now belongs to
-Pacemaker and to Ceph. `/storage` says the same thing `docs/ceph.md` says about
-removing an OSD, and for the same reason.
+Both cluster readings are GET. The one act beside them is the refresh, and it
+is a run: one generated task on `cluster_machines[0]`, over the SSH path a
+convergence uses, under the same lock and in the same history, so no `crm`
+executes inside this container. It qualifies because it holds nothing. Deleting
+an operation history is how Pacemaker is told to look again, and there is no
+version of that fact for this service to own.
+
+Putting a node in standby, moving a VM or evicting an OSD stay out, because
+each of them decides where things run: what a machine should be is the
+inventory and a run, and where a resource runs belongs to Pacemaker.
+`/storage` says the same thing `docs/ceph.md` says about removing an OSD, and
+for the same reason.
 
 **There is no endpoint here for what the machine is currently doing,** and that
 is the shape of this section rather than a gap in it. Unit states, the journal

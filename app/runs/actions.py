@@ -1,7 +1,7 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Starting and stopping a guest, which is the runtime plane.
+"""Starting a guest, stopping one, refreshing a resource: the runtime plane.
 
 Everything else this service runs is a whole playbook of the collection, for
 the reason D8 gives: the tags of `seapath-ansible` were never designed as a
@@ -40,6 +40,7 @@ class Action(str, Enum):
     START = "start"
     STOP = "stop"
     RECONFIGURE = "reconfigure"
+    REFRESH = "refresh"
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,10 @@ class ActionSpec:
     """What the button says."""
     disruption: str
     """What it does to the guest, in the sentence a confirmation carries."""
+    subject: str = "guest"
+    """What the name in the play is: a guest of the inventory, or a resource
+    Pacemaker reports. They are usually the same object and never the same
+    list, since a cluster carries resources no inventory declares."""
 
 
 _SPECS: dict[Action, ActionSpec] = {
@@ -67,6 +72,19 @@ _SPECS: dict[Action, ActionSpec] = {
             "take effect, and it is an outage: `enable` reads those keys only "
             "when the guest is not already a resource, so there is no way to "
             "apply one without the guest going down and coming back."
+        ),
+    ),
+    Action.REFRESH: ActionSpec(
+        verb="Refresh",
+        subject="resource",
+        disruption=(
+            "Deletes the resource's operation history on every node, failures "
+            "included, and asks Pacemaker to probe its real state again. It is "
+            "the cluster's own recovery from a failure that has been dealt "
+            "with: a resource held down by a fail count that reached the "
+            "migration threshold can be placed again afterwards. A resource "
+            "that is running keeps running, and one that is genuinely still "
+            "broken fails again on the next probe."
         ),
     ),
     Action.STOP: ActionSpec(
@@ -98,7 +116,8 @@ def entry(action: Action, guest: str, mode: Mode) -> PlaybookEntry:
     # Rebuilding the Pacemaker resource is a cluster act whatever the file
     # says: there is no resource on a standalone machine, and the metadata it
     # would be rebuilt from lives on an RBD image that machine has not got.
-    cluster = mode is Mode.CLUSTER or action is Action.RECONFIGURE
+    # Refreshing one is the same, for the first half of that reason.
+    cluster = mode is Mode.CLUSTER or action in (Action.RECONFIGURE, Action.REFRESH)
     return PlaybookEntry(
         id=f"vm_{action.value}",
         playbook=f"{GENERATOR}.vm_{action.value}",
@@ -126,10 +145,11 @@ def play(action: Action, guest: str, mode: Mode) -> str:
     before it reaches here, and this is the second lock on the same door.
     """
     title = f"{_SPECS[action].verb} {guest}"
+    cluster = action in (Action.RECONFIGURE, Action.REFRESH)
     document = [
         {
             "name": title,
-            "hosts": _hosts(Mode.CLUSTER if action is Action.RECONFIGURE else mode),
+            "hosts": _hosts(Mode.CLUSTER if cluster else mode),
             "gather_facts": False,
             "become": True,
             "tasks": _tasks(action, guest, mode),
@@ -150,6 +170,26 @@ def _hosts(mode: Mode) -> str:
 def _tasks(action: Action, guest: str, mode: Mode) -> list[dict]:
     """The task or tasks the action is, named for the operator reading them."""
     title = f"{_SPECS[action].verb} {guest}"
+    if action is Action.REFRESH:
+        # `crm resource refresh`, which is what an operator would type on the
+        # machine, and `vm_manager` reaches Pacemaker through the same `crm`.
+        # No module covers it: `cluster_vm` builds and moves guests, and a
+        # resource is not always a guest.
+        #
+        # `argv` rather than a string, so no shell parses it and a resource
+        # name holding a quote is one argument either way. The name is checked
+        # against what the cluster reports before it arrives here.
+        return [
+            {
+                "name": title,
+                "ansible.builtin.command": {
+                    "argv": ["crm", "resource", "refresh", guest],
+                },
+                # It writes to the CIB every time, so there is nothing for
+                # Ansible to call unchanged, and saying so is honest.
+                "changed_when": True,
+            }
+        ]
     if action is Action.RECONFIGURE:
         # Two calls and no logic between them. `disable` removes the Pacemaker
         # resource, `enable` builds it again, and `enable` is the only thing

@@ -273,6 +273,10 @@ has to leave the cluster exactly as it found it.
 | 17 | The page costs at most one GET per machine per exporter per load: the exporters' access logs, or `tcpdump`, answer it | Three readings on one page must not multiply what opening it costs a hypervisor | |
 | 18 | A viewer can open the page and read all three tabs | The role an operator on call is likely to have | |
 | 19 | Nothing changed on any machine: `crm configure show` and `ceph config dump` are identical before and after a session on this page, and `seapath_setup_main.yaml` from a conventional control machine still reports no change | **The acceptance criterion.** A monitoring page that configured something would be the worst kind of bug here | |
+| 20 | On a resource with a failure count, **Refresh** launches a run whose one task is `crm resource refresh <resource>`, and `crm_mon` on the machine reports the count cleared afterwards | The button exists for a state only a real cluster reaches. `crm resource fail` stages it | Pending |
+| 21 | Refreshing a resource that is running leaves it running, on the same node, and the guests on that machine are undisturbed | The whole reason this is offered rather than a stop and a start | Pending |
+| 22 | After 20, `crm configure show` is identical before and after: the refresh cleared history and changed no configuration | What makes this act belong on a page that configures nothing | Pending |
+| 23 | A viewer sees no Refresh button, and `POST /cluster/resources/<r>/refresh` as a viewer is refused | It reaches a live cluster, so it is an operator's act | Pending |
 
 ### Result
 

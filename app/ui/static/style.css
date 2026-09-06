@@ -567,6 +567,22 @@ td button {
   background: var(--accent);
 }
 
+/* A panel folded inside another one, under a table it comments on. The space
+   above it is what tells the eye the table has ended. */
+.sub-panel {
+  margin-top: 1.5rem;
+}
+
+.sub-panel > summary {
+  cursor: pointer;
+  padding: 0.35rem 0;
+  color: var(--muted);
+}
+
+.sub-panel[open] > summary {
+  margin-bottom: 0.5rem;
+}
+
 .checkbox {
   display: flex;
   align-items: center;

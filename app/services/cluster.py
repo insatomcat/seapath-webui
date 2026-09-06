@@ -110,6 +110,15 @@ class ClusterService:
         cluster.inventory_commit = state.commit
         return cluster
 
+    def resource_names(self) -> set[str]:
+        """The resources the cluster reports, which is what may be refreshed.
+
+        Asked of the cluster rather than of the inventory: `vm_manager` makes
+        one resource per guest, and a cluster carries others no inventory
+        declares, a fencing device and this site's `nginxquadlet` among them.
+        """
+        return {resource.id for resource in self.pacemaker().resources}
+
     def _coordinator(self, reporting: list[Exposition]) -> Exposition:
         """The exposition to believe, which is the coordinator's when it answered.
 

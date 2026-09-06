@@ -4,17 +4,22 @@
 """The cluster and storage views over the API.
 
 The reading is tested next door. What these hold is the surface: a viewer may
-read it, the payload carries what the page draws, and there is no way to change
-a cluster from here. That last one is the point of the whole feature. Every
-button an administration page would grow - standby a node, clean up a failure,
-migrate a resource, evict an OSD - is a `crm` or a `ceph` command running inside
-this container, and AGENTS.md forbids it in the same words it forbids writing
-`corosync.conf`.
+read it, the payload carries what the page draws, and the readings themselves
+take no write.
+
+One act is offered beside them, and its bounds are here too. Refreshing a
+resource clears the operation history Pacemaker keeps for it, and it reaches
+the machine as a generated one task run over the SSH path a convergence uses,
+which is the exception D30 already makes for starting a guest. What stays out
+is everything that would be a `crm` or a `ceph` command running inside this
+container: standby a node, migrate a resource, evict an OSD. AGENTS.md forbids
+that in the same words it forbids writing `corosync.conf`.
 """
 
 from __future__ import annotations
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 
@@ -74,12 +79,94 @@ def test_neither_view_may_be_signed_out_of(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize("path", ["/api/v1/cluster", "/api/v1/storage"])
-def test_nothing_here_writes(signed_in: TestClient, path: str) -> None:
-    # The rule of the whole service, held as a test rather than as a comment:
-    # a cluster is changed by Pacemaker, by Ceph, or by an inventory edit and a
-    # run. A POST here would be this container running a cluster command.
+def test_the_readings_themselves_take_no_write(
+    signed_in: TestClient, path: str
+) -> None:
+    # A cluster is changed by Pacemaker, by Ceph, or by an inventory edit and a
+    # run. The one act offered here is on a path of its own, against one named
+    # resource, and it is a run.
     for method in (signed_in.post, signed_in.put, signed_in.delete):
         assert method(path).status_code == 405
+
+
+# Refreshing one resource, which is the runtime plane.
+
+# The seeded machine, put into `cluster_machines`. The addresses have to stay
+# the seeded ones, because those are what the fake exporters answer for, and
+# the group has to exist, because the generated play targets
+# `cluster_machines[0]`: a file with no such group is a run with no host. That
+# is why refreshing carries the cluster precondition.
+_CLUSTER_GROUP = """
+cluster_machines:
+  hosts:
+    seapath-machine:
+"""
+
+
+def _cluster(client: TestClient) -> TestClient:
+    document = client.get("/api/v1/inventory/raw").text
+    response = client.post(
+        "/api/v1/inventory/import", json={"document": document + _CLUSTER_GROUP}
+    )
+    assert response.status_code == 200, response.text
+    return client
+
+
+def test_refreshing_a_resource_is_a_run_like_any_other(
+    signed_in: TestClient,
+) -> None:
+    response = _cluster(signed_in).post("/api/v1/cluster/resources/vm-guest3/refresh")
+
+    assert response.status_code == 202, response.json()
+    body = response.json()
+    assert body["resource"] == "vm-guest3"
+    # Watched on the Runs page, with the same event stream and the same record
+    # a convergence has.
+    assert signed_in.get(f"/api/v1/runs/{body['run_id']}").status_code == 200
+
+
+def test_the_refresh_play_runs_crm_on_a_cluster_member(
+    signed_in: TestClient, settings
+) -> None:
+    # One task, and the command an operator would type on the machine. No
+    # `crm` runs inside this container, which is the line that matters.
+    run = _cluster(signed_in).post("/api/v1/cluster/resources/vm-guest3/refresh").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_refresh.yaml"))
+    assert len(written) == 1
+    document = yaml.safe_load(written[0].read_text())
+    assert len(document) == 1
+    assert document[0]["hosts"] == "{{ groups['cluster_machines'][0] }}"
+    tasks = document[0]["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["ansible.builtin.command"] == {
+        "argv": ["crm", "resource", "refresh", "vm-guest3"]
+    }
+
+
+def test_a_resource_the_cluster_does_not_report_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # The name reaches a command argument, so it is one the cluster answered
+    # for rather than whatever was typed into a URL.
+    response = _cluster(signed_in).post(
+        "/api/v1/cluster/resources/not-a-resource/refresh"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "unknown_resource"
+
+
+def test_a_viewer_reads_the_cluster_and_never_refreshes_it(
+    signed_in_viewer: TestClient,
+) -> None:
+    # Refreshing writes to the CIB of a live cluster, which is an operator's
+    # act, exactly as starting a guest is.
+    assert signed_in_viewer.get("/api/v1/cluster").status_code == 200
+
+    refused = signed_in_viewer.post("/api/v1/cluster/resources/vm-guest3/refresh")
+
+    assert refused.status_code == 403
 
 
 def test_both_views_are_in_the_openapi_document(signed_in: TestClient) -> None:
@@ -87,3 +174,6 @@ def test_both_views_are_in_the_openapi_document(signed_in: TestClient) -> None:
 
     assert set(document["paths"]["/api/v1/cluster"]) == {"get"}
     assert set(document["paths"]["/api/v1/storage"]) == {"get"}
+    assert set(document["paths"]["/api/v1/cluster/resources/{name}/refresh"]) == {
+        "post"
+    }
