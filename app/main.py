@@ -67,10 +67,12 @@ from app.ui import routes as ui_routes
 logger = logging.getLogger(__name__)
 
 _DESCRIPTION = """
-Node local management API for a SEAPATH machine.
+Node local management API for a SEAPATH machine and the cluster it belongs to.
 
-This service does not configure machines. It edits the inventory and runs the
-upstream SEAPATH playbooks. Anything that changes a host is an Ansible run.
+The configuration of a host is edited here as an inventory and applied by a run
+of the upstream SEAPATH playbooks. What this service writes itself is that
+inventory, its own trust material, and the Pacemaker metadata a guest carries
+on its disk image, which is D31 in the decisions.
 """
 
 

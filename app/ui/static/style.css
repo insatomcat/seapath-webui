@@ -575,10 +575,6 @@ td button {
   font-size: 0.85rem;
 }
 
-.footer-note {
-  margin-left: auto;
-}
-
 .footer {
   display: flex;
   gap: 1rem;

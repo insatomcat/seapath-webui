@@ -10,12 +10,16 @@ installed from the ISO is usable from a browser, several machines can be joined
 into a cluster, and Ceph can be deployed on top, with no separate Ansible
 control machine.
 
-**It does not configure machines. It edits the inventory and runs the SEAPATH
-playbooks.** SEAPATH is a function converting an inventory into a running
-infrastructure, and this service is a friendly front end onto that function, not
-a way around it. The fourth machine disappears as a machine, not as a function:
-its two jobs, holding the desired state and running the playbooks, move into the
-cluster itself.
+**The configuration of a machine is edited here as an inventory and applied by
+the SEAPATH playbooks.** SEAPATH is a function converting an inventory into a
+running infrastructure, and this service is a friendly front end onto that
+function, not a way around it. What it writes itself is that inventory, its own
+trust material, and the Pacemaker metadata a guest carries on its disk image,
+which [D31](docs/decisions.md#d31) records and bounds.
+
+The fourth machine disappears as a machine, not as a function: its two jobs,
+holding the desired state and running the playbooks, move into the cluster
+itself.
 
 Concretely, the service does four things:
 
