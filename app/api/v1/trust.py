@@ -30,6 +30,7 @@ from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
 from app.trust import keyscan, known_hosts, site_key
+from app.trust.authorized_keys import MissingAccount
 from app.trust.service import TrustRelation, TrustService
 
 router = APIRouter(prefix="/trust", tags=["trust"])
@@ -42,9 +43,21 @@ def _service(request: Request) -> TrustService:
     return request.app.state.trust_service
 
 
+# Both endpoints below read or write the `authorized_keys` of the `ansible`
+# account, and on a machine that has no such account there is no file and no
+# directory to hold one. That is a state to describe rather than a fault: the
+# service does not create accounts, so an operator has to. The sentence the
+# exception carries names the directory, which is what makes it actionable.
+def _no_account(error: MissingAccount) -> ApiError:
+    return ApiError("missing_account", str(error), 409)
+
+
 @router.get("/relations")
 def relations(request: Request, user: User = viewer) -> list[TrustRelation]:
-    return _service(request).relations(request.app.state.node_hostname)
+    try:
+        return _service(request).relations(request.app.state.node_hostname)
+    except MissingAccount as error:
+        raise _no_account(error) from error
 
 
 @router.delete("/relations/{comment}", status_code=204, response_class=Response)
@@ -56,7 +69,11 @@ def revoke(request: Request, comment: str, user: User = admin) -> Response:
     no longer converge itself until it is provisioned again, which the run
     preconditions will say in as many words.
     """
-    if not _service(request).revoke(comment):
+    try:
+        removed = _service(request).revoke(comment)
+    except MissingAccount as error:
+        raise _no_account(error) from error
+    if not removed:
         raise ApiError("unknown_relation", f"There is no relation {comment}.", 404)
     return Response(status_code=204)
 

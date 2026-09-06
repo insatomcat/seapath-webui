@@ -199,6 +199,12 @@ not it. The client never has to know which node leads.
 | GET | `/runs/{id}/log` | Full log, for download |
 | POST | `/runs/{id}/cancel` | Best effort, and honest that a cancelled convergence leaves a partial state |
 
+`GET /playbooks` answers on a machine where nothing can run. A node with no
+inventory, no self trust, or no `ansible` account at all still gets the whole
+catalogue, every entry unavailable and each carrying the sentence that says
+why. Failing the request instead leaves the page unable to tell a service with
+no collection from a service that could not answer.
+
 `POST /runs` takes a playbook from the catalogue and, optionally, `check: true`
 for a preview. It does **not** take a tag list, and it does not take an
 arbitrary host subset either: which hosts a playbook plays against is a property
@@ -495,7 +501,7 @@ See [cluster-join.md](cluster-join.md).
 |---|---|---|
 | POST | `/trust/invitations` | Generate the join blob with its one time token, admin only. The first call also creates the cluster CA on this node, which becomes the founder |
 | POST | `/trust/join` | Consume a blob pasted on the joining node |
-| GET | `/trust/relations` | Established relations, per direction, with their key fingerprints |
+| GET | `/trust/relations` | Established relations, per direction, with their key fingerprints. `409 missing_account` where the `ansible` account this service drives does not exist, which is a machine that was not installed from the SEAPATH ISO |
 | GET PUT DELETE | `/trust/site-key` | The site key this node holds so it can reach the other machines. The material goes in and never comes back out; only type and fingerprint are reported |
 | POST | `/trust/host-keys/scan` | Read host keys with `ssh-keyscan` and report their fingerprints. Writes nothing |
 | GET POST | `/trust/host-keys` | The peer host keys an operator accepted, and accepting more |

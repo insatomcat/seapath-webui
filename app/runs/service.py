@@ -31,6 +31,7 @@ from app.runs.catalogue import (
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.store import RunLocked, RunStore
 from app.trust import known_hosts
+from app.trust.authorized_keys import MissingAccount
 from app.trust.service import TrustService
 
 logger = logging.getLogger(__name__)
@@ -236,12 +237,21 @@ class RunService:
                 f"The inventory does not validate: {failing}."
             )
 
-        relations = self._trust.relations(self._hostname)
-        if not relations or not relations[0].installed:
-            unmet[Precondition.SELF_TRUST] = (
-                "This node has no SSH trust with itself, so it cannot converge "
-                "even its own configuration."
-            )
+        try:
+            relations = self._trust.relations(self._hostname)
+        except MissingAccount as error:
+            # A machine with no `ansible` account has nowhere to install the
+            # trust, which is one unmet precondition among the others here.
+            # Reading the catalogue is still worth answering: every entry is
+            # listed, dimmed, saying this. The sentence the exception carries
+            # names the account and the directory, which is what fixes it.
+            unmet[Precondition.SELF_TRUST] = str(error)
+        else:
+            if not relations or not relations[0].installed:
+                unmet[Precondition.SELF_TRUST] = (
+                    "This node has no SSH trust with itself, so it cannot "
+                    "converge even its own configuration."
+                )
 
         unreachable = self._unreachable(state)
         if unreachable:

@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -316,6 +318,43 @@ def test_the_trust_view_shows_the_relation_a_run_depends_on(
     assert relations[0]["kind"] == "self"
     assert relations[0]["installed"] is True
     assert relations[0]["fingerprint"].startswith("SHA256:")
+
+
+def test_a_machine_with_no_ansible_account_is_told_so_by_the_catalogue(
+    signed_in: TestClient, host_tree: Path
+) -> None:
+    """The catalogue is a reading, and it answers even here.
+
+    A machine that was not installed from the SEAPATH ISO has no `ansible`
+    account, so there is no `authorized_keys` and no directory to hold one.
+    Every entry is then unavailable for the same reason, and the page has to be
+    able to say which one: it used to fail the whole request instead, so the
+    Deployment page reported that the catalogue could not be read.
+    """
+    shutil.rmtree(host_tree / "home/ansible")
+
+    response = signed_in.get("/api/v1/playbooks")
+
+    assert response.status_code == 200
+    entries = response.json()
+    assert entries
+    assert all(not entry["available"] for entry in entries)
+    reasons = " ".join(entries[0]["unmet"])
+    assert "does not create accounts" in reasons
+    assert "self_trust" in entries[0]["unmet_codes"]
+
+
+def test_the_trust_view_refuses_rather_than_fails_with_no_ansible_account(
+    signed_in: TestClient, host_tree: Path
+) -> None:
+    shutil.rmtree(host_tree / "home/ansible")
+
+    response = signed_in.get("/api/v1/trust/relations")
+
+    # A state to describe, with the sentence that says how to leave it.
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "missing_account"
+    assert "does not create accounts" in response.json()["error"]["message"]
 
 
 def test_revoking_the_self_relation_stops_the_node_converging(
