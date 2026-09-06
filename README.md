@@ -23,17 +23,18 @@ itself.
 
 Concretely, the service does four things:
 
-1. holds the inventory in a git repository replicated across the nodes, and
-   edits it as the folder of files it is, seeded by hardware discovery. The
-   repository holds the whole folder, meaning the quadlets, rules and templates
-   the inventory names, mounted at run time where a control machine would put
-   them;
+1. holds the inventory in a git repository, one copy per node sent to the
+   others by an explicit push, and edits it as the folder of files it is,
+   seeded by hardware discovery. The repository holds the whole folder, meaning
+   the quadlets, rules and templates the inventory names, mounted at run time
+   where a control machine would put them;
 2. brokers SSH trust between nodes, bootstrapped by a manual secret exchange in
    the Proxmox style, so any node can drive the others;
 3. runs the upstream playbooks with `ansible-runner` and turns their event
    stream into a readable progress view;
-4. exposes the runtime plane, meaning starting, stopping and migrating VMs,
-   which is not configuration and does not belong in an inventory.
+4. exposes the runtime plane, meaning starting and stopping the guests and
+   the containers, which is not configuration and does not belong in an
+   inventory.
 
 No SEAPATH role is rewritten, and no configuration file is rendered twice. What
 the UI runs is what the CI tests.
@@ -56,6 +57,14 @@ left column lists what the repository carries, meaning the inventory and every
 quadlet, rule and template it names, with the history of who changed what. The
 editor parses, checks the rules and asks `ansible-inventory` about the result
 before committing anything.
+
+Under it sits the copy each of the other machines holds. Every node clones the
+repository, and bringing the clones together is an act: the panel asks each
+machine the inventory declares which commit it is on, and one button pushes
+this node's branch to all of them over the connection a run already makes. Git
+accepts a fast forward, so a machine carrying commits this node has never seen
+is named and left alone, and forcing the push says in the panel what that
+discards. See [D32](docs/decisions.md#d32).
 
 ![The Deployment page: the playbooks, the SSH trust to the other machines, and the code this node runs](img/deployment.png)
 
@@ -231,14 +240,26 @@ page, which reads the tuning every node publishes through its exporter and runs
 the two measurements as ordinary playbooks. And the update path of D23: the
 collection a node runs can be replaced by a file, and the version of this
 service each machine runs is an inventory variable that an apply carries.
-[docs/validation.md](docs/validation.md) holds the checklists for M0, M1 and
-the Real time page, and all three are still to be run on a real machine.
+[docs/validation.md](docs/validation.md) holds one checklist per milestone and
+per piece that arrived on its own, six of them today: M0, M1, Real time, the
+inventory replication, the Cluster page and the containers. All six are still
+to be run on a real machine.
 
-M2 is the VMs, and most of it is in: the `VMs` group is read as guests rather
-than as machines, the page joins what the inventory declares to what Pacemaker
-reports, adding a guest is one act, starting and stopping one are runs, and the
-RBD metadata is read and edited from the same page. Migration and the snapshots
-follow the same shape.
+M2 is the VMs and the containers, and most of it is in. For a guest, the `VMs`
+group is read as guests rather than as machines, the page joins what the
+inventory declares to what Pacemaker reports, adding one is one act, starting
+and stopping one are runs, and the RBD metadata is read and edited from the
+same page. Migration and the snapshots follow the same shape. For a container,
+the quadlets the inventory uploads are read back with the unit each machine
+made of them, declaring one writes the three variables the upstream roles
+already read, and starting or stopping one is a run.
+
+Two pieces of M3 arrived early, because the pages being written needed them.
+The **Cluster** page reads Pacemaker and Ceph from the exporters a deployed
+cluster already runs, and clears the operation history of one resource or of
+every resource in one act. And the inventory copies are brought together by the
+push above, which [D32](docs/decisions.md#d32) chose in place of the elected
+lead D3 had left open.
 
 ## Development
 
