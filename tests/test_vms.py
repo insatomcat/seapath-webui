@@ -177,7 +177,9 @@ def test_the_page_says_where_the_runtime_column_comes_from(
     payload = signed_in.get("/api/v1/vms").json()
 
     assert "ha_cluster_exporter" in payload["runtime_note"]
-    assert "vm_manager" in payload["runtime_note"]
+    # And what it does not answer, said rather than left to be inferred from
+    # an empty cell: a standalone guest has no Pacemaker resource.
+    assert "libvirt-exporter" in payload["runtime_note"]
 
 
 def test_a_viewer_may_read_the_guests(signed_in_viewer: TestClient) -> None:
@@ -943,3 +945,19 @@ def test_a_standalone_guest_is_started_through_libvirt(
     document = yaml.safe_load(written[0].read_text())
     assert document[0]["hosts"] == "standalone_machine"
     assert "community.libvirt.virt" in document[0]["tasks"][0]
+
+
+def test_a_standalone_guest_is_reported_by_nothing_this_page_asks(
+    signed_in: TestClient,
+) -> None:
+    # Pacemaker does not know it, and "not deployed" about a guest that may
+    # well be running is a claim rather than a reading. The page says which of
+    # the two it is.
+    _declare_split(signed_in)
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["localvm"]["resource"] is None
+    assert "libvirt-exporter" in signed_in.get("/api/v1/vms").json()["runtime_note"]

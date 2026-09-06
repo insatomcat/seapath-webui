@@ -78,9 +78,10 @@ _DESIRED_STATE_ONLY = (
 )
 _FROM_PACEMAKER = (
     "The state and node columns are read from ha_cluster_exporter on each "
-    "machine of the inventory, which publishes what crm_mon said. Nothing here "
-    "moves a guest: starting, stopping and migrating one is the runtime plane, "
-    "and it arrives with vm_manager."
+    "machine of the inventory, which publishes what crm_mon said. A guest "
+    "deployed on a standalone machine has no Pacemaker resource and is "
+    "reported by nothing here: libvirt-exporter publishes what libvirt says "
+    "about it, on its own machine, and this page does not ask it yet."
 )
 
 

@@ -88,6 +88,17 @@
     let status = "absent";
     let words = "not deployed";
 
+    // A guest libvirt owns alone is reported by nothing this page asks.
+    // Pacemaker does not know it, and saying "not deployed" about a guest
+    // that may well be running is a claim rather than a reading.
+    if (!resource && guest.deployment !== "cluster") {
+      words = "not reported";
+      box.title =
+        "This page reads Pacemaker, and a standalone guest has none. What " +
+        "libvirt says about it is published by libvirt-exporter on its " +
+        "machine, and nothing here asks that yet.";
+    }
+
     if (resource) {
       if (resource.failed) {
         status = "warning";
