@@ -177,8 +177,10 @@ def test_the_page_says_where_the_runtime_column_comes_from(
     payload = signed_in.get("/api/v1/vms").json()
 
     assert "ha_cluster_exporter" in payload["runtime_note"]
+    assert "vm_manager" not in payload["runtime_note"]
     # And what it does not answer, said rather than left to be inferred from
-    # an empty cell: a standalone guest has no Pacemaker resource.
+    # an empty cell: a standalone guest has no Pacemaker resource, and what
+    # would know about it is an exporter this page does not ask.
     assert "libvirt-exporter" in payload["runtime_note"]
 
 
@@ -960,4 +962,3 @@ def test_a_standalone_guest_is_reported_by_nothing_this_page_asks(
     }
 
     assert guests["localvm"]["resource"] is None
-    assert "libvirt-exporter" in signed_in.get("/api/v1/vms").json()["runtime_note"]
