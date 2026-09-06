@@ -338,12 +338,21 @@ lead elected under quorum with an automatic push, was traded for.
   and keeps its history. The operator opens the UI on that node and pushes from
   there. The act has one direction, always from the node being looked at
   towards the others.
+- **Force says this node holds the copy that wins.** A checkbox beside the
+  button, an administrator's act, and one audit line naming the machines. It
+  moves each machine to this commit whatever it held, which survives there only
+  in its reflog. It leaves a file nobody committed on that machine alone,
+  whatever it says.
 - **Each machine is reported on its own.** A node that is down is one line in
   the result, and the machines that were updated keep what they received.
-- **Each machine is asked which commit it holds.** The page reads it with `git
-  ls-remote` over the same connection, when it is opened. A copy that is behind
-  is shown with the commit it actually holds, and no stored replication state
-  exists that could disagree with the machines.
+- **What a machine serves is its `HEAD`**, and that is what is asked of it,
+  with `git ls-remote` over the same connection, every time the page is opened.
+  So a copy that is behind is shown with the commit its files are actually at,
+  and no stored replication state exists that could disagree with the machines.
+  A push targets that same ref: a repository sitting on another branch would
+  take the commit into one nobody reads and keep its old files, which is
+  reported as such rather than as a success. A node running this version moves
+  its own repository to `main` when it starts.
 - **A run records the commit it ran from**, which is what answers "which
   version of the desired state converged these machines" whichever node the run
   was launched from.

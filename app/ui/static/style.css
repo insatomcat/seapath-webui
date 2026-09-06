@@ -567,16 +567,24 @@ td button {
   background: var(--accent);
 }
 
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.footer-note {
+  margin-left: auto;
+}
+
 .footer {
   display: flex;
   gap: 1rem;
   padding: 1rem 1.25rem;
   color: var(--muted);
   font-size: 0.78rem;
-}
-
-.footer-note {
-  margin-left: auto;
 }
 
 /* Navigation, shared by every signed in page */

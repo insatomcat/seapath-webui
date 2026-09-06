@@ -193,15 +193,19 @@ declares, minus this one and minus the guests of the `VMs` group.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/inventory/replicas` | Which commit each of those machines holds, asked of the machines at every call, with `status` per machine: `up_to_date`, `behind`, `diverged` or `unreachable` |
-| POST | `/inventory/replicate` | Push this node's branch to each of them. `status` per machine: `updated`, `up_to_date`, `refused` or `unreachable` |
+| GET | `/inventory/replicas` | Which commit each of those machines **serves**, meaning what its `HEAD` points at, asked of the machines at every call. `status` per machine: `up_to_date`, `behind`, `diverged` or `unreachable` |
+| POST | `/inventory/replicate` | Push this node's branch to the ref each of them serves, then read that ref back. `status` per machine: `updated`, `up_to_date`, `refused`, `not_served` or `unreachable`. Body `{"force": true}` moves each machine to this commit whatever it held, and writes one audit line naming them |
 
 Each machine is reported on its own, so a partial success is an ordinary
 answer and never an error: a node that is down is one entry carrying git's own
 sentence. A machine holding commits this node lacks comes back `refused` with
-nothing overwritten, because git accepts a fast forward only. `409
-no_replicas` where the inventory declares no other machine, and `409
-nothing_to_replicate` before the first commit exists.
+nothing overwritten, because git accepts a fast forward only, and so does one
+holding a file nobody committed where the incoming commit carries one.
+`not_served` is the machine that took the commit into a branch its worktree is
+not on, so its files did not change: a repository made before this version sits
+on `master`, and a node running this version moves its own to `main` when it
+starts. `409 no_replicas` where the inventory declares no other machine, and
+`409 nothing_to_replicate` before the first commit exists.
 
 ## Runs
 

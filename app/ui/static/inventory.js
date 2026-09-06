@@ -994,6 +994,7 @@
       tone: "state-failed",
     },
     refused: { label: "refused", tone: "state-failed" },
+    not_served: { label: "took it without serving it", tone: "state-failed" },
     unreachable: { label: "not reachable", tone: "state-failed" },
   };
 
@@ -1039,6 +1040,7 @@
 
     const button = element("replicate");
     button.disabled = !admin();
+    element("replicate-force").disabled = !admin();
     button.textContent =
       "Replicate to " + replicas.map((replica) => replica.host).join(", ");
     element("replicas-meta").textContent = payload.commit
@@ -1058,15 +1060,24 @@
     }
   }
 
+  // Ticking it says out loud what it does. The page never sets it back on its
+  // own, and a refused push leaves it as the operator left it: recovering from
+  // a divergence is a decision someone makes once.
+  element("replicate-force").addEventListener("change", (event) => {
+    element("replicate-force-note").hidden = !event.target.checked;
+  });
+
   element("replicate").addEventListener("click", async () => {
     const button = element("replicate");
+    const force = element("replicate-force").checked;
     button.disabled = true;
     showError("replicas-error", "");
     try {
-      const payload = await API.post("/inventory/replicate");
+      const payload = await API.post("/inventory/replicate", { force });
       renderReplicas(payload);
       const missed = (payload.replicas || []).filter(
-        (replica) => replica.status !== "updated" && replica.status !== "up_to_date"
+        (replica) =>
+          replica.status !== "updated" && replica.status !== "up_to_date"
       );
       showBanner(
         missed.length === 0

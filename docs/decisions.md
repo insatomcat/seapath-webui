@@ -1666,6 +1666,50 @@ is the setting for exactly this shape: the worktree is updated with the push,
 and the push is refused when that worktree has uncommitted changes. That
 refusal is a feature, so it is configured rather than worked around.
 
+### The branch a machine serves, which is what a push has to move
+
+Found on a real cluster, and worth keeping written down because the failure
+was silent. A repository created before this version sits on `master`, since
+`git init` made that branch and nothing moved it. A push of `main` into it is
+accepted, creates `refs/heads/main` there, and leaves the worktree exactly as
+it was: the machine holds the commit in a branch nobody reads, and its
+inventory is still empty. Reading `refs/heads/main` back then answers this
+node's own commit, so three machines reported themselves up to date while
+their files were empty.
+
+Three things follow, and all three are the same rule: what a machine serves is
+its `HEAD`, and nothing else is worth asking about.
+
+- **The survey asks for `HEAD`.** What that machine's own service reads is its
+  worktree, and the worktree is whatever `HEAD` points at. A branch it holds
+  without serving is not its desired state.
+- **The push targets the ref that machine serves**, learned from `ls-remote
+  --symref` in the same call.
+- **The result is read back.** A push git accepted can still leave a machine's
+  files where they were, and its exit code says nothing about that. So `HEAD`
+  is asked again afterwards, and a machine that took the commit without serving
+  it comes back as `not_served` with what to do about it, rather than as a
+  success.
+
+And a repository this service owns is moved to `main` at every start, unborn or
+not, so a node updated to this version stops being that machine.
+
+### Forcing, and the one refusal it does not override
+
+The refusal that protects a machine's own commits is the safety of the design,
+and an operator still needs a way to say that this node holds the copy that
+wins. `force` on the replication is that way: the machine's branch is moved to
+this node's commit whatever it held, and what it held survives only in its
+reflog. It is asked for by name, it is an administrator's act, and it writes an
+audit line naming the machines, because it is the only thing here that can
+destroy a commit.
+
+It does not override the other refusal. A file nobody committed on that
+machine, sitting where the incoming commit carries one, stops the push whatever
+the flag says, and git refuses it even when the two are byte for byte
+identical. Deleting an operator's file on another host is not something this
+service does, so the machine is named and the sentence says what to do.
+
 ### Who receives, and what happens when one of them does not
 
 The targets are the machines the inventory declares, minus this one and minus

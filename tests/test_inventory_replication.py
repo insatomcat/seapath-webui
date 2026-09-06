@@ -389,3 +389,192 @@ def test_a_viewer_reads_the_copies_and_never_moves_them(signed_in_viewer) -> Non
     assert signed_in_viewer.get("/api/v1/inventory/replicas").status_code == 200
 
     assert signed_in_viewer.post("/api/v1/inventory/replicate").status_code == 403
+
+
+# The repository a machine actually serves, which is not always the one it holds
+
+
+def _repository_on(path: Path, branch: str) -> InventoryRepository:
+    """A repository as an earlier version of this service left it.
+
+    `git init` without `--initial-branch` produced `master`, and nothing set
+    `receive.denyCurrentBranch`. Both are what `accept_replication` repairs
+    now, and a machine that has not been updated still looks like this.
+    """
+    path.mkdir(parents=True)
+    subprocess.run(
+        ["git", "init", "--quiet", f"--initial-branch={branch}", str(path)],
+        check=True,
+        capture_output=True,
+    )
+    _git(path, "config", "receive.denyCurrentBranch", "updateInstead")
+    return InventoryRepository(path)
+
+
+def test_a_machine_holding_the_commit_without_serving_it_is_not_up_to_date(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    """The failure this was found by, on a real cluster.
+
+    A repository created on `master` takes a push into `main` and leaves its
+    worktree exactly as it was. Reading `refs/heads/main` back then answers
+    this node's own commit, so three machines reported themselves up to date
+    while their inventories were empty. What the machine serves is `HEAD`, and
+    that is what is asked.
+    """
+    peer = _repository_on(tmp_path / "node2", "master")
+    inventory = _inventory("node1=ignored", f"node2={peer.path}")
+
+    pushed = _service(source).replicate(inventory, this_host="node1")
+
+    assert pushed[0].status is Status.NOT_SERVED
+    assert "another branch" in pushed[0].detail
+    assert peer.read() == ""
+    # And the page says so afterwards rather than showing the commit it sent.
+    survey = _service(source).survey(inventory, this_host="node1")
+    assert survey[0].status is Status.BEHIND
+    assert survey[0].commit is None
+
+
+def test_a_machine_serving_master_receives_it_in_its_files(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    """The push targets the ref that machine serves, whatever it is called."""
+    peer = _peer(source, tmp_path / "node2")
+    _git(peer.path, "branch", "--move", "master")
+    source.commit(
+        content="all:\n  hosts:\n    node1:\n      gateway_addr: 10.0.0.254\n",
+        message="network: set gateway_addr on node1",
+        author="alice",
+    )
+
+    results = _service(source).replicate(
+        _inventory("node1=ignored", f"node2={peer.path}"), this_host="node1"
+    )
+
+    assert results[0].status is Status.UPDATED
+    assert "gateway_addr" in peer.read()
+    assert _git(peer.path, "symbolic-ref", "HEAD") == "refs/heads/master"
+
+
+def test_a_file_nobody_committed_there_is_named_rather_than_overwritten(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    """Git refuses even when the two files are byte for byte the same."""
+    peer = _repository_on(tmp_path / "node2", "main")
+    (peer.path / "inventory.yaml").write_text(source.read())
+
+    results = _service(source).replicate(
+        _inventory("node1=ignored", f"node2={peer.path}"), this_host="node1"
+    )
+
+    assert results[0].status is Status.REFUSED
+    assert "inventory.yaml" in results[0].detail
+    assert "Remove it on node2" in results[0].detail
+
+
+def test_a_repository_left_on_master_is_moved_to_the_branch_a_push_lands_on(
+    tmp_path: Path,
+) -> None:
+    """Every node serves `main`, so a repository found elsewhere is moved."""
+    unborn = _repository_on(tmp_path / "unborn", "master")
+    started = _repository_on(tmp_path / "started", "master")
+    started.commit(content="all: {}\n", message="inventory: one", author="alice")
+    before = started.head()
+
+    unborn.accept_replication()
+    started.accept_replication()
+
+    assert _git(unborn.path, "symbolic-ref", "HEAD") == "refs/heads/main"
+    assert _git(started.path, "symbolic-ref", "HEAD") == "refs/heads/main"
+    # The move is a rename, so the history is the same history.
+    assert started.head() == before
+
+
+# Forcing, which is the one act here that can destroy a commit
+
+
+def test_forcing_moves_a_diverged_machine_to_this_commit(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    peer = _peer(source, tmp_path / "node2")
+    peer.commit(
+        content="all:\n  hosts:\n    node1:\n      isolcpus: 2-7\n",
+        message="tuning: isolate the real time cores",
+        author="bob",
+    )
+    source.commit(
+        content="all:\n  hosts:\n    node1:\n      gateway_addr: 10.0.0.254\n",
+        message="network: set gateway_addr on node1",
+        author="alice",
+    )
+    inventory = _inventory("node1=ignored", f"node2={peer.path}")
+
+    refused = _service(source).replicate(inventory, this_host="node1")
+    forced = _service(source).replicate(inventory, this_host="node1", force=True)
+
+    assert refused[0].status is Status.REFUSED
+    assert forced[0].status is Status.UPDATED
+    assert peer.head() == source.head()
+    # The files followed the branch, and what that machine held is gone from
+    # everything but its reflog.
+    assert "gateway_addr" in peer.read()
+    assert "isolcpus" not in peer.read()
+
+
+def test_forcing_still_leaves_a_file_nobody_committed_there_alone(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    """Deleting an operator's file on another machine is not on the table."""
+    peer = _repository_on(tmp_path / "node2", "main")
+    (peer.path / "inventory.yaml").write_text("theirs: by hand\n")
+
+    results = _service(source).replicate(
+        _inventory("node1=ignored", f"node2={peer.path}"),
+        this_host="node1",
+        force=True,
+    )
+
+    assert results[0].status is Status.REFUSED
+    assert (peer.path / "inventory.yaml").read_text() == "theirs: by hand\n"
+
+
+def test_forcing_is_asked_for_by_name(signed_in) -> None:
+    """A replication that did not ask for it keeps every refusal."""
+    document = CLUSTER.read_text()
+    signed_in.post("/api/v1/inventory/import", json={"document": document})
+    signed_in.get("/api/v1/inventory/replicas")
+
+    default = signed_in.post("/api/v1/inventory/replicate")
+    asked = signed_in.post("/api/v1/inventory/replicate", json={"force": True})
+
+    assert default.status_code == 200
+    assert asked.status_code == 200
+    assert [replica["status"] for replica in asked.json()["replicas"]] == [
+        "up_to_date"
+    ] * 3
+
+
+def test_a_node_whose_own_repository_is_on_master_can_still_send_it(
+    tmp_path: Path,
+) -> None:
+    """The source is `HEAD`, so the name this node uses does not matter.
+
+    A repository adopted from a site arrives on whatever branch that site
+    committed on, and it is this node's own until it is restarted.
+    """
+    source = _repository_on(tmp_path / "source", "master")
+    source.commit(content="all: {}\n", message="inventory: one", author="alice")
+    peer = _peer(source, tmp_path / "node2")
+    source.commit(
+        content="all:\n  hosts:\n    node1:\n      gateway_addr: 10.0.0.254\n",
+        message="network: set gateway_addr on node1",
+        author="alice",
+    )
+
+    results = _service(source).replicate(
+        _inventory("node1=ignored", f"node2={peer.path}"), this_host="node1"
+    )
+
+    assert results[0].status is Status.UPDATED
+    assert "gateway_addr" in peer.read()

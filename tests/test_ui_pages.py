@@ -126,6 +126,9 @@ def test_the_inventory_page_carries_the_other_copies_of_the_repository(
     assert 'id="replicate"' in body
     assert "over the connection a run makes" in prose
     assert "is refused rather than overwritten" in prose
+    # Overriding that refusal is a checkbox that says what it destroys.
+    assert 'id="replicate-force"' in body
+    assert "survives there only in its reflog" in prose or "reads its reflog" in prose
 
 
 def test_the_inventory_page_is_an_editor_over_the_folder(

@@ -112,8 +112,18 @@ SPDX-License-Identifier: Apache-2.0
 
     <div class="actions">
       <button type="button" id="replicate">Replicate</button>
+      <label class="checkbox" for="replicate-force">
+        <input type="checkbox" id="replicate-force">
+        Force
+      </label>
       <span class="editor-meta" id="replicas-meta"></span>
     </div>
+
+    <p class="help" id="replicate-force-note" hidden>
+      A forced replication moves each machine to this node's commit whatever it
+      held, so a change made on another node is lost unless someone goes and
+      reads its reflog. A file nobody committed there is still left alone.
+    </p>
 
     <p class="error" id="replicas-error" hidden></p>
   </section>

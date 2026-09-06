@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from app.core.auth import Role, User
 from app.core.errors import ApiError
+from app.core.logging import audit_event
 from app.core.security import require_role
 from app.inventory.discovery import Discovery
 from app.inventory.files import StoredFile, UnsafePath
@@ -414,6 +415,17 @@ class ReplicationResponse(BaseModel):
     replicas: list[Replica]
 
 
+class ReplicateRequest(BaseModel):
+    """`force` moves a machine's branch whatever it held.
+
+    The refusal it overrides is what protects commits made on another node, so
+    it is asked for by name rather than retried automatically. What that
+    machine held stays in its reflog and nowhere else.
+    """
+
+    force: bool = False
+
+
 @router.get("/replicas")
 def replicas(request: Request, user: User = viewer) -> ReplicationResponse:
     """Which commit every other machine of the inventory holds.
@@ -431,24 +443,29 @@ def replicas(request: Request, user: User = viewer) -> ReplicationResponse:
 
 
 @router.post("/replicate")
-def replicate(request: Request, user: User = admin) -> ReplicationResponse:
+def replicate(
+    request: Request,
+    body: ReplicateRequest | None = None,
+    user: User = admin,
+) -> ReplicationResponse:
     """Push this node's inventory to the other machines it declares.
 
     An administrator's act, like every write to the desired state: what lands
     on those machines is what the next apply converges them to. Each machine is
     reported on its own, and a push that would lose commits is refused with the
-    machine named.
+    machine named, unless `force` says this node holds the copy that wins.
     """
     replication = _replication(request)
     state = _service(request).state()
     head = replication.head()
+    force = body is not None and body.force
     if head is None:
         raise ApiError(
             "nothing_to_replicate",
             "This node has no inventory commit yet, so there is nothing to send.",
             409,
         )
-    results = replication.replicate(state.inventory, state.this_host)
+    results = replication.replicate(state.inventory, state.this_host, force=force)
     if not results:
         raise ApiError(
             "no_replicas",
@@ -457,6 +474,14 @@ def replicate(request: Request, user: User = admin) -> ReplicationResponse:
                 "there is nowhere to replicate to."
             ),
             409,
+        )
+    if force:
+        # The one act here that can destroy a commit made on another machine.
+        audit_event(
+            "inventory.replicated.forced",
+            user=user.username,
+            commit=head,
+            machines=",".join(replica.host for replica in results),
         )
     return ReplicationResponse(commit=head, replicas=results)
 

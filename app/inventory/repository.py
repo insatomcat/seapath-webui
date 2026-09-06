@@ -99,19 +99,55 @@ class InventoryRepository:
     def accept_replication(self) -> None:
         """Let a peer's push land in this checkout. Idempotent, and a repair.
 
-        This repository has a worktree, and git refuses by default to push into
-        the branch a worktree has checked out. `updateInstead` is the setting
-        for exactly this shape: the files move with the push, and the push is
-        refused when the worktree carries changes nobody committed. That
-        refusal is the safety, so it is configured rather than worked around.
+        Two things have to be true, and a repository made by an earlier version
+        of this service has neither, so both are applied at every start rather
+        than at creation only.
 
-        Applied at every start rather than at creation only, so a repository
-        made by an earlier version gains it without anyone reinstalling.
+        **The setting.** This repository has a worktree, and git refuses by
+        default to push into the branch a worktree has checked out.
+        `updateInstead` is the setting for exactly this shape: the files move
+        with the push, and the push is refused when the worktree carries
+        changes nobody committed. That refusal is the safety, so it is
+        configured rather than worked around.
+
+        **The branch.** A push lands in the worktree only when it targets the
+        branch that worktree has checked out. A repository sitting on `master`
+        therefore takes the commit into a branch nobody serves and leaves its
+        files exactly as they were, which is a replication that reports success
+        and changes nothing. Every node serves `main`, so a repository found on
+        another branch is moved to it.
         """
         try:
             self._git("config", "receive.denyCurrentBranch", "updateInstead")
         except RepositoryError as error:  # pragma: no cover - defensive
             logger.warning("Could not configure the repository for a push: %s", error)
+        self._serve_default_branch()
+
+    def _serve_default_branch(self) -> None:
+        try:
+            current = self._git("symbolic-ref", "--quiet", "HEAD").strip()
+        except RepositoryError:  # pragma: no cover - a detached HEAD
+            logger.warning("This repository has no branch checked out")
+            return
+        if current == f"refs/heads/{DEFAULT_BRANCH}":
+            return
+        try:
+            if self.head() is None:
+                # Nothing committed yet, so the branch is a name and moving it
+                # loses nothing.
+                self._git("symbolic-ref", "HEAD", f"refs/heads/{DEFAULT_BRANCH}")
+            else:
+                self._git("branch", "--move", DEFAULT_BRANCH)
+        except RepositoryError as error:
+            logger.warning(
+                "This repository serves %s rather than %s, and could not be "
+                "moved, so a replication would not reach its files: %s",
+                current,
+                DEFAULT_BRANCH,
+                error,
+            )
+            return
+        logger.info("Moved the inventory repository from %s to main", current)
 
     # Reading
 
@@ -349,32 +385,33 @@ class InventoryRepository:
             return False
         return True
 
-    def remote_head(
+    def remote_state(
         self,
         url: str,
         *,
         ssh_command: str | None = None,
         upload_pack: str | None = None,
-        branch: str = DEFAULT_BRANCH,
         timeout: float = _NETWORK_TIMEOUT_SECONDS,
-    ) -> str | None:
-        """Which commit that machine holds, asked of the machine itself.
+    ) -> RemoteState:
+        """What that machine serves: the branch its worktree is on, and where.
 
-        None where the repository is there and its branch is empty. A machine
-        that cannot be reached, or that holds no repository at all, raises with
-        git's own words, which name the case better than anything invented
-        here would.
+        `HEAD` rather than a branch name of our choosing, because what the
+        machine's own service reads is its worktree, and the worktree is
+        whatever `HEAD` points at. Asking for `refs/heads/main` instead would
+        answer for a branch that machine may hold without serving, which reads
+        as a copy that is up to date while its files are something else.
+
+        Both halves come back empty on a repository with no commit, since a
+        `HEAD` pointing at a branch nobody created is advertised by nothing. A
+        machine that cannot be reached, or that holds no repository at all,
+        raises with git's own words.
         """
-        argv = ["git", "ls-remote"]
+        argv = ["git", "ls-remote", "--symref"]
         if upload_pack is not None:
             argv.append(f"--upload-pack={upload_pack}")
-        argv += [url, f"refs/heads/{branch}"]
-        output = self._run(
-            argv, environment=_with_ssh(ssh_command), timeout=timeout
-        ).strip()
-        if not output:
-            return None
-        return output.split()[0]
+        argv += [url, "HEAD"]
+        output = self._run(argv, environment=_with_ssh(ssh_command), timeout=timeout)
+        return _parse_remote_state(output)
 
     def push(
         self,
@@ -382,19 +419,32 @@ class InventoryRepository:
         *,
         ssh_command: str | None = None,
         receive_pack: str | None = None,
-        branch: str = DEFAULT_BRANCH,
+        target: str = f"refs/heads/{DEFAULT_BRANCH}",
+        force: bool = False,
         timeout: float = _NETWORK_TIMEOUT_SECONDS,
     ) -> None:
         """Send this branch to that machine, or raise with git's refusal.
 
-        No force, ever. Git accepts a fast forward only, so a machine carrying
-        commits this one has never seen ends the push with an error naming it,
-        and its history is still there afterwards.
+        The target is the ref that machine serves rather than a name assumed
+        here: a push into any other branch updates a ref nobody reads and
+        leaves the machine's files untouched.
+
+        Git accepts a fast forward only, so a machine carrying commits this one
+        has never seen ends the push with an error naming it, and its history
+        is still there afterwards. `force` is the operator overriding exactly
+        that: the machine's branch is moved to this node's commit whatever it
+        held, and what it held is reachable there only through its reflog.
         """
         argv = ["git", "push"]
+        if force:
+            argv.append("--force")
         if receive_pack is not None:
             argv.append(f"--receive-pack={receive_pack}")
-        argv += [url, f"{branch}:{branch}"]
+        # `HEAD` as the source rather than a branch name: this node commits to
+        # whatever it has checked out, and a repository adopted from a site may
+        # be on any branch. What it is called here has no bearing on what the
+        # machine receiving it serves.
+        argv += [url, f"HEAD:{target}"]
         self._run(argv, environment=_with_ssh(ssh_command), timeout=timeout)
 
     # Plumbing
@@ -448,6 +498,31 @@ class InventoryRepository:
         )
         environment.update(extra or {})
         return environment
+
+
+@dataclass(frozen=True)
+class RemoteState:
+    """What one machine answers about the repository it serves."""
+
+    branch: str | None = None
+    """The ref its worktree is on, as `refs/heads/main`. None when unborn."""
+
+    commit: str | None = None
+    """The commit that ref points at, which is what its files are."""
+
+
+def _parse_remote_state(output: str) -> RemoteState:
+    branch = None
+    commit = None
+    for line in output.splitlines():
+        value, _, name = line.partition("\t")
+        if name.strip() != "HEAD":
+            continue
+        if value.startswith("ref: "):
+            branch = value[len("ref: ") :].strip()
+        else:
+            commit = value.strip()
+    return RemoteState(branch=branch, commit=commit)
 
 
 def _with_ssh(ssh_command: str | None) -> dict[str, str]:

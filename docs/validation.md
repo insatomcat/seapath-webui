@@ -230,6 +230,10 @@ carries git at all, and the file the peer's own service reads afterwards.
 | 8 | With node3 powered off, node2 is updated and node3 is one line naming the timeout, in under a minute | A partial success is the ordinary outcome, and the page must not wait on a dead machine | Pending |
 | 9 | A machine whose repository was never created reports it by name, and nothing is created there | The service does not create a repository on a machine that runs no service | Pending |
 | 10 | Nothing else changed on any peer: `seapath_setup_main.yaml` from a conventional control machine still reports no change after a replication | **The acceptance criterion.** The push writes the inventory repository and nothing else | Pending |
+| 11 | On a node whose repository predates this version, `git -C /etc/seapath/inventory symbolic-ref HEAD` says `refs/heads/main` after a restart, and `git log` still has its commits | The repair only matters on a repository nobody made here. Failed on ccv-admin, which sat on `master` and took a push into a branch it did not serve | Pending |
+| 12 | A machine that still serves another branch is reported as such rather than as updated, and its files are checked to be unchanged | The failure that shipped once: the page said up to date while three inventories were empty | Pending |
+| 13 | A file placed by hand on a peer, where the inventory carries one of the same name, stops the push with the file named, and is still there afterwards, forced or not | Git refuses even when the two are identical, and this service deletes nothing on another machine | Pending |
+| 14 | With **Force** ticked, a peer carrying its own commit is moved to this node's commit, its files follow, and the journal carries one `inventory.replicated.forced` line naming the machines | The one act here that destroys a commit | Pending |
 
 ### Result
 

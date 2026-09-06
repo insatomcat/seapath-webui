@@ -37,6 +37,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
@@ -46,6 +47,7 @@ from app.inventory.model import Inventory
 from app.inventory.repository import (
     DEFAULT_BRANCH,
     InventoryRepository,
+    RemoteState,
     RepositoryError,
 )
 
@@ -68,6 +70,7 @@ class Status(str, Enum):
     DIVERGED = "diverged"
     UPDATED = "updated"
     REFUSED = "refused"
+    NOT_SERVED = "not_served"
     UNREACHABLE = "unreachable"
 
 
@@ -77,6 +80,7 @@ class Replica(BaseModel):
     host: str
     address: str
     commit: str | None = None
+    """The commit that machine's files are at, which is what its `HEAD` says."""
     status: Status
     detail: str = ""
 
@@ -245,15 +249,28 @@ class ReplicationService:
         return self._fan_out(self._read, self.targets(inventory, this_host))
 
     def replicate(
-        self, inventory: Inventory | None, this_host: str | None
+        self,
+        inventory: Inventory | None,
+        this_host: str | None,
+        force: bool = False,
     ) -> list[Replica]:
         """Push this node's branch to every machine, and report each one.
 
         A machine that is down is one line of the result. Nothing is rolled
         back on the machines that were reached: they hold a commit that is the
         desired state either way.
+
+        `force` overrides the refusal that protects a machine's own commits,
+        and it is the operator saying that this node holds the copy that wins.
+        It is the only thing here that can destroy a commit, so it stays an act
+        someone asks for by name. It does not override the other refusal: a
+        file nobody committed on that machine is left alone whatever the flag
+        says, because deleting an operator's file on another host is not
+        something this service does.
         """
-        return self._fan_out(self._push, self.targets(inventory, this_host))
+        return self._fan_out(
+            partial(self._push, force=force), self.targets(inventory, this_host)
+        )
 
     def head(self) -> str | None:
         return self._repository.head()
@@ -270,8 +287,8 @@ class ReplicationService:
         with ThreadPoolExecutor(max_workers=min(_MAX_PARALLEL, len(targets))) as pool:
             return list(pool.map(act, targets))
 
-    def _remote_head(self, target: Target) -> str | None:
-        return self._repository.remote_head(
+    def _remote_state(self, target: Target) -> RemoteState:
+        return self._repository.remote_state(
             self._transport.url(target),
             ssh_command=self._transport.ssh_command(),
             upload_pack=self._transport.upload_pack(),
@@ -280,27 +297,28 @@ class ReplicationService:
 
     def _read(self, target: Target) -> Replica:
         try:
-            commit = self._remote_head(target)
+            state = self._remote_state(target)
         except RepositoryError as error:
             return self._unreachable(target, error)
         return Replica(
             host=target.host,
             address=target.address,
-            commit=commit,
-            status=self._compare(commit),
+            commit=state.commit,
+            status=self._compare(state.commit),
         )
 
-    def _push(self, target: Target) -> Replica:
+    def _push(self, target: Target, force: bool = False) -> Replica:
         try:
-            commit = self._remote_head(target)
+            state = self._remote_state(target)
         except RepositoryError as error:
             return self._unreachable(target, error)
 
-        if commit is not None and commit == self._repository.head():
+        head = self._repository.head()
+        if state.commit is not None and state.commit == head:
             return Replica(
                 host=target.host,
                 address=target.address,
-                commit=commit,
+                commit=state.commit,
                 status=Status.UP_TO_DATE,
             )
 
@@ -309,6 +327,10 @@ class ReplicationService:
                 self._transport.url(target),
                 ssh_command=self._transport.ssh_command(),
                 receive_pack=self._transport.receive_pack(),
+                # The ref that machine serves. A repository sitting on another
+                # branch would otherwise take the commit into one nobody reads.
+                target=state.branch or f"refs/heads/{DEFAULT_BRANCH}",
+                force=force,
                 timeout=self._timeout,
             )
         except RepositoryError as error:
@@ -317,17 +339,52 @@ class ReplicationService:
                 return Replica(
                     host=target.host,
                     address=target.address,
-                    commit=commit,
+                    commit=state.commit,
                     status=Status.REFUSED,
                     detail=refusal,
                 )
             return self._unreachable(target, error)
 
-        logger.info("Replicated the inventory to %s", target.host)
+        # Asked again rather than assumed. A push that git accepted can still
+        # leave the machine's files where they were, and the exit code says
+        # nothing about that: what the machine serves is the only answer.
+        try:
+            served = self._remote_state(target).commit
+        except RepositoryError as error:  # pragma: no cover - defensive
+            return self._unreachable(target, error)
+
+        if served != head:
+            return Replica(
+                host=target.host,
+                address=target.address,
+                commit=served,
+                status=Status.NOT_SERVED,
+                detail=(
+                    f"{target.host} took the commit and its files did not "
+                    "change, because its repository serves another branch. A "
+                    "node running this version moves its own repository to "
+                    "main when it starts, so updating the image there and "
+                    "restarting seapath-webui is what fixes it."
+                ),
+            )
+
+        if (
+            force
+            and state.commit is not None
+            and not self._repository.contains(state.commit)
+        ):
+            logger.warning(
+                "Forced the inventory onto %s, whose commit %s was not in this "
+                "history",
+                target.host,
+                state.commit[:12],
+            )
+        else:
+            logger.info("Replicated the inventory to %s", target.host)
         return Replica(
             host=target.host,
             address=target.address,
-            commit=self._repository.head(),
+            commit=served,
             status=Status.UPDATED,
         )
 
@@ -362,6 +419,15 @@ def _refusal(target: Target, message: str) -> str | None:
             f"{target.host} carries commits this node does not have. Open the "
             "UI on that machine and replicate from there, or revert what it "
             "holds. Nothing was overwritten."
+        )
+    if "untracked working tree file" in lowered:
+        # A file nobody committed, sitting where the incoming commit carries
+        # one. Git refuses even when the two are byte for byte identical, and
+        # this service does not delete a file on another machine.
+        return (
+            _sentence(message)
+            + f" Remove it on {target.host}, or commit it there, and replicate "
+            "again."
         )
     if "rejected]" in lowered:
         return _sentence(message)
