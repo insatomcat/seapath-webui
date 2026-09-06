@@ -14,7 +14,14 @@ workflow runs `ruff`, `black` and `pytest` first, builds, smoke tests the image
 the way `buildpush.sh` does, then pushes two tags: the commit's short sha, and
 `latest`. It needs two repository secrets, `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN`, the second an access token from Docker Hub rather than an
-account password.
+account password, scoped read, write and delete.
+
+The last step of that workflow writes `README.md` to the Docker Hub page, so
+the page an operator lands on describes the image that was just published. The
+relative links are completed against this repository first, since Docker Hub
+resolves them against nothing, and the content is truncated at 25000 bytes,
+which is the limit the API enforces. The scope on `DOCKERHUB_TOKEN` is what
+this step needs: a push only token logs in and pushes, then fails here.
 
 Contents:
 

@@ -143,3 +143,22 @@ jobs:
           else
               docker push "${IMAGE}:${VERSION}"
           fi
+
+      # The Docker Hub page is the README, and a page that lags the image it
+      # describes is worse than no page. `enable-url-completion` rewrites the
+      # relative links to this repository, which Docker Hub resolves against
+      # nothing: without it the screenshots and the links into `docs/` are
+      # broken there. The push above is what gates this, so a build that never
+      # published never advertises itself either.
+      - name: Update the Docker Hub description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          # The description API wants a token with the read, write and delete
+          # scope. A push only token logs in and pushes, then fails here.
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: ${{ env.IMAGE }}
+          short-description: >-
+            Management UI and REST API on every SEAPATH node: inventory,
+            cluster join, Ansible runs
+          enable-url-completion: true
