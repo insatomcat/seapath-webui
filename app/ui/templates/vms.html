@@ -49,6 +49,7 @@ image and losing its disk. D31 records the bounds.
         <thead>
           <tr>
             <th>Guest</th>
+            <th>Deployed by</th>
             <th>State</th>
             <th>Node</th>
             <th>Disk image</th>
@@ -125,6 +126,21 @@ image and losing its disk. D31 records the bounds.
       It becomes the libvirt domain name and the Pacemaker resource, so it is
       what every other tool will call this VM.
     </p>
+
+    {# Shown where the inventory has machines of both kinds. The guest goes
+       into `cluster_VMs` or `standalone_VMs`, and everything below follows
+       from it: the playbook that creates it, the options its entry may carry,
+       and whether it has an RBD image at all. #}
+    <div id="add-where" hidden>
+      <label for="add-deployment">Deployed on</label>
+      <select id="add-deployment"></select>
+      <p class="help">
+        A cluster guest is created by <code>deploy_vms_cluster</code>, its disk
+        lives in the Ceph pool and Pacemaker places it. A standalone one is
+        created by <code>deploy_vms_standalone</code>, its disk is a file in
+        the local libvirt pool, and libvirt alone runs it.
+      </p>
+    </div>
 
     <label for="add-disk">Disk image</label>
     <input type="file" id="add-disk" accept=".qcow2,.img,.gz">

@@ -22,7 +22,7 @@ from app.inventory.artefacts import ArtefactStore
 from app.inventory.discovery import Discovery, discover, seed_inventory
 from app.inventory.editor import UneditableInventory, add_guest, edit
 from app.inventory.fidelity import Divergence, unintended_changes
-from app.inventory.model import Inventory, NodeConfig
+from app.inventory.model import GUEST_GROUP, Inventory, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
 from app.inventory.renderer import render
 from app.inventory.repository import INVENTORY_FILENAME, Commit, InventoryRepository
@@ -432,6 +432,7 @@ class InventoryService:
         variables: dict[str, Any],
         author: str,
         expected_head: str | None = None,
+        group: str = GUEST_GROUP,
     ) -> tuple[Commit, ValidationResult]:
         """Add one guest to the `VMs` group, as a commit like any other.
 
@@ -453,7 +454,7 @@ class InventoryService:
                 [],
             )
         try:
-            edited = add_guest(document, name, variables)
+            edited = add_guest(document, name, variables, group)
         except UneditableInventory as error:
             raise RefusedWrite(str(error), []) from error
 

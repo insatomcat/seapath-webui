@@ -59,6 +59,24 @@
     return line;
   }
 
+  // Which playbook creates this guest, and whether the file said so or the
+  // page worked it out from the one deployment the file describes. The
+  // difference matters: a guess the file has not made is one an operator may
+  // want to make explicit.
+  function deployedBy(guest) {
+    const cell = document.createElement("td");
+    const text = document.createElement("span");
+    text.textContent = guest.deployment;
+    cell.append(text);
+    if (!guest.declared) {
+      cell.title =
+        "This inventory has one flat VMs group, so every guest is deployed " +
+        "by the playbook its mode calls for.";
+      text.className = "assumed";
+    }
+    return cell;
+  }
+
   // A dot and its words in one cell, the way the cluster page reads a
   // resource. The wording is the operator's question rather than the
   // exporter's vocabulary: "running on node2" over "role started".
@@ -238,9 +256,9 @@
   // Read from Ceph as the request is served, so the window opens filled.
   let openGuest = null;
 
-  function metaButton(name) {
+  function metaButton(name, deployment) {
     const cell = document.createElement("td");
-    if (mode !== "cluster") {
+    if (deployment !== "cluster") {
       // The metadata is on an RBD image, and a standalone machine has no Ceph
       // to hold one. Saying nothing here beats a button that always fails.
       return cell;
@@ -486,13 +504,14 @@
     (view.guests || []).forEach((guest) => {
       row(rows, [
         cell(guest.name),
+        deployedBy(guest),
         state(guest),
         cell(guest.resource ? guest.resource.node : ""),
         file(guest, guest.vm_disk),
         file(guest, guest.vm_template || guest.xml_path),
         ondeploy(guest),
         acts(guest),
-        metaButton(guest.name),
+        metaButton(guest.name, guest.deployment),
       ]);
     });
     element("guest-table").hidden = !(view.guests || []).length;
@@ -513,7 +532,9 @@
         // stopping, since a convergence will not touch it and nothing else
         // here can reach it.
         acts({ name: resource.id, resource }),
-        metaButton(resource.id),
+        // Pacemaker reported it, so it is a cluster guest whatever the
+        // inventory failed to say about it.
+        metaButton(resource.id, "cluster"),
       ]);
     });
   }
@@ -547,7 +568,7 @@
     // vm_manager's, so they are offered where those exist. The pinning profile
     // is not: `deploy_vms_standalone` writes it to /etc/seapath/alloc.d and the
     // same hook reads it there, so the section itself is shown in both modes.
-    const cluster = mode === "cluster";
+    const cluster = chosenDeployment() === "cluster";
     document.querySelectorAll("#add-modal [data-cluster]").forEach((node) => {
       node.hidden = !cluster;
     });
@@ -570,6 +591,14 @@
   // The machines a guest may be placed on and the guests it may be kept
   // beside, both filled from the reading the page already has.
   function fillChoices(view) {
+    // The deployments this inventory has machines for. Offered only where
+    // there are two, because a file with one has already answered.
+    const where = clear(element("add-deployment"));
+    (view.deployments || []).forEach((name) => {
+      where.append(new Option(name, name));
+    });
+    element("add-where").hidden = (view.deployments || []).length < 2;
+
     const hosts = clear(element("add-host"));
     (view.machines || []).forEach((name) => {
       hosts.append(new Option(name, name));
@@ -603,7 +632,7 @@
       enable: element("add-enable").checked,
       vm_pinning_profile: element("add-profile").value.trim() || null,
     };
-    if (mode !== "cluster") {
+    if (chosenDeployment() !== "cluster") {
       return Object.assign(fields, {
         autostart: element("add-autostart").checked,
         // The role extracts a gzipped raw image before defining the domain,
@@ -646,6 +675,13 @@
   // Set from the disk the operator picked, and read by `declaration()`.
   let gzipped = false;
 
+  // Where the guest being added will be created. The file's own mode when it
+  // describes one kind of machine, and the operator's choice when it has both.
+  function chosenDeployment() {
+    const field = element("add-deployment");
+    return element("add-where").hidden ? mode : field.value;
+  }
+
   async function addGuest() {
     const name = element("add-name").value.trim();
     const disk = element("add-disk").files[0];
@@ -685,7 +721,7 @@
 
       progress.at(2, "doing");
       const entry = Object.assign(
-        { name, vm_disk: "../" + diskPath },
+        { name, vm_disk: "../" + diskPath, deployment: chosenDeployment() },
         declaration()
       );
       entry[xmlVariable(xml.name)] = "../" + xmlPath;

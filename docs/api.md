@@ -138,7 +138,9 @@ The inventory it carries holds `hosts` and `guests` separately. `hosts` are the
 machines, and everything that reaches one, the SSH trust, the exporter fan out,
 the rules, reads that half. `guests` are the members of the `VMs` group, which
 `deploy_vms_cluster` and `deploy_vms_standalone` loop over and which this
-service never connects to. Each guest carries the files it names, `vm_disk`,
+service never connects to. Each carries the `deployment` its group says,
+`cluster_VMs` or `standalone_VMs`, or nothing where the file has one flat
+group and the mode answers for it. Each guest carries the files it names, `vm_disk`,
 `vm_template` and `xml_path`, plus `force` and `enable`; the rest of what a VM
 entry holds, most of it read by `guest.xml.j2`, is in `extra` and survives
 every write untouched. See [inventory.md](inventory.md#machines-and-guests).
@@ -511,8 +513,8 @@ domain and the resource.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `undeclared` lists the guests the cluster runs and the inventory does not describe; `machines` are the cluster members that run libvirt, which is where a guest may be placed; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
-| POST | `/vms` | Declare one guest in the `VMs` group, one commit, `If-Match` on the commit hash. Answers with the commit and the playbook that deploys it. `admin` |
+| GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `undeclared` lists the guests the cluster runs and the inventory does not describe; `machines` are the cluster members that run libvirt, which is where a guest may be placed; each guest carries the `deployment` it belongs to, whether the file `declared` it and the `playbook` that creates it; `deployments` names the kinds of machine this inventory has, and `split` says whether the file assigns its guests; `playbook` names the entry that deploys the group in this mode; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
+| POST | `/vms` | Declare one guest, one commit, `If-Match` on the commit hash. `deployment` picks the group it goes into, `cluster` or `standalone`; absent leaves it in `VMs` itself. Answers with the commit and the playbook that creates it. `admin` |
 | POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
 | POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |
 | GET | `/vms/{name}/metadata` | Everything the guest's RBD image carries, read from Ceph as the request is served. `viewer` |
@@ -549,12 +551,14 @@ constraint nobody can read. A guest is pinned or preferred and not both, because
 inventory has. The pinning profile has to parse as a YAML mapping, since the
 seapath-alloc hook reads it at every start.
 
-Which of them a mode reads is checked too, because a variable written for the
-wrong one is silently inert: the operator asked, the file says they got it, and
+Which of them the **guest's own deployment** reads is checked too, because a
+variable written for the wrong one is silently inert: the operator asked, the file says they got it, and
 nothing anywhere does it. `deploy_vms_standalone` renders the whole domain from
 the template and has no Pacemaker, so placement, priority, migration and
-`disk_bus` are refused there; `deploy_vms_cluster` never reads `autostart` or
-`disk_extract`, so those are refused in a cluster.
+`disk_bus` are refused on a guest it creates; `deploy_vms_cluster` never reads
+`autostart` or `disk_extract`, so those are refused on a cluster guest. In a
+file that declares both, this is a question about the guest and never about
+the file.
 
 `vm_pinning_profile` is the one that crosses. A standalone deployment writes it
 to `/etc/seapath/alloc.d/<vm>.yaml` and the same libvirt hook reads it there,

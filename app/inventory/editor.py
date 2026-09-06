@@ -273,8 +273,10 @@ def _members(table: dict, name: str) -> set[str]:
     return hosts
 
 
-def add_guest(document: str, name: str, variables: dict[str, Any]) -> str:
-    """Declare a guest in the `VMs` group, creating the group if it is absent.
+def add_guest(
+    document: str, name: str, variables: dict[str, Any], group: str = GUEST_GROUP
+) -> str:
+    """Declare a guest in `VMs`, or in one of its two deployment children.
 
     The one write this module makes that adds a host rather than changing one.
     It is bounded to guests on purpose: adding a *machine* is cluster
@@ -301,12 +303,13 @@ def add_guest(document: str, name: str, variables: dict[str, Any]) -> str:
         )
 
     lines = document.splitlines(keepends=True)
-    group = _named_group(loaded, GUEST_GROUP)
-    splice = (
-        _guest_group(lines, loaded, name, variables)
-        if group is None
-        else _guest_into(lines, group, name, variables)
-    )
+    body = _named_group(loaded, group)
+    if body is not None:
+        splice = _guest_into(lines, body, name, variables)
+    elif group == GUEST_GROUP:
+        splice = _guest_group(lines, loaded, name, variables)
+    else:
+        splice = _deployment_group(lines, loaded, group, name, variables)
     lines[splice.start : splice.end] = splice.replacement
     return "".join(lines)
 
@@ -334,8 +337,46 @@ def _guest_into(
     return _Splice(start, start, _hosts_lines(name, variables, column))
 
 
+def _deployment_group(
+    lines: list[str], loaded: Any, group: str, name: str, variables: dict[str, Any]
+) -> _Splice:
+    """`cluster_VMs` or `standalone_VMs`, as a child of `VMs`.
+
+    A group carries `hosts` and `children` at once, so a file whose `VMs` is
+    flat gains the first of the two deployment groups beside its loose guests
+    rather than being restructured. Validation then names those loose guests,
+    since both playbooks would claim them.
+    """
+    parent = _named_group(loaded, GUEST_GROUP)
+    if parent is None:
+        # No `VMs` at all: the whole nest goes in at once, wherever the file
+        # keeps its groups.
+        return _guest_group(lines, loaded, name, variables, child=group)
+
+    children = parent.get("children")
+    if isinstance(children, dict) and children:
+        column = _mapping_column(children)
+        start = _mapping_end(lines, children)
+        return _Splice(start, start, _group_lines(name, variables, column, group))
+
+    if "children" in parent:
+        key_line, key_column = parent.lc.key("children")
+        end = _block_end(lines, key_line + 1, key_column)
+        return _Splice(
+            key_line, end, _children_lines(name, variables, key_column, group)
+        )
+
+    column = _mapping_column(parent)
+    start = _mapping_end(lines, parent)
+    return _Splice(start, start, _children_lines(name, variables, column, group))
+
+
 def _guest_group(
-    lines: list[str], loaded: Any, name: str, variables: dict[str, Any]
+    lines: list[str],
+    loaded: Any,
+    name: str,
+    variables: dict[str, Any],
+    child: str = "",
 ) -> _Splice:
     """The whole group, for an inventory that declares no guest yet.
 
@@ -349,12 +390,12 @@ def _guest_group(
     if isinstance(children, dict) and children:
         column = _mapping_column(children)
         start = _mapping_end(lines, children)
-        return _Splice(start, start, _group_lines(name, variables, column))
+        return _Splice(start, start, _group_lines(name, variables, column, child=child))
 
     end = len(lines)
     while end > 0 and not lines[end - 1].strip():
         end -= 1
-    block = _group_lines(name, variables, 0)
+    block = _group_lines(name, variables, 0, child=child)
     if end > 0 and not lines[end - 1].endswith("\n"):
         lines[end - 1] += "\n"
     return _Splice(end, end, ["\n", *block])
@@ -378,10 +419,31 @@ def _hosts_lines(name: str, variables: dict[str, Any], column: int) -> list[str]
     return [f"{' ' * column}hosts:\n", *_guest_lines(name, variables, column + 2)]
 
 
-def _group_lines(name: str, variables: dict[str, Any], column: int) -> list[str]:
+def _group_lines(
+    name: str,
+    variables: dict[str, Any],
+    column: int,
+    group: str = GUEST_GROUP,
+    child: str = "",
+) -> list[str]:
+    """One group, holding the guest directly or through a deployment child."""
+    if group == GUEST_GROUP and child:
+        return [
+            f"{' ' * column}{GUEST_GROUP}:\n",
+            *_children_lines(name, variables, column + 2, child),
+        ]
     return [
-        f"{' ' * column}{GUEST_GROUP}:\n",
+        f"{' ' * column}{group}:\n",
         *_hosts_lines(name, variables, column + 2),
+    ]
+
+
+def _children_lines(
+    name: str, variables: dict[str, Any], column: int, group: str
+) -> list[str]:
+    return [
+        f"{' ' * column}children:\n",
+        *_group_lines(name, variables, column + 2, group),
     ]
 
 

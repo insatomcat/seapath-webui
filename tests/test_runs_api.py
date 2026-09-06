@@ -47,7 +47,7 @@ def test_the_catalogue_says_what_each_playbook_disrupts(
     # Listed so an operator can see what exists, and unavailable with the
     # reason rather than silently missing.
     assert catalogue["cluster_setup_ha"]["available"] is False
-    assert "not part of a cluster" in catalogue["cluster_setup_ha"]["unmet"][0]
+    assert "declares no cluster machine" in catalogue["cluster_setup_ha"]["unmet"][0]
     # A `none` playbook offers no preview button at all.
     assert catalogue["cluster_setup_ha"]["entry"]["preview"] == "none"
 

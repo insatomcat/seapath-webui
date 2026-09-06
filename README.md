@@ -76,6 +76,14 @@ and where, whether a deployment would find the two files it names, and what the
 next run does to it, `force` being the word that matters there since the roles
 destroy and recreate a guest that carries it.
 
+Where an inventory describes a cluster and a standalone machine at once, each
+guest says which of the two creates it, through `cluster_VMs` and
+`standalone_VMs` as children of `VMs`. Everything follows from that one fact:
+the playbook that deploys it, the module that starts and stops it, the options
+its entry may carry, and whether it has an RBD image to hold metadata. A file
+with one flat group says nothing and its guests take the file's own mode, which
+is every inventory written before those groups existed.
+
 Adding a VM is the act it performs whole. Name the
 guest, pick a disk image and a libvirt XML, and the page uploads both, commits
 the entry and launches the deployment. Folded under those three is what

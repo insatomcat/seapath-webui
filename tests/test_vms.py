@@ -770,7 +770,7 @@ def test_a_variable_the_other_role_reads_is_refused_rather_than_written(
     response = signed_in.post("/api/v1/vms", json={"name": "newvm", "disk_bus": "scsi"})
 
     assert response.status_code == 400
-    assert "deploy_vms_standalone would ignore it" in (
+    assert "deploy_vms_standalone, which creates newvm, would ignore it" in (
         response.json()["error"]["message"]
     )
 
@@ -785,3 +785,161 @@ def test_the_libvirt_autostart_flag_is_standalone_only(
     response = signed_in.post("/api/v1/vms", json={"name": "newvm", "autostart": False})
 
     assert response.status_code == 400
+
+
+# 7. A file that says which deployment each guest belongs to.
+
+
+SPLIT = """
+VMs:
+  children:
+    cluster_VMs:
+      hosts:
+        vm-guest1:
+        vm-guest3:
+    standalone_VMs:
+      hosts:
+        localvm:
+"""
+
+
+def _declare_split(client: TestClient) -> None:
+    """The cluster inventory, plus a standalone machine, plus both groups."""
+    document = (
+        CLUSTER.read_text()
+        + """
+standalone_machine:
+  hosts:
+    ccv-admin:
+      ansible_host: 10.132.159.74
+      network_interface: eno8303
+      admin_user: admin
+"""
+        + SPLIT
+    )
+    response = client.post("/api/v1/inventory/import", json={"document": document})
+    assert response.status_code == 200, response.text
+
+
+def test_a_guest_says_which_playbook_creates_it(signed_in: TestClient) -> None:
+    _declare_split(signed_in)
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["vm-guest1"]["deployment"] == "cluster"
+    assert guests["vm-guest1"]["playbook"] == "deploy_vms_cluster"
+    assert guests["localvm"]["deployment"] == "standalone"
+    assert guests["localvm"]["playbook"] == "deploy_vms_standalone"
+    assert all(item["declared"] for item in guests.values())
+
+
+def test_a_flat_group_takes_the_file_s_mode_and_says_it_assumed(
+    signed_in: TestClient,
+) -> None:
+    # Every inventory written before the two groups existed, and every one
+    # that needs a single deployment.
+    _declare_cluster(signed_in)
+
+    view = signed_in.get("/api/v1/vms").json()
+
+    assert view["split"] is False
+    assert all(item["deployment"] == "cluster" for item in view["guests"])
+    assert not any(item["declared"] for item in view["guests"])
+
+
+def test_the_mixed_warning_goes_when_the_file_answers_the_question(
+    signed_in: TestClient,
+) -> None:
+    # The warning exists because one flat group cannot say which deployment a
+    # guest belongs to. A file that says it has nothing to be warned about.
+    _declare_split(signed_in)
+
+    assert signed_in.get("/api/v1/vms").json()["warnings"] == []
+
+
+def test_a_guest_in_neither_group_is_refused(signed_in: TestClient) -> None:
+    # Both playbooks loop over what is left of `VMs`, so it would be created
+    # twice, once in the Ceph pool and once in the local one.
+    document = CLUSTER.read_text() + SPLIT.replace(
+        "VMs:\n  children:", "VMs:\n  hosts:\n    stray:\n  children:"
+    )
+
+    response = signed_in.post("/api/v1/inventory/import", json={"document": document})
+
+    assert response.status_code == 422
+    rules = {f["rule"] for f in response.json()["error"]["detail"]["findings"]}
+    assert "guest_belongs_to_one_deployment" in rules
+
+
+def test_adding_a_guest_writes_it_into_the_deployment_group(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_split(signed_in)
+
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "deployment": "standalone"}
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["playbook"] == "deploy_vms_standalone"
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    assert written.endswith("        newvm:\n")
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+    assert guests["newvm"]["deployment"] == "standalone"
+
+
+def test_the_options_a_guest_may_carry_follow_its_deployment(
+    signed_in: TestClient,
+) -> None:
+    # The file holds both kinds, so the file's mode answers nothing. A
+    # standalone guest in a cluster inventory takes the standalone role's
+    # variables and refuses Pacemaker's.
+    _declare_split(signed_in)
+
+    placed = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "deployment": "standalone", "priority": 10},
+    )
+    autostarted = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "deployment": "cluster", "autostart": False},
+    )
+
+    assert placed.status_code == 400
+    assert "deploy_vms_standalone, which creates newvm" in (
+        placed.json()["error"]["message"]
+    )
+    assert autostarted.status_code == 400
+
+
+def test_a_standalone_guest_has_no_rbd_image_to_carry_metadata(
+    signed_in: TestClient,
+) -> None:
+    # Its disk is a file in the local libvirt pool, and it has no Pacemaker
+    # either, so there is nothing for this window to read or to apply.
+    _declare_split(signed_in)
+
+    response = signed_in.get("/api/v1/vms/localvm/metadata")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "no_image"
+
+
+def test_a_standalone_guest_is_started_through_libvirt(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # In a file that holds both, the guest decides the module rather than the
+    # file: `cluster_vm` for a Pacemaker guest, `community.libvirt.virt` for
+    # one libvirt owns alone.
+    _declare_split(signed_in)
+
+    run = signed_in.post("/api/v1/vms/localvm/start").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_start.yaml"))
+    document = yaml.safe_load(written[0].read_text())
+    assert document[0]["hosts"] == "standalone_machine"
+    assert "community.libvirt.virt" in document[0]["tasks"][0]

@@ -147,6 +147,43 @@ are: `guest.xml.j2` alone reads some thirty variables, and modelling them would
 be this service inventing an interface over a template a site is expected to
 replace.
 
+### Which deployment a guest belongs to
+
+`VMs` is one group and there are two playbooks that loop over it,
+`deploy_vms_cluster` from a cluster member and `deploy_vms_standalone` on the
+standalone machine. A file that declares both kinds of machine therefore has no
+way of saying which deployment a guest belongs to, and running the two would
+create every guest twice, once in the Ceph pool and once in the local one.
+
+`cluster_VMs` and `standalone_VMs`, declared as children of `VMs`, say it:
+
+```yaml
+VMs:
+  children:
+    cluster_VMs:
+      hosts:
+        rtvm:
+    standalone_VMs:
+      hosts:
+        localvm:
+```
+
+Ansible lists the hosts of a group's children under the parent, so
+`groups['VMs']` stays the union of the two and every play that configures the
+guests themselves is unchanged. Only the deployment separates.
+
+It is read the way a machine's hypervisor or observer role is read, from the
+group rather than from a variable, because that is how the inventory expresses
+it and how the playbooks read it. Everything that differs between a Pacemaker
+guest and a libvirt one follows from it: the playbook that creates it, the
+module that starts and stops it, the variables its entry may carry, and whether
+it has an RBD image to hold metadata at all.
+
+A file with one flat `VMs` group says nothing, which is every inventory written
+before these groups existed. Its guests take the file's own mode, since the
+group is claimed whole by whichever playbook is run. Once a file declares
+either group, a guest in neither is refused: both playbooks would claim it.
+
 Reading a guest as a machine is what an early version did, and the cost was
 immediate. A standalone deployment running two VMs arrived as three machines,
 two of them without an administration interface, and the import was refused by

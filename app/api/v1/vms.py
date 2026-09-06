@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
+from app.inventory.model import Mode
 from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
 from app.runs.service import RunService
@@ -58,6 +59,14 @@ class GuestDeclaration(BaseModel):
 
     name: str = Field(
         description="The libvirt domain name, which is also the inventory key"
+    )
+    deployment: str | None = Field(
+        default=None,
+        description=(
+            "`cluster` or `standalone`: which playbook creates it, written as "
+            "the group the guest goes into. Absent leaves it in `VMs` itself, "
+            "which is the file with one deployment to send it to."
+        ),
     )
     vm_disk: str | None = Field(
         default=None, description="The disk image a creation starts from"
@@ -146,9 +155,21 @@ def declare(
     """
     service = _service(request)
     definition = _definition(payload)
+    try:
+        deployment = Mode(payload.deployment) if payload.deployment else None
+    except ValueError as error:
+        raise ApiError(
+            "invalid_guest",
+            f"{payload.deployment!r} is not a deployment. `cluster` creates "
+            "the guest with deploy_vms_cluster, `standalone` with "
+            "deploy_vms_standalone.",
+            400,
+        ) from error
 
     try:
-        commit = service.declare(payload.name, definition, user.username, if_match)
+        commit = service.declare(
+            payload.name, definition, user.username, if_match, deployment
+        )
     except InvalidGuest as error:
         raise ApiError("invalid_guest", str(error), 400) from error
     except RefusedWrite as error:
@@ -170,7 +191,7 @@ def declare(
         name=payload.name,
         commit=commit.hash,
         message=commit.message,
-        playbook=service.deploy_playbook(),
+        playbook=service.deploy_playbook(payload.name),
     )
 
 
@@ -190,7 +211,9 @@ def _act(request: Request, name: str, action: Action, user: User) -> ActionRespo
     except UnknownGuest as error:
         raise ApiError("unknown_guest", str(error), 404) from error
 
-    record = _runs(request).launch_action(action, name, user.username)
+    record = _runs(request).launch_action(
+        action, name, user.username, service.deployment_of(name)
+    )
     return ActionResponse(
         run_id=record.id,
         state=record.state.value,
@@ -272,6 +295,24 @@ def _known(request: Request, name: str) -> None:
         raise ApiError("unknown_guest", str(error), 404) from error
 
 
+def _has_an_image(request: Request, name: str) -> None:
+    """A guest whose metadata lives somewhere this can read.
+
+    The metadata is on an RBD image, and a guest `deploy_vms_standalone`
+    creates has a qcow2 in the local libvirt pool instead. Saying so beats an
+    `rbd` call that fails on a name Ceph has never heard of.
+    """
+    if _service(request).deployment_of(name) is not Mode.CLUSTER:
+        raise ApiError(
+            "no_image",
+            f"{name} is deployed on a standalone machine, so its disk is a "
+            "file in the libvirt pool and there is no RBD image to carry "
+            "metadata. What Pacemaker reads off one is what this window "
+            "edits, and a standalone guest has no Pacemaker either.",
+            409,
+        )
+
+
 def _unavailable(error: RbdUnavailable) -> ApiError:
     """Ceph could not be asked, said as what an operator can act on.
 
@@ -294,6 +335,7 @@ def metadata(request: Request, name: str) -> MetadataView:
     `changes` is empty here: it is what a write moved, and this moves nothing.
     """
     _known(request, name)
+    _has_an_image(request, name)
     try:
         return _metadata(request).read(name)
     except RbdUnavailable as error:
@@ -315,6 +357,7 @@ def write_metadata(
     change is `POST /vms/{name}/reconfigure`, and that is an outage.
     """
     _known(request, name)
+    _has_an_image(request, name)
     try:
         return _metadata(request).write(name, payload.key, payload.value, user.username)
     except InvalidMetadata as error:

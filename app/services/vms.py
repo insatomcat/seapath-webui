@@ -30,7 +30,13 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.cluster.ha import PacemakerResource
-from app.inventory.model import Inventory, Mode
+from app.inventory.model import (
+    CLUSTER_GUEST_GROUP,
+    GUEST_GROUP,
+    STANDALONE_GUEST_GROUP,
+    Inventory,
+    Mode,
+)
 from app.inventory.references import Reference
 from app.inventory.repository import Commit
 from app.inventory.service import InventoryService
@@ -84,6 +90,18 @@ class GuestView(BaseModel):
     name: str
     """The host key, which is also the libvirt domain name and the resource id."""
 
+    deployment: str = Mode.STANDALONE.value
+    """Which of the two playbooks creates it, from the group it is in.
+
+    A file with one flat `VMs` group says nothing, and every guest then takes
+    the file's own mode: the group is claimed whole by whichever playbook is
+    run.
+    """
+    declared: bool = False
+    """Whether the file put it in a deployment group, rather than defaulting."""
+    playbook: str = ""
+    """The catalogue entry that creates this guest."""
+
     vm_disk: str | None = None
     vm_template: str | None = None
     xml_path: str | None = None
@@ -112,6 +130,15 @@ class GuestsView(BaseModel):
     hand, or one left behind by an inventory somebody edited, keeps running and
     keeps a name that a later deployment would collide with.
     """
+    split: bool = False
+    """Whether the file says which deployment each guest belongs to.
+
+    False for one flat `VMs` group, which is every inventory written before
+    `cluster_VMs` and `standalone_VMs` existed and every one that needs only
+    one deployment.
+    """
+    deployments: list[str] = Field(default_factory=list)
+    """The deployments this inventory has machines for, so a form can ask."""
     machines: list[str] = Field(default_factory=list)
     """The machines a guest may be placed on, for the form that asks.
 
@@ -158,6 +185,20 @@ STANDALONE_ONLY = ("autostart", "disk_extract")
 DISK_BUSES = ("virtio", "sata", "scsi", "ide", "usb")
 
 
+def _deployments(inventory: Inventory) -> list[str]:
+    """The deployments this file has machines for.
+
+    A guest can only be created where there is something to create it on, so
+    this is what a form offers rather than the two names in the abstract.
+    """
+    found = []
+    if inventory.cluster_members:
+        found.append(Mode.CLUSTER.value)
+    if set(inventory.hosts) - set(inventory.cluster_members):
+        found.append(Mode.STANDALONE.value)
+    return found
+
+
 def _warnings(inventory: Inventory) -> list[str]:
     """What one `VMs` group cannot say, and this file needs it to.
 
@@ -173,6 +214,10 @@ def _warnings(inventory: Inventory) -> list[str]:
     """
     if not inventory.guests:
         return []
+    # A file that says which deployment each guest belongs to has answered
+    # this, and the validation refuses the ones it left out.
+    if any(guest.deployment is not None for guest in inventory.guests.values()):
+        return []
     standalone = [
         name for name in inventory.hosts if name not in inventory.cluster_members
     ]
@@ -185,11 +230,25 @@ def _warnings(inventory: Inventory) -> list[str]:
             if len(standalone) == 1
             else f"{len(standalone)} machines outside it"
         )
-        + ". The `VMs` group is one group and both deployment playbooks loop "
-        "over all of it, so the guests below are treated as the cluster's: "
-        "running deploy_vms_standalone as well would create each of them a "
-        "second time, on that machine."
+        + ", and its `VMs` group is one flat group. Both deployment playbooks "
+        "loop over all of it, so the guests below are treated as the "
+        "cluster's: running deploy_vms_standalone as well would create each of "
+        "them a second time, on that machine. Declaring `cluster_VMs` and "
+        "`standalone_VMs` as children of `VMs` says which is which."
     ]
+
+
+def _group_for(deployment: Mode | None) -> str:
+    """The inventory group a declaration goes into.
+
+    `VMs` itself when the caller names no deployment, which is the file that
+    has one flat group and one deployment to send it to.
+    """
+    if deployment is Mode.CLUSTER:
+        return CLUSTER_GUEST_GROUP
+    if deployment is Mode.STANDALONE:
+        return STANDALONE_GUEST_GROUP
+    return GUEST_GROUP
 
 
 class InvalidGuest(Exception):
@@ -226,10 +285,22 @@ class VmService:
                 "reported by the cluster."
             )
 
-    def deploy_playbook(self) -> str:
+    def deploy_playbook(self, guest: str = "") -> str:
+        """The playbook that creates a guest, or the file's own default."""
+        return DEPLOY_PLAYBOOK[self.deployment_of(guest)]
+
+    def deployment_of(self, guest: str) -> Mode:
+        """Which of the two a guest belongs to.
+
+        Its group when the file says, the file's mode otherwise. Everything
+        that differs between a Pacemaker guest and a libvirt one asks this: the
+        playbook that creates it, the module that starts it, the options its
+        entry may carry, and whether it has an RBD image to hold metadata.
+        """
         state = self._inventory.state()
-        mode = state.inventory.mode if state.inventory else Mode.STANDALONE
-        return DEPLOY_PLAYBOOK[mode]
+        if state.inventory is None:
+            return Mode.STANDALONE
+        return state.inventory.deployment_of(guest)
 
     def declare(
         self,
@@ -237,6 +308,7 @@ class VmService:
         definition: dict[str, Any],
         author: str,
         expected_head: str | None = None,
+        deployment: Mode | None = None,
     ) -> Commit:
         """Write one guest into the `VMs` group, as a commit.
 
@@ -256,13 +328,15 @@ class VmService:
             for key, value in definition.items()
             if value not in (None, "", [])
         }
-        self._check_definition(name, variables)
+        self._check_definition(name, variables, deployment)
         commit, _ = self._inventory.declare_guest(
-            name, variables, author, expected_head
+            name, variables, author, expected_head, _group_for(deployment)
         )
         return commit
 
-    def _check_definition(self, name: str, variables: dict[str, Any]) -> None:
+    def _check_definition(
+        self, name: str, variables: dict[str, Any], deployment: Mode | None = None
+    ) -> None:
         """What the entry says, held against what this inventory declares.
 
         Every one of these is written once, at creation, into the metadata of
@@ -274,7 +348,11 @@ class VmService:
         state = self._inventory.state()
         machines = state.inventory.placement_hosts() if state.inventory else []
         guests = set(state.inventory.guests) if state.inventory else set()
-        cluster = state.inventory is not None and state.inventory.mode is Mode.CLUSTER
+        # The guest's own deployment decides which variables mean anything,
+        # since a file may hold both kinds and each role reads its own.
+        if deployment is None:
+            deployment = state.inventory.mode if state.inventory else Mode.STANDALONE
+        cluster = deployment is Mode.CLUSTER
 
         wrong = [
             variable
@@ -285,8 +363,8 @@ class VmService:
             role = "deploy_vms_cluster" if cluster else "deploy_vms_standalone"
             raise InvalidGuest(
                 f"{', '.join(wrong)} is read by the other deployment role, so "
-                f"{role} would ignore it here. Writing it would say the guest "
-                "got something nothing does."
+                f"{role}, which creates {name}, would ignore it. Writing it "
+                "would say the guest got something nothing does."
             )
 
         if "pinned_host" in variables and "preferred_host" in variables:
@@ -344,6 +422,11 @@ class VmService:
         mode = state.inventory.mode
         view = GuestsView(
             mode=mode.value,
+            split=any(
+                guest.deployment is not None
+                for guest in state.inventory.guests.values()
+            ),
+            deployments=_deployments(state.inventory),
             machines=state.inventory.placement_hosts(),
             warnings=_warnings(state.inventory),
             playbook=DEPLOY_PLAYBOOK[mode],
@@ -354,9 +437,13 @@ class VmService:
         resources, view.runtime_note = self._resources()
 
         for name, guest in state.inventory.guests.items():
+            deployment = state.inventory.deployment_of(name)
             view.guests.append(
                 GuestView(
                     name=name,
+                    deployment=deployment.value,
+                    declared=guest.deployment is not None,
+                    playbook=DEPLOY_PLAYBOOK[deployment],
                     vm_disk=guest.vm_disk,
                     vm_template=guest.vm_template,
                     xml_path=guest.xml_path,

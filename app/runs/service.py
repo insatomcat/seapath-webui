@@ -252,13 +252,25 @@ class RunService:
                 "keys, in Reaching the other machines."
             )
 
-        mode = state.inventory.mode.value if state.inventory else None
-        if mode != "cluster":
+        # Which machines the inventory has, rather than which single mode it
+        # is in. A file may describe a cluster and a standalone machine at
+        # once, and then both kinds of playbook have somewhere to run: asking
+        # the mode would refuse one of them on a file that has the machines
+        # for it.
+        clustered = list(state.inventory.cluster_members) if state.inventory else []
+        alone = (
+            sorted(set(state.inventory.hosts) - set(clustered))
+            if state.inventory
+            else []
+        )
+        if not clustered:
             unmet[Precondition.CLUSTER] = (
-                "This machine is not part of a cluster. Add a node first."
+                "This inventory declares no cluster machine. Add a node first."
             )
-        if mode != "standalone":
-            unmet[Precondition.STANDALONE] = "This machine is not standalone."
+        if not alone:
+            unmet[Precondition.STANDALONE] = (
+                "This inventory declares no machine outside a cluster."
+            )
 
         return unmet
 
@@ -345,7 +357,11 @@ class RunService:
         return self._launch(entry, launched_by, variables, check)
 
     def launch_action(
-        self, action: actions.Action, guest: str, launched_by: str
+        self,
+        action: actions.Action,
+        guest: str,
+        launched_by: str,
+        deployment: Mode | None = None,
     ) -> RunRecord:
         """Start or stop one guest, as a run like any other.
 
@@ -354,7 +370,10 @@ class RunService:
         module, one command value. Everything around it is the ordinary path,
         the lock included, so a start cannot slip in under a convergence.
         """
-        mode = self._mode()
+        # The guest's own deployment, so a Pacemaker guest is started through
+        # `cluster_vm` and a libvirt one through `community.libvirt.virt`, in a
+        # file that holds both.
+        mode = deployment or self._mode()
         return self._launch(
             actions.entry(action, guest, mode),
             launched_by,

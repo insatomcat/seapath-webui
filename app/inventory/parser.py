@@ -23,7 +23,9 @@ from typing import Any
 import yaml
 
 from app.inventory.model import (
+    CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
+    STANDALONE_GUEST_GROUP,
     Guest,
     Inventory,
     Mode,
@@ -95,6 +97,13 @@ def parse(document: str) -> Inventory:
     # interface, refused by the rule that a standalone inventory describes
     # exactly one machine.
     guests = _members(table, GUEST_GROUP)
+    # Which deployment each guest belongs to, when the file says. Read from the
+    # groups rather than from a variable, the way a machine's hypervisor or
+    # observer role is, because that is how the inventory expresses it and how
+    # the playbooks read it.
+    deployments = {
+        name: Mode.CLUSTER for name in _members(table, CLUSTER_GUEST_GROUP)
+    } | {name: Mode.STANDALONE for name in _members(table, STANDALONE_GUEST_GROUP)}
 
     parsed: dict[str, NodeConfig] = {
         name: _node(name, variables, observers)
@@ -102,7 +111,7 @@ def parse(document: str) -> Inventory:
         if name not in guests
     }
     defined: dict[str, Guest] = {
-        name: _guest(variables)
+        name: _guest(variables, deployments.get(name))
         for name, variables in resolved.items()
         if name in guests
     }
@@ -162,7 +171,7 @@ def _node(name: str, variables: dict[str, Any], observers: set[str]) -> NodeConf
     )
 
 
-def _guest(variables: dict[str, Any]) -> Guest:
+def _guest(variables: dict[str, Any], deployment: Mode | None) -> Guest:
     """One VM entry, read the way the roles read it.
 
     Variables are taken resolved here too: the reference VM inventory keeps
@@ -170,6 +179,7 @@ def _guest(variables: dict[str, Any]) -> Guest:
     guest read from its own lines alone would lose it on the way back out.
     """
     return Guest(
+        deployment=deployment,
         vm_disk=_optional_str(variables.get("vm_disk")),
         vm_template=_optional_str(variables.get("vm_template")),
         xml_path=_optional_str(variables.get("xml_path")),

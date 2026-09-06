@@ -84,7 +84,48 @@ def validate(inventory: Inventory) -> ValidationResult:
         findings.extend(_validate_host(name, node))
 
     findings.extend(_validate_across_hosts(inventory))
+    findings.extend(_validate_guests(inventory))
     return ValidationResult(findings=findings)
+
+
+def _validate_guests(inventory: Inventory) -> list[Finding]:
+    """A guest belongs to one deployment, or the file says nothing at all.
+
+    `cluster_VMs` and `standalone_VMs` are how a file says which playbook
+    creates a guest. Once it declares either of them, a guest in neither is a
+    guest both playbooks claim: `deploy_vms_cluster` and
+    `deploy_vms_standalone` each loop over what is left of `VMs`, so it would
+    be created twice, once in the Ceph pool and once in the local one.
+
+    A file with one flat group says nothing and is left alone: its guests are
+    deployed by whichever playbook the mode calls for, which is what every
+    inventory did before the two groups existed.
+    """
+    if not inventory.guests:
+        return []
+    declared = [
+        name for name, guest in inventory.guests.items() if guest.deployment is not None
+    ]
+    if not declared:
+        return []
+
+    orphans = sorted(set(inventory.guests) - set(declared))
+    if not orphans:
+        return []
+    return [
+        Finding(
+            level=Level.ERROR,
+            rule="guest_belongs_to_one_deployment",
+            host=name,
+            message=(
+                f"{name} is in neither cluster_VMs nor standalone_VMs, and "
+                "this inventory declares them. Both deployment playbooks loop "
+                "over what is left of VMs, so this guest would be created "
+                "twice, once in the Ceph pool and once in the local one."
+            ),
+        )
+        for name in orphans
+    ]
 
 
 def _validate_host(name: str, node: NodeConfig) -> list[Finding]:

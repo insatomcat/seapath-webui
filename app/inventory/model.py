@@ -39,6 +39,14 @@ WEBUI_IMAGE_VARIABLE = "seapath_webui_image"
 # so it is matched and written as written.
 GUEST_GROUP = "VMs"
 
+# Which of the two deployments a guest belongs to, when the file says. Declared
+# as children of `VMs`, so `groups['VMs']` stays the union and every play that
+# configures the guests themselves is unchanged. A file with one flat group
+# says nothing, and its guests are deployed by whichever playbook the mode
+# calls for.
+CLUSTER_GUEST_GROUP = "cluster_VMs"
+STANDALONE_GUEST_GROUP = "standalone_VMs"
+
 
 class NodeConfig(BaseModel):
     """The variables of one machine.
@@ -101,6 +109,13 @@ class Guest(BaseModel):
     force: bool = False
     """Destroy and recreate the guest, rather than leave an existing one alone."""
     enable: bool = True
+    deployment: Mode | None = None
+    """Which playbook creates this guest, when the file says.
+
+    `cluster_VMs` and `standalone_VMs` are how it says it. `None` where the
+    file has one flat `VMs` group, and then the deployment is the file's own
+    mode: the group is claimed whole by whichever playbook is run.
+    """
     extra: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -145,6 +160,18 @@ class Inventory(BaseModel):
 
     def guest_names(self) -> list[str]:
         return list(self.guests)
+
+    def deployment_of(self, name: str) -> Mode:
+        """Which playbook creates this guest.
+
+        The group it is in when the file declares the two, and the file's own
+        mode otherwise. One place for the fallback, because getting it wrong
+        means offering an operator a Pacemaker option on a guest libvirt owns.
+        """
+        guest = self.guests.get(name)
+        if guest is not None and guest.deployment is not None:
+            return guest.deployment
+        return self.mode
 
     def hypervisors(self) -> list[str]:
         return [

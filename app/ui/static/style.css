@@ -2262,3 +2262,12 @@ td.meta-actions button {
 td.meta-key code.reserved {
   color: var(--accent);
 }
+
+/* A deployment the file did not state, which the page worked out from the one
+   kind of machine the inventory describes. Said quietly, because it is an
+   answer rather than a problem, and an operator who wants it in the file now
+   knows there is something to write. */
+.assumed {
+  color: var(--muted);
+  font-style: italic;
+}

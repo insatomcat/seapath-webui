@@ -601,7 +601,7 @@ def test_a_cluster_playbook_is_refused_on_a_standalone_machine(
     # Named, never a bare 400: the operator has to know which condition to
     # satisfy.
     assert failure.value.status_code == 409
-    assert "not part of a cluster" in failure.value.message
+    assert "declares no cluster machine" in failure.value.message
 
 
 def test_a_run_without_self_trust_is_refused(store, inventory, tmp_path) -> None:
