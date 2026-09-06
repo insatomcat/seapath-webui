@@ -357,6 +357,54 @@ def test_the_commit_message_names_what_changed(
     assert history[0]["author"] == "admin"
 
 
+def test_a_variable_this_model_knows_nothing_about_is_written_by_an_edit(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # `extra` is where every variable without a form field lives, the image of
+    # this service among them. A write that compared only the modelled fields
+    # reported a commit and left the file as it was, which is the one failure
+    # this whole path exists to prevent, in the other direction.
+    _adopt(settings, ADOPTED)
+    path = settings.inventory_dir / "inventory.yaml"
+    before = path.read_text()
+    state = signed_in.get("/api/v1/inventory").json()
+    candidate = state["inventory"]
+    candidate["hosts"]["node1"]["extra"]["seapath_webui_image"] = "example.org/ui:2.0"
+
+    response = signed_in.put("/api/v1/inventory", json={"inventory": candidate})
+
+    assert response.status_code == 200, response.text
+    after = path.read_text()
+    assert resolve(after)["node1"]["seapath_webui_image"] == "example.org/ui:2.0"
+    # And exactly that variable, on exactly that machine.
+    assert (
+        unintended_changes(
+            before, after, {"node1": {"seapath_webui_image": "example.org/ui:2.0"}}
+        )
+        == []
+    )
+    assert "seapath_webui_image" not in resolve(after)["node2"]
+
+
+def test_removing_such_a_variable_is_refused_rather_than_ignored(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # Taking a line out of a file is an edit to the file, and this service
+    # writes values. Said out loud, because the alternative is a save that
+    # reports success and changes nothing.
+    _adopt(settings, ADOPTED)
+    state = signed_in.get("/api/v1/inventory").json()
+    candidate = state["inventory"]
+    dropped = sorted(candidate["hosts"]["node1"]["extra"])[0]
+    del candidate["hosts"]["node1"]["extra"][dropped]
+
+    response = signed_in.put("/api/v1/inventory", json={"inventory": candidate})
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "refused_write"
+    assert dropped in response.json()["error"]["message"]
+
+
 def test_adding_a_machine_to_an_adopted_inventory_is_refused(
     signed_in: TestClient, settings: Settings
 ) -> None:

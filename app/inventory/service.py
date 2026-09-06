@@ -693,6 +693,25 @@ def field_changes(
             for field in _EDITABLE
             if getattr(node, field) != getattr(before, field)
         }
+        # A variable this model knows nothing about, changed deliberately. The
+        # image of this service is the one that exists: it has no form field,
+        # it lives in `extra`, and a write that dropped it here would report a
+        # commit and leave the file as it was.
+        fields.update(
+            {
+                variable: value
+                for variable, value in node.extra.items()
+                if before.extra.get(variable) != value
+            }
+        )
+        dropped = sorted(set(before.extra) - set(node.extra))
+        if dropped:
+            raise RefusedWrite(
+                f"Removing {', '.join(dropped)} from {name} is an edit to the "
+                "file rather than a change of a value, and this service only "
+                "writes values.",
+                [],
+            )
         if fields:
             changes[name] = fields
     return changes
