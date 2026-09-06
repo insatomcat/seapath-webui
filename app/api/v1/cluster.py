@@ -275,6 +275,36 @@ def _member(cluster: PacemakerCluster, name: str, standby: bool) -> None:
         )
 
 
+def _elsewhere(cluster: PacemakerCluster, name: str, node: str) -> None:
+    """A move names a node the resource is not already running on.
+
+    Pacemaker refuses to move a resource that is already active where it is
+    being sent and exits non-zero, so without this the run fails on the machine
+    with nothing said here.
+
+    Refusing rather than working around it, because the request underneath is a
+    different one. Asking to keep a guest where it already is is a statement
+    about where it *belongs*, and where a guest belongs is `preferred_host` on
+    its inventory entry. Making the CIB and the inventory agree by writing the
+    CIB again would leave the inventory still not describing the cluster, which
+    is the thing the VMs page marks the row for.
+    """
+    current = next(
+        (item.node for item in cluster.resources if item.id == name and item.node),
+        "",
+    )
+    if current and current == node:
+        raise ApiError(
+            "already_there",
+            f"{name} is already running on {node}, and Pacemaker refuses to "
+            "move a resource to the node it is already active on. Keeping it "
+            f"there is a placement rather than a move: `preferred_host: {node}` "
+            "on its inventory entry says so, and the VMs page then reports the "
+            "guest as held where the inventory declares.",
+            409,
+        )
+
+
 @router.post("/resources/{name}/move", status_code=202)
 def move(
     request: Request, name: str, payload: MoveRequest, user: User = operator
@@ -296,12 +326,15 @@ def move(
     node.
 
     Both names are checked against what the cluster reported, so neither
-    reaches a command argument from a URL alone. See
+    reaches a command argument from a URL alone, and the node has to be one the
+    resource is not already running on: Pacemaker refuses that move and holding
+    a guest where it is is `preferred_host` in the inventory. See
     [D34](decisions.md#d34).
     """
     cluster = _reading(request)
     _placeable(cluster, name)
     _target(cluster, payload.node)
+    _elsewhere(cluster, name, payload.node)
     record = _runs(request).launch_action(
         Action.MOVE, name, user.username, node=payload.node
     )

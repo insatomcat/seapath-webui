@@ -141,6 +141,28 @@ def test_a_clone_instance_is_not_moved(signed_in: TestClient) -> None:
     assert "ping-clone" in refused.json()["error"]["message"]
 
 
+def test_a_move_to_the_node_it_is_already_on_is_refused(
+    signed_in: TestClient,
+) -> None:
+    """Found on a real cluster, and the reason it is a refusal rather than a fix.
+
+    Pacemaker exits non-zero on a move to the node the resource is already
+    active on, so the run failed on the machine with nothing said in the
+    browser. And the request underneath is a different one: keeping a guest
+    where it is is a statement about where it belongs, which is
+    `preferred_host` on its inventory entry.
+    """
+    refused = _cluster(signed_in).post(
+        "/api/v1/cluster/resources/vm-guest1/move",
+        json={"node": "seapath-machine"},
+    )
+
+    assert refused.status_code == 409
+    body = refused.json()["error"]
+    assert body["code"] == "already_there"
+    assert "preferred_host: seapath-machine" in body["message"]
+
+
 def test_a_node_in_standby_is_refused_as_a_destination(signed_in: TestClient) -> None:
     # Pacemaker places nothing on a node in standby, so the resource would stay
     # where it is while carrying a constraint saying otherwise.

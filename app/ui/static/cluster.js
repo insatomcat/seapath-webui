@@ -460,10 +460,18 @@
     if (pinOf(cluster, resource.id) || resource.clone) {
       return box;
     }
-    box.append(
-      " ",
-      action("Move", () => confirmMove(resource, cluster))
+    // Pacemaker refuses to move a resource to the node it is already active
+    // on, so that node is not a destination and a resource with nowhere else
+    // to go is offered no Move at all.
+    const options = destinations(cluster, resource.id).filter(
+      (node) => node !== resource.node
     );
+    if (options.length) {
+      box.append(
+        " ",
+        action("Move", () => confirmMove(resource, cluster, options))
+      );
+    }
     if (preferenceOf(cluster, resource.id)) {
       box.append(
         " ",
@@ -503,10 +511,6 @@
   // running guests, and a preference on a node that carries one is a
   // constraint Pacemaker adds up to a refusal, so the move would write a rule
   // and change nothing.
-  //
-  // The node it is already on is left in, because writing the constraint
-  // without moving anything is a way of holding it there and an operator asks
-  // for it during a demonstration.
   function destinations(cluster, id) {
     const banned = cluster.constraints
       .filter((item) => item.resource === id && item.id.startsWith("cli-ban-"))
@@ -522,16 +526,8 @@
       .map((node) => node.name);
   }
 
-  function confirmMove(resource, cluster) {
+  function confirmMove(resource, cluster, options) {
     const held = preferenceOf(cluster, resource.id);
-    const options = destinations(cluster, resource.id);
-    if (!options.length) {
-      showBanner(
-        "No member of this cluster is online and out of standby, so there is " +
-          "nowhere to send " + resource.id + "."
-      );
-      return;
-    }
     confirm({
       title: "Move " + resource.id,
       body:
@@ -539,18 +535,17 @@
         "same object preferred_host produces and written by the same command. " +
         "A guest whose image allows live migration moves without stopping; " +
         "one that does not is stopped where it runs and started on the other " +
-        "node, and whatever it was serving stops in between. Choosing the " +
-        "node it is already on writes the constraint without moving anything, " +
-        "which holds it there.",
+        "node, and whatever it was serving stops in between.",
       note: held
         ? `${held.id} already holds it on ${held.node}, and this replaces it. ` +
-          "Return puts back what the inventory declares."
+          "Return puts back what the inventory declares. To keep it where it " +
+          "is instead, declare preferred_host on its inventory entry: that is " +
+          "a placement rather than a move, and it disturbs nothing."
         : "The constraint stays until Return removes it, and while it is " +
           "there it overrides the placement the inventory declares.",
       choose: {
         label: "Run it on",
         options,
-        selected: resource.node,
       },
       label: "Move",
       act: async (node) => {

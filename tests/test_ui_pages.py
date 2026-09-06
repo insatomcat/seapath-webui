@@ -989,6 +989,24 @@ def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
     assert 'id="add-steps"' in body
 
 
+def test_the_deployment_column_says_what_the_run_does_to_this_guest(
+    signed_in: TestClient,
+) -> None:
+    # Both roles register the hypervisor's own list first and skip their whole
+    # creation block for a guest it already has, so the entry alone cannot
+    # answer. A guest nothing reports is one the next run creates, and saying
+    # "left alone" about it is the one case where this column would mislead
+    # the operator who is about to launch that run.
+    script = signed_in.get("/static/vms.js").text
+
+    assert "const there = Boolean(guest.resource || guest.domain);" in script
+    assert "if (there && !guest.force) {" in script
+    assert 'return cell("left alone");' in script
+    assert 'there ? "recreated" : "created"' in script
+    # And the colour warns about the destruction rather than about a creation.
+    assert 'there && guest.force ? "recreated" : ""' in script
+
+
 def test_the_vms_page_offers_no_snapshot_yet(signed_in: TestClient) -> None:
     # Start, stop and placement are one task calling an upstream module or one
     # `crm` command, which is what D30 and D34 settle. The rest of the runtime
@@ -1017,6 +1035,11 @@ def test_the_vms_page_moves_a_guest_and_gives_the_placement_back(
     # placement writes, and what it costs the guest.
     assert "same object preferred_host produces" in script
     assert "without it the guest is stopped where" in script
+    # Pacemaker refuses a move to the node the resource is already active on,
+    # so that node is not offered and the confirmation says where the wish to
+    # keep a guest put belongs instead.
+    assert "placementNodes.filter((node) => node !== guest.resource.node)" in script
+    assert "declare preferred_host on its " in script
 
 
 def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
@@ -1029,7 +1052,15 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
 
     assert 'item.id.startsWith("cli-prefer-")' in script
     assert 'item.id.startsWith("pin-")' in script
-    assert '"held on " + held.node + ", declared " + declared' in script
+    # The three readings, and the subject of each is the placement rather than
+    # the guest: "declared" on its own would read as whether the inventory has
+    # the guest at all, which is a different question this page also answers.
+    assert '", as the inventory declares"' in script
+    assert '", inventory declares " + declared' in script
+    assert '", inventory declares no placement"' in script
+    # And the sentence behind the tag, which carries what to do about it.
+    assert "Return writes " in script
+    assert "leaves the placement to Pacemaker" in script
 
 
 def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(

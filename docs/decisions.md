@@ -2067,6 +2067,21 @@ would have left the feature useful only on guests nobody had configured.
 **A clone instance is refused.** A clone runs one instance per member and
 Pacemaker places them; there is no single node to send one to.
 
+**The node the resource is already running on is refused,** and this one was
+found on a real cluster rather than reasoned out. The first version offered it,
+on the idea that writing the constraint without moving anything is a way of
+holding a guest where it is. Pacemaker refuses to move a resource to the node
+it is already active on and exits non-zero, so the run failed on the machine
+with nothing said in the browser.
+
+The refusal is the right answer rather than a workaround, because the request
+underneath is a different one. Asking to keep a guest where it already is is a
+statement about where it *belongs*, and where a guest belongs is
+`preferred_host` on its inventory entry. Writing the CIB again would leave the
+inventory still not describing the cluster, which is exactly what the VMs page
+marks the row for. So the refusal names the variable to set, and setting it
+disturbs no machine at all.
+
 ### The return, which is the half that keeps the inventory true
 
 A bare `crm resource clear` is the wrong command, and this is the trap worth

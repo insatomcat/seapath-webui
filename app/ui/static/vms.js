@@ -165,18 +165,27 @@
     return node;
   }
 
-  // What the next deployment run does to this guest. `force` is the one worth
-  // a column: the roles destroy and recreate a guest that carries it, so a run
-  // an operator reads as "converge my VMs" reinstalls that one.
+  // What the next deployment run does to this guest, which the entry alone
+  // cannot say. Both roles register the hypervisor's own list first and skip
+  // their whole creation block for a guest it already has, so the answer
+  // depends on whether the guest is there: one nothing reports is one the run
+  // creates, and that is the row an operator wants before launching it.
+  //
+  // `force` is the one worth a colour: the roles destroy and recreate a guest
+  // that carries it, so a run an operator reads as "converge my VMs"
+  // reinstalls that one and whatever it had written is gone.
   function ondeploy(guest) {
-    const words = [];
-    if (guest.force) {
-      words.push("recreated");
+    const there = Boolean(guest.resource || guest.domain);
+    if (there && !guest.force) {
+      return cell("left alone");
     }
+    // `enable` reaches `cluster_vm create`, so it says something only about a
+    // guest this run creates. On one the run skips, it is inert.
+    const words = [there ? "recreated" : "created"];
     if (!guest.enable) {
       words.push("left stopped");
     }
-    return cell(words.join(", ") || "left alone", guest.force ? "recreated" : "");
+    return cell(words.join(", "), there && guest.force ? "recreated" : "");
   }
 
   // Starting and stopping. The button offered is the one that changes
@@ -220,14 +229,66 @@
     const declared = guest.preferred_host || "";
     const tag = document.createElement("span");
     tag.className = declared === held.node ? "tag" : "tag warn";
-    tag.textContent =
-      declared === held.node
-        ? "held on " + held.node + ", as declared"
-        : declared
-          ? "held on " + held.node + ", declared " + declared
-          : "held on " + held.node + ", declared nowhere";
+    tag.textContent = badge(held, declared);
+    tag.title = held.id + ". " + explain(guest.name, held, declared);
     box.append(" ", tag);
     return box;
+  }
+
+  // Three readings of one constraint, in words that have to survive being read
+  // in a narrow column. The subject of every one of them is the placement and
+  // never the guest: "declared" alone would read as whether the inventory has
+  // the guest at all, which is a different question this page also answers.
+  function badge(held, declared) {
+    if (declared === held.node) {
+      return "held on " + held.node + ", as the inventory declares";
+    }
+    if (declared) {
+      return "held on " + held.node + ", inventory declares " + declared;
+    }
+    return "held on " + held.node + ", inventory declares no placement";
+  }
+
+  // The same finding as a sentence, on hover, because the interesting half is
+  // what to do about it and that does not fit in a tag.
+  function explain(name, held, declared) {
+    if (declared === held.node) {
+      return (
+        "The cluster keeps " +
+        name +
+        " on " +
+        held.node +
+        ", which is the placement its inventory entry declares."
+      );
+    }
+    const cause =
+      " A move from this page writes the same constraint preferred_host " +
+      "writes, and so does crm resource move typed on a machine, so the " +
+      "cluster cannot say which of the two asked for it.";
+    if (declared) {
+      return (
+        "The cluster keeps " +
+        name +
+        " on " +
+        held.node +
+        ", and its inventory entry declares " +
+        declared +
+        "." +
+        cause +
+        " Return writes " +
+        declared +
+        " back."
+      );
+    }
+    return (
+      "The cluster keeps " +
+      name +
+      " on " +
+      held.node +
+      ", and its inventory entry declares no placement at all." +
+      cause +
+      " Return removes the constraint and leaves the placement to Pacemaker."
+    );
   }
 
   // The `cli-prefer` constraint, which is what a move writes and what
@@ -250,27 +311,34 @@
   // which is a decision its inventory entry made.
   function placement(guest) {
     const box = document.createElement("td");
-    if (!canAct || !guest.resource || !placementNodes.length || pinOf(guest)) {
+    if (!canAct || !guest.resource || pinOf(guest)) {
       return box;
     }
-    const move = document.createElement("button");
-    move.type = "button";
-    move.className = "secondary";
-    move.textContent = "Move";
-    move.addEventListener("click", () => confirmMove(guest));
-    box.append(move);
+    // Pacemaker refuses to move a resource to the node it is already active
+    // on, so that node is not a destination and a guest with nowhere else to
+    // go is offered no Move. Keeping a guest where it is is `preferred_host`
+    // on its entry, which is a placement rather than a move.
+    const options = placementNodes.filter((node) => node !== guest.resource.node);
+    if (options.length) {
+      const move = document.createElement("button");
+      move.type = "button";
+      move.className = "secondary";
+      move.textContent = "Move";
+      move.addEventListener("click", () => confirmMove(guest, options));
+      box.append(move);
+    }
     if (preferenceOf(guest)) {
       const back = document.createElement("button");
       back.type = "button";
       back.className = "secondary";
       back.textContent = "Return";
       back.addEventListener("click", () => confirmReturn(guest));
-      box.append(" ", back);
+      box.append(box.childNodes.length ? " " : "", back);
     }
     return box;
   }
 
-  function confirmMove(guest) {
+  function confirmMove(guest, options) {
     const held = preferenceOf(guest);
     confirm({
       title: "Move " + guest.name,
@@ -280,18 +348,19 @@
         "With live_migration on this guest's image Pacemaker migrates the " +
         "domain and it keeps running; without it the guest is stopped where " +
         "it is and started on the other node, and whatever it was serving " +
-        "stops in between. Choosing the node it is already on writes the " +
-        "constraint without moving anything, which holds it there.",
+        "stops in between.",
       note: held
         ? held.id + " already holds it on " + held.node + ", and this " +
-          "replaces it. Return puts back what the inventory declares."
+          "replaces it. Return puts back what the inventory declares. To keep " +
+          "the guest where it is instead, declare preferred_host on its " +
+          "inventory entry: that is a placement rather than a move, and it " +
+          "disturbs nothing."
         : "The constraint stays until Return removes it or the guest's " +
           "Pacemaker resource is rebuilt, and while it is there it overrides " +
           "the placement the inventory declares.",
       choose: {
         label: "Run it on",
-        options: placementNodes,
-        selected: guest.resource ? guest.resource.node : "",
+        options,
       },
       label: "Move",
       act: async (node) => {
