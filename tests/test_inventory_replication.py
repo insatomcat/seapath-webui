@@ -128,13 +128,22 @@ def test_the_remote_helper_goes_through_the_sudo_rule_the_iso_grants() -> None:
     repository on the far side is root owned. The subcommand rather than the
     dashed binary, which a machine with git may not have on `PATH`: node3
     answered "git-receive-pack: not found" with git installed.
+
+    The peer's own container is the fallback, because a SEAPATH observer can
+    be a Yocto machine with no git at all, and its `seapath-webui` holds the
+    same repository at the same path through the same bind mount. No single
+    quote anywhere in the script, which is what keeps the outer one whole.
     """
     assert remote_helper("receive-pack") == (
-        "sudo -n /bin/sh -c 'exec git receive-pack \"$0\"'"
+        "sudo -n /bin/sh -c '"
+        "if command -v git >/dev/null 2>&1; then "
+        'exec git receive-pack "$0"; '
+        "else "
+        'exec podman exec -i seapath-webui git receive-pack "$0"; '
+        "fi'"
     )
-    assert remote_helper("upload-pack") == (
-        "sudo -n /bin/sh -c 'exec git upload-pack \"$0\"'"
-    )
+    assert "upload-pack" in remote_helper("upload-pack")
+    assert "'" not in remote_helper("upload-pack")[len("sudo -n /bin/sh -c '") : -1]
 
 
 def test_the_url_names_the_ansible_account_and_the_path_a_node_holds() -> None:
@@ -512,6 +521,52 @@ def test_a_repository_left_on_master_is_moved_to_the_branch_a_push_lands_on(
     assert _git(started.path, "symbolic-ref", "HEAD") == "refs/heads/main"
     # The move is a rename, so the history is the same history.
     assert started.head() == before
+
+
+def test_a_machine_that_can_run_neither_git_nor_this_service_says_which(
+    source: InventoryRepository, tmp_path: Path
+) -> None:
+    """Both halves of the helper failed, and which one says what to do.
+
+    The message git carries here is the shell's, and on its own it is
+    "exec: git: not found" against a path, which names no machine and no fix.
+    """
+
+    class Broken:
+        """A transport whose far side has nothing to serve the repository."""
+
+        def __init__(self, message: str) -> None:
+            self.message = message
+
+        def url(self, target: Target) -> str:
+            return target.address
+
+        def ssh_command(self) -> str | None:
+            return None
+
+        def upload_pack(self) -> str | None:
+            # `git ls-remote` runs this, and a helper that exits saying so is
+            # what a machine with neither binary produces.
+            return f"""/bin/sh -c 'echo "{self.message}" >&2; exit 127'"""
+
+        def receive_pack(self) -> str | None:
+            return self.upload_pack()
+
+    inventory = _inventory("node1=ignored", "node3=/anywhere")
+
+    no_podman = ReplicationService(source, Broken("sh: podman: not found")).survey(
+        inventory, this_host="node1"
+    )
+    stopped = ReplicationService(
+        source, Broken("Error: no such container seapath-webui")
+    ).survey(inventory, this_host="node1")
+
+    assert no_podman[0].status is Status.UNREACHABLE
+    assert "neither git nor podman" in no_podman[0].detail
+    assert "Install git on it" in no_podman[0].detail
+
+    assert "no seapath-webui container is running" in stopped[0].detail
+    assert "Start the service on that machine" in stopped[0].detail
 
 
 # Forcing, which is the one act here that can destroy a commit

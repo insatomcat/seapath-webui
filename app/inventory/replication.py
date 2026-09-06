@@ -24,12 +24,15 @@ Two things about it are worth reading before changing anything:
   the escalation the trust already implies. The ISO grants it as `/bin/sh`,
   which is why the remote helper is spelled through `sh -c` rather than as a
   bare `sudo git-receive-pack`.
-- **The far side needs `git`, and nothing else.** The helper is `git
-  receive-pack` rather than the `git-receive-pack` binary, which a distribution
-  may keep in the git exec directory where sudo's `secure_path` never looks.
-  The inventory repository on a SEAPATH node is a git repository the host
-  holds, so needing git there is the same requirement the audit trail already
-  carries. A machine without it is named, with what to do about it.
+- **The far side needs this service, and not git on its host.** The helper
+  runs the host's `git` when there is one, and otherwise the one in the peer's
+  own `seapath-webui` container, which holds the same repository at the same
+  path through the same bind mount. That matters because a SEAPATH observer can
+  be a Yocto machine with no git installed, while every machine worth
+  replicating to runs this service by definition. `git receive-pack` rather
+  than the `git-receive-pack` binary either way, since a distribution may keep
+  the dashed form in the git exec directory where sudo's `secure_path` never
+  looks.
 """
 
 from __future__ import annotations
@@ -58,6 +61,10 @@ logger = logging.getLogger(__name__)
 
 # Long enough for a slow administration link, short enough that a page listing
 # three machines still renders when one of them is down.
+# The `ContainerName` the quadlet gives this service, which is how a peer's
+# own copy of it is reached when its host carries no git.
+CONTAINER = "seapath-webui"
+
 _CONNECT_TIMEOUT_SECONDS = 10
 _COMMAND_TIMEOUT_SECONDS = 30.0
 
@@ -167,13 +174,29 @@ def remote_helper(program: str) -> str:
     the ISO's sudo rule allows: `NOPASSWD:EXEC:SETENV: /bin/sh`, which is the
     same rule Ansible's `become` goes through.
 
-    `git upload-pack` rather than `git-upload-pack`, because the dashed form is
-    a separate binary a distribution may keep off `PATH`: SEAPATH's own images
-    have it in the git exec directory and nowhere sudo's `secure_path` looks,
-    so the dashed form ends as "git-upload-pack: not found" on a machine that
-    has git. The subcommand needs `git` alone, and git finds its own helpers.
+    **The host's git, and this service's own when the host has none.** A
+    SEAPATH observer can be a Yocto machine that ships no git, and requiring
+    one there would be a requirement invented here: every machine worth
+    replicating to runs `seapath-webui`, whose image carries git and whose
+    quadlet binds `/etc/seapath/inventory` at the same path inside the
+    container. So the fallback reaches the same repository through the same
+    mount, with the same `"$0"`.
+
+    `git receive-pack` rather than `git-receive-pack` in both branches, because
+    the dashed form is a separate binary a distribution may keep in the git
+    exec directory, where sudo's `secure_path` never looks: it ends as
+    "git-receive-pack: not found" on a machine that has git.
     """
-    return f"sudo -n /bin/sh -c 'exec git {program} \"$0\"'"
+    # No single quote anywhere in the script: the whole thing is wrapped in
+    # one, and the remote shell is the only parser it goes through.
+    return (
+        "sudo -n /bin/sh -c '"
+        "if command -v git >/dev/null 2>&1; then "
+        f'exec git {program} "$0"; '
+        "else "
+        f'exec podman exec -i {CONTAINER} git {program} "$0"; '
+        "fi'"
+    )
 
 
 class SshTransport:
@@ -412,8 +435,38 @@ class ReplicationService:
             host=target.host,
             address=target.address,
             status=Status.UNREACHABLE,
-            detail=_sentence(str(error)),
+            detail=_missing_git(target, str(error)) or _sentence(str(error)),
         )
+
+
+def _missing_git(target: Target, message: str) -> str | None:
+    """The far side could run neither git nor this service's own.
+
+    Both halves of the helper failed, and which of the two failed says what to
+    do: a host with no git and no podman is not a SEAPATH node, and one whose
+    container is not running has a service that is down rather than a
+    replication problem.
+    """
+    lowered = message.lower()
+    if "podman: not found" in lowered or "podman: command not found" in lowered:
+        return (
+            f"{target.host} has neither git nor podman, so nothing there can "
+            "serve an inventory repository. Install git on it, or leave that "
+            "machine out of the inventory."
+        )
+    if "no such container" in lowered or "no container with name" in lowered:
+        return (
+            f"{target.host} has no git, so its own seapath-webui is what would "
+            f"serve the repository, and no {CONTAINER} container is running "
+            "there. Start the service on that machine and replicate again."
+        )
+    if "git: not found" in lowered or "git: command not found" in lowered:
+        return (
+            f"{target.host} could not run git, on its host or in its "
+            "seapath-webui container. Check that the service is running "
+            "there, or install git on the machine."
+        )
+    return None
 
 
 def _refusal(target: Target, message: str) -> str | None:
@@ -424,18 +477,15 @@ def _refusal(target: Target, message: str) -> str | None:
     has never seen. Anything else it refuses is carried in its own words, which
     name the case better than a category would.
     """
+    missing = _missing_git(target, message)
+    if missing is not None:
+        return missing
     lowered = message.lower()
     if "non-fast-forward" in lowered or "fetch first" in lowered:
         return (
             f"{target.host} carries commits this node does not have. Open the "
             "UI on that machine and replicate from there, or revert what it "
             "holds. Nothing was overwritten."
-        )
-    if "git: not found" in lowered or "git: command not found" in lowered:
-        return (
-            f"{target.host} has no git, so it can hold no inventory "
-            "repository. Install it there, or leave that machine out of the "
-            "inventory."
         )
     if "does not support push options" in lowered:
         # A forced replication says so with a push option, which the hooks on

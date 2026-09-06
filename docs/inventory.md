@@ -332,7 +332,10 @@ lead elected under quorum with an automatic push, was traded for.
   this node's repository to the machines the inventory declares, minus this one
   and minus the guests of the `VMs` group, over the SSH connection a run
   already makes. The button names the machines it reaches, and the table above
-  it says what each of them holds right now.
+  it says what each of them holds right now. What it needs on the far side is
+  this service: the peer's host git where there is one, and the git in the
+  peer's own container where there is not, which is the case on a Yocto
+  observer.
 - **A push that would lose commits is refused.** Git accepts a fast forward
   only, so a node carrying edits this one lacks comes back as a named failure
   and keeps its history. The operator opens the UI on that node and pushes from

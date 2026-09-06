@@ -1768,6 +1768,25 @@ means of overwriting it, and a node that has not been updated advertises no
 push options: a forced replication towards it reports that it cannot be forced,
 rather than quietly doing the ordinary thing under a button that says Force.
 
+### What has to exist on the far side, which is this service and not git
+
+The helper runs the peer's own `git` when its host has one, and otherwise the
+`git` in the peer's `seapath-webui` container, which the quadlet binds
+`/etc/seapath/inventory` into at the same path. Both branches reach the same
+repository, so `"$0"` is the same argument either way.
+
+The fallback is there because the first version required git on the host, and
+that was a requirement invented here rather than one the design already had. A
+SEAPATH observer can be a Yocto machine that ships no git, and a cluster's
+third node answering "exec: git: not found" made it unreplicable while running
+this service perfectly well. Every machine worth replicating to runs
+`seapath-webui`, whose image carries git because the audit trail needs it, so
+"the far side runs this service" is a condition that is already true.
+
+When neither branch can run, the message says which: a host with no podman
+either is not a SEAPATH node, and one whose container is stopped has a service
+that is down rather than a replication that is broken.
+
 ### Who receives, and what happens when one of them does not
 
 The targets are the machines the inventory declares, minus this one and minus
