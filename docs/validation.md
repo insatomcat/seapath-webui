@@ -292,3 +292,43 @@ Pacific, which is worth staging only if a site runs one.
 Check 6 wants a partition rather than a stopped service: `iptables -j DROP` on
 the cluster interface of one member reproduces it and `crm_mon` on both halves
 says whether it took.
+
+## Containers
+
+The Containers page: the quadlets the inventory uploads, the systemd unit each
+machine made of them, and the Pacemaker resource where the cluster holds one.
+See D33 in [decisions.md](decisions.md).
+
+The reading is new only in what it asks for: the units come out of the
+`node_exporter` exposition the CPU pool is already read from, so the first
+checks are about the collector actually being there and publishing what the
+parser expects. The writing checks are the ones that matter most, because a
+declaration written at the wrong scope produces a clean commit, a green run and
+a machine quietly missing files.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | On a converged machine, `curl localhost:9100/metrics \| grep node_systemd_unit_state` returns one series per state for the site's quadlet units | The collector has to be enabled and its unit filter has to include those units. Everything on the page rests on this | Pending |
+| 2 | A quadlet the inventory uploads shows `active` on the machines where `systemctl is-active <unit>` says active, and the same start time | The parser against a real collector, unit by unit | Pending |
+| 3 | A machine whose `node_exporter` runs without the systemd collector is named as such, and the rest of the page still renders | Only a real exporter proves the difference between "no collector" and "no answer" | Pending |
+| 4 | A container declared in the inventory and never converged shows "no unit yet" rather than stopped | The machine has never received the file, and calling it stopped would call it deployed | Pending |
+| 5 | On a cluster, a quadlet handed to Pacemaker shows one row, its resource, and the node the cluster placed it on, matching `crm_mon` | The resource is matched on the unit rather than on the resource id | Pending |
+| 6 | Declaring a container on the group the site's `upload_extra_files_upload_files` already sits on appends one entry, and `git diff` on the repository touches those lines alone | The write against a real hand written inventory, which is the case `fidelity` exists for | Pending |
+| 7 | After 6, `ansible-inventory --list` on the exported repository gives every machine the full list, the site's entries included | **The check that catches the whole class of failure this page could cause.** Ansible replaces a variable rather than merging it | Pending |
+| 8 | Declaring on a scope the machines do not read that variable from is refused, and the message names where they do read it | The refusal is the feature; a real inventory is where the two places differ | Pending |
+| 9 | Running the prerequisites playbook after a declaration puts the file on the machines, `systemctl daemon-reload` writes the unit, and the page reports it | The end to end path, and the only proof the entry this service wrote is the entry the role wanted | Pending |
+| 10 | With `pacemaker` asked for, `cluster_setup_ha` loads the primitive, `crm configure show` holds it, and the container starts on one member | `extra_crm_cmd_to_run` is loaded with `crm config load update`, and only a real CIB says whether the generated line is accepted | Pending |
+| 11 | Start and stop on a Pacemaker container write the target role, and `crm_mon` shows the container stopped and staying stopped | The runtime act against a real cluster | Pending |
+| 12 | Start and stop on a systemd container act on the machine named and on no other, checked with `systemctl is-active` on all three | The reason the machine is part of the act | Pending |
+| 13 | A quadlet carrying `[Install]` under Pacemaker is flagged, and the machine confirms the conflict: the container comes back at the next boot with the resource stopped | The finding is about what systemd does at boot, which no fake reproduces | Pending |
+| 14 | A viewer sees no start or stop button, and both endpoints as a viewer are refused | They reach a live machine, so they are an operator's act | Pending |
+| 15 | Nothing else changed: `seapath_setup_main.yaml` from a conventional control machine reports no change on the machines after a session on this page, and the exported inventory produces the same containers from that machine | **The acceptance criterion.** A container declared here has to be a container that control machine would deploy | Pending |
+
+### Result
+
+Not yet run. Checks 1 to 4 need a machine running the collection that ships
+`deploy_prometheus_exporters` with the systemd collector on; 5, 10 and 11 need
+a Pacemaker cluster; 6 to 8 need a site inventory that keeps its upload list on
+a group, which the reference file `tests/golden/adopted-cluster.yaml` came from.

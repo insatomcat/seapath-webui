@@ -29,9 +29,11 @@ Two rules decide where a change lands:
 from __future__ import annotations
 
 import io
+from dataclasses import dataclass
 from typing import Any
 
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import LiteralScalarString
 
 from app.inventory.model import GUEST_GROUP
 from app.inventory.resolve import ROOT, groups, resolve
@@ -74,6 +76,114 @@ def edit(document: str, changes: dict[str, dict[str, Any]]) -> str:
         lines[splice.start : splice.end] = splice.replacement
 
     return "".join(lines)
+
+
+@dataclass(frozen=True)
+class Scope:
+    """Where a variable is written: on one host, or on one group.
+
+    The form that edits a machine writes on the host, always, because the
+    alternative silently changes the other machines of its group. A container
+    is the other case: a quadlet is uploaded to a group of machines by one
+    entry, and splitting that entry across the hosts of the group would turn
+    one line an operator can read into three that have to be kept equal.
+
+    So the scope is asked rather than deduced, and it is written down: the page
+    offers the groups and the machines, and what it writes lands exactly where
+    the operator said.
+    """
+
+    kind: str
+    """`host` or `group`."""
+    name: str
+
+    @property
+    def is_group(self) -> bool:
+        return self.kind == "group"
+
+
+def set_variables(document: str, scope: Scope, variables: dict[str, Any]) -> str:
+    """Write whole variables at one scope, touching only the lines they occupy.
+
+    The same splice `edit` makes, with the group case added and the inheritance
+    rule left to the caller. `edit` refuses to write what a host inherits,
+    which is right for a form editing one machine: the value it holds is the
+    group's, and overriding it silently is the failure. Here the caller has
+    already resolved which scope carries the variable, because appending to a
+    list means reading the list first, and the answer to "which list" is the
+    same answer as "where does this write go".
+    """
+    if not variables:
+        return document
+
+    yaml = _yaml()
+    loaded = yaml.load(document)
+    if loaded is None:
+        raise UneditableInventory("The inventory is empty.")
+    if not isinstance(loaded, dict):
+        raise UneditableInventory("The inventory is not a mapping of groups.")
+
+    lines = document.splitlines(keepends=True)
+    if scope.is_group:
+        splices = _group_variables(lines, loaded, scope.name, variables)
+    else:
+        mapping = _host_mapping(loaded, scope.name)
+        if mapping is None:
+            raise UneditableInventory(
+                f"{scope.name} has no entry of its own in this inventory, so "
+                "there is nowhere to write its variables."
+            )
+        splices = [
+            _write(lines, mapping, variable, value)
+            for variable, value in sorted(variables.items())
+        ]
+
+    for splice in sorted(splices, key=lambda s: s.start, reverse=True):
+        lines[splice.start : splice.end] = splice.replacement
+    return "".join(lines)
+
+
+def _group_variables(
+    lines: list[str], loaded: Any, group: str, variables: dict[str, Any]
+) -> list[_Splice]:
+    """The variables into a group's `vars`, creating the block if it has none."""
+    body = _named_group(loaded, group)
+    if body is None:
+        raise UneditableInventory(
+            f"This inventory declares no group called {group}, so there is "
+            "nowhere to write a variable for it."
+        )
+
+    mapping = body.get("vars")
+    if isinstance(mapping, dict) and mapping:
+        return [
+            _write(lines, mapping, variable, value)
+            for variable, value in sorted(variables.items())
+        ]
+
+    if "vars" in body:
+        # `vars:` with nothing under it. Replaced whole, since there is no
+        # first key to take an indentation from.
+        key_line, key_column = body.lc.key("vars")
+        end = _block_end(lines, key_line + 1, key_column)
+        return [_Splice(key_line, end, _vars_lines(variables, key_column))]
+
+    column = _mapping_column(body)
+    start = _mapping_end(lines, body)
+    return [_Splice(start, start, _vars_lines(variables, column))]
+
+
+def _vars_lines(variables: dict[str, Any], column: int) -> list[str]:
+    written = [f"{' ' * column}vars:\n"]
+    for variable, value in sorted(variables.items()):
+        written.extend(_emit(variable, value, column + 2))
+    return written
+
+
+def _write(lines: list[str], mapping: Any, variable: str, value: Any) -> _Splice:
+    if variable in mapping:
+        return _replace(lines, mapping, variable, value)
+    return _insert(lines, mapping, variable, value)
 
 
 class _Splice:
@@ -128,7 +238,11 @@ def _replace(lines: list[str], mapping: Any, variable: str, value: Any) -> _Spli
         end = _block_end(lines, key_line + 1, key_column)
         return _Splice(key_line, end, _emit(variable, value, key_column))
 
-    if isinstance(value, list) or _is_block(lines, line + 1, key_column):
+    if (
+        isinstance(value, list)
+        or _multiline(value)
+        or _is_block(lines, line + 1, key_column)
+    ):
         end = _block_end(lines, line + 1, key_column)
         return _Splice(key_line, end, _emit(variable, value, key_column))
 
@@ -150,10 +264,19 @@ def _delete(lines: list[str], mapping: Any, variable: str) -> _Splice:
     return _Splice(key_line, end, [])
 
 
+def _multiline(value: Any) -> bool:
+    return isinstance(value, str) and "\n" in value
+
+
 def _emit(variable: str, value: Any, column: int) -> list[str]:
     """The variable as YAML, indented to sit where it is going."""
     buffer = io.StringIO()
-    _yaml().dump({variable: value}, buffer)
+    # A block scalar for anything with a newline in it. `extra_crm_cmd_to_run`
+    # holds several `crm` lines, and dumped as an ordinary scalar it comes back
+    # as one folded quoted string that nobody can read in a diff, which is the
+    # thing this module exists to avoid.
+    written = LiteralScalarString(value) if _multiline(value) else value
+    _yaml().dump({variable: written}, buffer)
     pad = " " * column
     return [
         f"{pad}{line}\n" if line else "\n"

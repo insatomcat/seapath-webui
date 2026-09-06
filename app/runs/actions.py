@@ -42,6 +42,10 @@ class Action(str, Enum):
     RECONFIGURE = "reconfigure"
     REFRESH = "refresh"
     REFRESH_ALL = "refresh_all"
+    UNIT_START = "unit_start"
+    UNIT_STOP = "unit_stop"
+    RESOURCE_START = "resource_start"
+    RESOURCE_STOP = "resource_stop"
 
 
 @dataclass(frozen=True)
@@ -60,6 +64,13 @@ class ActionSpec:
 
     A guest is `vm_start`; a Pacemaker resource is not always a guest, and the
     whole cluster is neither, so those say what they act on instead."""
+    record: str = ""
+    """What the run is filed under, when `<prefix>_<action>` would repeat
+    itself. `unit_start` rather than `unit_unit_start`."""
+    on_host: bool = False
+    """The play runs on one named machine rather than on a group of the
+    inventory. A quadlet is a systemd unit on the machine holding it, so the
+    machine is part of the act and part of the confirmation."""
 
 
 _SPECS: dict[Action, ActionSpec] = {
@@ -118,6 +129,56 @@ _SPECS: dict[Action, ActionSpec] = {
             "included."
         ),
     ),
+    Action.UNIT_START: ActionSpec(
+        verb="Start",
+        subject="container",
+        prefix="unit",
+        record="unit_start",
+        on_host=True,
+        disruption=(
+            "Starts the systemd unit podman's generator wrote from the "
+            "quadlet, on that machine. The container comes up with whatever "
+            "the file on the machine says, which is the version the last "
+            "convergence uploaded."
+        ),
+    ),
+    Action.UNIT_STOP: ActionSpec(
+        verb="Stop",
+        subject="container",
+        prefix="unit",
+        record="unit_stop",
+        on_host=True,
+        disruption=(
+            "Stops the container on that machine, and whatever it was serving "
+            "stops with it. It is a stop and not a way of switching the "
+            "container off: a quadlet carrying an `[Install]` section is "
+            "started again at the next boot, and removing it is an inventory "
+            "change."
+        ),
+    ),
+    Action.RESOURCE_START: ActionSpec(
+        verb="Start",
+        subject="resource",
+        prefix="resource",
+        record="resource_start",
+        disruption=(
+            "Clears the resource's target role, so Pacemaker starts it and "
+            "chooses the node. Which member it lands on is the cluster's "
+            "decision and not this one."
+        ),
+    ),
+    Action.RESOURCE_STOP: ActionSpec(
+        verb="Stop",
+        subject="resource",
+        prefix="resource",
+        record="resource_stop",
+        disruption=(
+            "Sets the resource's target role to Stopped, so Pacemaker stops it "
+            "wherever it is running and leaves it down until it is started "
+            "again, a node failure included. Whatever it was serving stops "
+            "with it."
+        ),
+    ),
 }
 
 
@@ -125,7 +186,13 @@ def spec(action: Action) -> ActionSpec:
     return _SPECS[action]
 
 
-def entry(action: Action, guest: str, mode: Mode) -> PlaybookEntry:
+def record(action: Action) -> str:
+    """What the run is filed under, which is also the generated play's name."""
+    detail = _SPECS[action]
+    return detail.record or f"{detail.prefix}_{action.value}"
+
+
+def entry(action: Action, guest: str, mode: Mode, host: str = "") -> PlaybookEntry:
     """The catalogue shape of one action, built for one guest.
 
     It is never in the catalogue and never offered on the Deployment page: it
@@ -140,26 +207,34 @@ def entry(action: Action, guest: str, mode: Mode) -> PlaybookEntry:
     # would be rebuilt from lives on an RBD image that machine has not got.
     # Refreshing is the same, for the first half of that reason.
     cluster = mode is Mode.CLUSTER or action in _CLUSTER_ONLY
+    identifier = record(action)
+    requires = [Precondition.INVENTORY_VALID, Precondition.SELF_TRUST]
+    if not detail.on_host:
+        # A quadlet is a systemd unit on the machine that holds it, in either
+        # mode, so an action on one asks for neither. Nor does it ask for
+        # PEER_REACHABLE: this play names one machine, and a container on this
+        # node must stay startable while another node is down.
+        requires.append(Precondition.CLUSTER if cluster else Precondition.STANDALONE)
     return PlaybookEntry(
-        id=f"{detail.prefix}_{action.value}",
-        playbook=f"{GENERATOR}.{detail.prefix}_{action.value}",
-        title=_title(action, guest),
-        targets=["cluster_machines[0]"] if cluster else ["standalone_machine"],
+        id=identifier,
+        playbook=f"{GENERATOR}.{identifier}",
+        title=_title(action, guest, host),
+        targets=[host] if detail.on_host else _targets(cluster),
         # There is nothing to preview: the play makes one call and the answer
         # is what the cluster does with it.
         preview=Preview.NONE,
         reboots=Reboots.NO,
         disruption=detail.disruption,
-        requires=[
-            Precondition.INVENTORY_VALID,
-            Precondition.SELF_TRUST,
-            Precondition.CLUSTER if cluster else Precondition.STANDALONE,
-        ],
+        requires=requires,
         reviewed=True,
     )
 
 
-def play(action: Action, guest: str, mode: Mode) -> str:
+def _targets(cluster: bool) -> list[str]:
+    return ["cluster_machines[0]"] if cluster else ["standalone_machine"]
+
+
+def play(action: Action, guest: str, mode: Mode, host: str = "") -> str:
     """The one task play, as YAML.
 
     Dumped rather than templated, so a guest name cannot become YAML of its
@@ -168,8 +243,8 @@ def play(action: Action, guest: str, mode: Mode) -> str:
     """
     document = [
         {
-            "name": _title(action, guest),
-            "hosts": _hosts(Mode.CLUSTER if action in _CLUSTER_ONLY else mode),
+            "name": _title(action, guest, host),
+            "hosts": _hosts(Mode.CLUSTER if action in _CLUSTER_ONLY else mode, host),
             "gather_facts": False,
             "become": True,
             "tasks": _tasks(action, guest, mode),
@@ -178,17 +253,32 @@ def play(action: Action, guest: str, mode: Mode) -> str:
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
-# The actions that are cluster acts whatever the inventory's own mode says.
-_CLUSTER_ONLY = (Action.RECONFIGURE, Action.REFRESH, Action.REFRESH_ALL)
+# The actions that are cluster acts whatever the inventory's own mode says. A
+# Pacemaker resource is the plainest case of it: on a standalone machine there
+# is no cluster to hold one.
+_CLUSTER_ONLY = (
+    Action.RECONFIGURE,
+    Action.REFRESH,
+    Action.REFRESH_ALL,
+    Action.RESOURCE_START,
+    Action.RESOURCE_STOP,
+)
 
 
-def _title(action: Action, guest: str) -> str:
+def _title(action: Action, guest: str, host: str = "") -> str:
     """What the run is called, in the run list and in the play."""
     verb = _SPECS[action].verb
-    return f"{verb} {guest}" if guest else verb
+    if not guest:
+        return verb
+    # The machine is part of the act for a unit: the same container is a unit
+    # on each machine the inventory sends it to, and starting it on one of them
+    # says nothing about the others.
+    return f"{verb} {guest} on {host}" if host else f"{verb} {guest}"
 
 
-def _hosts(mode: Mode) -> str:
+def _hosts(mode: Mode, host: str = "") -> str:
+    if host:
+        return host
     # The same host `deploy_vms_cluster` plays. `cluster_vm` reaches Pacemaker,
     # which answers for the whole cluster, so which member drives is not a
     # decision anybody makes.
@@ -200,6 +290,37 @@ def _hosts(mode: Mode) -> str:
 def _tasks(action: Action, guest: str, mode: Mode) -> list[dict]:
     """The task or tasks the action is, named for the operator reading them."""
     title = _title(action, guest)
+    if action in (Action.UNIT_START, Action.UNIT_STOP):
+        # The unit podman's generator wrote from the quadlet, asked of systemd
+        # through the module that owns units. `daemon_reload` is deliberately
+        # absent: regenerating the units is what the convergence does after it
+        # uploads the files, and a start that quietly rewrote them would be a
+        # configuration act hiding inside a runtime one.
+        return [
+            {
+                "name": title,
+                "ansible.builtin.systemd_service": {
+                    "name": guest,
+                    "state": ("started" if action is Action.UNIT_START else "stopped"),
+                },
+            }
+        ]
+    if action in (Action.RESOURCE_START, Action.RESOURCE_STOP):
+        # `crm resource start|stop`, which writes the resource's target role
+        # into the CIB and leaves the placement to Pacemaker. The same shape as
+        # the refresh above and for the same reason: no module covers a
+        # resource that is not a guest, `argv` keeps a shell out of it, and the
+        # name has been checked against what the cluster reported.
+        verb = "start" if action is Action.RESOURCE_START else "stop"
+        return [
+            {
+                "name": title,
+                "ansible.builtin.command": {"argv": ["crm", "resource", verb, guest]},
+                # It writes to the CIB whatever the resource was doing, so
+                # there is nothing here for Ansible to call unchanged.
+                "changed_when": True,
+            }
+        ]
     if action in (Action.REFRESH, Action.REFRESH_ALL):
         # `crm resource refresh`, which is what an operator would type on the
         # machine, and `vm_manager` reaches Pacemaker through the same `crm`.

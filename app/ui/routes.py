@@ -147,6 +147,10 @@ def install(app: FastAPI) -> None:
     def vms(request: Request):
         return _page(request, "vms.html", "vms")
 
+    @app.get("/containers", response_class=HTMLResponse, include_in_schema=False)
+    def containers(request: Request):
+        return _page(request, "containers.html", "containers")
+
     @app.get("/cluster", response_class=HTMLResponse, include_in_schema=False)
     def cluster(request: Request):
         return _page(request, "cluster.html", "cluster")

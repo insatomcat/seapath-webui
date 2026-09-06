@@ -492,6 +492,37 @@ change nobody asked for and nobody would see until a run behaved differently.
 What is not preserved is the layout. The service rewrites the file, so comments
 and ordering are its own.
 
+### The three variables a container is
+
+A container in SEAPATH has no variable of its own, which is why nothing above
+mentions one. It is a quadlet, and it is three ordinary entries:
+
+```yaml
+upload_extra_files_upload_files:
+  - src: '../files/mosquitto.container'
+    dest: '/etc/containers/systemd/mosquitto.container'
+    mode: "0644"
+upload_extra_files_commands_to_run_after_upload:
+  - systemctl daemon-reload
+# Cluster only, loaded into the CIB by configure_ha.
+extra_crm_cmd_to_run: |
+  primitive mosquitto systemd:mosquitto.service op monitor interval=30s
+```
+
+The Containers page reads exactly that back and writes exactly that shape. Two
+consequences worth knowing while editing the file by hand:
+
+- The scope of the first entry decides which machines get the container, and
+  **Ansible replaces a variable rather than merging it**. A list on `all` and a
+  list on `node1` means `node1` receives only its own. The page refuses to
+  write an entry anywhere but where the affected machines already read the list
+  from, and the same rule applies to a hand written edit.
+- `extra_crm_cmd_to_run` is read `run_once`, so it belongs on the group whose
+  members form the cluster, and a per host value is a coin toss between the
+  hosts.
+
+See [D33](decisions.md#d33).
+
 ## 5. Validation
 
 Before a commit is accepted:

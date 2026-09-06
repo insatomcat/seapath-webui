@@ -20,7 +20,13 @@ from app.inventory import files as tree
 from app.inventory import references
 from app.inventory.artefacts import ArtefactStore
 from app.inventory.discovery import Discovery, discover, seed_inventory
-from app.inventory.editor import UneditableInventory, add_guest, edit
+from app.inventory.editor import (
+    Scope,
+    UneditableInventory,
+    add_guest,
+    edit,
+    set_variables,
+)
 from app.inventory.fidelity import Divergence, unintended_changes
 from app.inventory.model import GUEST_GROUP, Inventory, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
@@ -477,6 +483,63 @@ class InventoryService:
             expected_head=expected_head,
         )
         logger.info("Declared the guest %s", name)
+        return commit, result
+
+    def declare_container(
+        self,
+        name: str,
+        writes: list[tuple[Scope, dict[str, Any]]],
+        intended: dict[str, dict[str, Any]],
+        author: str,
+        expected_head: str | None = None,
+    ) -> tuple[Commit, ValidationResult]:
+        """Write one container's variables into the inventory, as one commit.
+
+        Two writes at most and no new host: the upload entry where the
+        operator said, and, for a cluster container, the primitive on
+        `cluster_machines`. Both are variables the upstream roles already read,
+        which is what makes this an edit of the desired state rather than a
+        feature of this service.
+
+        The fidelity check is the one every write here gets, with `intended`
+        naming the effective value each affected machine must end up with. That
+        is what catches an append that landed in the wrong mapping: a quadlet
+        written on a group nobody meant is a file uploaded to machines nobody
+        chose.
+        """
+        document = self._repository.read()
+        if not document.strip():
+            raise RefusedWrite(
+                "There is no inventory on this node yet, so there is nothing "
+                "to declare a container in.",
+                [],
+            )
+        edited = document
+        try:
+            for scope, variables in writes:
+                edited = set_variables(edited, scope, variables)
+        except UneditableInventory as error:
+            raise RefusedWrite(str(error), []) from error
+
+        unintended = unintended_changes(document, edited, intended)
+        if unintended:
+            raise RefusedWrite(
+                f"Declaring {name} could not be written without changing other "
+                "things in the file, so nothing was written.",
+                unintended,
+            )
+
+        result = self.check_document(edited)
+        if not result.valid:
+            raise ImportRefused(result.errors()[0].message, result)
+
+        commit = self._repository.commit(
+            content=edited,
+            message=f"containers: declare {name}",
+            author=author,
+            expected_head=expected_head,
+        )
+        logger.info("Declared the container %s", name)
         return commit, result
 
     def revert(self, commit: str, author: str) -> Commit:

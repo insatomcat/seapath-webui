@@ -372,6 +372,7 @@ class RunService:
         guest: str,
         launched_by: str,
         deployment: Mode | None = None,
+        host: str = "",
     ) -> RunRecord:
         """Start or stop one guest, as a run like any other.
 
@@ -379,17 +380,21 @@ class RunService:
         the one exception D30 makes and its bounds: one task, one upstream
         module, one command value. Everything around it is the ordinary path,
         the lock included, so a start cannot slip in under a convergence.
+
+        `host` names the machine when the act is one machine's: a quadlet is a
+        systemd unit on each machine the inventory sends it to, so a start
+        without a machine would be a start of something that has three.
         """
         # The guest's own deployment, so a Pacemaker guest is started through
         # `cluster_vm` and a libvirt one through `community.libvirt.virt`, in a
         # file that holds both.
         mode = deployment or self._mode()
         return self._launch(
-            actions.entry(action, guest, mode),
+            actions.entry(action, guest, mode, host),
             launched_by,
             variables=None,
             check=False,
-            play=actions.play(action, guest, mode),
+            play=actions.play(action, guest, mode, host),
             guest=guest,
         )
 

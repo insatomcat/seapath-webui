@@ -15,7 +15,16 @@ from app import __version__
 
 @pytest.mark.parametrize(
     "path",
-    ["/", "/inventory", "/deployment", "/vms", "/cluster", "/realtime", "/runs"],
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/cluster",
+        "/realtime",
+        "/runs",
+    ],
 )
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
     response = client.get(path, follow_redirects=False)
@@ -31,6 +40,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/inventory", "inventory.js"),
         ("/deployment", "deployment.js"),
         ("/vms", "vms.js"),
+        ("/containers", "containers.js"),
         ("/cluster", "cluster.js"),
         ("/realtime", "realtime.js"),
         ("/runs", "runs.js"),
@@ -48,7 +58,16 @@ def test_each_page_loads_its_own_script_and_the_shared_chrome(
 
 @pytest.mark.parametrize(
     "path",
-    ["/", "/inventory", "/deployment", "/vms", "/cluster", "/realtime", "/runs"],
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/cluster",
+        "/realtime",
+        "/runs",
+    ],
 )
 def test_every_script_a_page_loads_names_the_version_that_served_it(
     signed_in: TestClient, path: str
@@ -73,7 +92,16 @@ def test_every_script_a_page_loads_names_the_version_that_served_it(
 
 @pytest.mark.parametrize(
     "path",
-    ["/", "/inventory", "/deployment", "/vms", "/cluster", "/realtime", "/runs"],
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/cluster",
+        "/realtime",
+        "/runs",
+    ],
 )
 def test_every_page_can_say_that_its_own_script_never_ran(
     signed_in: TestClient, path: str
@@ -750,7 +778,16 @@ _ROOT_ANCHORED = re.compile(
 
 @pytest.mark.parametrize(
     "path",
-    ["/", "/inventory", "/deployment", "/vms", "/realtime", "/runs", "/login"],
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/realtime",
+        "/runs",
+        "/login",
+    ],
 )
 def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> None:
     body = signed_in.get(path).text
@@ -771,6 +808,7 @@ def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> 
         "runs.js",
         "deployment.js",
         "vms.js",
+        "containers.js",
     ],
 )
 def test_no_script_anchors_a_url_to_the_root(signed_in: TestClient, asset: str) -> None:

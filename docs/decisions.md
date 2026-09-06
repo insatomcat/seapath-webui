@@ -1850,3 +1850,165 @@ copy held by a machine the inventory declares, at the path
 `settings.inventory_dir` names, and it writes nothing else there. No host
 configuration file, no unit restarted, no command beyond what `git push` runs
 on the far side. A machine still changes only when a playbook converges it.
+
+## D33 - Settled: a container is a quadlet, and the page reads the three variables that already deploy one
+
+Containers were the one thing running on a SEAPATH machine that this service
+could not see. They appeared in the Cluster page's resource table, as rows
+whose agent happened to start with `systemd:`, and nothing anywhere said what
+they were or let an operator stop one.
+
+The first question was what to build, and the answer was that most of it
+already existed.
+
+### The mechanism, which is not this service's to invent
+
+A container in SEAPATH has no role of its own and needs none:
+
+- `upload_extra_files_upload_files` copies a `.container` file to
+  `/etc/containers/systemd`. podman's generator reads that directory at every
+  `daemon-reload` and writes a systemd unit from each file.
+- `upload_extra_files_commands_to_run_after_upload` carries the
+  `systemctl daemon-reload` that makes it happen.
+- On a cluster, `extra_crm_cmd_to_run` is loaded into the CIB by
+  `configure_ha`, and a `primitive <name> systemd:<unit>` hands the unit to
+  Pacemaker's systemd resource agent.
+
+Every one of those is a variable the upstream roles already read, and
+[D17](#d17) met the first of them in the first real inventory this service was
+given: two quadlets, uploaded to three machines by one entry. The image behind
+a container is either baked into the ISO or pulled at the first start, which
+the quadlet's own `Image=` line decides, and neither is an act this service has
+any business performing.
+
+So there is **no container variable to invent, no group to add and no schema to
+extend.** The page reads those three variables back, joins them to what the
+machines publish, and writes entries of exactly the same shape. A site that
+exports this inventory and runs the playbooks from a conventional control
+machine gets the same containers, which is the acceptance criterion in
+`AGENTS.md` and the whole reason this shape was chosen over a `containers:`
+section of our own.
+
+### What a container is doing, from the exposition already fetched
+
+The unit half is read from the `systemd` collector of
+`prometheus-node-exporter`, which every SEAPATH machine runs. It costs no new
+scrape at all: `PoolReader` already fetches that machine's whole exposition on
+port 9100 for the CPU pool, and this reads a handful of `node_systemd_unit_state`
+series out of it.
+
+The line [D13](#d13) drew is still where it was. What is read here is the state
+of the units **this inventory declares**, which are objects this service
+already holds the desired state for. Reading every unit a machine runs is
+Cockpit and Prometheus, and it stays there. A machine whose exporter answers
+without any unit metrics is reported as a collector to turn on, which is a
+different sentence from a machine that cannot be reached.
+
+The resource half is `ha_cluster_exporter`, already read for the Cluster page,
+filtered to the `systemd` agent. Resources are matched to quadlets on the
+**unit** rather than on the resource id: the id is the site's to choose, the
+unit is what the agent was given, and a resource called `mqtt` holding
+`mosquitto.service` is the quadlet called `mosquitto`.
+
+### Who owns the container decides which button it carries
+
+This is the decision the whole page hangs on.
+
+| The cluster holds a resource | Nothing holds one |
+|---|---|
+| `crm resource start\|stop <id>` on a member | `ansible.builtin.systemd_service` on one machine |
+| One act for the whole cluster | One act per machine, and the machine is named |
+| Pacemaker chooses the node | The operator chose the machine |
+
+A page offering one button for both would be asking Pacemaker and systemd to
+disagree about the same container. The same reasoning refuses a unit act with
+several candidate machines and no machine named: a quadlet uploaded to three
+machines is three units, and picking one on the caller's behalf would start
+something other than what was asked for.
+
+Both are generated one task plays, launched through `ansible-runner` over the
+SSH path a convergence uses, under the same lock and in the same history. The
+bounds are [D30](#d30)'s and the precedent is [D29](#d29)'s amendment: nothing
+runs `crm` or `systemctl` inside this container.
+
+`crm resource stop` writes a target role into the CIB, which is desired state
+the inventory does not hold. That is the same trade `cluster_vm disable`
+already makes for a guest, and it is the reason the confirmation says the
+resource stays down until it is started again.
+
+### Where a declaration is written, and why it is asked
+
+**Ansible replaces a variable rather than merging it.** A site writing
+`upload_extra_files_upload_files` once on `all` and getting one entry written
+on `node1` would keep, on that machine, the new container alone: the site's
+other uploads would silently stop happening there. That failure produces a
+clean commit, a green run and a machine missing two files.
+
+So the scope is part of the declaration. The form offers the groups the file
+declares and the machines it holds, each with the machines it reaches, and the
+entry is appended **where the affected machines already read that list from**.
+Any other scope is refused with the place named, and the same refusal is
+carried in the scope list so the form shows it as unavailable before it is
+picked rather than after.
+
+The primitive follows the same rule plus one: `configure_ha` loads
+`extra_crm_cmd_to_run` with `run_once`, so the value that counts is the one the
+member Ansible happens to play first. The line is appended where the cluster
+already reads that variable, and on `cluster_machines` when nothing holds it.
+
+Teaching the editor to write a group's `vars` is what this cost. It was the one
+piece of machinery genuinely missing: the form that edits a machine writes on
+the host on purpose, and a container is the other case, where one entry
+deliberately covers a group.
+
+### Adding one commits, and does not run
+
+The VMs page adds a guest and launches `deploy_vms_*`, which deploys guests and
+does nothing else. The playbook that uploads a quadlet is the prerequisites
+playbook of the machine's distribution, which also configures the distribution,
+the packages, syslog and the kernel modules on every machine of the inventory.
+
+Hiding that behind "Add a container" would be exactly the disruption
+`AGENTS.md` requires an operator to confirm in front of. So the declaration
+answers with the runs that make it real, and the operator launches them from
+the page that spells out what they disturb.
+
+### What the page says that no reading of the inventory alone could
+
+Two findings come out of the join and both are worth the page on their own:
+
+- A quadlet the inventory names and the repository does not hold. With
+  `any_errors_fatal`, that is a convergence dying on every host at once at the
+  task that copies it.
+- A quadlet carrying an `[Install]` section **and** a Pacemaker resource.
+  systemd starts the container at boot and the cluster starts it too, so the
+  resource an operator could not keep stopped is the one that comes back at
+  every reboot. The file is in the repository, so this service can read it and
+  say so.
+
+### What was refused
+
+**A `containers:` group of our own, with an image, ports and volumes.** It
+would be a second way of describing a quadlet, this service would own the
+rendering of the `.container` file, and D14's rule would apply: earning the
+right to write a file means reproducing what the upstream owner writes. The
+quadlet is a file the site writes and this service versions.
+
+**Listing the containers a machine actually runs.** It needs the host's
+systemd or the podman socket, both of which `AGENTS.md` forbids in the quadlet,
+and the exporter publishes units rather than containers. A container running on
+a machine and declared nowhere is invisible here, the same way a VM created
+outside the inventory is invisible to the deployment roles.
+
+**Removing a container from the page.** Deleting the entry is an inventory
+edit, and the file it names stays in git either way; what removes the unit from
+a machine is a convergence that no longer uploads it plus a `daemon-reload`,
+which is a sequence with no button behind it. The Inventory page edits the
+variable, which is where a deletion belongs until the roles offer something
+better.
+
+**A `clone` for a container that should run everywhere.** A quadlet uploaded to
+every member and started by systemd on each of them already does that, and it
+is what a site does with an exporter. A clone is the answer where the container
+has to be one instance per node under the cluster's supervision, and nobody has
+asked for it yet.

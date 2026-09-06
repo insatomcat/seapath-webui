@@ -83,7 +83,7 @@ def resolve(document: str | dict[str, Any]) -> dict[str, dict[str, Any]]:
     common configuration once and override it on the one machine that differs.
     """
     table = groups(document)
-    depths = _depths(table)
+    ordering = depths(table)
     members = {name: _members(table, name) for name in table}
     # Every host belongs to `all`, whatever the file says.
     members[ROOT] = {host for group in table.values() for host in group.hosts}
@@ -92,7 +92,7 @@ def resolve(document: str | dict[str, Any]) -> dict[str, dict[str, Any]]:
     for host in sorted(members[ROOT]):
         containing = sorted(
             (group for group in table.values() if host in members[group.name]),
-            key=lambda group: (depths[group.name], group.name),
+            key=lambda group: (ordering[group.name], group.name),
         )
         variables: dict[str, Any] = {}
         for group in containing:
@@ -118,7 +118,7 @@ def _members(table: dict[str, Group], name: str) -> set[str]:
     return hosts
 
 
-def _depths(table: dict[str, Group]) -> dict[str, int]:
+def depths(table: dict[str, Group]) -> dict[str, int]:
     """Distance from `all`, taking the longest path when there are several.
 
     A group reached through two paths sits at the deeper of the two, because

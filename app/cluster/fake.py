@@ -41,6 +41,27 @@ def _detail(**labels: str) -> str:
     return "seapath_alloc_cpu_detail{" + rendered + "} 1"
 
 
+def _units(*states: tuple[str, str]) -> str:
+    """What node_exporter's systemd collector publishes about a few units.
+
+    One series per state per unit, exactly one of them 1, which is the shape
+    the collector emits. The units are the quadlets the golden inventory
+    uploads, so the fake cluster runs the containers that inventory declares.
+    """
+    lines: list[str] = []
+    for unit, current in states:
+        for state in ("activating", "active", "deactivating", "failed", "inactive"):
+            lines.append(
+                f'node_systemd_unit_state{{name="{unit}",state="{state}",'
+                f'type="notify"}} {1 if state == current else 0}'
+            )
+        if current == "active":
+            lines.append(
+                f'node_systemd_unit_start_time_seconds{{name="{unit}"}} 1772000000'
+            )
+    return "\n".join(lines) + "\n"
+
+
 def _uname(release: str, version: str) -> str:
     return (
         f'node_uname_info{{domainname="(none)",machine="x86_64",'
@@ -182,6 +203,10 @@ _NODE1 = (
     _NODE1
     + _uname("6.1.0-rt-amd64", "#1 SMP PREEMPT_RT Debian 6.1.0-1 (2026-01-01)")
     + _tuning()
+    # The containers of the golden inventory: the exporter's own quadlet runs
+    # on every machine, and the site's nginx is the one Pacemaker holds, so it
+    # runs here and is inactive on the other member.
+    + _units(("node-exporter.service", "active"), ("nginxquadlet.service", "active"))
 )
 _BUSY = (
     _BUSY
@@ -192,6 +217,10 @@ _BUSY = (
         thp="madvise",
         irqs_on_isolated=3,
     )
+    # Its exporter quadlet failed, which is the row the Containers page exists
+    # to show: the file was uploaded, the unit exists, and the container is
+    # down on one machine of three.
+    + _units(("node-exporter.service", "failed"), ("nginxquadlet.service", "inactive"))
 )
 
 # Keyed by what the reader actually puts in the URL, which is the inventory's
@@ -267,6 +296,10 @@ def _pacemaker(dc: str = _DC) -> str:
         ("vm-guest3", first, "stopped", "ocf::seapath:VirtualDomain", "failed"),
         ("fence-" + first, second, "started", "stonith:fence_ipmilan", "active"),
         ("fence-" + second, first, "started", "stonith:fence_ipmilan", "active"),
+        # A container the cluster holds, through Pacemaker's systemd agent.
+        # `extra_crm_cmd_to_run` in the golden inventory creates exactly this
+        # primitive, so the fake cluster runs what that file declares.
+        ("nginxquadlet", first, "started", "systemd:nginxquadlet.service", "active"),
     ]
     for name, node, role, agent, status in resources:
         lines.append(

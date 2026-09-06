@@ -120,6 +120,28 @@ so a start cannot slip in under a convergence. The confirmation names the guest
 and says what stopping it does, because on these machines what a guest serves
 is a substation function.
 
+**Containers** is the same idea one layer down, and almost all of it already
+existed. A container in SEAPATH is a quadlet: `upload_extra_files` copies a
+`.container` file to `/etc/containers/systemd`, podman's generator turns it
+into a systemd unit at the next `daemon-reload`, and on a cluster
+`extra_crm_cmd_to_run` hands that unit to Pacemaker's systemd resource agent.
+Three variables the upstream roles already read, which the page reads back and
+joins to what the machines publish: the unit state comes from the systemd
+collector of the `node_exporter` every node runs, out of the same exposition
+the CPU pool is read from, so the reading costs no new request anywhere.
+
+Who owns a container decides what the row offers. Pacemaker holds a resource
+for it: one row, one act, and the cluster chooses the node. Nothing holds one:
+a row per machine, because the same quadlet is a unit on each machine the
+inventory sends it to and stopping it on one says nothing about the others.
+Declaring one writes the same entries a site would have written by hand, at the
+scope the operator picks, and the entry lands where those machines already read
+the list from, because Ansible replaces a variable rather than merging it and
+an entry in the wrong place silently stops the site's other uploads. What makes
+it real is a run, named rather than launched: the playbook that uploads a
+quadlet is the prerequisites one, which reconfigures a great deal more than a
+container.
+
 ![The Cluster page: the three view tabs and their summaries, over the Pacemaker members, quorum and fencing](img/cluster.png)
 
 **Cluster** is what the machines are doing right now, which is the one question

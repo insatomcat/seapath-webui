@@ -1,0 +1,183 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+The containers, which are quadlets and have always been ordinary parts of an
+inventory. `upload_extra_files` copies a `.container` file to
+/etc/containers/systemd, podman's generator turns it into a systemd unit at the
+next daemon-reload, and on a cluster `extra_crm_cmd_to_run` hands that unit to
+Pacemaker's systemd resource agent. Nothing here is new machinery: what was
+missing was a page that reads those three variables back and joins them to what
+the machines publish.
+
+The row an operator came for says who owns the container. Pacemaker holds a
+resource for it: one act for the whole cluster, and the cluster chooses the
+node. Nothing holds one: it is a unit on each machine the inventory sends it
+to, so the machine is part of the row and part of the act.
+
+Adding one is a commit and no run. The playbook that uploads a quadlet is the
+prerequisites playbook of the machine's distribution, which does a great deal
+more than copy a file, so this page names it and sends the operator to the
+Deployment page to read what it disturbs before launching it. The VMs page
+launches its own deployment because `deploy_vms_*` is that narrow. This one is
+not.
+#}
+{% extends "base.html" %}
+{% block title %}Containers - SEAPATH{% endblock %}
+
+{% block body %}
+<main class="page single containers">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card">
+    <div class="card-head">
+      <h2>Containers</h2>
+      <button type="button" id="add" hidden>Add a container</button>
+    </div>
+    <p class="lead" id="lead" hidden></p>
+    <div class="loading" id="loading">Reading the inventory</div>
+    <p class="warning" id="empty" hidden></p>
+
+    <div class="table-scroll" id="container-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Container</th>
+            <th>Managed by</th>
+            <th>Where</th>
+            <th>State</th>
+            <th>Quadlet</th>
+            <th>Declared on</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="container-rows"></tbody>
+      </table>
+    </div>
+
+    <p class="pane-foot">
+      <span class="pane-foot-note" id="runtime-note"></span>
+    </p>
+  </section>
+
+  {# A resource the cluster runs through the systemd agent that no quadlet of
+     this inventory explains. It keeps running, and it keeps a name a later
+     declaration would collide with. No buttons: this service knows the unit's
+     name and nothing about what it is, and a stop it cannot describe before it
+     runs is a stop it should not offer. #}
+  <section class="card" id="undeclared-card" hidden>
+    <h2>Held by the cluster, and not declared</h2>
+    <p class="lead">
+      Pacemaker runs these units and no quadlet in this inventory describes
+      them. A convergence will not touch them, and a container declared under
+      one of these names would collide with what is already there.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Resource</th>
+            <th>Unit</th>
+            <th>Node</th>
+            <th>State</th>
+          </tr>
+        </thead>
+        <tbody id="undeclared-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="hint" id="how">
+    A container is a quadlet: an entry of
+    <code>upload_extra_files_upload_files</code> putting a
+    <code>.container</code> file in <code>/etc/containers/systemd</code>, with
+    <code>systemctl daemon-reload</code> among the commands that follow the
+    upload. The file itself is committed with the inventory and editable on the
+    <a href="inventory">Inventory</a> page. Its image is either baked into the
+    ISO or pulled at the first start, which is what the quadlet's
+    <code>Image=</code> line decides.
+  </p>
+
+</main>
+
+{# The one form on this page. It asks what a quadlet is made of: a name, the
+   file, the machines that receive it, and whether the cluster holds it.
+   Everything else a site writes about a container is in the file. #}
+<div class="modal" id="add-modal" hidden>
+  <div class="modal-body wide">
+    <h2>Add a container</h2>
+    <p class="lead">
+      The quadlet is committed with the inventory and the entry that uploads it
+      is written into the file. Putting it on the machines is a run, named at
+      the end, and launched from the Deployment page where what it disturbs is
+      written down.
+    </p>
+
+    <label for="add-name">Name</label>
+    <input type="text" id="add-name" autocomplete="off" spellcheck="false">
+    <p class="help">
+      It becomes <code>&lt;name&gt;.container</code> on the machines, the unit
+      <code>&lt;name&gt;.service</code>, and in a cluster the Pacemaker
+      resource. Every other tool will call this container by that name.
+    </p>
+
+    <label for="add-file">Quadlet file</label>
+    <input type="file" id="add-file" accept=".container,.j2">
+    <p class="help">
+      The <code>[Container]</code> unit podman reads. A file ending in
+      <code>.j2</code> is rendered per machine by the upload role, so a quadlet
+      that needs a machine's own address is written as one.
+    </p>
+
+    <label for="add-scope">Uploaded to</label>
+    <select id="add-scope"></select>
+    <p class="help" id="add-scope-help">
+      The group or the machine the entry is written on. A group whose machines
+      already read that list from somewhere else is refused rather than
+      shadowed: Ansible replaces a variable instead of merging it, so an entry
+      in the wrong place stops the site's other uploads on those machines.
+    </p>
+
+    <label class="switch" id="add-pacemaker-row" hidden>
+      <input type="checkbox" id="add-pacemaker">
+      Let Pacemaker run it, on one member at a time
+    </label>
+    <p class="help" id="add-pacemaker-help" hidden>
+      Appends a <code>primitive</code> using Pacemaker's systemd agent to
+      <code>extra_crm_cmd_to_run</code>, which <code>configure_ha</code> loads
+      into the CIB. The cluster then decides which member runs it and restarts
+      it where it fails. A quadlet handed to Pacemaker must carry no
+      <code>[Install]</code> section, or systemd will start it at boot behind
+      the cluster's back.
+    </p>
+
+    <div class="card-actions">
+      <button type="button" id="add-go">Declare it</button>
+      <button type="button" id="add-cancel" class="secondary">Cancel</button>
+    </div>
+
+    <ol class="steps" id="add-steps" hidden></ol>
+    <p class="error" id="add-error" hidden></p>
+    <p class="warning" id="add-next" hidden></p>
+  </div>
+</div>
+
+{# One window for every act that cannot be undone by clicking again. It names
+   the container, the machine where there is one, and what stopping it costs. #}
+<div class="modal" id="confirm" hidden>
+  <div class="modal-body">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-disruption"></p>
+    <p class="warning" id="confirm-note" hidden></p>
+    <p class="error" id="confirm-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
+      <button type="button" id="confirm-go"></button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ script("containers.js") }}
+{% endblock %}

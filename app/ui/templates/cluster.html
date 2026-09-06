@@ -164,7 +164,10 @@ thing AGENTS.md forbids. What a machine should be is the inventory and a run.
         <code>crm resource refresh</code>, run on a cluster member over the
         connection a convergence uses, under the same lock and in the same run
         history. Moving a resource stays Pacemaker's decision, and where a
-        resource is allowed to run is a constraint the roles write.
+        resource is allowed to run is a constraint the roles write. A resource
+        whose agent is <code>systemd:</code> is a container the cluster holds,
+        and the <a href="containers">Containers</a> page says which quadlet it
+        came from and starts or stops it.
       </span>
     </p>
   </section>

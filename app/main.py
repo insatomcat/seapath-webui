@@ -54,6 +54,7 @@ from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
 from app.services.cluster import ClusterService
+from app.services.containers import ContainerService
 from app.services.metadata import MetadataService
 from app.services.node import NodeService
 from app.services.realtime import RealtimeService
@@ -385,6 +386,17 @@ def create_app(
         # out as the cluster and storage views.
         client=exporters,
         libvirt_port=settings.libvirt_exporter_port,
+    )
+    # The containers: the quadlets the inventory uploads, the systemd units
+    # they become on each machine, and the Pacemaker resources holding some of
+    # them. The unit half is read from the exposition the CPU pool already
+    # fetches, on the same port, so this adds no scrape of its own. See D33.
+    app.state.container_service = ContainerService(
+        inventory=app.state.inventory_service,
+        cluster=app.state.cluster_service,
+        client=exporters,
+        port=settings.node_exporter_port,
+        distribution=lambda: reader.node_identity().seapath_distro,
     )
 
     install_error_handlers(app)

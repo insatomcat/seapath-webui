@@ -83,6 +83,14 @@ Proxmox clone:
   `cyclictest` and `hwlatdetect`, so they happen on the machines rather than
   inside this container. See D24 in [decisions.md](docs/decisions.md).
 - VM runtime operations through `vm_manager`.
+- The containers a site deploys, which are quadlets: `upload_extra_files` puts
+  a `.container` file on the machines, podman's generator makes it a systemd
+  unit, and on a cluster `extra_crm_cmd_to_run` hands that unit to Pacemaker.
+  Reading them costs nothing new, since the unit state comes out of the
+  exposition the CPU pool is already read from; starting and stopping one is
+  the runtime plane, through Pacemaker where the cluster holds the resource and
+  through systemd on one named machine where it does not. See D33 in
+  [decisions.md](docs/decisions.md).
 
 ### Out of scope
 
@@ -187,7 +195,7 @@ Mixing them is the mistake Proxmox made and that this design refuses.
 | Plane | Contents | Nature | Where the truth lives |
 |---|---|---|---|
 | Configuration | network, RT tuning, cluster membership, Ceph topology, hardening, defined VMs | declarative, converges | the inventory |
-| Runtime | start, stop, migrate, snapshot, console | imperative, ephemeral | Pacemaker and libvirt |
+| Runtime | start, stop, migrate, snapshot, console | imperative, ephemeral | Pacemaker, libvirt and systemd |
 
 A start button has nothing to do in an inventory. An OVS bridge has nothing to
 do behind an imperative API call. `vm_manager` already draws roughly this line.
@@ -318,11 +326,14 @@ machine. At
 the end of M1 the ISO produces a machine configurable from a browser with no
 fourth machine, which is the core of the request.
 
-**M2 - VMs.** The `VMs` group is read as guests rather than as machines, the
+**M2 - VMs and containers.** The `VMs` group is read as guests rather than as machines, the
 VMs page joins what the inventory declares to what Pacemaker reports, and
 adding a guest is one act on that page. Starting and stopping are one task
 plays calling the upstream module, run over the SSH path a convergence uses.
-Migration, the snapshots and the metadata follow the same shape. See D30.
+Migration, the snapshots and the metadata follow the same shape. See D30. A
+container is the same page one layer down: the quadlets the inventory uploads,
+the unit each machine made of them, and the Pacemaker resource where the
+cluster holds one. See D33.
 
 **M3 - cluster.** Trust exchange, inventory merge and replication, cluster
 network forms, `cluster_setup_ha.yaml` and the rest of the cluster playbooks,
