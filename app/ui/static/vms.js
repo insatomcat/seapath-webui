@@ -605,12 +605,13 @@
     };
   }
 
-  function showAdd(open) {
-    element("add-modal").hidden = !open;
-    // Placement, priority, migration and the disk bus are Pacemaker's and
-    // vm_manager's, so they are offered where those exist. The pinning profile
-    // is not: `deploy_vms_standalone` writes it to /etc/seapath/alloc.d and the
-    // same hook reads it there, so the section itself is shown in both modes.
+  // Placement, priority, migration and the disk bus are Pacemaker's and
+  // vm_manager's, so they are offered where those exist. The pinning profile
+  // is not: `deploy_vms_standalone` writes it to /etc/seapath/alloc.d and the
+  // same hook reads it there, so the section itself is shown in both modes.
+  // Applied again whenever the deployment changes, because an inventory with
+  // machines of both kinds asks the question in the form itself.
+  function gateDeployment() {
     const cluster = chosenDeployment() === "cluster";
     document.querySelectorAll("#add-modal [data-cluster]").forEach((node) => {
       node.hidden = !cluster;
@@ -618,12 +619,24 @@
     document.querySelectorAll("#add-modal [data-standalone]").forEach((node) => {
       node.hidden = cluster;
     });
+    // These two answer to a choice made inside the section as well as to the
+    // mode, so their own rule is applied after the mode has spoken: the node
+    // list belongs to a placement that was asked for, and the migration
+    // settings to a migration that was allowed.
+    element("add-host").hidden = !cluster || !element("add-placement").value;
+    element("add-migration").hidden =
+      !cluster || !element("add-live-migration").checked;
     element("add-more-summary").textContent = cluster
       ? "Placement, migration and real time"
       : "Real time";
     element("add-enable-label").textContent = cluster
       ? "Add it to the cluster once it is created"
       : "Start it once it is created";
+  }
+
+  function showAdd(open) {
+    element("add-modal").hidden = !open;
+    gateDeployment();
     if (open) {
       element("add-error").hidden = true;
       element("add-steps").hidden = true;
@@ -651,6 +664,8 @@
       beside.append(new Option(guest.name, guest.name));
     });
   }
+
+  element("add-deployment").addEventListener("change", gateDeployment);
 
   element("add-placement").addEventListener("change", (event) => {
     element("add-host").hidden = !event.target.value;
