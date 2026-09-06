@@ -1,0 +1,67 @@
+# Recorded from ccv-admin, a standalone SEAPATH hypervisor running seven
+# guests, with prometheus-libvirt-exporter 2.3.1 on port 9177. Trimmed to the
+# series `app/cluster/libvirt.py` reads plus a few of its neighbours, so a
+# reader that widens its list meets the shapes it will actually get.
+#
+# Two facts in here are the ones that matter. `VMUADMIN` is a domain the
+# machine runs and the inventory does not declare, which is the guest most
+# likely to need stopping. And it is shut off, which is a state the page has to
+# tell apart from a guest nothing reported.
+# HELP libvirt_up Whether scraping libvirt's metrics was successful.
+# TYPE libvirt_up gauge
+libvirt_up 1
+# HELP libvirt_domains Number of domains
+# TYPE libvirt_domains gauge
+libvirt_domains 8
+# HELP libvirt_domain_info Metadata labels for the domain.
+# TYPE libvirt_domain_info gauge
+libvirt_domain_info{domain="ABBICT",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-3.1"} 1
+libvirt_domain_info{domain="ABBICT2",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-3.1"} 1
+libvirt_domain_info{domain="ABBICT3",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-3.1"} 1
+libvirt_domain_info{domain="ABBICT4",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-3.1"} 1
+libvirt_domain_info{domain="EITCS",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-10.0"} 1
+libvirt_domain_info{domain="EITDeb13",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-10.0"} 1
+libvirt_domain_info{domain="PODEV",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-3.1"} 1
+libvirt_domain_info{domain="VMUADMIN",os_type="hvm",os_type_arch="x86_64",os_type_machine="pc-q35-3.1"} 1
+# HELP libvirt_domain_info_state Code of the domain state
+# TYPE libvirt_domain_info_state gauge
+libvirt_domain_info_state{domain="ABBICT",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="ABBICT2",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="ABBICT3",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="ABBICT4",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="EITCS",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="EITDeb13",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="PODEV",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="VMUADMIN",state_desc="the domain is shut off"} 5
+# HELP libvirt_domain_info_maximum_memory_bytes Maximum allowed memory of the domain, in bytes.
+# TYPE libvirt_domain_info_maximum_memory_bytes gauge
+libvirt_domain_info_maximum_memory_bytes{domain="ABBICT"} 8.274313216e+09
+libvirt_domain_info_maximum_memory_bytes{domain="ABBICT2"} 4.146069504e+09
+libvirt_domain_info_maximum_memory_bytes{domain="ABBICT3"} 4.146069504e+09
+libvirt_domain_info_maximum_memory_bytes{domain="ABBICT4"} 1.6434331648e+10
+libvirt_domain_info_maximum_memory_bytes{domain="EITCS"} 4.294967296e+09
+libvirt_domain_info_maximum_memory_bytes{domain="EITDeb13"} 2.147483648e+09
+libvirt_domain_info_maximum_memory_bytes{domain="PODEV"} 1.2288262144e+10
+libvirt_domain_info_maximum_memory_bytes{domain="VMUADMIN"} 4.145741824e+09
+# HELP libvirt_domain_info_virtual_cpus Number of virtual CPUs for the domain.
+# TYPE libvirt_domain_info_virtual_cpus gauge
+libvirt_domain_info_virtual_cpus{domain="ABBICT"} 2
+libvirt_domain_info_virtual_cpus{domain="ABBICT2"} 2
+libvirt_domain_info_virtual_cpus{domain="ABBICT3"} 2
+libvirt_domain_info_virtual_cpus{domain="ABBICT4"} 2
+libvirt_domain_info_virtual_cpus{domain="EITCS"} 2
+libvirt_domain_info_virtual_cpus{domain="EITDeb13"} 2
+libvirt_domain_info_virtual_cpus{domain="PODEV"} 3
+libvirt_domain_info_virtual_cpus{domain="VMUADMIN"} 2
+# HELP libvirt_domain_block_stats_info Metadata information on block devices.
+# TYPE libvirt_domain_block_stats_info gauge
+libvirt_domain_block_stats_info{disk_type="file",domain="ABBICT",driver_cache="",driver_discard="",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/ABBICT.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+libvirt_domain_block_stats_info{disk_type="file",domain="EITCS",driver_cache="",driver_discard="unmap",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/EITCS.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+# HELP libvirt_domain_timed_out Whether scraping libvirt's domain metrics has timed out.
+# TYPE libvirt_domain_timed_out gauge
+libvirt_domain_timed_out{domain="ABBICT"} 0
+libvirt_domain_timed_out{domain="VMUADMIN"} 0
+# HELP libvirt_storage_pool_state State of the storage pool.
+# TYPE libvirt_storage_pool_state gauge
+libvirt_storage_pool_state{storage_pool="default"} 2
+libvirt_storage_pool_state{storage_pool="vm"} 2

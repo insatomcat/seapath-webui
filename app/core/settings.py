@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     # the CPU pool is read from the port a cluster already has open rather than
     # from a new one.
     node_exporter_port: int = 9100
+    # Where `deploy_prometheus_exporters` puts libvirt-exporter, on every
+    # machine of the `hypervisors` group. It is what knows about a guest
+    # Pacemaker does not: one on a standalone machine, and one running on a
+    # cluster member that no inventory declares.
+    libvirt_exporter_port: int = 9177
     # Where `configure_ha` puts ha_cluster_exporter, which is what publishes
     # the state of Pacemaker and Corosync. Same reasoning as above: the port a
     # cluster already has open, asked rather than duplicated.

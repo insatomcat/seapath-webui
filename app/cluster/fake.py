@@ -18,6 +18,7 @@ answered "everything is fine" would let all of them go untested.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 
 def _detail(**labels: str) -> str:
@@ -390,8 +391,32 @@ CEPH_EXPORTERS = {
     "elabo2": "# a standby manager serves no metrics\n",
 }
 
+# What libvirt reports on the machine outside the cluster. Recorded from a real
+# standalone hypervisor, in `tests/expositions/libvirt-exporter.txt`, and kept
+# there rather than written out here: a parser tested against invented series
+# is a parser tested against itself.
+#
+# One of its domains, `VMUADMIN`, is running on the machine and absent from
+# every inventory, which is the guest most likely to need stopping and the one
+# nothing else here can reach.
+_LIBVIRT = (
+    Path(__file__).resolve().parents[2] / "tests/expositions/libvirt-exporter.txt"
+)
+# Keyed by address, the way the others are: the fan out builds its URL from
+# `ansible_host`, so a key that is a host name matches nothing.
+LIBVIRT_EXPORTERS = (
+    {"192.168.200.125": _LIBVIRT.read_text(), "elabo1": _LIBVIRT.read_text()}
+    if _LIBVIRT.is_file()
+    else {}
+)
+
 # Every port this service asks about, and what answers on it.
-BY_PORT = {9100: EXPORTERS, 9664: HA_EXPORTERS, 9283: CEPH_EXPORTERS}
+BY_PORT = {
+    9100: EXPORTERS,
+    9177: LIBVIRT_EXPORTERS,
+    9664: HA_EXPORTERS,
+    9283: CEPH_EXPORTERS,
+}
 
 
 class FakeMetricsClient:

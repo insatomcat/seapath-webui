@@ -29,7 +29,11 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from app.cluster.exporters import MetricsClient, UrllibMetricsClient, read_all
 from app.cluster.ha import PacemakerResource
+from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
+from app.cluster.libvirt import read as read_libvirt
+from app.cluster.libvirt import reporting as libvirt_reporting
 from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
@@ -39,7 +43,7 @@ from app.inventory.model import (
 )
 from app.inventory.references import Reference
 from app.inventory.repository import Commit
-from app.inventory.service import InventoryService
+from app.inventory.service import InventoryService, InventoryState
 from app.services.cluster import ClusterService
 
 # What `vm_manager` names the agent of the resource it creates per guest, and
@@ -77,11 +81,12 @@ _DESIRED_STATE_ONLY = (
     "is running."
 )
 _FROM_PACEMAKER = (
-    "The state and node columns are read from ha_cluster_exporter on each "
-    "machine of the inventory, which publishes what crm_mon said. A guest "
-    "deployed on a standalone machine has no Pacemaker resource and is "
-    "reported by nothing here: libvirt-exporter publishes what libvirt says "
-    "about it, on its own machine, and this page does not ask it yet."
+    "The state and node columns are read from the exporters each machine of "
+    "the inventory already runs: ha_cluster_exporter, which publishes what "
+    "crm_mon said, and libvirt-exporter, which publishes what libvirt says "
+    "about its own domains. A guest with no Pacemaker resource is reported by "
+    "the second, which is the only reading a guest on a standalone machine "
+    "has."
 )
 
 
@@ -116,6 +121,15 @@ class GuestView(BaseModel):
     resource: PacemakerResource | None = None
     """Pacemaker's line for it, absent when nothing reports one."""
 
+    domain: LibvirtDomain | None = None
+    """What libvirt says about it, from the exporter on its own machine.
+
+    The only reading a guest on a standalone machine has, since it has no
+    Pacemaker resource at all. A cluster guest carries both where its node
+    publishes the exporter, and the two agree because they describe the same
+    domain.
+    """
+
     @property
     def missing_files(self) -> list[Reference]:
         return [reference for reference in self.files if not reference.found]
@@ -125,6 +139,8 @@ class GuestsView(BaseModel):
     mode: str = Mode.STANDALONE.value
     guests: list[GuestView] = Field(default_factory=list)
     undeclared: list[PacemakerResource] = Field(default_factory=list)
+    undeclared_domains: list[LibvirtDomain] = Field(default_factory=list)
+    """The same, for the machines Pacemaker does not answer for."""
     """Guests the cluster runs and the inventory does not declare.
 
     Worth a line of its own rather than a silent omission: a VM deployed by
@@ -261,9 +277,19 @@ class UnknownGuest(Exception):
 
 
 class VmService:
-    def __init__(self, inventory: InventoryService, cluster: ClusterService) -> None:
+    def __init__(
+        self,
+        inventory: InventoryService,
+        cluster: ClusterService,
+        client: MetricsClient | None = None,
+        libvirt_port: int = DEFAULT_PORT,
+        timeout: float = 2.0,
+    ) -> None:
         self._inventory = inventory
         self._cluster = cluster
+        self._client = client or UrllibMetricsClient()
+        self._libvirt_port = libvirt_port
+        self._timeout = timeout
 
     def known(self) -> set[str]:
         """The guests this node can act on.
@@ -436,6 +462,7 @@ class VmService:
 
         files = self._files_by_host()
         resources, view.runtime_note = self._resources()
+        domains = self._domains(state)
 
         for name, guest in state.inventory.guests.items():
             deployment = state.inventory.deployment_of(name)
@@ -452,6 +479,7 @@ class VmService:
                     enable=guest.enable,
                     files=files.get(name, []),
                     resource=resources.get(name),
+                    domain=domains.get(name),
                 )
             )
 
@@ -459,10 +487,47 @@ class VmService:
         view.undeclared = [
             resource for name, resource in resources.items() if name not in declared
         ]
+        # A domain a machine runs and no inventory declares. The same finding
+        # as an undeclared Pacemaker resource, for the machines Pacemaker does
+        # not answer for, and the one guest nothing else here could reach.
+        view.undeclared_domains = [
+            domain
+            for name, domain in domains.items()
+            if name not in declared and name not in resources
+        ]
 
         if not view.guests:
             view.note = _NO_GUESTS
         return view
+
+    def _domains(self, state: InventoryState) -> dict[str, LibvirtDomain]:
+        """What libvirt reports, by domain name, across every machine.
+
+        Asked of every machine the inventory declares rather than of the
+        standalone ones alone: `deploy_prometheus_exporters` puts the exporter
+        on the whole `hypervisors` group, and a cluster member runs domains
+        too. Where both answer for a guest, they describe the same domain.
+
+        A machine that does not answer costs its own domains and nothing else,
+        which is the ordinary state of a machine being built.
+        """
+        if state.inventory is None:
+            return {}
+        targets = [
+            (name, node.ansible_host)
+            for name, node in state.inventory.hosts.items()
+            if node.ansible_host
+        ]
+        found: dict[str, LibvirtDomain] = {}
+        for exposition in read_all(
+            self._client, targets, self._libvirt_port, timeout=self._timeout
+        ):
+            if not libvirt_reporting(exposition):
+                continue
+            reading = read_libvirt(exposition)
+            for domain in reading.domains:
+                found.setdefault(domain.name, domain)
+        return found
 
     def _files_by_host(self) -> dict[str, list[Reference]]:
         """Every path the inventory names, kept under the entry that names it.

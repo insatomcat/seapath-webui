@@ -333,6 +333,11 @@ def create_app(
     app.state.vm_service = VmService(
         inventory=app.state.inventory_service,
         cluster=app.state.cluster_service,
+        # What libvirt says about the domains of each machine, which is the
+        # only reading a guest on a standalone machine has. Same exporter fan
+        # out as the cluster and storage views.
+        client=exporters,
+        libvirt_port=settings.libvirt_exporter_port,
     )
 
     install_error_handlers(app)

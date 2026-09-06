@@ -53,6 +53,30 @@ def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     raise AssertionError(f"Run {run_id} did not finish")
 
 
+# The guests the recorded libvirt exposition reports, declared on the machine
+# that runs them. `ghost` is declared and absent from the exposition, which is
+# the case the page has to tell from a domain reported as down.
+STANDALONE_WITH_DOMAINS = """
+all:
+  hosts:
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+      admin_user: admin
+  children:
+    standalone_machine:
+      hosts:
+        seapath-machine:
+    hypervisors:
+      hosts:
+        seapath-machine:
+    VMs:
+      hosts:
+        ABBICT:
+        EITCS:
+        ghost:
+"""
+
 # The metadata of a guest lives on an RBD image, so every operation on it is a
 # cluster act. The fixture is the real cluster inventory the fidelity tests use,
 # with the guests added to it.
@@ -962,3 +986,64 @@ def test_a_standalone_guest_is_reported_by_nothing_this_page_asks(
     }
 
     assert guests["localvm"]["resource"] is None
+
+
+# 8. What libvirt says, for the guests Pacemaker does not answer for.
+
+
+def test_a_standalone_guest_carries_what_libvirt_says_about_it(
+    signed_in: TestClient,
+) -> None:
+    # Its only reading: it has no Pacemaker resource at all, and the machine
+    # running it publishes libvirt-exporter like every other hypervisor.
+    document = STANDALONE_WITH_DOMAINS
+    signed_in.post("/api/v1/inventory/import", json={"document": document})
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["ABBICT"]["resource"] is None
+    assert guests["ABBICT"]["domain"]["running"] is True
+    assert guests["ABBICT"]["domain"]["state"] == "the domain is running"
+    assert guests["ABBICT"]["domain"]["host"] == "seapath-machine"
+    assert guests["ABBICT"]["domain"]["vcpus"] == 2
+
+
+def test_a_domain_that_is_shut_off_is_told_from_one_nothing_reported(
+    signed_in: TestClient,
+) -> None:
+    # The distinction the page was missing: a guest libvirt knows and reports
+    # as down, against a guest nothing here has heard of.
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["ghost"]["domain"] is None
+    assert guests["EITCS"]["domain"]["running"] is True
+
+
+def test_a_domain_the_machine_runs_and_the_inventory_ignores_is_named(
+    signed_in: TestClient,
+) -> None:
+    # `VMUADMIN` runs on the machine and no inventory declares it. The same
+    # finding as an undeclared Pacemaker resource, for the machines Pacemaker
+    # does not answer for.
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    payload = signed_in.get("/api/v1/vms").json()
+
+    reported = {item["name"]: item for item in payload["undeclared_domains"]}
+
+    # Every domain the machine runs that this inventory leaves out, and the
+    # two declared ones are absent from the list.
+    assert "VMUADMIN" in reported
+    assert reported["VMUADMIN"]["running"] is False
+    assert "ABBICT" not in reported
+    assert "EITCS" not in reported

@@ -88,15 +88,23 @@
     let status = "absent";
     let words = "not deployed";
 
-    // A guest libvirt owns alone is reported by nothing this page asks.
-    // Pacemaker does not know it, and saying "not deployed" about a guest
-    // that may well be running is a claim rather than a reading.
-    if (!resource && guest.deployment !== "cluster") {
+    // What libvirt says, for a guest Pacemaker does not answer for. That is
+    // every guest on a standalone machine, and it is the only reading those
+    // have: they have no Pacemaker resource at all.
+    if (!resource && guest.domain) {
+      status = guest.domain.running ? "ok" : "unknown";
+      words = guest.domain.state;
+      box.title =
+        "Read from libvirt-exporter on " +
+        guest.domain.host +
+        ". This guest has no Pacemaker resource, so nothing else here " +
+        "reports it.";
+    } else if (!resource && guest.deployment !== "cluster") {
       words = "not reported";
       box.title =
-        "This page reads Pacemaker, and a standalone guest has none. What " +
-        "libvirt says about it is published by libvirt-exporter on its " +
-        "machine, and nothing here asks that yet.";
+        "This page reads Pacemaker and libvirt-exporter, and neither " +
+        "reported this guest. Its machine may not run the exporter, or may " +
+        "not have answered.";
     }
 
     if (resource) {
@@ -167,10 +175,15 @@
   // because there is no domain to act on until it has been deployed.
   function acts(guest) {
     const cell = document.createElement("td");
-    if (!canAct || !guest.resource) {
+    // Something has to have reported the guest before it can be acted on: a
+    // name nothing answers for is a guest that has not been deployed, and
+    // starting one is a deployment run rather than a button here.
+    if (!canAct || !(guest.resource || guest.domain)) {
       return cell;
     }
-    const running = guest.resource.role === "started";
+    const running = guest.resource
+      ? guest.resource.role === "started"
+      : guest.domain.running;
     cell.append(actButton(guest.name, running ? "stop" : "start"));
     return cell;
   }
@@ -517,7 +530,13 @@
         cell(guest.name),
         deployedBy(guest),
         state(guest),
-        cell(guest.resource ? guest.resource.node : ""),
+        cell(
+          guest.resource
+            ? guest.resource.node
+            : guest.domain
+              ? guest.domain.host
+              : ""
+        ),
         file(guest, guest.vm_disk),
         file(guest, guest.vm_template || guest.xml_path),
         ondeploy(guest),
@@ -530,9 +549,22 @@
 
   function renderUndeclared(view) {
     const resources = view.undeclared || [];
-    element("undeclared-card").hidden = !resources.length;
+    const domains = view.undeclared_domains || [];
+    element("undeclared-card").hidden = !(resources.length || domains.length);
     const rows = element("undeclared-rows");
     rows.replaceChildren();
+    // A domain a machine runs and no inventory declares, on a machine
+    // Pacemaker does not answer for. Same finding, other reading.
+    domains.forEach((domain) => {
+      row(rows, [
+        cell(domain.name),
+        cell(domain.host),
+        cell(domain.state),
+        cell(domain.running ? "running" : "stopped"),
+        acts({ name: domain.name, domain }),
+        metaButton(domain.name, "standalone"),
+      ]);
+    });
     resources.forEach((resource) => {
       row(rows, [
         cell(resource.id),
