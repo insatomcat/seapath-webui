@@ -134,10 +134,11 @@ that a deployed cluster already runs, one HTTP GET per machine, and every
 member is asked because which of them answers is itself part of the answer.
 
 The page monitors nothing and holds no state of its own, deliberately. It
-offers one act: **Refresh** on a resource clears the operation history
-Pacemaker keeps for it, so a failure that has been dealt with stops holding it
-down, and that runs as an ordinary one task run on a cluster member rather than
-as a command inside this container. Putting a node in standby, moving a
+offers one act, at two scopes: **Refresh** on a resource clears the operation
+history Pacemaker keeps for it, so a failure that has been dealt with stops
+holding it down, and a second button does the same for every resource on every
+node. Both run as an ordinary one task run on a cluster member rather than as a
+command inside this container. Putting a node in standby, moving a
 resource or evicting an OSD is not offered, because each of those decides where
 things run: adding a machine or a disk is an inventory change and a run, and
 the rest belongs to Pacemaker, to Ceph, or to the shell one click away on the

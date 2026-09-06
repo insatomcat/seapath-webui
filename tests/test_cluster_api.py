@@ -18,6 +18,8 @@ that in the same words it forbids writing `corosync.conf`.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -132,7 +134,9 @@ def test_the_refresh_play_runs_crm_on_a_cluster_member(
     # `crm` runs inside this container, which is the line that matters.
     run = _cluster(signed_in).post("/api/v1/cluster/resources/vm-guest3/refresh").json()
 
-    written = list((settings.runs_dir / run["run_id"]).rglob("vm_refresh.yaml"))
+    # The record says what it acts on: a Pacemaker resource is not always a
+    # guest, so this is not one of the `vm_` plays.
+    written = list((settings.runs_dir / run["run_id"]).rglob("resource_refresh.yaml"))
     assert len(written) == 1
     document = yaml.safe_load(written[0].read_text())
     assert len(document) == 1
@@ -142,6 +146,65 @@ def test_the_refresh_play_runs_crm_on_a_cluster_member(
     assert tasks[0]["ansible.builtin.command"] == {
         "argv": ["crm", "resource", "refresh", "vm-guest3"]
     }
+
+
+def test_refreshing_the_whole_cluster_names_no_resource(
+    signed_in: TestClient, settings
+) -> None:
+    """A bare `crm resource refresh` is every resource on every node."""
+    run = _cluster(signed_in).post("/api/v1/cluster/resources/refresh").json()
+
+    assert run["resource"] == ""
+    written = list(
+        (settings.runs_dir / run["run_id"]).rglob("cluster_refresh_all.yaml")
+    )
+    assert len(written) == 1
+    tasks = yaml.safe_load(written[0].read_text())[0]["tasks"]
+    assert len(tasks) == 1
+    assert tasks[0]["ansible.builtin.command"] == {
+        "argv": ["crm", "resource", "refresh"]
+    }
+
+
+UNREACHABLE = Path(__file__).parent / "golden" / "adopted-cluster.yaml"
+
+
+def test_neither_refresh_is_offered_where_no_cluster_answered(
+    signed_in: TestClient,
+) -> None:
+    """A cluster inventory whose machines are not there.
+
+    Launching either would reach the run three minutes later as an Ansible
+    error, rather than here as a sentence naming what to look at.
+    """
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": UNREACHABLE.read_text()}
+    )
+
+    for path in (
+        "/api/v1/cluster/resources/refresh",
+        "/api/v1/cluster/resources/vm-guest3/refresh",
+    ):
+        refused = signed_in.post(path)
+        assert refused.status_code == 409
+        assert refused.json()["error"]["code"] == "no_cluster"
+
+
+def test_neither_refresh_is_offered_on_a_machine_with_no_cluster_group(
+    signed_in: TestClient,
+) -> None:
+    """The play targets `cluster_machines[0]`, so the file has to have one.
+
+    The seeded node is standalone, and the precondition is what says so before
+    a run with no host is launched.
+    """
+    for path in (
+        "/api/v1/cluster/resources/refresh",
+        "/api/v1/cluster/resources/vm-guest3/refresh",
+    ):
+        refused = signed_in.post(path)
+        assert refused.status_code == 409
+        assert refused.json()["error"]["code"] == "precondition_failed"
 
 
 def test_a_resource_the_cluster_does_not_report_is_refused(
@@ -164,9 +227,11 @@ def test_a_viewer_reads_the_cluster_and_never_refreshes_it(
     # act, exactly as starting a guest is.
     assert signed_in_viewer.get("/api/v1/cluster").status_code == 200
 
-    refused = signed_in_viewer.post("/api/v1/cluster/resources/vm-guest3/refresh")
-
-    assert refused.status_code == 403
+    for path in (
+        "/api/v1/cluster/resources/refresh",
+        "/api/v1/cluster/resources/vm-guest3/refresh",
+    ):
+        assert signed_in_viewer.post(path).status_code == 403
 
 
 def test_both_views_are_in_the_openapi_document(signed_in: TestClient) -> None:
@@ -177,3 +242,4 @@ def test_both_views_are_in_the_openapi_document(signed_in: TestClient) -> None:
     assert set(document["paths"]["/api/v1/cluster/resources/{name}/refresh"]) == {
         "post"
     }
+    assert set(document["paths"]["/api/v1/cluster/resources/refresh"]) == {"post"}

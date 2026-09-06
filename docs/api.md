@@ -313,6 +313,7 @@ is where this service answers "who changed what, and when".
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
 | POST | `/cluster/resources/{name}/refresh` | Clear one resource's operation history, failures included, and ask Pacemaker to probe it again: `crm resource refresh <name>` on a cluster member, as a run. `operator`. 202 with the `run_id` to watch, `404 unknown_resource` for a name the cluster does not report, `409 no_cluster` when none answered. See [D29](decisions.md#d29) |
+| POST | `/cluster/resources/refresh` | The same, for every resource on every node: `crm resource refresh` with nothing named. `operator`. It costs a probe per resource per node, so it is the larger of the two and the page says so |
 
 Every reading is open to the `viewer` role, which is the whole point of having
 one. The one write in the table is `POST /node/update`, and what it writes is

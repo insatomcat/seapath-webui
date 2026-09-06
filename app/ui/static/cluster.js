@@ -337,6 +337,10 @@
       line.classList.toggle("row-bad", resource.failed);
     });
 
+    // Offered only where a row's button is: the same role, the same cluster.
+    element("resources-actions").hidden =
+      !canAct || cluster.resources.length === 0;
+
     const constraints = cluster.constraints;
     element("constraints").hidden = constraints.length === 0;
     const rules = clear(element("constraint-rows"));
@@ -375,6 +379,24 @@
     cell.append(button);
     return cell;
   }
+
+  element("refresh-all").addEventListener("click", () => {
+    confirm({
+      title: "Refresh every resource",
+      body:
+        "Deletes the operation history of every resource on every node, " +
+        "failures included, and asks Pacemaker to probe them all again. This " +
+        "is the whole cluster rather than the one resource a failure is on: " +
+        "it costs a probe per resource per node, and on a large cluster that " +
+        "is a burst of monitor operations. What is running keeps running, and " +
+        "anything genuinely still broken fails again on the next probe.",
+      label: "Refresh every resource",
+      act: async () => {
+        const started = await API.post("/cluster/resources/refresh");
+        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      },
+    });
+  });
 
   function confirmRefresh(name) {
     confirm({

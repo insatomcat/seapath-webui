@@ -840,6 +840,9 @@ def test_the_resources_panel_carries_the_refresh_and_opens_the_constraints(
     # A confirmation, because this one reaches a live cluster.
     assert 'id="confirm-go"' in body
     assert "/cluster/resources/" in script
+    # Both scopes, and the page says which of the two is the smaller act.
+    assert 'id="refresh-all"' in body
+    assert "The button on a row is the smaller act." in " ".join(body.split())
     # The constraints are a panel of their own under the table, open, and
     # spaced off it.
     assert 'class="sub-panel" id="constraints" open' in body

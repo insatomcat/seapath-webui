@@ -41,6 +41,7 @@ class Action(str, Enum):
     STOP = "stop"
     RECONFIGURE = "reconfigure"
     REFRESH = "refresh"
+    REFRESH_ALL = "refresh_all"
 
 
 @dataclass(frozen=True)
@@ -48,11 +49,17 @@ class ActionSpec:
     verb: str
     """What the button says."""
     disruption: str
-    """What it does to the guest, in the sentence a confirmation carries."""
+    """What it acts on, in the sentence a confirmation carries."""
     subject: str = "guest"
     """What the name in the play is: a guest of the inventory, or a resource
     Pacemaker reports. They are usually the same object and never the same
-    list, since a cluster carries resources no inventory declares."""
+    list, since a cluster carries resources no inventory declares. `cluster`
+    means the action takes no name at all."""
+    prefix: str = "vm"
+    """What the run record calls this play, before the action's own name.
+
+    A guest is `vm_start`; a Pacemaker resource is not always a guest, and the
+    whole cluster is neither, so those say what they act on instead."""
 
 
 _SPECS: dict[Action, ActionSpec] = {
@@ -74,9 +81,24 @@ _SPECS: dict[Action, ActionSpec] = {
             "apply one without the guest going down and coming back."
         ),
     ),
+    Action.REFRESH_ALL: ActionSpec(
+        verb="Refresh every resource",
+        subject="cluster",
+        prefix="cluster",
+        disruption=(
+            "Deletes the operation history of every resource on every node, "
+            "failures included, and asks Pacemaker to probe them all again. "
+            "This is the whole cluster at once rather than the one resource a "
+            "failure is on: it costs a probe per resource per node, and on a "
+            "large cluster that is a burst of monitor operations. What is "
+            "running keeps running, and anything genuinely still broken fails "
+            "again on the next probe."
+        ),
+    ),
     Action.REFRESH: ActionSpec(
         verb="Refresh",
         subject="resource",
+        prefix="resource",
         disruption=(
             "Deletes the resource's operation history on every node, failures "
             "included, and asks Pacemaker to probe its real state again. It is "
@@ -116,12 +138,12 @@ def entry(action: Action, guest: str, mode: Mode) -> PlaybookEntry:
     # Rebuilding the Pacemaker resource is a cluster act whatever the file
     # says: there is no resource on a standalone machine, and the metadata it
     # would be rebuilt from lives on an RBD image that machine has not got.
-    # Refreshing one is the same, for the first half of that reason.
-    cluster = mode is Mode.CLUSTER or action in (Action.RECONFIGURE, Action.REFRESH)
+    # Refreshing is the same, for the first half of that reason.
+    cluster = mode is Mode.CLUSTER or action in _CLUSTER_ONLY
     return PlaybookEntry(
-        id=f"vm_{action.value}",
-        playbook=f"{GENERATOR}.vm_{action.value}",
-        title=f"{detail.verb} {guest}",
+        id=f"{detail.prefix}_{action.value}",
+        playbook=f"{GENERATOR}.{detail.prefix}_{action.value}",
+        title=_title(action, guest),
         targets=["cluster_machines[0]"] if cluster else ["standalone_machine"],
         # There is nothing to preview: the play makes one call and the answer
         # is what the cluster does with it.
@@ -144,18 +166,26 @@ def play(action: Action, guest: str, mode: Mode) -> str:
     own. The caller checks the name against the guests this node knows about
     before it reaches here, and this is the second lock on the same door.
     """
-    title = f"{_SPECS[action].verb} {guest}"
-    cluster = action in (Action.RECONFIGURE, Action.REFRESH)
     document = [
         {
-            "name": title,
-            "hosts": _hosts(Mode.CLUSTER if cluster else mode),
+            "name": _title(action, guest),
+            "hosts": _hosts(Mode.CLUSTER if action in _CLUSTER_ONLY else mode),
             "gather_facts": False,
             "become": True,
             "tasks": _tasks(action, guest, mode),
         }
     ]
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+
+
+# The actions that are cluster acts whatever the inventory's own mode says.
+_CLUSTER_ONLY = (Action.RECONFIGURE, Action.REFRESH, Action.REFRESH_ALL)
+
+
+def _title(action: Action, guest: str) -> str:
+    """What the run is called, in the run list and in the play."""
+    verb = _SPECS[action].verb
+    return f"{verb} {guest}" if guest else verb
 
 
 def _hosts(mode: Mode) -> str:
@@ -169,8 +199,8 @@ def _hosts(mode: Mode) -> str:
 
 def _tasks(action: Action, guest: str, mode: Mode) -> list[dict]:
     """The task or tasks the action is, named for the operator reading them."""
-    title = f"{_SPECS[action].verb} {guest}"
-    if action is Action.REFRESH:
+    title = _title(action, guest)
+    if action in (Action.REFRESH, Action.REFRESH_ALL):
         # `crm resource refresh`, which is what an operator would type on the
         # machine, and `vm_manager` reaches Pacemaker through the same `crm`.
         # No module covers it: `cluster_vm` builds and moves guests, and a
@@ -179,12 +209,15 @@ def _tasks(action: Action, guest: str, mode: Mode) -> list[dict]:
         # `argv` rather than a string, so no shell parses it and a resource
         # name holding a quote is one argument either way. The name is checked
         # against what the cluster reports before it arrives here.
+        # A bare `crm resource refresh` is the whole cluster: no resource
+        # named means every resource on every node.
+        argv = ["crm", "resource", "refresh"]
+        if action is Action.REFRESH:
+            argv.append(guest)
         return [
             {
                 "name": title,
-                "ansible.builtin.command": {
-                    "argv": ["crm", "resource", "refresh", guest],
-                },
+                "ansible.builtin.command": {"argv": argv},
                 # It writes to the CIB every time, so there is nothing for
                 # Ansible to call unchanged, and saying so is honest.
                 "changed_when": True,

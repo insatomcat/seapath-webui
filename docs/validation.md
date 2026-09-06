@@ -276,7 +276,9 @@ has to leave the cluster exactly as it found it.
 | 20 | On a resource with a failure count, **Refresh** launches a run whose one task is `crm resource refresh <resource>`, and `crm_mon` on the machine reports the count cleared afterwards | The button exists for a state only a real cluster reaches. `crm resource fail` stages it | Pending |
 | 21 | Refreshing a resource that is running leaves it running, on the same node, and the guests on that machine are undisturbed | The whole reason this is offered rather than a stop and a start | Pending |
 | 22 | After 20, `crm configure show` is identical before and after: the refresh cleared history and changed no configuration | What makes this act belong on a page that configures nothing | Pending |
-| 23 | A viewer sees no Refresh button, and `POST /cluster/resources/<r>/refresh` as a viewer is refused | It reaches a live cluster, so it is an operator's act | Pending |
+| 23 | A viewer sees neither Refresh button, and both endpoints as a viewer are refused | They reach a live cluster, so they are an operator's act | Pending |
+| 24 | **Refresh every resource** runs `crm resource refresh` with no resource named, and `crm_mon` reports every fail count cleared | The wide act, whose cost only a real cluster shows | Pending |
+| 25 | During 24, the guests keep running and `cyclictest` on the isolated CPUs is unchanged | A burst of monitor operations on a live substation is the thing to measure before trusting this button | Pending |
 
 ### Result
 

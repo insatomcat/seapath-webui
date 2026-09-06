@@ -1433,9 +1433,13 @@ member rather than a mechanism:
   always a guest. `argv` as a list, so no shell parses it, and the name is
   checked against the resources the cluster itself reported before it gets
   there.
-- **One resource at a time.** A bare `crm resource refresh` re-probes every
-  resource on every node, which on a live substation is a much larger act than
-  the one an operator came to the page for. The button is on the row.
+- **Two scopes, and the page says which is which.** The button on a row
+  refreshes that resource. A second one refreshes every resource on every node,
+  which is `crm resource refresh` with nothing named, and it costs a probe per
+  resource per node. The row is the act an operator came to the page for, and
+  the wide one is there because a cluster whose history is stale in several
+  places is exactly when clicking thirty rows is the wrong shape. Both name
+  their scope before they run.
 
 What stays refused is what the rule was always about: standby, migrate, evict,
 and every other verb that decides where things run. Pacemaker decides that, and

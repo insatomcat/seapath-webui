@@ -69,7 +69,46 @@ class RefreshResponse(BaseModel):
 
     run_id: str
     state: str
-    resource: str
+    resource: str = ""
+    """The resource refreshed, empty when it was the whole cluster."""
+
+
+def _launch(request: Request, action: Action, name: str, user: User) -> RefreshResponse:
+    record = _runs(request).launch_action(action, name, user.username)
+    return RefreshResponse(run_id=record.id, state=record.state.value, resource=name)
+
+
+def _reporting(request: Request) -> set[str]:
+    """The resources the cluster answered for, or a refusal saying it did not.
+
+    Refreshing a cluster nothing answered for would launch a run against a
+    machine that may not be in a cluster at all, and the failure would arrive
+    three minutes later as an Ansible error rather than here as a sentence.
+    """
+    known = _service(request).resource_names()
+    if not known:
+        raise ApiError(
+            "no_cluster",
+            (
+                "No cluster answered, so there is nothing to refresh. The "
+                "Cluster page says which machines could not be reached."
+            ),
+            409,
+        )
+    return known
+
+
+@router.post("/resources/refresh", status_code=202)
+def refresh_all(request: Request, user: User = operator) -> RefreshResponse:
+    """Clear every resource's operation history, as a run.
+
+    `crm resource refresh` with no resource named, which is what it means: the
+    whole cluster at once. It costs a probe per resource per node, so the page
+    offers it beside the per resource button rather than instead of it, and
+    says which of the two is the smaller act.
+    """
+    _reporting(request)
+    return _launch(request, Action.REFRESH_ALL, "", user)
 
 
 @router.post("/resources/{name}/refresh", status_code=202)
@@ -85,22 +124,10 @@ def refresh(request: Request, name: str, user: User = operator) -> RefreshRespon
     The name is checked against the resources the cluster reports, so this
     cannot be pointed at anything Pacemaker does not know about.
     """
-    known = _service(request).resource_names()
-    if not known:
-        raise ApiError(
-            "no_cluster",
-            (
-                "No cluster answered, so there is no resource to refresh. The "
-                "Cluster page says which machines could not be reached."
-            ),
-            409,
-        )
-    if name not in known:
+    if name not in _reporting(request):
         raise ApiError(
             "unknown_resource",
             f"{name} is not a resource this cluster reports.",
             404,
         )
-
-    record = _runs(request).launch_action(Action.REFRESH, name, user.username)
-    return RefreshResponse(run_id=record.id, state=record.state.value, resource=name)
+    return _launch(request, Action.REFRESH, name, user)
