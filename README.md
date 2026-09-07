@@ -310,3 +310,10 @@ log.
 | `vmmgrapi` role | `seapath-ansible/roles/vmmgrapi` | The existing thin API over `vm_manager`. Deprecation planned at M5: the ISO stops enabling it, the role stays. |
 | `rtperfui` | `~/dev/rtperfui` | Packaging precedent: FastAPI, Jinja, quadlet with host mounts. |
 | `insatomcat-exporter` | `~/dev/insatomcat-exporter` | Precedent for the image build and publish flow. |
+
+## License
+
+The code is Apache-2.0, and the text is in [LICENSE](LICENSE). The documents,
+meaning this README, [SPEC.md](SPEC.md) and everything under `docs/`, are
+CC-BY-4.0. Every file carries an SPDX header naming which of the two applies to
+it.
