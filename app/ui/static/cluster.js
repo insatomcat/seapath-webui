@@ -405,7 +405,11 @@
         cell(resource.role || "–"),
         cell(
           resource.state,
-          resource.failed ? "state-failed" : "state-free"
+          resource.failed
+            ? "state-failed"
+            : resource.state === "active"
+              ? "state-free"
+              : "state-claimed"
         ),
         cell(failures, resource.fail_count_infinite ? "state-failed" : ""),
         actionCell(resource, cluster),
@@ -698,11 +702,17 @@
           .join(", ")
       );
     }
+    if (!cluster.resources.length) {
+      return "No resources configured";
+    }
+    // Counted rather than assumed: a stopped guest is an ordinary state here,
+    // and a card that reads them all as active hides half the table.
+    const active = cluster.resources.filter(
+      (item) => item.state === "active"
+    ).length;
+    const answer = `${active} of ${cluster.resources.length} active`;
     const counted = cluster.resources.filter((item) => item.fail_count).length;
-    return counted
-      ? `${plural(cluster.resources.length, "resource")}, all active, ` +
-        `${counted} with a failure count`
-      : `${plural(cluster.resources.length, "resource")}, all active`;
+    return counted ? `${answer}, ${counted} with a failure count` : answer;
   }
 
   // Storage
