@@ -282,6 +282,10 @@ adapter that has a fake. To browse the UI without a SEAPATH machine, set
 `SEAPATH_WEBUI_USE_FAKES=1`, which serves invented readings and says so in the
 log.
 
+Each shipped change is its own version, and [CHANGELOG.md](CHANGELOG.md) lists
+them. [CONTRIBUTING.md](CONTRIBUTING.md) says what a change has to carry, and
+[SECURITY.md](SECURITY.md) how to report a vulnerability.
+
 ## Documents
 
 1. [SPEC.md](SPEC.md) - principle, scope, architecture, milestones, risks.
