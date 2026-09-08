@@ -179,8 +179,8 @@ and no new host surface.
 
 ### Installing one
 
-`PUT /api/v1/collection`, and the panel at the bottom of the Deployment page. The
-file is the tarball `ansible-galaxy collection build` writes, built from the
+`PUT /api/v1/collection`, and *The code this node runs*, the window the state
+line at the bottom of the Deployment page opens. The file is the tarball `ansible-galaxy collection build` writes, built from the
 SEAPATH `ansible` repository:
 
 ```bash

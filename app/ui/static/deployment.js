@@ -7,7 +7,8 @@
 // the one the CI runs. The rest of the catalogue is a picker, because thirteen
 // stacked rows put the entry an operator came for below the fold, and the
 // entry they came for is never the first one. The two credentials that let
-// this node reach the others sit at the bottom, shut, once they hold.
+// this node reach the others are a state line at the bottom, and a window
+// when one of them has to change.
 //
 // Nothing here edits the desired state, and nothing here changes a machine
 // except through Ansible.
@@ -27,9 +28,10 @@
     latest: null,
     hostKeys: [],
     catalogue: [],
-    // Whether the panel at the bottom has already been opened or left shut for
-    // this page load. Decided once: re-rendering it after every accepted host
-    // key would fold it away under the cursor of the operator accepting them.
+    // Whether the operator has already been shown, or has already opened, the
+    // window that holds the two credentials. Decided once: re-rendering the
+    // state line after every accepted host key would otherwise put the window
+    // back up under the cursor accepting them.
     reachDecided: false,
   };
 
@@ -383,8 +385,12 @@
     const line = element("reach-state");
     line.textContent = reach.text;
     line.className = "reach-state " + (reach.ok ? "ok" : "warn");
-    if (!state.reachDecided) {
-      element("reach-details").open = !reach.ok;
+    // A node that cannot reach the machines it is meant to drive can run
+    // nothing, so the window opens itself on the way in. Once only: it is
+    // re-rendered after every accepted host key, and reopening it over the
+    // operator accepting them is worse than not opening it at all.
+    if (!state.reachDecided && !reach.ok) {
+      openPanel("reach");
     }
   }
 
@@ -420,10 +426,24 @@
     await loadPlaybooks();
   }
 
-  // Opening the panel is the operator saying they are working in it, so it
-  // stays as they left it for the rest of the visit.
-  element("reach-details").addEventListener("toggle", () => {
+  // Touching either window is the operator saying they are working on this
+  // page, and the credentials window is not put in front of them again for the
+  // rest of the visit. Either window, because installing a collection reloads
+  // the catalogue, and that is a render that would otherwise raise the other
+  // window over the one they are in.
+  function openPanel(name) {
     state.reachDecided = true;
+    element(name + "-modal").hidden = false;
+  }
+
+  function closePanel(name) {
+    state.reachDecided = true;
+    element(name + "-modal").hidden = true;
+  }
+
+  ["reach", "collection"].forEach((name) => {
+    element(name + "-open").addEventListener("click", () => openPanel(name));
+    element(name + "-close").addEventListener("click", () => closePanel(name));
   });
 
   element("site-key-file").addEventListener("change", (event) => {

@@ -12,6 +12,7 @@
 
 const Console = (function () {
   const FIT_DEBOUNCE_MS = 120;
+  const NOMINAL_FONT_PX = 13;
 
   // The page's own palette. xterm.js paints its own background, so leaving it
   // to the library means a black rectangle in the middle of the panel. Read
@@ -62,6 +63,17 @@ const Console = (function () {
     }
   }
 
+  // The one type size in this UI a stylesheet cannot set: xterm draws its cells
+  // into a canvas and takes the size as a number. Read off the root font size,
+  // which is the dial the rest of the interface is scaled by, so the terminal
+  // holds the same density as everything around it and shows as many columns.
+  function terminalFontSize() {
+    const root = parseFloat(
+      window.getComputedStyle(document.documentElement).fontSize
+    );
+    return NOMINAL_FONT_PX * (root / 16);
+  }
+
   function ensureTerminal() {
     if (terminal !== null) {
       return terminal;
@@ -69,7 +81,7 @@ const Console = (function () {
     terminal = new Terminal({
       theme: palette(),
       fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-      fontSize: 13,
+      fontSize: terminalFontSize(),
       cursorBlink: true,
       scrollback: 5000,
       // The far end is a real terminal on a real machine, so it is the one

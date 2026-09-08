@@ -111,8 +111,21 @@
 
 /* The canvas as well as the body: the background of the root element is what
    a browser paints the whole viewport with, including the area under a short
-   page and whatever it shows during a navigation. */
+   page and whatever it shows during a navigation.
+
+   And the one dial that sets how dense the interface is. Every length in this
+   file is a rem or an em, so the root font size scales the whole thing at
+   once: four fifths of a browser's nominal size, which is what these pages
+   were being read at with the browser's own zoom turned down to make a
+   hypervisor's worth of tables and panels fit on one screen. Written here so
+   that a browser at its own default shows that page.
+
+   Media queries do not follow it. A rem in a media query is always the
+   browser's initial font size and never this one, so each breakpoint in this
+   file carries the scaled number: 62.4rem is where 78rem of content now
+   falls. */
 html {
+  font-size: 80%;
   background: var(--bg);
 }
 
@@ -120,7 +133,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  font: 0.875rem/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 h1, h2 {
@@ -216,7 +229,15 @@ button[aria-busy="true"] {
 
 /* Node view */
 
+/* Pinned, on every page. Half of these screens are longer than a window and
+   are read by scrolling down them, and the navigation is what an operator
+   reaches for at the end of that read. It sits under the modals, which are at
+   ten: a confirmation names the machine it is about to disrupt and nothing
+   overlaps it. */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -392,13 +413,13 @@ dd {
   grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.4fr);
 }
 
-@media (max-width: 78rem) {
+@media (max-width: 62.4rem) {
   .page.node {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
-@media (max-width: 52rem) {
+@media (max-width: 41.6rem) {
   .page.node {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -805,7 +826,7 @@ button.secondary {
   align-content: start;
 }
 
-@media (max-width: 62rem) {
+@media (max-width: 49.6rem) {
   .page.deployment {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -875,17 +896,44 @@ button.secondary {
   color: var(--warn);
 }
 
-/* Reaching the other machines: a form until it holds, a state line afterwards.
-   Once the site key is in and the host keys are accepted, nothing here is
-   pressed again for months, and it sits shut at the bottom of the page rather
-   than above the playbook an operator came for. */
-#reach-summary {
+/* Reaching the other machines, and the code this node runs: a form until it
+   holds, a state line afterwards. Once the site key is in and the host keys
+   are accepted, nothing there is pressed again for months, so the page keeps
+   the two state lines and opens the forms in a window. The row of two sits
+   under the playbook an operator came for, and neither of them can push it
+   off the screen any more.
+
+   Each one is drawn as a line of text, so the page's own button rule is undone
+   here the way the theme switch undoes it. */
+.panels {
+  grid-column: 1 / -1;
   display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.panel-open {
+  display: flex;
+  flex: 1 1 20rem;
   align-items: baseline;
   gap: 0.6rem;
-  cursor: pointer;
+  padding: 0.7rem 1.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-weight: 400;
+  text-align: left;
+}
+
+.panel-open:hover {
+  background: var(--row-hover);
+  border-color: var(--accent);
+}
+
+.panel-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .reach-label {
@@ -906,16 +954,13 @@ button.secondary {
   color: var(--warn);
 }
 
-/* Opened, it is the tallest thing on the page, so it is laid out as two
-   columns and scrolls inside itself: the entry above it stays where the
-   operator left it, and closing it puts the page back as it was. */
+/* Two columns inside the window, because each of these panels is two
+   independent acts and stacking them made a window that scrolled. The window
+   itself is what scrolls when even that is not enough. */
 .reach-body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 2rem;
-  max-height: 22rem;
-  overflow-y: auto;
-  margin-top: 0.75rem;
 }
 
 .reach-body > .lead {
@@ -926,7 +971,7 @@ button.secondary {
   margin-top: 0;
 }
 
-@media (max-width: 62rem) {
+@media (max-width: 49.6rem) {
   .reach-body {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -953,6 +998,20 @@ button.secondary {
 
 .modal-body h2 {
   margin-top: 0;
+}
+
+/* A window that is shut rather than answered carries its way out where the
+   confirmations carry their Cancel. */
+.modal-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.modal-head h2 {
+  margin: 0;
 }
 
 /* Runs */
@@ -1855,7 +1914,7 @@ button.secondary {
 
 .chart .tick {
   fill: var(--muted);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 
 .chart .series {
@@ -1888,7 +1947,7 @@ button.secondary {
   margin-right: 0.5rem;
 }
 
-@media (max-width: 70rem) {
+@media (max-width: 56rem) {
   /* Below this a panel cannot be given a screen worth reading, so the page
      goes back to being a document and scrolls like the others. The view bar
      stays: it is the summary before it is a layout. */

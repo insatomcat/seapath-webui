@@ -393,12 +393,15 @@ def test_the_ssh_credentials_are_a_state_line_once_they_hold(
 
     # Set once, then read. A key upload above the playbook an operator came for
     # is a form they scroll past every time and fill in never.
-    assert 'id="reach-details"' in body
+    assert 'id="reach-open"' in body
     assert 'id="reach-state"' in body
     assert ".reach-state.warn" in css
-    # Last on the page, and it takes the width it needs when opened.
-    assert body.index('id="main-playbook"') < body.index('id="reach-details"')
-    assert body.index('id="playbook-choice"') < body.index('id="reach-details"')
+    # Last on the page, and the form itself is a window rather than a fold, so
+    # that opening it cannot push the playbook off the screen.
+    assert body.index('id="main-playbook"') < body.index('id="reach-open"')
+    assert body.index('id="playbook-choice"') < body.index('id="reach-open"')
+    assert '<div class="modal" id="reach-modal" hidden>' in body
+    assert '<div class="modal" id="collection-modal" hidden>' in body
 
 
 def test_the_old_configuration_url_still_leads_somewhere(
@@ -500,7 +503,7 @@ def test_a_page_is_styled_without_fetching_anything(
     assert css in head
     # Read whole, so a selector with a `>` in it survives the templating.
     assert ".card.wide" in head
-    assert "html {\n  background: var(--bg);\n}" in css
+    assert "html {\n  font-size: 80%;\n  background: var(--bg);\n}" in css
 
 
 @pytest.mark.parametrize("path", ["/", "/inventory", "/deployment", "/runs", "/login"])

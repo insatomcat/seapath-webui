@@ -39,161 +39,165 @@ SPDX-License-Identifier: Apache-2.0
   </section>
 
   {#
-  Last on the page and shut by default once it holds. These two credentials
-  are what lets this node reach the others at all, and they are set once and
-  then read as a state line: an operator converging a machine on a Tuesday
-  should not have to scroll past a key upload to find the button.
+  Both of these are read far more often than they are used: the credentials
+  that let this node reach the others are set once, and which collection it
+  runs is a line an operator checks. So the page carries the two state lines
+  and opens the rest in a window. Folded onto the page instead, either one
+  opened taller than the screen and pushed the playbook an operator came for
+  out of sight.
   #}
-  <section class="card wide" id="reach-card">
-    <details id="reach-details">
-      <summary id="reach-summary">
-        <span class="reach-label">Reaching the other machines</span>
-        <span class="reach-state" id="reach-state"></span>
-      </summary>
-
-      <div class="reach-body">
-        <p class="lead">
-          A run is Ansible over SSH, and this node reaches only itself until it
-          is given a way to reach the others. Both steps below are deliberate
-          acts, and both are undone in one click.
-        </p>
-
-        <div class="reach-column">
-          <h3>Site key</h3>
-          <p class="help">
-            The private half of the key the ISO already installed in the
-            <code>ansible</code> account of every machine, the one a
-            conventional control machine holds. <strong>This key is root on
-            every machine that trusts it.</strong> Uploading it here makes this
-            node as capable as that control machine. It is stored
-            <code>0600</code>, never sent back out and never logged, and only
-            the fingerprint is displayed. A key protected by a passphrase is
-            refused, because nothing here can type one during a run.
-          </p>
-          <dl id="site-key-summary"></dl>
-          <div class="field">
-            <label for="site-key-file">Private key file</label>
-            <input id="site-key-file" type="file">
-          </div>
-          <p class="error" id="site-key-error" hidden></p>
-          <div class="actions">
-            <button type="button" id="site-key-go" disabled>Upload</button>
-            <button type="button" id="site-key-remove" class="secondary" hidden>
-              Remove the key
-            </button>
-          </div>
-        </div>
-
-        <div class="reach-column">
-          <h3>Host keys</h3>
-          <p class="help">
-            Read over the network with <code>ssh-keyscan</code>, which means
-            the answer could come from whoever sits between these machines.
-            Compare each fingerprint against
-            <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on
-            the machine itself before accepting it. Nothing is written until
-            you do.
-          </p>
-          <p class="error" id="host-keys-error" hidden></p>
-          <div class="actions">
-            <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
-            <button type="button" id="host-keys-accept-all" class="secondary" hidden></button>
-          </div>
-          <div class="table-scroll">
-            <table id="host-keys-table">
-              <thead>
-                <tr>
-                  <th>Machine</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </details>
-  </section>
-
-  {#
-  The collection, under the credentials and above nothing: replacing it is
-  rare, and it is the answer to "the fix is upstream, and the image is not out
-  yet". Shut by default like the panel above it, and it says which of the two
-  collections is running on the summary line so an operator never has to open
-  it to find out.
-  #}
-  <section class="card wide" id="collection-card">
-    <details id="collection-details">
-      <summary id="collection-summary">
-        <span class="reach-label">The code this node runs</span>
-        <span class="reach-state" id="collection-state"></span>
-      </summary>
-
-      <div class="reach-body">
-        <p class="lead">
-          Two things are updated separately here. The playbooks, which are the
-          <code>seapath.ansible</code> collection a run executes, arrive as a
-          file. This service, which is a container image, arrives the way every
-          other change to a machine does: an inventory variable and an apply.
-        </p>
-
-        <div class="reach-column">
-          <h3>Installed collection</h3>
-          <p class="help">
-            The file is the tarball
-            <code>ansible-galaxy collection build</code> writes, built from the
-            SEAPATH <code>ansible</code> repository. What is installed here
-            seeds from the collection the image ships, so the dependency
-            collections the roles call stay in place. The next run executes it,
-            a run that is already going is left alone, and every run records
-            the fingerprint of what it ran.
-          </p>
-          <dl id="collection-summary-list"></dl>
-          <div class="field" id="collection-field">
-            <label for="collection-file">Collection archive</label>
-            <input id="collection-file" type="file" accept=".tar.gz,.gz,application/gzip">
-          </div>
-          <p class="error" id="collection-error" hidden></p>
-          <div class="actions">
-            <button type="button" id="collection-go" disabled>Install</button>
-            <button type="button" id="collection-remove" class="secondary" hidden>
-              Back to the image's collection
-            </button>
-          </div>
-        </div>
-
-        <div class="reach-column">
-          <h3>This service</h3>
-          <p class="help">
-            The version each machine runs is
-            <code>seapath_webui_image</code> in the inventory. Editing it
-            changes nothing on its own: applying <em>Apply the management UI</em>
-            is what replaces the container, here and on the other machines. That
-            run ends without a final status on this machine, because the service
-            recording it is the service being replaced.
-          </p>
-          <dl id="update-summary"></dl>
-          <p class="help" id="update-note"></p>
-          <p class="help">
-            Checking asks the registry the image reference already names which
-            versions it holds, and nothing else. Choosing one writes the tag
-            into the inventory as a commit, on every machine that names an
-            image, and then asks for the same confirmation as any other apply.
-            A node with no route to a registry says so and keeps working.
-          </p>
-          <p class="error" id="update-error" hidden></p>
-          <p class="help" id="update-latest" hidden></p>
-          <div class="actions">
-            <button type="button" id="update-check" class="secondary">
-              Check for a newer version
-            </button>
-            <button type="button" id="update-go" hidden></button>
-          </div>
-        </div>
-      </div>
-    </details>
+  <section class="panels">
+    <button type="button" class="panel-open" id="reach-open">
+      <span class="reach-label">Reaching the other machines</span>
+      <span class="reach-state" id="reach-state"></span>
+    </button>
+    <button type="button" class="panel-open" id="collection-open">
+      <span class="reach-label">The code this node runs</span>
+      <span class="reach-state" id="collection-state"></span>
+    </button>
   </section>
 
 </main>
+
+<div class="modal" id="reach-modal" hidden>
+  <div class="modal-body wide">
+    <div class="modal-head">
+      <h2>Reaching the other machines</h2>
+      <button type="button" class="secondary" id="reach-close">Close</button>
+    </div>
+    <div class="reach-body">
+      <p class="lead">
+        A run is Ansible over SSH, and this node reaches only itself until it
+        is given a way to reach the others. Both steps below are deliberate
+        acts, and both are undone in one click.
+      </p>
+
+      <div class="reach-column">
+        <h3>Site key</h3>
+        <p class="help">
+          The private half of the key the ISO already installed in the
+          <code>ansible</code> account of every machine, the one a
+          conventional control machine holds. <strong>This key is root on
+          every machine that trusts it.</strong> Uploading it here makes this
+          node as capable as that control machine. It is stored
+          <code>0600</code>, never sent back out and never logged, and only
+          the fingerprint is displayed. A key protected by a passphrase is
+          refused, because nothing here can type one during a run.
+        </p>
+        <dl id="site-key-summary"></dl>
+        <div class="field">
+          <label for="site-key-file">Private key file</label>
+          <input id="site-key-file" type="file">
+        </div>
+        <p class="error" id="site-key-error" hidden></p>
+        <div class="actions">
+          <button type="button" id="site-key-go" disabled>Upload</button>
+          <button type="button" id="site-key-remove" class="secondary" hidden>
+            Remove the key
+          </button>
+        </div>
+      </div>
+
+      <div class="reach-column">
+        <h3>Host keys</h3>
+        <p class="help">
+          Read over the network with <code>ssh-keyscan</code>, which means
+          the answer could come from whoever sits between these machines.
+          Compare each fingerprint against
+          <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> on
+          the machine itself before accepting it. Nothing is written until
+          you do.
+        </p>
+        <p class="error" id="host-keys-error" hidden></p>
+        <div class="actions">
+          <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
+          <button type="button" id="host-keys-accept-all" class="secondary" hidden></button>
+        </div>
+        <div class="table-scroll">
+          <table id="host-keys-table">
+            <thead>
+              <tr>
+                <th>Machine</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="collection-modal" hidden>
+  <div class="modal-body wide">
+    <div class="modal-head">
+      <h2>The code this node runs</h2>
+      <button type="button" class="secondary" id="collection-close">Close</button>
+    </div>
+    <div class="reach-body">
+      <p class="lead">
+        Two things are updated separately here. The playbooks, which are the
+        <code>seapath.ansible</code> collection a run executes, arrive as a
+        file. This service, which is a container image, arrives the way every
+        other change to a machine does: an inventory variable and an apply.
+      </p>
+
+      <div class="reach-column">
+        <h3>Installed collection</h3>
+        <p class="help">
+          The file is the tarball
+          <code>ansible-galaxy collection build</code> writes, built from the
+          SEAPATH <code>ansible</code> repository. What is installed here
+          seeds from the collection the image ships, so the dependency
+          collections the roles call stay in place. The next run executes it,
+          a run that is already going is left alone, and every run records
+          the fingerprint of what it ran.
+        </p>
+        <dl id="collection-summary-list"></dl>
+        <div class="field" id="collection-field">
+          <label for="collection-file">Collection archive</label>
+          <input id="collection-file" type="file" accept=".tar.gz,.gz,application/gzip">
+        </div>
+        <p class="error" id="collection-error" hidden></p>
+        <div class="actions">
+          <button type="button" id="collection-go" disabled>Install</button>
+          <button type="button" id="collection-remove" class="secondary" hidden>
+            Back to the image's collection
+          </button>
+        </div>
+      </div>
+
+      <div class="reach-column">
+        <h3>This service</h3>
+        <p class="help">
+          The version each machine runs is
+          <code>seapath_webui_image</code> in the inventory. Editing it
+          changes nothing on its own: applying <em>Apply the management UI</em>
+          is what replaces the container, here and on the other machines. That
+          run ends without a final status on this machine, because the service
+          recording it is the service being replaced.
+        </p>
+        <dl id="update-summary"></dl>
+        <p class="help" id="update-note"></p>
+        <p class="help">
+          Checking asks the registry the image reference already names which
+          versions it holds, and nothing else. Choosing one writes the tag
+          into the inventory as a commit, on every machine that names an
+          image, and then asks for the same confirmation as any other apply.
+          A node with no route to a registry says so and keeps working.
+        </p>
+        <p class="error" id="update-error" hidden></p>
+        <p class="help" id="update-latest" hidden></p>
+        <div class="actions">
+          <button type="button" id="update-check" class="secondary">
+            Check for a newer version
+          </button>
+          <button type="button" id="update-go" hidden></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="confirm" hidden>
   <div class="modal-body">
