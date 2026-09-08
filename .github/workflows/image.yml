@@ -40,7 +40,34 @@ jobs:
 
       - run: black --check app tests
 
-      - run: pytest
+      # `--cov` with no argument takes its source from pyproject.toml, branches
+      # included. The json report feeds the step below.
+      - run: pytest --cov --cov-report=term-missing --cov-report=json
+
+      # coverage.py fails on the combined figure alone, and the two numbers
+      # that answer for this suite are the statement one and the branch one,
+      # so they are checked apart. Both floors sit above the OpenSSF Best
+      # Practices thresholds, 80% of statements for silver and 80% of branches
+      # for gold, so a slide is caught while the criteria still hold.
+      - name: The coverage floors
+        run: |
+          python - <<'PY'
+          import json, sys
+
+          totals = json.load(open("coverage.json"))["totals"]
+          floors = {
+              "statements": (totals["covered_lines"], totals["num_statements"], 90.0),
+              "branches": (totals["covered_branches"], totals["num_branches"], 80.0),
+          }
+          low = []
+          for name, (covered, total, floor) in floors.items():
+              reached = 100.0 * covered / total
+              print(f"{name}: {reached:.2f}% of {total}, floor {floor:.0f}%")
+              if reached < floor:
+                  low.append(name)
+          if low:
+              sys.exit(f"below the floor: {', '.join(low)}")
+          PY
 
   image:
     needs: tests

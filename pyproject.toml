@@ -20,3 +20,15 @@ select = ["E", "F", "W", "I", "UP", "B"]
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["error::DeprecationWarning:app.*"]
+
+# Coverage is measured over `app/`, branches included, because the branch
+# figure is the one that says whether the failure paths are exercised at all.
+# The workflow checks the two floors that matter and prints them; this number
+# is the combined figure coverage.py prints, and it is here so that a local
+# `pytest --cov` fails the same way CI does.
+[tool.coverage.run]
+branch = true
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 88
