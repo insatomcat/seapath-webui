@@ -10,11 +10,17 @@ SPDX-License-Identifier: CC-BY-4.0
 Multi stage `Dockerfile`, same shape as `insatomcat-exporter`. Published as
 `docker.io/insatomcat/seapath-webui`, built and pushed by `buildpush.sh` on a
 laptop and by `.github/workflows/image.yml` on every push to `main`. The
-workflow runs `ruff`, `black` and `pytest` first, builds, smoke tests the image
-the way `buildpush.sh` does, then pushes two tags: the commit's short sha, and
-`latest`. It needs two repository secrets, `DOCKERHUB_USERNAME` and
+workflow runs `ruff`, `black` and `pytest` first, the suite under coverage with
+a floor on the statements and one on the branches, then builds, smoke tests the
+image the way `buildpush.sh` does, and pushes three tags: the commit's short
+sha, `latest`, and the version, that last one only when it is not published
+already. It needs two repository secrets, `DOCKERHUB_USERNAME` and
 `DOCKERHUB_TOKEN`, the second an access token from Docker Hub rather than an
 account password, scoped read, write and delete.
+
+A pull request runs the tests alone. The image job is where the Docker Hub
+credentials are used, and a workflow run triggered from a fork must never reach
+them.
 
 The last step of that workflow writes `README.md` to the Docker Hub page, so
 the page an operator lands on describes the image that was just published. The
