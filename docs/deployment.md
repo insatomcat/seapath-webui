@@ -26,8 +26,8 @@ this step needs: a push only token logs in and pushes, then fails here.
 Contents:
 
 - Python 3.11, FastAPI, uvicorn, Jinja2, `ansible-runner`;
-- `ansible-core` pinned to `~=2.16.0`, which `prepare.sh` enforces in
-  `seapath-ansible` and which this image must match;
+- `ansible-core` pinned to `==2.16.19`, inside the `~=2.16.0` series
+  `seapath-ansible` installs in its own CI and which this image must match;
 - the `seapath_ansible` collection with its galaxy dependencies and its
   submodules, installed at build time by running the upstream `prepare.sh`;
 - an OpenSSH client;
@@ -50,6 +50,37 @@ libraries, arrives at M2.
 
 `git` is not incidental: the inventory repository is the configuration audit
 trail, and the service shells out to `git` for every commit, diff and revert.
+
+### What the build pins
+
+The version an operator reads on a page is the identity of a build, and it is
+worth as much as the build is repeatable. Four inputs decide what the image
+contains, and three of them are named exactly:
+
+- **The base image, by digest.** All three stages name
+  `python:3.11-slim@sha256:...`, the same one. That tag moves under a rebuild
+  of the same Python, so the interpreter and the Debian base of two builds of
+  one commit here could differ with nothing in the image to show it. The tag
+  the digest came from is in the reference, so moving it is a
+  `docker pull python:3.11-slim` and a new digest.
+- **The Python dependencies, by exact version,** `requirements.txt`,
+  `ansible-core` included. It carries no hashes: `pip install` resolves the
+  transitive tree at build time, so a dependency of a dependency is still free
+  to move. A lock file with `--require-hashes` closes that, and it is a change
+  to how this repository is maintained rather than a line in the `Dockerfile`.
+- **pip, setuptools and wheel, by exact version.** They end up in the venv the
+  image ships.
+- **The Debian packages, by nothing at all.** `apt-get install ceph-common`
+  takes what the archive serves that day, and `ceph-common` is the largest
+  thing in the image. Pinning it means naming a version per package and a
+  `snapshot.debian.org` source, which is worth doing the day a rebuild of an
+  old version has to be exact.
+
+So a rebuild of a given commit produces the same code and the same Python
+tree. It stops short of a byte identical image: the layer timestamps differ,
+and so can the Debian packages. What it buys is the part that matters most,
+which is that the code and the playbook engine an image carries are decided by
+the commit rather than by the day.
 
 ### Building the collection into the image
 

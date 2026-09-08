@@ -3,19 +3,30 @@
 
 # Python 3.11 to match what docs/deployment.md pins, and what the SEAPATH
 # Debian images carry.
-FROM python:3.11-slim AS builder
+#
+# By digest, and the same one in all three stages. `python:3.11-slim` is a tag
+# that moves under a rebuild of the same Python, so two builds of one commit of
+# this repository could carry different interpreters and different Debian
+# packages, which is a difference no version number here would show. The tag
+# the digest was resolved from is in the reference itself, so moving it is a
+# `docker pull python:3.11-slim` and a new digest.
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS builder
 
 COPY requirements.txt .
 
+# pip, setuptools and wheel pinned for the same reason as the base image: they
+# end up in the venv this image ships, and `--upgrade` alone means whatever
+# PyPI serves on the day of the build.
 RUN python -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade \
+        pip==26.2.1 setuptools==84.0.0 wheel==0.48.0 && \
     /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 
 # The SEAPATH collection, built from the upstream repository by its own
 # prepare.sh. Nothing is patched and no role is rewritten: what this image runs
 # is what the SEAPATH CI tests.
-FROM python:3.11-slim AS collection
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534 AS collection
 
 ARG SEAPATH_ANSIBLE_REPOSITORY=https://github.com/seapath/ansible.git
 # `seapathalloc` rather than `main`: two catalogue entries,
@@ -93,7 +104,7 @@ RUN set -eu; \
 RUN ansible-galaxy collection list --collections-path=/opt/ansible/collections
 
 
-FROM python:3.11-slim
+FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534
 
 # Five tools, each earning its place:
 #   git                     the inventory repository, which is the audit trail

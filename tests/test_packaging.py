@@ -10,6 +10,7 @@ that had to be done by hand, or did not work, on a real machine.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -108,6 +109,37 @@ def test_the_ansible_account_home_is_never_created_by_the_unit() -> None:
     # missing it was not installed from the SEAPATH ISO.
     assert "/home/ansible/.ssh" in _SOURCES
     assert "/home/ansible" not in _PRE_START
+
+
+def test_every_stage_names_one_base_image_by_digest() -> None:
+    # `python:3.11-slim` moves under a rebuild of the same Python, so two
+    # builds of one commit here could carry different interpreters and
+    # different Debian bases with nothing in the image to show it. The three
+    # stages also have to agree: the venv the builder makes is copied into the
+    # final stage and runs against its interpreter.
+    stages = re.findall(r"^FROM (\S+)", _DOCKERFILE, re.MULTILINE)
+
+    assert len(stages) == 3
+    for stage in stages:
+        assert "@sha256:" in stage, stage
+    assert len({stage.split("@", 1)[1] for stage in stages}) == 1
+
+
+def test_the_venv_the_image_ships_is_built_by_named_versions() -> None:
+    # pip, setuptools and wheel end up in that venv, and `--upgrade` with no
+    # version installs whatever PyPI serves on the day of the build.
+    assert "pip==" in _DOCKERFILE
+    assert "setuptools==" in _DOCKERFILE
+    assert "wheel==" in _DOCKERFILE
+
+
+def test_the_playbook_engine_is_pinned_exactly() -> None:
+    # The image runs the upstream playbooks, and the version of ansible-core
+    # they are interpreted by is part of what a machine reports about itself.
+    # The series is upstream's choice, and the exact version is this build's.
+    requirements = (_ROOT / "requirements.txt").read_text()
+
+    assert re.search(r"^ansible-core==2\.16\.\d+$", requirements, re.MULTILINE)
 
 
 def test_the_controller_dependencies_are_all_in_one_file() -> None:

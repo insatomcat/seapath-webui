@@ -35,10 +35,13 @@ netaddr==1.3.0
 # gives no hint that the missing install is the controller's.
 jmespath==1.0.1
 
-# The configuration plane. ansible-core is pinned to the version prepare.sh
-# enforces in seapath-ansible: an image carrying a different one runs playbooks
-# against a version they were never tested with.
-ansible-core~=2.16.0
+# The configuration plane. ansible-core stays inside the 2.16 series, which is
+# what seapath-ansible's own CI installs (`ansible-core~=2.16.0`): an image
+# carrying a different series runs playbooks against a version they were never
+# tested with. Pinned exactly, and to the newest of that series, so that two
+# builds of one commit here run the same interpreter of those playbooks.
+# Moving it means checking that upstream still asks for 2.16.
+ansible-core==2.16.19
 ansible-runner==2.4.1
 
 # PAM authentication against the local Unix accounts. Imports as `pam`.
