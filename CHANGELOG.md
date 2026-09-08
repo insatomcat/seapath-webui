@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.43 - 2026-09-08
+
+- fix: the image is decided by the commit, not by the day it was built
+- docs: the deployment page describes the workflow that runs today
+
 ## 0.3.42 - 2026-09-08
 
 - feat: tell the browser what a page of this service may do
