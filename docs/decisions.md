@@ -811,12 +811,18 @@ Which versions exist is asked of the registry the reference already names.
 HTTPS, orders the tags carrying a version and reports the highest one.
 `POST /api/v1/node/update` writes it as the tag of every machine that names an
 image, keeping each machine's repository, and produces a commit like every
-other change to the desired state. The two acts stay two: the commit stands on
-its own, and applying it is the catalogue entry with the confirmation every
-convergence gets, naming the machines and the interruption. The registry is
-asked on a click and never on page load, since a substation hypervisor may have
-no route to one, and a registry that cannot be reached is a sentence on the
-page rather than a page that fails.
+other change to the desired state. The tag goes on the group that already
+carries the variable when the pin covers every machine of that group and they
+pull from one repository, and the host lines repeating the value are removed.
+The editor overrides on the host because a form edits one machine, and a pin
+writes them all: that rule applied here leaves the group naming a version
+nobody runs, a second answer to "which code is this machine meant to run"
+waiting for somebody to delete a host line. The two acts stay two: the commit
+stands on its own, and applying it is the catalogue entry with the
+confirmation every convergence gets, naming the machines and the interruption.
+The registry is asked on a click and never on page load, since a substation
+hypervisor may have no route to one, and a registry that cannot be reached is a
+sentence on the page rather than a page that fails.
 
 The pin is seeded rather than typed. The read only adapter reads the image
 reference out of the quadlet installed on the machine, and the seed inventory

@@ -542,6 +542,67 @@ class InventoryService:
         logger.info("Declared the container %s", name)
         return commit, result
 
+    def write_variables(
+        self,
+        writes: list[tuple[Scope, dict[str, Any]]],
+        intended: dict[str, dict[str, Any]],
+        message: str,
+        author: str,
+        removals: dict[str, list[str]] | None = None,
+        expected_head: str | None = None,
+    ) -> Commit | None:
+        """Write variables where the caller says, as one commit.
+
+        The splice `declare_container` makes, with removals added. A value
+        written on a group makes the host lines repeating it redundant, and
+        leaving them there would keep the file naming one decision in two
+        places, one of which stops being the one that counts.
+
+        `intended` names the effective value every affected machine must end up
+        with, and it is what makes the removal safe: a line taken out that
+        changed what a machine receives shows up as a divergence, and nothing
+        is committed.
+        """
+        document = self._repository.read()
+        if not document.strip():
+            raise RefusedWrite(
+                "There is no inventory on this node yet, so there is nothing "
+                "to write a variable in.",
+                [],
+            )
+        edited = document
+        try:
+            for scope, variables in writes:
+                edited = set_variables(edited, scope, variables)
+            dropped = {
+                host: dict.fromkeys(names)
+                for host, names in (removals or {}).items()
+                if names
+            }
+            if dropped:
+                edited = edit(edited, dropped)
+        except UneditableInventory as error:
+            raise RefusedWrite(str(error), []) from error
+
+        unintended = unintended_changes(document, edited, intended)
+        if unintended:
+            raise RefusedWrite(
+                "This change could not be written without changing other "
+                "things in the file, so nothing was written.",
+                unintended,
+            )
+
+        result = self.check_document(edited)
+        if not result.valid:
+            raise ImportRefused(result.errors()[0].message, result)
+
+        return self._repository.commit(
+            content=edited,
+            message=message,
+            author=author,
+            expected_head=expected_head,
+        )
+
     def revert(self, commit: str, author: str) -> Commit:
         return self._repository.revert(commit, author)
 

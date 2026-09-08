@@ -302,6 +302,18 @@ def test_pinning_moves_the_tag_on_every_machine_and_keeps_each_repository(
     )
 
 
+def test_pinning_the_inventory_this_node_seeded_moves_its_tag(
+    signed_in: TestClient,
+) -> None:
+    # The ordinary first boot: one machine, the variable on its own entry
+    # because that is where discovery wrote it, and no group carrying it.
+    response = signed_in.post("/api/v1/node/update", json={"version": "0.4.0"})
+
+    assert response.status_code == 200, response.text
+    assert _image_of(signed_in, "seapath-machine").endswith(":0.4.0")
+    assert signed_in.get("/api/v1/node/update").json()["wanted"] == "0.4.0"
+
+
 def test_pinning_changes_no_machine(
     signed_in: TestClient, run_adapter: FakeRunAdapter
 ) -> None:
@@ -344,6 +356,160 @@ def test_a_machine_pinned_by_digest_is_left_as_it_is(signed_in: TestClient) -> N
 
     assert body["machines"] == ["seapath-machine"]
     assert _image_of(signed_in, "seapath-second") == digest
+
+
+# The shape the first real inventory this service met has: the version written
+# once on the group that holds every hypervisor, under machines that repeat it
+# because earlier pins wrote them there.
+_A_GROUP_HOLDS_IT = """
+all:
+  hosts:
+    ccv-admin:
+      ansible_host: 192.168.200.124
+      network_interface: eno1
+      seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.28
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+      seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.28
+  children:
+    standalone_machine:
+      hosts:
+        ccv-admin:
+    cluster_machines:
+      hosts:
+        seapath-machine:
+    hypervisors:
+      children:
+        cluster_machines:
+        standalone_machine:
+      vars:
+        isolcpus: "4-23"
+        seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.27
+    VMs:
+      hosts:
+        guest1:
+"""
+
+
+def test_a_version_a_group_already_carries_is_moved_on_the_group(
+    signed_in: TestClient,
+) -> None:
+    # The pin writes every machine of the inventory, so the group is where the
+    # tag belongs. Writing the machines instead leaves the group naming a
+    # version nobody runs, and the file then says two things.
+    _with_document(signed_in, _A_GROUP_HOLDS_IT)
+
+    response = signed_in.post("/api/v1/node/update", json={"version": "0.4.0"})
+
+    assert response.status_code == 200, response.text
+    document = signed_in.get("/api/v1/inventory/raw").text
+    assert document.count("seapath_webui_image") == 1
+    assert "seapath_webui_image: docker.io/insatomcat/seapath-webui:0.4.0" in document
+    # And what each machine receives is what was asked, which is the only
+    # thing the removal is allowed to leave unchanged.
+    assert (
+        _image_of(signed_in, "seapath-machine")
+        == "docker.io/insatomcat/seapath-webui:0.4.0"
+    )
+    assert (
+        _image_of(signed_in, "ccv-admin") == "docker.io/insatomcat/seapath-webui:0.4.0"
+    )
+
+
+def test_the_group_is_left_alone_when_it_reaches_a_machine_the_pin_does_not_write(
+    signed_in: TestClient,
+) -> None:
+    # A machine pinned by digest is a decision about an exact image. The group
+    # covering it cannot be moved without undoing that decision, so every
+    # machine is written on its own, the way it was before groups were read.
+    digest = "docker.io/insatomcat/seapath-webui@sha256:" + "a" * 64
+    _with_document(
+        signed_in,
+        _A_GROUP_HOLDS_IT.replace(
+            "      seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.28\n"
+            "    seapath-machine:",
+            f"      seapath_webui_image: {digest}\n    seapath-machine:",
+        ),
+    )
+
+    body = signed_in.post("/api/v1/node/update", json={"version": "0.4.0"}).json()
+
+    assert body["machines"] == ["seapath-machine"]
+    document = signed_in.get("/api/v1/inventory/raw").text
+    assert "seapath-webui:0.3.27" in document
+    assert _image_of(signed_in, "ccv-admin") == digest
+    assert (
+        _image_of(signed_in, "seapath-machine")
+        == "docker.io/insatomcat/seapath-webui:0.4.0"
+    )
+
+
+def test_a_group_whose_machines_pull_from_two_registries_is_left_alone(
+    signed_in: TestClient,
+) -> None:
+    # One line cannot name two repositories, and a site mirroring the image on
+    # its own registry keeps its mirror.
+    _with_document(
+        signed_in,
+        _A_GROUP_HOLDS_IT.replace(
+            "      seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.28\n"
+            "    seapath-machine:",
+            "      seapath_webui_image: registry.substation.local:5000/"
+            "seapath-webui:0.3.28\n    seapath-machine:",
+        ),
+    )
+
+    signed_in.post("/api/v1/node/update", json={"version": "0.4.0"})
+
+    assert (
+        _image_of(signed_in, "ccv-admin")
+        == "registry.substation.local:5000/seapath-webui:0.4.0"
+    )
+    assert (
+        _image_of(signed_in, "seapath-machine")
+        == "docker.io/insatomcat/seapath-webui:0.4.0"
+    )
+    assert "seapath-webui:0.3.27" in signed_in.get("/api/v1/inventory/raw").text
+
+
+# The same file with the version written on `all`, which reaches the guests of
+# the VMs group as well as the machines.
+_ALL_HOLDS_IT = """
+all:
+  vars:
+    seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.27
+  hosts:
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+      seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.28
+  children:
+    cluster_machines:
+      hosts:
+        seapath-machine:
+    VMs:
+      hosts:
+        guest1:
+"""
+
+
+def test_a_group_holding_the_variable_for_a_guest_is_left_alone(
+    signed_in: TestClient,
+) -> None:
+    # `all` reaches the members of the VMs group too, and a guest is never a
+    # machine this service pins. Moving that line would hand a version to
+    # something that is not a machine, so the tag stays on the machines.
+    _with_document(signed_in, _ALL_HOLDS_IT)
+
+    signed_in.post("/api/v1/node/update", json={"version": "0.4.0"})
+
+    document = signed_in.get("/api/v1/inventory/raw").text
+    assert "seapath-webui:0.3.27" in document
+    assert (
+        _image_of(signed_in, "seapath-machine")
+        == "docker.io/insatomcat/seapath-webui:0.4.0"
+    )
 
 
 def test_an_inventory_naming_no_image_has_nothing_to_pin(

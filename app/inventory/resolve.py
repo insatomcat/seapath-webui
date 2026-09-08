@@ -84,14 +84,12 @@ def resolve(document: str | dict[str, Any]) -> dict[str, dict[str, Any]]:
     """
     table = groups(document)
     ordering = depths(table)
-    members = {name: _members(table, name) for name in table}
-    # Every host belongs to `all`, whatever the file says.
-    members[ROOT] = {host for group in table.values() for host in group.hosts}
+    holds = {name: members(table, name) for name in table}
 
     resolved: dict[str, dict[str, Any]] = {}
-    for host in sorted(members[ROOT]):
+    for host in sorted(holds[ROOT]):
         containing = sorted(
-            (group for group in table.values() if host in members[group.name]),
+            (group for group in table.values() if host in holds[group.name]),
             key=lambda group: (ordering[group.name], group.name),
         )
         variables: dict[str, Any] = {}
@@ -103,8 +101,14 @@ def resolve(document: str | dict[str, Any]) -> dict[str, dict[str, Any]]:
     return resolved
 
 
-def _members(table: dict[str, Group], name: str) -> set[str]:
-    """The hosts of a group and of everything below it."""
+def members(table: dict[str, Group], name: str) -> set[str]:
+    """The hosts of a group and of everything below it.
+
+    `all` holds every host the file declares, whatever it says about
+    membership, because that is Ansible's rule rather than the file's.
+    """
+    if name == ROOT:
+        return {host for group in table.values() for host in group.hosts}
     seen: set[str] = set()
     hosts: set[str] = set()
     stack = [name]

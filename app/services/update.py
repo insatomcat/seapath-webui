@@ -23,19 +23,25 @@ Two more things belong to a node, and they are here for the same reason. Which
 versions exist is a question the registry the reference already names can
 answer, so an operator does not have to go and read a tag list in a browser.
 And writing the one they chose is a commit in the inventory, like every other
-decision about a machine: this module builds the candidate and hands it to the
-inventory service, which validates, splices and commits it. Nothing here
-restarts anything, and applying the pin is a run of the catalogue entry below,
-confirmed the way every other convergence is.
+decision about a machine: this module works out where the tag belongs in the
+file and hands that to the inventory service, which splices, checks what every
+machine ends up receiving, and commits. Nothing here restarts anything, and
+applying the pin is a run of the catalogue entry below, confirmed the way every
+other convergence is.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 from app import __version__
+from app.inventory.editor import Scope
 from app.inventory.model import WEBUI_IMAGE_VARIABLE
-from app.inventory.service import InventoryService
+from app.inventory.resolve import Group, groups, members
+from app.inventory.service import ImportRefused, InventoryService
 from app.services.registry import (
     TAG,
     RegistryUnreachable,
@@ -246,25 +252,24 @@ class UpdateService:
                 "no_image_variable",
             )
 
-        candidate = state.inventory.model_copy(deep=True)
-        image = ""
-        for name, repository in targets.items():
-            image = f"{repository}:{version}"
-            candidate.hosts[name].extra[IMAGE_VARIABLE] = image
-
         machines = sorted(targets)
-        commit, validation = self._inventory.save(
-            candidate,
-            author,
-            expected_head=expected_head,
-            message=f"webui: run {version} on {', '.join(machines)}",
-        )
-        if commit is None and not validation.valid:
-            raise PinRefused(validation.errors()[0].message, "invalid_inventory", 422)
+        plan = _plan(self._inventory.raw(), targets, version)
+        try:
+            commit = self._inventory.write_variables(
+                writes=plan.writes,
+                intended=plan.intended,
+                message=f"webui: run {version} on {', '.join(machines)}",
+                author=author,
+                removals=plan.removals,
+                expected_head=expected_head,
+            )
+        except ImportRefused as error:
+            raise PinRefused(str(error), "invalid_inventory", 422) from error
+        here = state.this_host if state.this_host in targets else machines[0]
         return Pinned(
             commit=commit.hash if commit else None,
             version=version,
-            image=image,
+            image=f"{targets[here]}:{version}",
             machines=machines,
         )
 
@@ -303,6 +308,99 @@ class UpdateService:
             return None
         value = node.extra.get(IMAGE_VARIABLE)
         return str(value) if isinstance(value, str) and value.strip() else None
+
+
+@dataclass(frozen=True)
+class _Plan:
+    """Where the new tag goes, and what it makes redundant once it is there."""
+
+    writes: list[tuple[Scope, dict[str, Any]]] = field(default_factory=list)
+    removals: dict[str, list[str]] = field(default_factory=dict)
+    intended: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+def _plan(document: str, targets: dict[str, str], version: str) -> _Plan:
+    """Where a pin writes: the group that already carries the variable, or
+    each machine.
+
+    The editor's rule is that a variable a host inherits is overridden on the
+    host, because a form editing one machine has no business rewriting what its
+    group says to the others. A pin is the case that rule does not describe: it
+    writes every machine of the inventory that names an image, so the group is
+    the honest place, and host lines repeating it are duplication that goes
+    stale the moment somebody deletes one.
+
+    A group is written only when the pin covers all of it and its machines pull
+    from one repository. Anything else, a group reaching a machine this pin
+    leaves alone, two registries under one group, and every machine is written
+    on its own, which is what this service did before it looked at groups.
+    """
+    table = groups(document)
+    holders = [
+        name for name in sorted(table) if IMAGE_VARIABLE in table[name].variables
+    ]
+    covered: set[str] = set()
+    writes: list[tuple[Scope, dict[str, Any]]] = []
+    for name in holders:
+        held = members(table, name)
+        if not held:
+            # A group with the variable and no machine under it changes
+            # nothing for anybody, and rewriting it would say otherwise.
+            continue
+        repository = _one_repository(held, targets)
+        if repository is None:
+            return _on_each_machine(targets, version)
+        writes.append(
+            (Scope("group", name), {IMAGE_VARIABLE: f"{repository}:{version}"})
+        )
+        covered |= held
+
+    if not writes:
+        return _on_each_machine(targets, version)
+    removals = {
+        host: [IMAGE_VARIABLE] for host in sorted(covered) if _on_the_host(table, host)
+    }
+    writes.extend(
+        (Scope("host", host), {IMAGE_VARIABLE: f"{targets[host]}:{version}"})
+        for host in sorted(set(targets) - covered)
+    )
+    return _Plan(writes, removals, _intended(targets, version))
+
+
+def _on_each_machine(targets: dict[str, str], version: str) -> _Plan:
+    return _Plan(
+        writes=[
+            (Scope("host", host), {IMAGE_VARIABLE: f"{repository}:{version}"})
+            for host, repository in sorted(targets.items())
+        ],
+        intended=_intended(targets, version),
+    )
+
+
+def _intended(targets: dict[str, str], version: str) -> dict[str, dict[str, str]]:
+    """The effective reference each machine must end up with.
+
+    What the write is checked against, machine by machine, which is what makes
+    taking a host line out safe: a removal that changed what a machine receives
+    is a divergence, and nothing is committed.
+    """
+    return {
+        host: {IMAGE_VARIABLE: f"{repository}:{version}"}
+        for host, repository in targets.items()
+    }
+
+
+def _one_repository(held: set[str], targets: dict[str, str]) -> str | None:
+    """The repository this group's machines share, when a pin may write it."""
+    if not held <= set(targets):
+        return None
+    repositories = {targets[host] for host in held}
+    return repositories.pop() if len(repositories) == 1 else None
+
+
+def _on_the_host(table: dict[str, Group], host: str) -> bool:
+    """Whether this machine repeats the variable in its own entry."""
+    return any(IMAGE_VARIABLE in group.hosts.get(host, {}) for group in table.values())
 
 
 def _tag(reference: str) -> str | None:

@@ -376,6 +376,31 @@ Not yet run. Checks 1 to 4 need a machine running the collection that ships
 a Pacemaker cluster; 6 to 8 need a site inventory that keeps its upload list on
 a group, which the reference file `tests/golden/adopted-cluster.yaml` came from.
 
+## The version pin on a hand written inventory
+
+The suite pins against fixtures this repository wrote. What it cannot see is a
+file a site wrote over a year, where `seapath_webui_image` sits on the group
+that holds the hypervisors and every machine repeats it, which is the shape the
+first real cluster had. See [D23](decisions.md#d23).
+
+The planner was run offline against a copy of that file, and it produced
+exactly five changed lines: the group's tag moved, and the four host lines that
+repeated it removed, with no divergence in what any machine resolves. The
+checklist below is what remains, on the machines themselves.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Pinning a version on a cluster whose inventory carries the variable on a group produces one commit, whose diff moves the group's tag and removes the host lines | The file is the site's, with its comments, its blank lines and its variables this service never models | Pending |
+| 2 | `ansible-inventory --list` on the committed file gives every machine the new reference, and gives the guests what it gave them before | The resolver agrees with Ansible on the fixtures, and this is the file that matters | Pending |
+| 3 | The apply that follows replaces the service on all four machines, and each one then reports the pinned version as the one answering | The run reaches the machines over SSH, and the last of them is the one recording the run | Pending |
+| 4 | An inventory this service seeded, with the variable on the machine and no group carrying it, is still pinned on the machine | The seed path, which is what a freshly installed node has | Pending |
+
+### Result
+
+Not yet run.
+
 ## Response headers
 
 The tests assert what the header says. A browser is the only thing that acts on

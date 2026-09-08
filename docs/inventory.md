@@ -88,6 +88,17 @@ changed where it sits. A variable the host inherits from a group is written on
 the host as an override, because the form edits one machine and rewriting the
 group would silently change the other two.
 
+One write follows the opposite rule, because it writes every machine at once:
+pinning the version of this service. The tag goes on the group that already
+carries `seapath_webui_image` when the pin covers every machine of that group
+and they pull from one repository, and the host lines repeating the value are
+taken out, so the file names the version once. A group is left as it stands
+when the pin does not cover all of it, a machine pinned by digest for instance,
+or when its machines pull from two registries, and then every machine is
+written on its own. What each machine receives is checked before the commit
+either way: a line removed that changed a machine's effective image is a
+refusal.
+
 An inventory this service rendered itself keeps being rendered, so a freshly
 installed machine keeps the canonical shape.
 

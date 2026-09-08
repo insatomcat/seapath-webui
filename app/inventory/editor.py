@@ -322,6 +322,11 @@ def _block_end(lines: list[str], start: int, column: int) -> int:
         if stripped and len(lines[index]) - len(lines[index].lstrip()) <= column:
             break
         index += 1
+    # Blank lines at the end belong to whatever follows, the way they do in
+    # `_mapping_end`. Taking them with the block would delete the empty line a
+    # site put between two sections every time a variable next to it changes.
+    while index > start and not lines[index - 1].strip():
+        index -= 1
     return index
 
 

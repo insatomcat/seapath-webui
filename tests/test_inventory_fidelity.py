@@ -27,7 +27,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
-from app.inventory.editor import UneditableInventory, edit
+from app.inventory.editor import Scope, UneditableInventory, edit, set_variables
 from app.inventory.fidelity import unintended_changes
 from app.inventory.resolve import resolve
 from app.inventory.service import _ansible_opinion
@@ -195,6 +195,19 @@ def test_a_list_is_written_as_a_block_the_way_the_file_writes_them() -> None:
         "ntp.example.org",
         "51.145.123.29",
     ]
+
+
+def test_the_blank_line_after_an_edited_variable_stays_where_it_was() -> None:
+    # A site separates the sections of its file with an empty line. Taking one
+    # with the value above it would put a line nobody touched in every diff.
+    document = ADOPTED.read_text()
+
+    edited = set_variables(
+        document, Scope("group", "hypervisors"), {"isolcpus": "4-23"}
+    )
+
+    assert "isolcpus: 4-23\n\n    # Ceph groups" in edited
+    assert len(edited.splitlines()) == len(document.splitlines())
 
 
 def test_an_edit_to_a_host_with_no_entry_of_its_own_is_refused() -> None:
