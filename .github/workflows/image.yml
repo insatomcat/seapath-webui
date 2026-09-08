@@ -4,11 +4,17 @@
 # What buildpush.sh does on a laptop, on every push to main: build the image,
 # check that it answers, publish it. The tests run first, because an image that
 # fails them is one an operator can pull.
+#
+# A pull request runs the tests alone. That is where they are worth the most,
+# and the image job holds the Docker Hub credentials, which a run triggered
+# from a fork must never reach.
 
 name: image
 
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -71,6 +77,7 @@ jobs:
 
   image:
     needs: tests
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
