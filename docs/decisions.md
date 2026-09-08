@@ -2157,3 +2157,74 @@ is an unannounced outage. The return button is the expiry, and it is asked for.
 **A move for a guest on a standalone machine.** There is no Pacemaker to hear a
 constraint. `virsh migrate` between two machines the inventory does not join
 into a cluster is not a thing this service knows how to make safe.
+
+## D35 - Settled: the browser is told what this page may do, and never told to trust the certificate
+
+An authenticated session here is root on every machine of the cluster: the
+console button opens a shell on an account with passwordless sudo, and an apply
+runs playbooks against the mesh. A string that reaches a page and runs there
+therefore costs more than it does almost anywhere else, which is what makes a
+content policy worth its weight on a service of this size.
+
+**Every response carries a `Content-Security-Policy` allowing this origin and
+nothing else, with a per response nonce for the two inline scripts that have to
+be inline. `Strict-Transport-Security` is deliberately absent.**
+
+### The policy
+
+`default-src 'self'` with `object-src`, `base-uri` and `frame-ancestors` closed
+outright, `form-action 'self'`, and `img-src 'self'`. Nothing this UI displays
+comes from anywhere but the node serving it, xterm included, which is vendored
+under `app/ui/static/vendor/`.
+
+Three directives are the interesting ones.
+
+`script-src 'self' 'nonce-...'`. Two scripts in `base.html` cannot be moved
+into a file: the theme has to be chosen before the first paint, and the
+listener that reports a script which never loaded has to be registered ahead of
+the scripts it watches. A hash would break on every edit to either one, so the
+middleware generates a nonce per response, the template stamps it on both, and
+`tests/test_headers.py` asserts the header and the document agree on every
+page. Anything else that ends up in the document has nowhere to run.
+
+`style-src 'self' 'unsafe-inline'`. The stylesheet is carried in the document
+rather than fetched, which is a first paint decision `stylesheet()` in
+`app/ui/routes.py` explains, and xterm builds a style element of its own at run
+time. Neither can be given a
+nonce, and a nonce in that directive would turn `'unsafe-inline'` off for both.
+Styles are not the path to a console.
+
+`connect-src 'self' wss://<this host>`. The terminal opens a WebSocket on the
+page's own origin. `'self'` covers that from CSP level 3, and the origin is
+named as well so the terminal works on a browser that reads level 2.
+
+Swagger UI, at `/api/v1/docs`, gets a policy of its own naming
+`cdn.jsdelivr.net`, because it fetches its script from there and boots from an
+inline one. It is the only path served that way, it is a development tool, and
+a node in a substation has no route to that CDN anyway. The API it documents
+answers under the strict policy like everything else.
+
+### Why HSTS stays off
+
+The certificate a node generates at first boot is self signed, because a node
+has to be reachable over TLS before anything has been configured on it. A
+browser that has seen HSTS from a host refuses that certificate with no way to
+accept it: the warning stops being a click and becomes a wall, on the machine
+the operator is standing in front of.
+
+Worse, the pin outlives the visit that set it. An operator who reached one node
+and then reinstalled it, or who reaches a second node through the same ssh
+tunnel and therefore the same `localhost`, meets the wall on a machine that
+never sent the header.
+
+So the header is not sent, and a test asserts it. A site that has installed its
+own material has somewhere better to put the promise: the reverse proxy in
+front of the service, where it is true. Revisit this the day the ISO ships
+material a browser already trusts.
+
+### What this does not claim
+
+The policy stops an injected string from running. It says nothing about how one
+would get into a page, which is the CSRF check, the session handling and the
+escaping in the templates. It is the second lock, and the reason to have it is
+that the first one is written by hand.

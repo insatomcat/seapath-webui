@@ -37,6 +37,7 @@ from app.core.auth import (
 )
 from app.core.bootstrap import collections_root, run_startup_tasks
 from app.core.errors import install_error_handlers
+from app.core.headers import SecurityHeadersMiddleware
 from app.core.logging import configure_logging
 from app.core.security import CsrfMiddleware, derive_cookie_names
 from app.core.sessions import SessionStore
@@ -401,6 +402,9 @@ def create_app(
 
     install_error_handlers(app)
     app.add_middleware(CsrfMiddleware)
+    # Added last, which puts it outermost: a request the CSRF check refuses is
+    # still a document a browser renders, and it gets the same headers.
+    app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(v1.router)
     ui_routes.install(app)
 

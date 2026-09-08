@@ -76,6 +76,16 @@ templates.env.globals["stylesheet"] = stylesheet
 templates.env.globals["script"] = script
 
 
+def csp_nonce(request: Request) -> str:
+    """The nonce the inline scripts of this page have to carry.
+
+    Set per response by `SecurityHeadersMiddleware`, which is the only place
+    that knows what the policy allows. Empty when a template is rendered with
+    no middleware above it, which makes the attribute inert rather than wrong.
+    """
+    return getattr(request.state, "csp_nonce", "")
+
+
 class _RevalidatedStatics(StaticFiles):
     """Static assets a browser must ask about before reusing.
 
@@ -115,6 +125,7 @@ def install(app: FastAPI) -> None:
                 "page": page,
                 "nav": True,
                 "csrf_cookie": request.app.state.cookie_names.csrf,
+                "csp_nonce": csp_nonce(request),
             },
         )
 
@@ -174,5 +185,6 @@ def install(app: FastAPI) -> None:
                 "version": __version__,
                 "nav": False,
                 "csrf_cookie": request.app.state.cookie_names.csrf,
+                "csp_nonce": csp_nonce(request),
             },
         )

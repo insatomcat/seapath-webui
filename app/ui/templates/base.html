@@ -22,7 +22,7 @@ SPDX-License-Identifier: Apache-2.0
        anything is painted, and a fetch cannot promise that. The stored value
        is `light`, `dark`, or absent, and absent means follow the system.
        `static/theme.js` writes that key and reads it back for the switch. #}
-    <script>
+    <script nonce="{{ csp_nonce }}">
       (function () {
         var choice = null;
         try {
@@ -61,7 +61,7 @@ SPDX-License-Identifier: Apache-2.0
        listener registered by one of them cannot report that one of them failed
        to load. Capturing, because a `<script>` that never arrives fires an
        error event that does not bubble. #}
-    <script>
+    <script nonce="{{ csp_nonce }}">
       window.addEventListener("error", function (event) {
         var banner = document.getElementById("script-error");
         var target = event.target;

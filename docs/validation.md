@@ -375,3 +375,26 @@ Not yet run. Checks 1 to 4 need a machine running the collection that ships
 `deploy_prometheus_exporters` with the systemd collector on; 5, 10 and 11 need
 a Pacemaker cluster; 6 to 8 need a site inventory that keeps its upload list on
 a group, which the reference file `tests/golden/adopted-cluster.yaml` came from.
+
+## Response headers
+
+The tests assert what the header says. A browser is the only thing that acts on
+it, so what the suite cannot see is a page that renders and then does nothing
+because the policy blocked the script that fills it. See
+[D35](decisions.md#d35).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Each of the eight pages loads with an empty browser console, no CSP violation reported, and no flash of the wrong palette | Only a browser enforces the policy, and the theme script is one of the two the nonce exists for | Pending |
+| 2 | The console opens, the terminal renders its grid, and it takes keystrokes | xterm builds a style element at run time, which is what `'unsafe-inline'` on `style-src` is there for | Pending |
+| 3 | A run's progress keeps arriving while it plays, and the terminal stays connected, on Firefox and on Chromium | `connect-src` covers an `EventSource` and a WebSocket, and the two engines have read `'self'` differently for a ws: URL | Pending |
+| 4 | Signing out and back in leaves no page blank | The nonce is new on every response, so a document served with a stale one would be silently inert | Pending |
+| 5 | On a browser that has already visited another node, the certificate warning of a fresh node is still a click the operator can accept | The decision to send no HSTS, visible only against a real self signed certificate | Pending |
+| 6 | `/api/v1/docs` renders on a laptop with a route to the internet | The one path allowed a CDN, and the check that the exception is still needed | Pending |
+| 7 | `curl -ksI https://<node>:8006/` shows the policy, `nosniff`, `DENY`, `no-referrer`, and no `Strict-Transport-Security` | The headers as the machine actually serves them, past uvicorn and any proxy in front | Pending |
+
+### Result
+
+Not yet run.
