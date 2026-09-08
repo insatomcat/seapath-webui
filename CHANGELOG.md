@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.44 - 2026-09-08
+
+- fix: a pin moves the tag where the inventory keeps it, group included
+
 ## 0.3.43 - 2026-09-08
 
 - fix: the image is decided by the commit, not by the day it was built
