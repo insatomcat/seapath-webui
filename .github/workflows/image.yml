@@ -28,13 +28,18 @@ env:
   # build run by hand.
   SEAPATH_ANSIBLE_REF: seapathalloc
 
+# The actions are pinned to a commit rather than to a tag. A tag is moved by
+# whoever owns it, and these run in a job that later logs in to Docker Hub, so
+# the commit is the only part of the reference that says which code ran. The
+# comment after each one is the tag it was resolved from, which is what makes
+# the next bump readable.
 jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.11"
           cache: pip
@@ -80,7 +85,7 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The collection version stamped into the image. `galaxy.yml` says 2.0.0
       # on every branch, so the branch and the commit it was built from are the
@@ -150,7 +155,7 @@ jobs:
           docker rm -f "${container}" >/dev/null
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v4
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -185,7 +190,7 @@ jobs:
       # broken there. The push above is what gates this, so a build that never
       # published never advertises itself either.
       - name: Update the Docker Hub description
-        uses: peter-evans/dockerhub-description@v4
+        uses: peter-evans/dockerhub-description@432a30c9e07499fd01da9f8a49f0faf9e0ca5b77 # v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           # The description API wants a token with the read, write and delete
