@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.42 - 2026-09-08
+
+- feat: tell the browser what a page of this service may do
+
 ## 0.3.41 - 2026-09-07
 
 - fix: the resources card counts the active ones instead of assuming
