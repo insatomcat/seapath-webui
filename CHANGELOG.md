@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.58 - 2026-09-09
+
+- feat: the inventory editor says what no role reads, behind a switch
+
 ## 0.3.57 - 2026-09-09
 
 - feat: the panels that carry Read again can take it on a timer, from a
