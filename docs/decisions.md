@@ -1212,7 +1212,9 @@ own files as it always did.
 The local node keeps reading its own files rather than its exporter. It needs
 no collector, it is never stale, and it answers on a machine where nothing has
 been deployed yet, which is exactly the machine an operator reads the tuning of
-before writing an isolation down.
+before writing an isolation down. **Narrowed by [D36](#d36):** a local node
+whose exporter published the block is judged on it like every other, and its
+own files are what answers when there is nothing else.
 
 The page becomes a matrix: one row per check, one column per machine, local
 first. That is the shape the question has. Two nodes converged from the same
@@ -2234,3 +2236,70 @@ The policy stops an injected string from running. It says nothing about how one
 would get into a page, which is the CSRF check, the session handling and the
 escaping in the templates. It is the second lock, and the reason to have it is
 that the first one is written by hand.
+
+## D36 - Settled: the local node is judged on its exporter too, and its own files are the fallback
+
+[D27](#d27) gave the local node a reading of its own. It reads `/proc` and
+`/sys` directly while every other node is read through its exporter, and the
+argument was that it needs no collector, is never stale, and answers on a
+machine where nothing has been deployed yet. The first and the third hold. The
+second was bought at a price that only became visible on a real cluster.
+
+Two readers answering the same question diverge, and this pair did. The ACPI
+check read `/sys/firmware/acpi`. Podman masks `/sys/firmware` with an empty
+read only tmpfs, on top of the `Volume=/sys:/sys:ro` the quadlet grants, so the
+local column reported `absent` while that same machine's exporter published
+`seapath_rt_acpi_present 1`. The symptom an operator met was a machine
+answering two different things about itself depending on which node's page it
+was looked at from, because the node serving the page is the one read locally.
+
+**Every node in the pool is judged on what its exporter published, the local
+one included. The local machine's own files stay as the fallback, for the case
+D27 was defending: no exporter reachable, or a collector too old to publish the
+block.**
+
+### What changes
+
+`_judge` in `app/services/realtime.py` stops short circuiting on
+`node.host == this_host`. The exporter reading for that node was already
+fetched by `PoolReader` and then discarded, so this costs no scrape that was
+not already paid for, and it removes the only place where two implementations
+answered the same ten checks.
+
+The fallback keeps the whole of D27's case. A machine with no inventory entry
+never reaches the pool reader and is answered by `_local_node()`, from its own
+files, as before. A machine that is in the inventory and whose exporter is
+silent, or answers without the `seapath_rt_*` block, is read from its own files
+too, and it is the one node where that is possible at all.
+
+`GET /api/v1/realtime` is unchanged and still answers from the local files
+alone. It is the endpoint for a machine that has nothing else, and the page
+does not call it: the Real time views read `/pool`.
+
+### What it costs
+
+The local column becomes as old as the last scrape, up to the fifteen second
+tick of `seapath-alloc`, and it now carries its age like every other column.
+That is the honest rendering of a reading taken from a collector. The display
+it replaces looked timeless and disagreed with the exporter of the machine it
+described.
+
+It also makes the local column depend on the local exporter. The fallback is
+what makes that acceptable: the reading degrades to the D27 one rather than
+disappearing.
+
+### What this does not change
+
+What a machine **is** stays local, and that is [D13](#d13). No exporter
+publishes the `by-path` name of a disk, the interfaces of a machine or the
+presence of `/etc/corosync/authkey`, which is what discovery prefills the seed
+inventory from. `app/hosts/local.py` therefore keeps reading files, and the
+trap that produced this decision is still reachable through it: a path the
+container masks reads as absent rather than as an error, which is the worst
+shape a wrong answer can take.
+
+So the reader is held to the container it runs in. `tests/test_local_reader.py`
+walks every path `LocalHostReader` opens and refuses any that falls under
+podman's default masked list. The ACPI check moved to `/sys/bus/acpi/devices`,
+which is visible through the same `/sys` mount, and the recorded tree no longer
+carries a `/sys/firmware` a real container never sees.
