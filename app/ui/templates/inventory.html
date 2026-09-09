@@ -91,8 +91,31 @@ SPDX-License-Identifier: Apache-2.0
     </div>
   </section>
 
-  <section class="card" id="replicas-card" hidden>
-    <h2>The other machines</h2>
+  {#
+  Two state lines and two windows. Both of these are read far more often than
+  they are used, and stacked under the folder in a column this narrow they made
+  the page twice the height of the file being edited. The line carries the
+  answer, the window carries the table and the act.
+  #}
+  <section class="panels" id="inventory-panels">
+    <button type="button" class="panel-open" id="replicas-open" hidden>
+      <span class="reach-label">The other machines</span>
+      <span class="reach-state" id="replicas-state"></span>
+    </button>
+    <button type="button" class="panel-open" id="history-open">
+      <span class="reach-label">History</span>
+      <span class="reach-state" id="history-state"></span>
+    </button>
+  </section>
+</main>
+
+<div class="modal" id="replicas-modal" data-dismiss="replicas-close" hidden>
+  <div class="modal-body wide">
+    <div class="modal-head">
+      <h2>The other machines</h2>
+      <button type="button" class="secondary" id="replicas-close">Close</button>
+    </div>
+
     <p class="lead">
       Every node holds its own copy of this repository. Replicating sends this
       one to the machines the inventory declares, over the connection a run
@@ -127,10 +150,16 @@ SPDX-License-Identifier: Apache-2.0
     </p>
 
     <p class="error" id="replicas-error" hidden></p>
-  </section>
+  </div>
+</div>
 
-  <section class="card" id="history-card">
-    <h2>History</h2>
+<div class="modal" id="history-modal" data-dismiss="history-close" hidden>
+  <div class="modal-body wide">
+    <div class="modal-head">
+      <h2>History</h2>
+      <button type="button" class="secondary" id="history-close">Close</button>
+    </div>
+
     <div class="table-scroll">
       <table id="history-table">
         <thead>
@@ -139,8 +168,8 @@ SPDX-License-Identifier: Apache-2.0
         <tbody></tbody>
       </table>
     </div>
-  </section>
-</main>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}{{ script("inventory.js") }}{% endblock %}

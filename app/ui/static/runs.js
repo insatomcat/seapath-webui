@@ -155,21 +155,18 @@
   // the event stream either way, so the view answers "which step took the four
   // minutes" without a callback plugin and without parsing stdout.
   function renderTimings(durations) {
-    const card = element("timing-card");
+    const opener = element("timing-open");
     const rows = Object.entries(durations || {}).sort((a, b) => b[1] - a[1]);
-    card.hidden = !rows.length;
+    opener.hidden = !rows.length;
     if (!rows.length) {
       return;
     }
     const total = rows.reduce((sum, [, value]) => sum + value, 0);
-    card.querySelector("summary").textContent =
-      "Where the time went  (" +
-      rows.length +
-      " tasks, " +
-      seconds(total) +
-      " of task time)";
+    opener.textContent = "Where the time went";
+    element("timing-note").textContent =
+      rows.length + " tasks, " + seconds(total) + " of task time.";
 
-    const body = card.querySelector("tbody");
+    const body = document.querySelector("#timing-table tbody");
     body.replaceChildren();
     rows.slice(0, 15).forEach(([task, value]) => {
       const row = document.createElement("tr");
@@ -182,10 +179,48 @@
     });
   }
 
+  // The counts of every machine added up, which is the line an operator reads
+  // to know whether the run did anything. Which machine is the question under
+  // it, and the rows answer that one.
+  function summariseHosts(entries) {
+    const totals = { ok: 0, changed: 0, failed: 0, unreachable: 0 };
+    entries.forEach(([, counts]) => {
+      Object.keys(totals).forEach((key) => {
+        totals[key] += counts[key] || 0;
+      });
+    });
+    const machines = entries.length + (entries.length === 1 ? " machine" : " machines");
+    const parts = [totals.ok + " ok", totals.changed + " changed"];
+    if (totals.failed) {
+      parts.push(totals.failed + " failed");
+    }
+    if (totals.unreachable) {
+      parts.push(totals.unreachable + " unreachable");
+    }
+    return {
+      text: machines + ", " + parts.join(", "),
+      wrong: Boolean(totals.failed || totals.unreachable),
+    };
+  }
+
   function renderHosts(hosts) {
+    const card = element("hosts-card");
+    const entries = Object.entries(hosts || {});
+    card.hidden = !entries.length;
+    if (entries.length) {
+      const summary = summariseHosts(entries);
+      element("hosts-summary").textContent = summary.text;
+      element("hosts-summary").className = summary.wrong ? "state-failed" : "";
+      // A run that went wrong is read for which machine it went wrong on, so
+      // that one arrives open. Only ever opened here, never shut: an operator
+      // who unfolded it is left where they are as the counts keep coming.
+      if (summary.wrong) {
+        card.open = true;
+      }
+    }
     const body = document.querySelector("#hosts-table tbody");
     body.replaceChildren();
-    Object.entries(hosts || {}).forEach(([host, counts]) => {
+    entries.forEach(([host, counts]) => {
       const row = document.createElement("tr");
       // skipped is here because a run of sixteen tasks reporting five ok reads
       // as a truncated log until the eleven skipped ones are visible.
@@ -272,6 +307,9 @@
     state.current = runId;
     state.seen = 0;
     element("stream").replaceChildren();
+    // Folded again for the run being opened. Left as the previous one was, a
+    // clean run inherited the unfolded table of the failure read before it.
+    element("hosts-card").open = false;
 
     const record = renderRecord(await API.get("/runs/" + runId));
     await loadList();
@@ -365,6 +403,14 @@
     };
     modal.hidden = false;
   }
+
+  element("timing-open").addEventListener("click", () => {
+    element("timing-modal").hidden = false;
+  });
+
+  element("timing-close").addEventListener("click", () => {
+    element("timing-modal").hidden = true;
+  });
 
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;

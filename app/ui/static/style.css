@@ -459,25 +459,45 @@ dd {
   box-shadow: inset 0 -1px 0 var(--line);
 }
 
-/* The history asks for twenty commits, and twenty rows is most of a screen on
-   a repository that has seen some use. It scrolls in a window of about ten
-   instead, so the page stays the height of the thing being edited rather than
-   the height of what has already been committed. */
-#history-card .table-scroll {
-  max-height: 16rem;
+/* The history asks for twenty commits, and twenty rows is more than a window
+   holds on a repository that has seen some use. It scrolls inside the window
+   that opens it. */
+#history-modal .table-scroll {
+  max-height: 60vh;
   overflow-y: auto;
 }
 
-/* Under the folder rather than across the page. The history is read beside the
-   file being edited, and a full width row of it below both pushed the editor
-   off a laptop screen. The editor spans the two rows the left column now has,
-   so it keeps its height rather than being cut to the folder's. */
-#history-card {
+/* The folder, then the two lines that open the machines and the history. The
+   editor spans both rows of the left column, so it keeps its height rather
+   than being cut to the folder's. */
+.page.split .panels {
   grid-column: 1;
 }
 
 #editor-card {
   grid-row: span 2;
+}
+
+/* One under the other. Two of these lines side by side in a column this narrow
+   leave no room for what either of them says. Each one takes the height of its
+   own text: the row's `flex-basis` is a width, and stacked it became a height,
+   which drew two empty panels the size of the folder above them. */
+#inventory-panels {
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+#inventory-panels .panel-open {
+  flex: none;
+  min-width: 0;
+}
+
+/* One line whatever the commit message is. A subject somebody wrote three
+   sentences of would otherwise be the tallest thing in the column. */
+#inventory-panels .reach-state {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 table {
@@ -602,6 +622,13 @@ td button {
 
 .sub-panel[open] > summary {
   margin-bottom: 0.5rem;
+}
+
+/* A run that failed says so on the fold, in the colour a verdict is read in.
+   Named rather than left to `.state-failed`, which the muted colour of the
+   summary above it wins against. */
+.sub-panel > summary.state-failed {
+  color: var(--bad);
 }
 
 .checkbox {
@@ -759,6 +786,22 @@ button.secondary {
   margin-left: auto;
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* An opener among the actions, drawn as a line of text: it opens a window and
+   changes nothing, so it must not read as one of the buttons beside it. */
+.actions .link {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.actions .link:hover {
+  color: var(--text);
 }
 
 .diff {
@@ -1158,9 +1201,15 @@ button.secondary {
    The desired state of these machines is a folder, so the page is the shape of
    one. */
 
+/* Bounded, because the folder of a site that has been running for a while
+   carries every quadlet and every domain of every guest, and the list of them
+   is not what the page is for. About a dozen entries, then it scrolls, so the
+   two lines under it stay where an operator left them. */
 .tree {
+  max-height: 22rem;
   margin: 0;
   padding: 0;
+  overflow-y: auto;
   list-style: none;
 }
 

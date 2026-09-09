@@ -2,9 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The top bar, shared by every signed in page: who is here, which node this
-// is, and the way out.
+// is, the way out, and Escape.
 
 const Chrome = (function () {
+  // Escape dismisses the window on top, on every page. It clicks the control
+  // the window names in `data-dismiss` rather than hiding the element, so the
+  // page's own teardown runs: the console closes its socket, a confirmation
+  // clears the machine it was about to name, a form empties the file it was
+  // holding. Hiding the element would leave all three behind.
+  //
+  // Last first, because a window later in the document is the one drawn over
+  // the others, and it is the one an operator means.
+  //
+  // One window keeps the key: the console, where Escape is a byte the shell is
+  // waiting for and the terminal has already claimed it. That is what the
+  // `defaultPrevented` guard leaves alone, and why the console has a Close
+  // button of its own.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.defaultPrevented) {
+      return;
+    }
+    const windows = Array.from(document.querySelectorAll(".modal[data-dismiss]"));
+    const top = windows.reverse().find((modal) => !modal.hidden);
+    if (!top) {
+      return;
+    }
+    const control = document.getElementById(top.dataset.dismiss);
+    if (control && !control.disabled) {
+      control.click();
+    }
+  });
+
   async function load() {
     try {
       const [me, node] = await Promise.all([

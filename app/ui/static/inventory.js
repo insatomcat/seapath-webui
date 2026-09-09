@@ -926,6 +926,16 @@
 
   async function loadHistory() {
     const history = await API.get("/inventory/history?limit=20");
+    // What the shut line says. The last commit is the answer to "did my save
+    // land", which is why the history is looked at at all.
+    const last = history[0];
+    element("history-state").textContent = last
+      ? new Date(last.timestamp).toLocaleString() +
+        ", " +
+        last.author +
+        ": " +
+        last.message
+      : "no commit yet";
     const body = document.querySelector("#history-table tbody");
     body.replaceChildren();
     history.forEach((commit) => {
@@ -998,15 +1008,45 @@
     unreachable: { label: "not reachable", tone: "state-failed" },
   };
 
+  // The state of the machines in one line: all of them at this commit, or the
+  // ones that are not, named. An operator opens the window when this says
+  // something other than the first.
+  function summariseReplicas(replicas) {
+    const behind = replicas.filter((replica) => replica.status !== "up_to_date"
+      && replica.status !== "updated");
+    if (!behind.length) {
+      return {
+        text: replicas.length + " machines, all at this commit",
+        ok: true,
+      };
+    }
+    return {
+      text: behind
+        .map(
+          (replica) =>
+            replica.host +
+            " " +
+            (REPLICA_STATES[replica.status] || { label: replica.status }).label
+        )
+        .join(", "),
+      ok: false,
+    };
+  }
+
   function renderReplicas(payload) {
-    const card = element("replicas-card");
+    const opener = element("replicas-open");
     const replicas = payload.replicas || [];
-    // A standalone node has nowhere to replicate to, so the card is not there
+    // A standalone node has nowhere to replicate to, so the line is not there
     // to be explained away.
-    card.hidden = replicas.length === 0;
-    if (card.hidden) {
+    opener.hidden = replicas.length === 0;
+    if (opener.hidden) {
       return;
     }
+
+    const summary = summariseReplicas(replicas);
+    element("replicas-state").textContent = summary.text;
+    element("replicas-state").className =
+      "reach-state " + (summary.ok ? "ok" : "warn");
 
     const body = document.querySelector("#replicas-table tbody");
     body.replaceChildren();
@@ -1059,6 +1099,15 @@
       showError("replicas-error", failure.message);
     }
   }
+
+  ["replicas", "history"].forEach((name) => {
+    element(name + "-open").addEventListener("click", () => {
+      element(name + "-modal").hidden = false;
+    });
+    element(name + "-close").addEventListener("click", () => {
+      element(name + "-modal").hidden = true;
+    });
+  });
 
   // Ticking it says out loud what it does. The page never sets it back on its
   // own, and a refused push leaves it as the operator left it: recovering from

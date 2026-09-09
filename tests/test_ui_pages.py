@@ -148,9 +148,11 @@ def test_the_inventory_page_carries_the_other_copies_of_the_repository(
     body = signed_in.get("/inventory").text
     prose = " ".join(body.split())
 
-    # The copies live where the repository is edited, and the card says what a
+    # The copies live where the repository is edited, behind a state line that
+    # says whether they hold this commit, and the window says what a
     # replication is and what it refuses.
-    assert 'id="replicas-card"' in body
+    assert 'id="replicas-open"' in body
+    assert 'id="replicas-modal"' in body
     assert 'id="replicate"' in body
     assert "over the connection a run makes" in prose
     assert "is refused rather than overwritten" in prose
@@ -370,18 +372,20 @@ def test_the_disks_sit_beside_the_cpu_rather_than_below_the_fold(
     assert ".page.node" in css
 
 
-def test_the_history_is_beside_the_editor_and_bounded(
+def test_the_history_is_a_state_line_over_a_window(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/inventory").text
     css = signed_in.get("/static/style.css").text
 
-    # The history asks for twenty commits, and twenty rows is most of a screen
-    # on a repository that has seen some use. It scrolls in a window of about
-    # ten, under the folder rather than across the page, so the page stays the
-    # height of the file being edited.
-    assert '<section class="card" id="history-card">' in body
-    assert "#history-card .table-scroll" in css
+    # The history asks for twenty commits, and twenty rows stacked under the
+    # folder made the page twice the height of the file being edited. The line
+    # carries the last commit, which is the answer to "did my save land", and
+    # the rows scroll inside the window it opens.
+    assert 'id="history-open"' in body
+    assert 'id="history-state"' in body
+    assert '<div class="modal" id="history-modal"' in body
+    assert "#history-modal .table-scroll" in css
     assert "#editor-card {\n  grid-row: span 2;" in css
 
 
@@ -400,8 +404,8 @@ def test_the_ssh_credentials_are_a_state_line_once_they_hold(
     # that opening it cannot push the playbook off the screen.
     assert body.index('id="main-playbook"') < body.index('id="reach-open"')
     assert body.index('id="playbook-choice"') < body.index('id="reach-open"')
-    assert '<div class="modal" id="reach-modal" hidden>' in body
-    assert '<div class="modal" id="collection-modal" hidden>' in body
+    assert '<div class="modal" id="reach-modal"' in body
+    assert '<div class="modal" id="collection-modal"' in body
 
 
 def test_the_old_configuration_url_still_leads_somewhere(
@@ -480,7 +484,8 @@ def test_a_hidden_element_is_hidden_whatever_its_display_rule(
     # confirmation modal is `display: grid`, so without this rule it is on
     # screen from the moment the page loads, over a page nobody asked to leave,
     # and Cancel does not dismiss it.
-    assert '<div class="modal" id="confirm" hidden>' in body
+    assert '<div class="modal" id="confirm"' in body
+    assert " hidden>" in body
     assert "[hidden]" in css
     assert "display: none !important" in css
 
@@ -983,12 +988,38 @@ def test_the_add_form_separates_what_each_deployment_role_reads(
     assert "the RBD image, the Ceph monitors and the libvirt secret" in body
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/cluster",
+        "/realtime",
+        "/runs",
+    ],
+)
+def test_every_window_names_what_dismisses_it(signed_in: TestClient, path: str) -> None:
+    body = signed_in.get(path).text
+    script = signed_in.get("/static/chrome.js").text
+
+    # Escape closes the window on top, on every page. It works by clicking the
+    # control the window names, so the page's own teardown runs: a window that
+    # named nothing would be the one Escape leaves on screen.
+    for opening in re.findall(r"<div class=\"modal\"[^>]*>", body):
+        assert "data-dismiss=" in opening, (path, opening)
+    assert 'querySelectorAll(".modal[data-dismiss]")' in script
+    assert 'event.key !== "Escape"' in script
+
+
 def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
     # The form asks for three things and shows four steps while it works, so
     # it takes a window rather than growing the page under the guest list.
     body = signed_in.get("/vms").text
 
-    assert '<div class="modal" id="add-modal" hidden>' in body
+    assert '<div class="modal" id="add-modal"' in body
     assert 'id="add-steps"' in body
 
 

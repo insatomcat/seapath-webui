@@ -22,24 +22,20 @@ SPDX-License-Identifier: Apache-2.0
       <span id="run-task" class="task"></span>
     </div>
 
-    <div class="table-scroll">
-      <table id="hosts-table">
-        <thead>
-          <tr>
-            <th>Host</th><th>ok</th><th>changed</th><th>skipped</th>
-            <th>failed</th><th>ignored</th><th>unreachable</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
-
-    <details id="timing-card" hidden>
-      <summary>Where the time went</summary>
+    {#
+    Folded, because the counts an operator reads are on the summary line and
+    the rows under it answer a second question, which machine. It opens itself
+    on a run where the answer matters, one that failed or could not be reached.
+    #}
+    <details class="sub-panel" id="hosts-card" hidden>
+      <summary id="hosts-summary"></summary>
       <div class="table-scroll">
-        <table id="timing-table">
+        <table id="hosts-table">
           <thead>
-            <tr><th>Task</th><th>Seconds</th></tr>
+            <tr>
+              <th>Host</th><th>ok</th><th>changed</th><th>skipped</th>
+              <th>failed</th><th>ignored</th><th>unreachable</th>
+            </tr>
           </thead>
           <tbody></tbody>
         </table>
@@ -49,6 +45,7 @@ SPDX-License-Identifier: Apache-2.0
     <div class="actions">
       <button type="button" id="relaunch" hidden>Relaunch</button>
       <button type="button" id="cancel" class="secondary" hidden>Cancel</button>
+      <button type="button" id="timing-open" class="link" hidden></button>
       <a id="download-log" class="button-link" href="#">Download the log</a>
     </div>
 
@@ -57,7 +54,25 @@ SPDX-License-Identifier: Apache-2.0
   </section>
 </main>
 
-<div class="modal" id="confirm" hidden>
+<div class="modal" id="timing-modal" data-dismiss="timing-close" hidden>
+  <div class="modal-body wide">
+    <div class="modal-head">
+      <h2>Where the time went</h2>
+      <button type="button" class="secondary" id="timing-close">Close</button>
+    </div>
+    <p class="help" id="timing-note"></p>
+    <div class="table-scroll">
+      <table id="timing-table">
+        <thead>
+          <tr><th>Task</th><th>Seconds</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="confirm" data-dismiss="confirm-cancel" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>

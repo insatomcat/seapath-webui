@@ -112,7 +112,7 @@ image and losing its disk. D31 records the bounds.
    else: a name, a disk image, and the libvirt XML that describes it.
    Everything the roles can read off an entry beyond that is edited in the
    file, on the Inventory page, where a site's own variables live. #}
-<div class="modal" id="add-modal" hidden>
+<div class="modal" id="add-modal" data-dismiss="add-cancel" hidden>
   <div class="modal-body wide">
     <h2>Add a VM</h2>
     <p class="lead">
@@ -268,7 +268,7 @@ image and losing its disk. D31 records the bounds.
    here can be a whole libvirt XML, `vm_manager` stores the domain under `xml`
    and the template it was built from under `_base_xml`, and a table of those
    under the guest list would push everything else off the screen. #}
-<div class="modal" id="meta" hidden>
+<div class="modal" id="meta" data-dismiss="meta-close" hidden>
   <div class="modal-body wide">
     <div class="card-head">
       <h2 id="meta-title"></h2>
@@ -318,7 +318,7 @@ image and losing its disk. D31 records the bounds.
 {# One value, edited. Wide and tall on purpose: the two biggest keys hold a
    libvirt domain each, and editing one in a three line box is how a closing
    tag goes missing. #}
-<div class="modal" id="edit" hidden>
+<div class="modal" id="edit" data-dismiss="edit-cancel" hidden>
   <div class="modal-body wide tall">
     <h2 id="edit-title"></h2>
     <label for="edit-key">Key</label>
@@ -340,7 +340,7 @@ image and losing its disk. D31 records the bounds.
    machines it disturbs. `confirm-choice` is the destination a move needs: the
    node is part of the act, so it is chosen here rather than in a control on
    the row that could be left set from last time. #}
-<div class="modal" id="confirm" hidden>
+<div class="modal" id="confirm" data-dismiss="confirm-cancel" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>

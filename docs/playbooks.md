@@ -95,7 +95,8 @@ answered.
 
 `ansible-runner` reports a `duration` on every host result, so the run view
 lists the tasks by the time they took without `profile_tasks` being enabled and
-without anything parsing stdout. The number kept per task is the **longest**
+without anything parsing stdout. It lists them in a window the run opens, which
+is where a question asked after a slow run belongs. The number kept per task is the **longest**
 host rather than the sum: hosts run in parallel with `forks = 20`, and a sum
 would describe a run nobody waited through.
 

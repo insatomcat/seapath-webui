@@ -103,7 +103,7 @@ not.
 {# The one form on this page. It asks what a quadlet is made of: a name, the
    file, the machines that receive it, and whether the cluster holds it.
    Everything else a site writes about a container is in the file. #}
-<div class="modal" id="add-modal" hidden>
+<div class="modal" id="add-modal" data-dismiss="add-cancel" hidden>
   <div class="modal-body wide">
     <h2>Add a container</h2>
     <p class="lead">
@@ -164,7 +164,7 @@ not.
 
 {# One window for every act that cannot be undone by clicking again. It names
    the container, the machine where there is one, and what stopping it costs. #}
-<div class="modal" id="confirm" hidden>
+<div class="modal" id="confirm" data-dismiss="confirm-cancel" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>

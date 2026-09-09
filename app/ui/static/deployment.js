@@ -28,11 +28,6 @@
     latest: null,
     hostKeys: [],
     catalogue: [],
-    // Whether the operator has already been shown, or has already opened, the
-    // window that holds the two credentials. Decided once: re-rendering the
-    // state line after every accepted host key would otherwise put the window
-    // back up under the cursor accepting them.
-    reachDecided: false,
   };
 
   const MAIN = "seapath_setup_main";
@@ -385,13 +380,6 @@
     const line = element("reach-state");
     line.textContent = reach.text;
     line.className = "reach-state " + (reach.ok ? "ok" : "warn");
-    // A node that cannot reach the machines it is meant to drive can run
-    // nothing, so the window opens itself on the way in. Once only: it is
-    // re-rendered after every accepted host key, and reopening it over the
-    // operator accepting them is worse than not opening it at all.
-    if (!state.reachDecided && !reach.ok) {
-      openPanel("reach");
-    }
   }
 
   async function acceptHostKeys(rows) {
@@ -426,18 +414,14 @@
     await loadPlaybooks();
   }
 
-  // Touching either window is the operator saying they are working on this
-  // page, and the credentials window is not put in front of them again for the
-  // rest of the visit. Either window, because installing a collection reloads
-  // the catalogue, and that is a render that would otherwise raise the other
-  // window over the one they are in.
+  // Neither window ever opens itself. A node that cannot reach its peers says
+  // so on the state line, in the warning colour, and an operator arriving to
+  // read the catalogue is not made to dismiss a form first.
   function openPanel(name) {
-    state.reachDecided = true;
     element(name + "-modal").hidden = false;
   }
 
   function closePanel(name) {
-    state.reachDecided = true;
     element(name + "-modal").hidden = true;
   }
 
