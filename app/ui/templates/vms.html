@@ -35,76 +35,84 @@ image and losing its disk. D31 records the bounds.
 <main class="page single vms">
   <p class="banner" id="banner" hidden></p>
 
-  <section class="card">
-    <div class="card-head">
-      <h2>Guests</h2>
-      <button type="button" id="add" hidden>Add a VM</button>
-    </div>
-    <p class="lead" id="lead" hidden></p>
-    <div class="loading" id="loading">Reading the inventory</div>
-    <p class="warning" id="empty" hidden></p>
+  <div class="column">
+    <section class="card">
+      <div class="card-head">
+        <h2>Guests</h2>
+        <button type="button" id="add" hidden>Add a VM</button>
+      </div>
+      <p class="lead" id="lead" hidden></p>
+      <div class="loading" id="loading">Reading the inventory</div>
+      <p class="warning" id="empty" hidden></p>
 
-    <div class="table-scroll" id="guest-table" hidden>
-      <table>
-        <thead>
-          <tr>
-            <th>Guest</th>
-            <th>Deployed by</th>
-            <th>State</th>
-            <th>Node</th>
-            <th>Disk image</th>
-            <th>libvirt XML</th>
-            <th>On deployment</th>
-            <th></th>
-            <th></th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="guest-rows"></tbody>
-      </table>
-    </div>
+      <div class="table-scroll" id="guest-table" hidden>
+        <table>
+          <thead>
+            <tr>
+              <th>Guest</th>
+              <th>Deployed by</th>
+              <th>State</th>
+              <th>Node</th>
+              <th>Disk image</th>
+              <th>libvirt XML</th>
+              <th>On deployment</th>
+              <th></th>
+              <th></th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="guest-rows"></tbody>
+        </table>
+      </div>
 
-    <p class="pane-foot">
-      <span class="pane-foot-note" id="runtime-note"></span>
-    </p>
-  </section>
+      <p class="pane-foot">
+        <span class="pane-foot-note" id="runtime-note"></span>
+      </p>
+    </section>
+  </div>
 
-  {# A guest the cluster runs and the inventory does not declare. Silence here
+  {# The second column: what the cluster runs and nobody declared, and the
+     note that says what a guest is. Both are read after the table beside
+     them, and where the window is wide enough they cost it no height.
+
+     A guest the cluster runs and the inventory does not declare. Silence here
      would hide a VM deployed by hand, or one left behind by an inventory
      somebody edited: it keeps running, and it keeps a name a later deployment
      would collide with. #}
-  <section class="card" id="undeclared-card" hidden>
-    <h2>Running, and not declared</h2>
-    <p class="lead">
-      Pacemaker runs these and the inventory describes none of them. A
-      convergence will not touch them, and a guest added under one of these
-      names would collide with what is already there.
-    </p>
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Resource</th>
-            <th>Node</th>
-            <th>Role</th>
-            <th>State</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="undeclared-rows"></tbody>
-      </table>
-    </div>
-  </section>
+  <div class="column aside">
+    <section class="card" id="undeclared-card" hidden>
+      <h2>Running, and not declared</h2>
+      <p class="lead">
+        Pacemaker runs these and the inventory describes none of them. A
+        convergence will not touch them, and a guest added under one of these
+        names would collide with what is already there.
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Resource</th>
+              <th>Node</th>
+              <th>Role</th>
+              <th>State</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="undeclared-rows"></tbody>
+        </table>
+      </div>
+    </section>
 
-  <p class="hint" id="how">
-    A guest is an entry of the <code>VMs</code> group in the inventory, naming
-    its disk image and its libvirt XML. The image goes in the artefacts, which
-    git does not carry, and the XML is committed with the inventory: both are
-    uploaded from the <a href="inventory">Inventory</a> page, and a run mounts
-    them under the same root, so the path the entry writes resolves either way.
-    Deploying them is a run of the playbook named above, from the
-    <a href="deployment">Deployment</a> page.
-  </p>
+    <p class="hint" id="how">
+      A guest is an entry of the <code>VMs</code> group in the inventory,
+      naming its disk image and its libvirt XML. The image goes in the
+      artefacts, which git does not carry, and the XML is committed with the
+      inventory: both are uploaded from the <a href="inventory">Inventory</a>
+      page, and a run mounts them under the same root, so the path the entry
+      writes resolves either way. Deploying them is a run of the playbook named
+      above, from the <a href="deployment">Deployment</a> page.
+    </p>
+  </div>
 
 </main>
 

@@ -2427,3 +2427,61 @@ td.meta-key code.reserved {
   color: var(--muted);
   font-style: italic;
 }
+
+/* VMs. Two tables, and the wide one carries a badge that reads as a sentence.
+   In the 62rem column a single page gives, that sentence broke after every
+   second word, Move and Return broke onto two lines, three rows were four
+   lines tall, and the second table sat below the first on a screen that had
+   30rem of empty margin on either side of both. So this page is wider than
+   the others, and where the two fit beside each other they are laid out side
+   by side. */
+.page.vms {
+  grid-template-columns: minmax(0, 80rem);
+}
+
+.page.vms > .column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-width: 0;
+}
+
+/* 83rem of a browser's own font size, which is the width the guest list and
+   the column beside it both fit in. Below it the two stack, in the order they
+   are read, and each takes the width of the page. */
+@media (min-width: 83rem) {
+  .page.vms {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: center;
+  }
+
+  .page.vms > .banner {
+    flex: 1 0 100%;
+  }
+
+  .page.vms > .column {
+    flex: 3 1 76rem;
+    max-width: 80rem;
+  }
+
+  /* The undeclared guests and the note under them: read after the table
+     beside them, and where they sit beside it they cost it no height. */
+  .page.vms > .column.aside {
+    flex: 1 1 24rem;
+    max-width: 32rem;
+  }
+}
+
+/* Where the guest is, and the badge that says what holds it there, on one
+   line. The column is as wide as that sentence, which is what makes every row
+   of this table the same height. */
+td.placed {
+  white-space: nowrap;
+}
+
+/* Move and Return, side by side for the same reason. */
+#guest-rows td.acts {
+  white-space: nowrap;
+}

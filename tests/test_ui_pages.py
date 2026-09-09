@@ -1141,6 +1141,28 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
     assert "leaves the placement to Pacemaker" in script
 
 
+def test_the_vms_page_reads_its_two_lists_side_by_side(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/vms").text
+    css = signed_in.get("/static/style.css").text
+    script = signed_in.get("/static/vms.js").text
+
+    # Two columns where the window is wide enough for both: the guest list,
+    # and beside it what the cluster runs and nobody declared. Below that
+    # width the two stack, in the order they are read.
+    assert '<div class="column">' in body
+    assert '<div class="column aside">' in body
+    assert "@media (min-width: 83rem) {\n  .page.vms {\n    display: flex;" in css
+
+    # The badge beside the node is a sentence about a placement, and a column
+    # narrow enough to break it after every second word made three rows of
+    # this table four lines tall.
+    assert 'cell(where, "placed")' in script
+    assert "td.placed {\n  white-space: nowrap;\n}" in css
+    assert "#guest-rows td.acts {\n  white-space: nowrap;\n}" in css
+
+
 def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(
     signed_in: TestClient,
 ) -> None:

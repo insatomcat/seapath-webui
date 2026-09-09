@@ -221,7 +221,10 @@
       : guest.domain
         ? guest.domain.host
         : "";
-    const box = cell(where);
+    // `placed`, which keeps the badge beside the node name on one line: this
+    // column is as wide as that sentence, and a table that has the room says
+    // so rather than breaking it after every second word.
+    const box = cell(where, "placed");
     const held = preferenceOf(guest);
     if (!held) {
       return box;
@@ -311,6 +314,9 @@
   // which is a decision its inventory entry made.
   function placement(guest) {
     const box = document.createElement("td");
+    // Move and Return, side by side rather than stacked: two buttons on two
+    // lines made every row of the table as tall as this one.
+    box.className = "acts";
     if (!canAct || !guest.resource || pinOf(guest)) {
       return box;
     }
