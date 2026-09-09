@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.53 - 2026-09-09
+
+- feat: a panel that ages is read again where it is, without a page reload
+- docs: D37 records the control, and why it is manual for now
+
 ## 0.3.52 - 2026-09-09
 
 - fix: the ACPI check reads a path the container can see
