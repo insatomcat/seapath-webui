@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.56 - 2026-09-09
+
+- fix: the API docs page finds its specification behind a reverse proxy
+
 ## 0.3.55 - 2026-09-09
 
 - ci: the Docker Hub description step follows the other actions to Node 24
