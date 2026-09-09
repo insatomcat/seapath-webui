@@ -45,6 +45,18 @@ const Chrome = (function () {
       const mode = document.getElementById("node-mode");
       mode.textContent = node.mode;
       mode.className = "badge badge-" + node.mode;
+      // What the next page of this visit paints its header with, before it
+      // asks. The document's own script reads it back; the key it uses is
+      // built there, from the same cookie name.
+      try {
+        const key = document.querySelector('meta[name="csrf-cookie"]').content;
+        sessionStorage.setItem(
+          "seapath-chrome-" + key,
+          JSON.stringify({ hostname: node.hostname, mode: node.mode })
+        );
+      } catch (error) {
+        /* A browser refusing storage asks on every page, as it always did. */
+      }
       return { me, node };
     } catch (failure) {
       if (failure.status === 401) {

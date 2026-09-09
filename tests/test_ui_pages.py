@@ -130,6 +130,50 @@ def test_the_login_page_reports_a_script_that_never_ran_too(
     assert f"login.js?v={__version__}" in body
 
 
+def test_a_form_control_is_the_size_of_the_text_beside_it(
+    signed_in: TestClient,
+) -> None:
+    css = signed_in.get("/static/style.css").text
+
+    # A browser gives a button, a field and a select a font of its own, in
+    # pixels, which the root font size does not reach. Without this every
+    # button on screen is drawn a size larger than the page around it.
+    assert "html {\n  font-size: 80%;" in css
+    assert "button,\ninput,\nselect,\ntextarea {\n  font: inherit;\n}" in css
+
+
+def test_the_two_inventory_lines_stay_inside_their_column(
+    signed_in: TestClient,
+) -> None:
+    css = signed_in.get("/static/style.css").text
+
+    # A button is not stretched by the cross axis of the column that holds it,
+    # so each of these was drawn at the width of its own text and painted over
+    # the editor beside it.
+    block = css.split("#inventory-panels .panel-open {")[1].split("}")[0]
+    assert "width: 100%;" in block
+    assert "min-width: 0;" in block
+
+
+def test_the_header_paints_the_node_this_browser_already_saw(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/chrome.js").text
+
+    # The name and the mode are the same two strings on every page between two
+    # runs, and asking for them again on each navigation blinked the header
+    # through its placeholders. The document reads what the last page stored,
+    # `chrome.js` writes it back from the API and corrects both.
+    assert "seapath-chrome-" in body
+    assert "sessionStorage.getItem" in body
+    assert "seapath-chrome-" in script
+    assert "sessionStorage.setItem" in script
+    # Keyed per node: two nodes reached through two ssh tunnels are one origin
+    # to the browser, and one key would show one node's name over the other's.
+    assert 'name="csrf-cookie"' in script
+
+
 def test_the_inventory_page_says_what_saving_does_and_does_not_do(
     signed_in: TestClient,
 ) -> None:

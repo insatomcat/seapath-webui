@@ -136,6 +136,18 @@ body {
   font: 0.875rem/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+/* A form control does not inherit the page's font. A browser gives it one of
+   its own, in pixels, which makes it the one thing on these pages the root
+   font size above does not reach: every button and every field was drawn a
+   size larger than the text beside it. The rules further down that ask for a
+   monospace field or a smaller label still win, because they come after. */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
 h1, h2 {
   font-weight: 600;
 }
@@ -487,9 +499,25 @@ dd {
   gap: 0.75rem;
 }
 
+/* An explicit width, because the cross axis of a column of flex items does
+   not stretch a button: each of these was drawn at the width of its own text
+   and painted over the editor beside it.
+
+   The label sits over the state, since side by side in a column this narrow
+   the label wrapped and the state was cut after four words. */
 #inventory-panels .panel-open {
   flex: none;
+  flex-direction: column;
+  align-items: start;
+  gap: 0.1rem;
+  width: 100%;
   min-width: 0;
+}
+
+/* Both lines are shrink to fit now, so the cap is what the one below ellipses
+   against. */
+#inventory-panels .panel-open > * {
+  max-width: 100%;
 }
 
 /* One line whatever the commit message is. A subject somebody wrote three

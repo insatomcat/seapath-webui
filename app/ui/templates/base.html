@@ -139,6 +139,38 @@ SPDX-License-Identifier: Apache-2.0
         <button id="logout" type="button">Sign out</button>
       </div>
     </header>
+    {#
+    The node's name and its mode, as this browser last saw them. Both change
+    when a machine is renamed or joins a cluster, which is a run, and between
+    two runs they are the same two strings on every page of this service. Read
+    here, inline and right under the bar, so a navigation paints them once
+    instead of blinking the header through its placeholders on the way back to
+    the value it had a second ago. `chrome.js` asks the API as it always did
+    and corrects both, and writes the key back.
+
+    Keyed on the name of this node's CSRF cookie, which carries a per node
+    suffix: a browser reaching two nodes through two ssh tunnels sees one
+    origin, localhost, and one key would show one node's name over the other's.
+    #}
+    <script nonce="{{ csp_nonce }}">
+      (function () {
+        var seen = null;
+        try {
+          seen = JSON.parse(
+            sessionStorage.getItem("seapath-chrome-{{ csrf_cookie }}") || "null"
+          );
+        } catch (error) {
+          /* A browser refusing storage keeps the placeholders. */
+        }
+        if (!seen) {
+          return;
+        }
+        document.getElementById("node-name").textContent = seen.hostname;
+        var mode = document.getElementById("node-mode");
+        mode.textContent = seen.mode;
+        mode.className = "badge badge-" + seen.mode;
+      })();
+    </script>
     {% endif %}
 
     {# Written to by the head script above, and by nothing else. Outside the
