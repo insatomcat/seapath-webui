@@ -236,6 +236,19 @@ drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
 
 ![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/11-4-realtime-firmware.png)
 
+Latency and Firmware carry a form, which the other two views have no use for.
+Reading what a machine publishes costs one HTTP GET; a measurement asks the
+machines to spend real time doing it, so it is launched, confirmed and filed
+like any other run. `cyclictest` takes a duration, a real time priority and the
+CPUs to measure, with the isolated set offered by name because that is the set
+a real time guest runs on. `hwlatdetect` takes a duration, a threshold and the
+two numbers that decide how much of the wall clock the hardware is watched for,
+shown as a percentage while they are typed. The confirmation names the values
+the form holds and the machines that will be played, the run lands in the
+history beside the convergences, and each view keeps the earlier ones, so a
+figure is read beside the inventory commit the machines were carrying when it
+was taken.
+
 ![The Runs page: the history on the left, one run and its task stream on the right](img/12-runs.png)
 
 **Runs** is what happened. Every run keeps the playbook, who launched it, the
