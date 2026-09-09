@@ -57,7 +57,15 @@ TAG = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$")
 # A tag that carries a version, which is the only kind that can be ordered.
 # `latest` names no version, and `0.3.26-rc1` is not a release this service
 # would pin a substation hypervisor to on its own.
-_VERSION = re.compile(r"^\d+(?:\.\d+)*$")
+#
+# At least one dot, which is what tells a version from a commit. The image
+# workflow pushes the short sha of every build as a tag of its own, and a short
+# sha is seven hexadecimal characters that are sometimes all digits: `5582936`
+# read as a version outranks every release this service will ever cut, and the
+# page offered to pin a substation's management UI to a commit and called it
+# newer. Roughly one build in twenty seven lands on such a sha, so this was a
+# question of when.
+_VERSION = re.compile(r"^\d+(?:\.\d+)+$")
 
 # A repository, without its tag or digest. Deliberately narrower than the
 # specification: this string is spliced into a URL, so what it may contain is

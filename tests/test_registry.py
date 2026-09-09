@@ -23,6 +23,7 @@ from app.services import registry
 from app.services.registry import (
     RegistryTagSource,
     RegistryUnreachable,
+    is_version,
     newest,
     repository_of,
 )
@@ -96,6 +97,24 @@ def test_versions_are_ordered_by_number_and_the_rest_is_ignored() -> None:
 
 def test_a_repository_holding_no_version_has_no_newest() -> None:
     assert newest(["latest", "stable"]) is None
+
+
+def test_a_commit_sha_that_happens_to_be_all_digits_is_not_a_version() -> None:
+    """The workflow tags every build with its short sha, and some are numeric.
+
+    `5582936` was one, and read as a version it outranks every release this
+    service will ever cut: the page offered to pin a substation's management UI
+    to a commit and called it newer than the release the inventory named. A
+    version carries at least one dot, which a seven character sha never does.
+    """
+    assert not is_version("5582936")
+    assert not is_version("1234567")
+    assert newest(["0.3.58", "0.3.60", "5582936", "latest", "e514f5b"]) == "0.3.60"
+
+
+def test_a_version_is_still_a_version() -> None:
+    for tag in ("0.3.60", "1.0", "2.0.0", "0.3.10"):
+        assert is_version(tag), tag
 
 
 def test_docker_hub_is_asked_at_the_host_that_serves_it(monkeypatch) -> None:

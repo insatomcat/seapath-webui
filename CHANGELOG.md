@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.61 - 2026-09-09
+
+- feat: the editor completes a variable name where one is being typed
+
 ## 0.3.60 - 2026-09-09
 
 - fix: a variable the inventory itself reads is read by something
