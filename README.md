@@ -333,13 +333,13 @@ them. [CONTRIBUTING.md](CONTRIBUTING.md) says what a change has to carry, and
 
 ## Related components
 
-| Component | Repository | Relation |
-|---|---|---|
-| `seapath-ansible` | `~/dev/seapath-ansible` | The collection this service ships and runs. Roles are used unchanged. |
-| `vm_manager` | `~/dev/vm_manager` | Python library for the runtime plane. Consumed, not reimplemented. |
-| `vmmgrapi` role | `seapath-ansible/roles/vmmgrapi` | The existing thin API over `vm_manager`. Deprecation planned at M5: the ISO stops enabling it, the role stays. |
-| `rtperfui` | `~/dev/rtperfui` | Packaging precedent: FastAPI, Jinja, quadlet with host mounts. |
-| `insatomcat-exporter` | `~/dev/insatomcat-exporter` | Precedent for the image build and publish flow. |
+| Component | Relation |
+|---|---|
+| `seapath-ansible` | The collection this service ships and runs. Roles are used unchanged. |
+| `vm_manager` | Python library for the runtime plane. Consumed, not reimplemented. |
+| `vmmgrapi` role | The existing thin API over `vm_manager`, in `roles/vmmgrapi` of the collection. Deprecation planned at M5: the ISO stops enabling it, the role stays. |
+| `rtperfui` | Packaging precedent: FastAPI, Jinja, quadlet with host mounts. |
+| `insatomcat-exporter` | Precedent for the image build and publish flow. |
 
 ## License
 
