@@ -1375,3 +1375,92 @@ def test_a_reading_that_came_back_empty_takes_down_the_one_before_it(
     assert 'element("members-blocked").hidden = true;' in cluster
     assert 'element("resources-blocked").hidden = true;' in cluster
     assert 'element("storage-blocked").hidden = true;' in cluster
+
+
+@pytest.mark.parametrize(
+    "path", ["/", "/vms", "/containers", "/cluster", "/realtime", "/runs"]
+)
+def test_the_automatic_reading_is_switched_from_the_top_bar(
+    signed_in: TestClient, path: str
+) -> None:
+    """One switch, on every page, beside the one that picks the palette.
+
+    Both are a preference of this browser and neither reaches a machine, so
+    they live together and an operator sets them in one place.
+    """
+    body = signed_in.get(path).text
+
+    assert 'id="autorefresh"' in body
+    assert 'role="switch"' in body
+    # Off until it is asked for, and hidden until the page has a panel that
+    # carries the manual control. A page whose panels show what this operator
+    # just changed has none, and a switch there would act on nothing.
+    assert 'aria-checked="false" hidden' in body
+    # It says Read, like the control it drives. Refresh on the cluster page is
+    # `crm resource refresh`, and it reaches a live cluster.
+    assert "Refresh" not in body.split('id="autorefresh"')[1].split("</button>")[0]
+    assert 'aria-label="Automatic reading, every 10 seconds"' in body
+
+
+def test_the_automatic_reading_is_the_manual_one_on_a_timer(
+    signed_in: TestClient,
+) -> None:
+    """The same code, the same panel, the same banner when it fails.
+
+    A second path to the same table would be a second set of bugs, and the one
+    that only runs unattended is the one nobody would see fail.
+    """
+    control = signed_in.get("/static/reread.js").text
+
+    # Ten seconds, and the switch's label says so.
+    assert "const PERIOD_MS = 10000;" in control
+    # The timer calls what the button calls.
+    assert "await control.run();" in control
+    assert 'button.addEventListener("click", control.run);' in control
+
+
+def test_the_automatic_reading_stops_when_nobody_is_looking(
+    signed_in: TestClient,
+) -> None:
+    """A tab left open overnight asks the machines nothing.
+
+    These readings fan out to every machine of the inventory. A browser
+    forgotten on the cluster page would otherwise spend a substation's cycles
+    until morning on nobody's behalf, which is why the manual control came
+    first and the timer waited for this.
+    """
+    control = signed_in.get("/static/reread.js").text
+
+    # A hidden tab.
+    assert "if (!document.hidden) {" in control
+    assert 'document.addEventListener("visibilitychange"' in control
+    # A panel in a view that is not open. Only one of the cluster page's three
+    # cards is on screen, and the other two fan out to every machine to redraw
+    # a table nobody is looking at.
+    assert "control.button.offsetParent !== null" in control
+    # An open dialog. Every one of these pages names the machine it is about to
+    # disturb in a modal, and the row it was opened on is in the table under
+    # it: that table must not move while the sentence is being read.
+    assert 'document.querySelector(".modal:not([hidden])")' in control
+    # And a reading still in flight, so a slow fan out cannot stack requests
+    # behind itself on a cluster that is already slow to answer.
+    assert "!control.running" in control
+
+
+def test_the_automatic_reading_is_remembered_by_this_browser(
+    signed_in: TestClient,
+) -> None:
+    """The switch survives a navigation, and a browser that refuses storage.
+
+    An operator watching a failover moves between the cluster and the VMs
+    pages, and setting the switch again on each of them would be the reason
+    they stopped using it.
+    """
+    control = signed_in.get("/static/reread.js").text
+
+    assert 'const KEY = "seapath-autorefresh";' in control
+    assert 'localStorage.getItem(KEY) === "on"' in control
+    # Absent means off, so a cleared storage costs the machines nothing.
+    assert "localStorage.removeItem(KEY);" in control
+    # A private window, or a policy: the switch still works there.
+    assert "} catch (error) {\n      return false;\n    }" in control

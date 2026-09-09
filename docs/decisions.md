@@ -2358,16 +2358,48 @@ The Inventory, Deployment and Runs pages get nothing. What they show changes
 when this operator changes it, and the run view already follows its event
 stream.
 
-### Why the control is manual, for now
+### The same reading, on a timer
 
-A panel that refetches on a timer is the obvious next step and it is a
-different decision, because it spends a substation hypervisor's cycles on
-nobody's behalf: a browser left open on the Cluster page overnight would fan
-out to every machine of the inventory every few seconds, forever, whether or
-not anybody is looking. The pieces that would make it defensible, a visible
-interval, a stop, and a page that stops asking when its tab is hidden, are not
-here yet. The manual control is the part that costs nothing when nobody clicks
-it, and it is what the timer would be built on.
+The manual control came first because a panel that refetches by itself spends a
+substation hypervisor's cycles on nobody's behalf: a browser left open on the
+Cluster page overnight would fan out to every machine of the inventory every few
+seconds, forever, whether or not anybody is looking. Three pieces make it
+defensible, and the timer waited for all three.
+
+**A visible interval and a stop.** A switch in the top bar, beside the palette,
+because both are a preference of this browser and neither reaches a machine. It
+says what it does, `Automatic reading, every 10 seconds`, and it is off until an
+operator asks for it. Turning it on takes a reading straight away rather than in
+ten seconds, because a switch whose whole effect is invisible for a period is
+one an operator flips twice. The position is kept in `localStorage`, so an
+operator watching a failover move between the Cluster and the VMs pages sets it
+once rather than on every page they land on. It appears with the first panel
+that registers a control, so the pages that have none never show a switch that
+would act on nothing.
+
+**A page that stops asking.** Three conditions hold the timer, and each of them
+is a fan out that would have gone to every machine for nothing. A hidden tab
+asks nothing at all, and coming back to the tab takes a reading straight away,
+because the one on screen is as old as the time spent away from it. A panel in a
+view that is not open is not read: one of the Cluster page's three cards is on
+screen at a time, and the other two would redraw tables nobody is looking at. An
+open dialog holds all of them, because every one of these pages names the
+machine it is about to disturb in a modal and the row that dialog was opened on
+is in the table underneath: that table must not move while the sentence is being
+read.
+
+**The reading itself, unchanged.** The timer calls what the button calls. An
+automatic reading is the manual one, drawn into the same panel by the same
+render, disabled and turning on the same glyph while it waits, and reported in
+the same banner when it fails. A second path to the same table would be a second
+set of bugs, and the one that runs unattended is the one nobody would see fail.
+
+The next reading is scheduled from the end of the last one and not from the
+start of it, so a cluster that takes longer than ten seconds to answer cannot
+stack requests behind itself.
+
+It is called an automatic **reading**, and the word Refresh stays out of it for
+the reason the manual control avoids it.
 
 ### What it made visible
 

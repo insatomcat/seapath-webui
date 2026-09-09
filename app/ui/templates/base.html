@@ -135,6 +135,23 @@ SPDX-License-Identifier: Apache-2.0
             </svg>
           </button>
         </div>
+        {# Reading the panels of this page again, every ten seconds, until it
+           is switched off. Hidden until `reread.js` finds a panel carrying the
+           manual control: most pages here show what this operator has just
+           changed and have none, and the switch would act on nothing there.
+
+           Two positions, and a fresh browser starts in the off one. A timer
+           that fans out to every machine of the inventory is something an
+           operator asks for. #}
+        <button type="button" id="autorefresh" class="autorefresh" role="switch"
+                aria-checked="false" hidden
+                aria-label="Automatic reading, every 10 seconds"
+                title="Automatic reading, every 10 seconds">
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.2"></circle>
+            <path d="M8 4.4V8l2.5 1.6"></path>
+          </svg>
+        </button>
         <span id="identity"></span>
         <button id="logout" type="button">Sign out</button>
       </div>

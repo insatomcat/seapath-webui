@@ -180,22 +180,26 @@ The page monitors nothing and holds no state of its own, deliberately. Each
 panel carries a small **Read again**, which asks the reading that panel is
 drawn from and swaps it in one pass, so a table is brought up to date without
 the reload that refetched the whole page and sent every panel back through its
-spinner. The VMs, Containers and CPU pool panels carry the same control. What
-this page offers besides is placement, at both scopes. **Refresh** on a resource clears the
-operation history Pacemaker keeps for it, so a failure that has been dealt with
-stops holding it down, and a second button does the same for every resource on
-every node. **Move** asks Pacemaker to run a resource on a named node, and
-**Return** gives the placement back: a move writes the `cli-prefer` constraint
-that `preferred_host` already produces, because `vm_manager` honours that field
-by running the same `crm resource move`, and the return puts the declared
-placement back so a clear cannot drop it silently. **Standby** empties a
-machine and its inverse fills it again, which is what an operator does before
-rebooting a hypervisor and the honest way to watch a cluster place its own
-guests. Each of them runs as an ordinary one task run on a cluster member
-rather than as a command inside this container, and none of them writes a file
-on a host or touches the inventory. Evicting an OSD is not offered, for the
-reason `docs/ceph.md` gives, and adding a machine or a disk stays an inventory
-change and a run.
+spinner. The VMs, Containers and CPU pool panels carry the same control, and a
+switch in the top bar takes that same reading every ten seconds until it is
+turned off. It holds while the tab is hidden, while the panel is in a view
+that is not open, and while a dialog is waiting on an answer about a machine,
+so a browser left open overnight asks the substation nothing. What this page
+offers besides is placement, at both scopes. **Refresh** on a resource clears
+the operation history Pacemaker keeps for it, so a failure that has been dealt
+with stops holding it down, and a second button does the same for every
+resource on every node. **Move** asks Pacemaker to run a resource on a named
+node, and **Return** gives the placement back: a move writes the `cli-prefer`
+constraint that `preferred_host` already produces, because `vm_manager`
+honours that field by running the same `crm resource move`, and the return
+puts the declared placement back so a clear cannot drop it silently.
+**Standby** empties a machine and its inverse fills it again, which is what an
+operator does before rebooting a hypervisor and the honest way to watch a
+cluster place its own guests. Each of them runs as an ordinary one task run on
+a cluster member rather than as a command inside this container, and none of
+them writes a file on a host or touches the inventory. Evicting an OSD is not
+offered, for the reason `docs/ceph.md` gives, and adding a machine or a disk
+stays an inventory change and a run.
 
 ![The Cluster page, Resources: one row per Pacemaker resource, with Refresh, Move and Return](img/9-cluster-resources.png)
 
@@ -267,8 +271,10 @@ it arrives, and where the time went. The log is downloadable whole.
 
 Every page is drawn in the palette the operator's system asks for, and the
 switch in the top bar overrides it in either direction or hands the choice
-back. The console keeps its dark ground in both, because what it draws is what
-a shell and an Ansible run wrote for a terminal.
+back. Beside it sits the switch for the automatic reading, and both are kept
+by the browser rather than by this service: neither of them reaches a machine.
+The console keeps its dark ground in both, because what it draws is what a
+shell and an Ansible run wrote for a terminal.
 
 ## Status
 

@@ -347,6 +347,52 @@ button[aria-busy="true"] {
   stroke-linejoin: round;
 }
 
+/* The automatic reading. It sits beside the theme switch, drawn like one of
+   its glyphs, because both are a preference of this browser rather than an
+   act on a machine: the operator sets them once and the pages keep them. The
+   ring is what tells it apart from the three glyphs it stands next to. */
+.autorefresh {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.autorefresh:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* On. A switch that only changed a glyph's colour would be read as hover on
+   the way past it, so the position is a filled ground as well. */
+.autorefresh[aria-checked="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.autorefresh:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Stroked rather than filled, so one glyph works on both grounds. */
+.autorefresh svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* `min(24rem, 100%)` rather than `24rem`, so a narrow window shrinks the single
    column instead of pushing the whole page sideways. */
 .page {
