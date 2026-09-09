@@ -58,6 +58,27 @@ quadlet, rule and template it names, with the history of who changed what. The
 editor parses, checks the rules and asks `ansible-inventory` about the result
 before committing anything.
 
+The box is a text area, and a file whose indentation carries meaning needs more
+of one than a browser gives: `Tab` and `Shift`+`Tab` shift the lines the
+selection touches, `Enter` carries the indentation of the line it leaves, one
+level in under a key that opens a block and the dash repeated in a list, and
+`Ctrl`+`/` comments the block out.
+
+Beside them is a switch. An inventory is YAML with no schema, so `cephadm_netwrok`
+is a name the file accepts, `ansible-inventory` parses and every rule passes,
+and the answer arrives three minutes into a convergence from a role that read a
+variable nobody set. With the assistant on, a name being typed is completed from
+what may be written at that point in the file, each candidate carrying the role
+that reads it and what goes wrong when it is wrong, so a guest entry is offered
+`vm_disk` and a hypervisor is not. What is already written is read back the
+other way: a name nothing reads, with the one that was probably meant, and a
+variable written where nothing will read it. Nothing reads it means none of the
+three readers an inventory has, the collection this node runs, Ansible itself,
+and the file, which reads its own variables through every `{{ }}` in it. None
+of this refuses a commit, because a variable of a site's own is a legitimate
+name this service has never read and is written exactly the way a misspelling
+is.
+
 Under it sits the copy each of the other machines holds. Every node clones the
 repository, and bringing the clones together is an act: the panel asks each
 machine the inventory declares which commit it is on, and one button pushes
