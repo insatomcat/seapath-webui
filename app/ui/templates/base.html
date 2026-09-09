@@ -187,7 +187,8 @@ SPDX-License-Identifier: Apache-2.0
     {# Ahead of the page's own script, which may draw with the palette. #}
     {% if nav %}{{ script("theme.js") }}
     {{ script("api.js") }}
-    {{ script("chrome.js") }}{% endif %}
+    {{ script("chrome.js") }}
+    {{ script("reread.js") }}{% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

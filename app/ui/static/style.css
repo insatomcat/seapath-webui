@@ -1643,6 +1643,81 @@ button.secondary {
   line-height: 1.4;
 }
 
+/* The panel's own line and the control that reads it again, on one row. The
+   lead is set by the page script and is empty on the panels that have nothing
+   to say above their content, where the rule above hides it and the control
+   keeps its corner. */
+.pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.pane-head .pane-lead {
+  flex: 1 1 auto;
+  margin: 0;
+}
+
+.pane-head .reread {
+  margin-left: auto;
+}
+
+/* Read again: a fresh reading of one panel, without the navigation that
+   refetches the whole page. A glyph in a ring, sized like the theme switch:
+   it is a small act on the panel beside it and must not read as one of the
+   buttons that change a machine. */
+.reread {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.reread:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Stroked rather than filled, so one glyph works on both grounds. */
+.reread svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The reading is in flight. The panel under it still shows the last answer,
+   on purpose, so the only place that can say something is happening is the
+   control itself. */
+.reread[aria-busy="true"] svg {
+  animation: reread-turn 0.9s linear infinite;
+}
+
+@keyframes reread-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A machine told to hold still keeps the dimming the disabled rule gives it,
+   which is the cue that survives without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .reread[aria-busy="true"] svg {
+    animation: none;
+  }
+}
+
 /* The conformance matrix: one row per check, one column per machine. It was a
    list of the local machine's ten answers until every node's tuning became
    readable from its exporter, and a list is the wrong shape for the question
@@ -2329,6 +2404,14 @@ td.recreated {
 
 .card-head h2 {
   margin-bottom: 0;
+}
+
+/* Where a card offers more than one act, the acts stay together on the right
+   of the heading and keep their own spacing. */
+.card-head .card-acts {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .vms label {

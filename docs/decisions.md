@@ -2303,3 +2303,79 @@ walks every path `LocalHostReader` opens and refuses any that falls under
 podman's default masked list. The ACPI check moved to `/sys/bus/acpi/devices`,
 which is visible through the same `/sys` mount, and the recorded tree no longer
 carries a `/sys/firmware` a real container never sees.
+
+## D37 - Settled: a panel that ages is read again where it is, by a control of its own
+
+The pages that report a live plane, VMs, Containers, the CPU pool and the three
+cluster views, draw an answer that starts ageing the moment it is on screen. A
+guest is started from another node, a resource fails over, an OSD goes down, an
+exporter comes back. Until now the only way to a fresh answer was reloading the
+page.
+
+That is the wrong instrument for the job, at three separate costs. It refetches
+every panel of the page to see one of them: on the Cluster page a reload is
+`/cluster` and `/storage`, each fanning out to every machine of the inventory,
+when the operator wanted one table again. It takes the page back through its
+own loading states, so the view bar returns to four unknown dots and the open
+panel to its spinner, and the answer already on screen is destroyed before the
+new one exists. And it loses the position: the scroll of a long OSD table, the
+view the operator was on, the row they were reading.
+
+**Each of those panels carries a small control that asks the endpoint that
+panel is drawn from and hands the answer to the render the first load used.**
+Nothing on screen moves until the whole reading is in hand, so the swap is one
+pass and the panel shows the previous answer until the next one replaces it.
+
+### What it is
+
+`static/reread.js`, and a Jinja macro in `templates/_controls.html` so the
+control is written once. `Reread.attach(button, read, onFailure)` disables its
+button for as long as the request is in flight, which is what keeps a run of
+clicks from leaving two answers racing to draw one table, and turns the glyph
+while it waits, which is the only place that can say something is happening
+when the panel underneath deliberately does not move.
+
+A reading that fails reports itself in the page's banner and changes nothing
+else. The panel keeps the last answer that worked, which is the honest thing to
+show: the alternative is emptying a table because the network blinked.
+
+It is called **Read again** rather than Refresh. The Cluster page already has a
+Refresh, and that one is `crm resource refresh` on a live cluster ([D34](#d34)).
+Two controls with one name, one of which reaches a machine, is a mistake an
+operator makes once.
+
+### Where it is, and where it is not
+
+On the Cluster page the membership and the resources come from one exposition,
+so either control asks `/cluster` once and both panels are redrawn from what
+came back. On the Real time page only the CPU pool carries one: the same
+reading carries each machine's tuning, so the conformance matrix is redrawn
+with it. The measurement panels list past runs of `cyclictest` and
+`hwlatdetect`, which change when a measurement is launched from that same page,
+and the page already redraws them then.
+
+The Inventory, Deployment and Runs pages get nothing. What they show changes
+when this operator changes it, and the run view already follows its event
+stream.
+
+### Why the control is manual, for now
+
+A panel that refetches on a timer is the obvious next step and it is a
+different decision, because it spends a substation hypervisor's cycles on
+nobody's behalf: a browser left open on the Cluster page overnight would fan
+out to every machine of the inventory every few seconds, forever, whether or
+not anybody is looking. The pieces that would make it defensible, a visible
+interval, a stop, and a page that stops asking when its tab is hidden, are not
+here yet. The manual control is the part that costs nothing when nobody clicks
+it, and it is what the timer would be built on.
+
+### What it made visible
+
+Each of these renders had only ever run once per page load, and three of them
+carried the assumption. A panel whose second reading found less than its first
+would have shown both answers at once: the sentence saying no node published a
+pool, over the pool grid from a minute earlier, and the same for the resource
+and Ceph tables. Every one of those branches now takes down what the reading
+before it drew, and the branch that succeeds takes down the sentence that said
+the reading was impossible. A control that reads a panel twice is what turned
+those into paths that actually run.

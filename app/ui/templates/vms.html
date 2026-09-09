@@ -29,6 +29,7 @@ and never again, so the only alternative was recreating the guest from its seed
 image and losing its disk. D31 records the bounds.
 #}
 {% extends "base.html" %}
+{% from "_controls.html" import reread %}
 {% block title %}VMs - SEAPATH{% endblock %}
 
 {% block body %}
@@ -39,7 +40,10 @@ image and losing its disk. D31 records the bounds.
     <section class="card">
       <div class="card-head">
         <h2>Guests</h2>
-        <button type="button" id="add" hidden>Add a VM</button>
+        <div class="card-acts">
+          {{ reread("reread", "the guests") }}
+          <button type="button" id="add" hidden>Add a VM</button>
+        </div>
       </div>
       <p class="lead" id="lead" hidden></p>
       <div class="loading" id="loading">Reading the inventory</div>

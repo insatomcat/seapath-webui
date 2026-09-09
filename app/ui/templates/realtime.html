@@ -13,6 +13,7 @@ worth opening, so the glance still costs no click, and the panel behind it has
 the whole screen.
 #}
 {% extends "base.html" %}
+{% from "_controls.html" import reread %}
 {% block title %}Real time - SEAPATH{% endblock %}
 
 {% block body %}
@@ -71,6 +72,13 @@ the whole screen.
   </section>
 
   <section class="card pane" id="card-map" hidden>
+    {# The pool has no lead of its own, and the control keeps the corner
+       the other panels put it in. The same reading carries the tuning the
+       conformance panel compares, so this reads that panel again too. #}
+    <div class="pane-head">
+      <p class="pane-lead"></p>
+      {{ reread("pool-reread", "the pool") }}
+    </div>
     <div class="loading" id="map-loading">Asking each node's exporter</div>
     <div class="pool" id="pool" hidden></div>
     <p class="warning" id="pool-blocked" hidden></p>

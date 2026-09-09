@@ -126,6 +126,7 @@
     if (!cluster.available) {
       element("members-blocked").textContent = cluster.error;
       element("members-blocked").hidden = false;
+      element("members-lead").textContent = "";
       summarise("members", "absent", "No cluster to read");
       // The reach table is still worth drawing: on a cluster that should
       // exist, which machine failed to answer is the whole finding. The member
@@ -139,6 +140,7 @@
       return;
     }
 
+    element("members-blocked").hidden = true;
     element("members-body").hidden = false;
     element("member-table").hidden = false;
     const corosync = cluster.corosync;
@@ -375,10 +377,17 @@
     if (!cluster.available) {
       element("resources-blocked").textContent = cluster.error;
       element("resources-blocked").hidden = false;
+      // The table of the reading before this one goes down with the cluster
+      // it described. A panel read again after a cluster stopped answering
+      // would otherwise carry both: the sentence saying there is nothing to
+      // read, over the resources it read a minute ago.
+      element("resources-body").hidden = true;
+      element("resources-lead").textContent = "";
       summarise("resources", "absent", "No cluster to read");
       return;
     }
 
+    element("resources-blocked").hidden = true;
     element("resources-body").hidden = false;
     const body = clear(element("resource-rows"));
     cluster.resources.forEach((resource) => {
@@ -724,10 +733,13 @@
       element("storage-blocked").hidden = false;
       // Not a warning dot: a cluster with local storage is a supported SEAPATH
       // configuration, and an amber tab would report it as a fault.
+      element("storage-body").hidden = true;
+      element("storage-lead").textContent = "";
       summarise("storage", "absent", "No Ceph on this cluster");
       return;
     }
 
+    element("storage-blocked").hidden = true;
     element("storage-body").hidden = false;
     const tiles = clear(element("ceph-stats"));
     tiles.append(
@@ -945,10 +957,31 @@
     renderStorage(await API.get("/storage"));
   }
 
+  // Reading one panel again, without the navigation that refetches both. The
+  // membership and the resources come from the same exposition, so either
+  // control asks once and both panels are redrawn from what came back: asking
+  // every machine of the inventory twice for one page is a cost a substation
+  // hypervisor should not pay to see a table again.
+  //
+  // The banner is cleared on the way in rather than on the way out. A reading
+  // that succeeds says the failure it reported last time is over, and one that
+  // fails writes its own message from `showBanner` below.
+  function wireReread() {
+    const again = async (load) => {
+      showBanner("");
+      await load();
+    };
+    const failed = (failure) => showBanner(failure.message);
+    Reread.attach(element("members-reread"), () => again(loadCluster), failed);
+    Reread.attach(element("resources-reread"), () => again(loadCluster), failed);
+    Reread.attach(element("storage-reread"), () => again(loadStorage), failed);
+  }
+
   async function start() {
     const chrome = await Chrome.load();
     canAct = chrome.me.role === "operator" || Chrome.isAdmin(chrome.me);
     showView("members");
+    wireReread();
     // Both readings are fetched before either panel is looked at, so switching
     // views is a show and a hide. They are independent requests because they
     // fail independently: a cluster with no Ceph must not cost the membership

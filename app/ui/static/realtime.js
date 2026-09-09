@@ -486,6 +486,12 @@
           "publishes it."
         : "There is no inventory yet, so there is no node to ask.";
       blocked.hidden = false;
+      // The grid of the reading before this one, taken down with it. A panel
+      // read again after every exporter went away would otherwise say both
+      // things at once: the sentence explaining that nothing published a pool,
+      // over the pool it published a minute ago.
+      element("pool").hidden = true;
+      element("pool-legend").hidden = true;
       summarise(
         "pool",
         "absent",
@@ -1611,6 +1617,18 @@
     state.machines = payload.inventory ? Object.keys(payload.inventory.hosts) : [];
     state.thisHost = payload.this_host;
   }
+
+  // The pool, read again from the control in its panel. The same exposition
+  // carries each machine's tuning, so the conformance matrix is redrawn from
+  // the same answer, which is why loadPool draws both and why the pool is the
+  // only panel here that carries the control.
+  //
+  // The banner accumulates and is never cleared, for the reason showBanner
+  // gives, so a reading that succeeds says nothing and one that fails adds its
+  // message to what is already there.
+  Reread.attach(element("pool-reread"), loadPool, (failure) =>
+    showBanner([failure.message])
+  );
 
   async function start() {
     const { me } = await Chrome.load();

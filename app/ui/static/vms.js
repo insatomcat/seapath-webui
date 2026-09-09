@@ -1047,6 +1047,18 @@
   element("add-cancel").addEventListener("click", () => showAdd(false));
   element("add-go").addEventListener("click", addGuest);
 
+  // What this page is made of: the declaration of every guest joined to what
+  // the cluster is doing with it. One request, and the three renders that
+  // divide it up. Called again by the control in the heading, which is why it
+  // stands on its own: a guest started from here, or by somebody else on
+  // another node, shows up without the page being loaded again.
+  async function refresh() {
+    const view = await API.get("/vms");
+    renderGuests(view);
+    renderUndeclared(view);
+    fillChoices(view);
+  }
+
   async function start() {
     const { me } = await Chrome.load();
     // Starting a guest changes no desired state, so it is the operator's act
@@ -1055,10 +1067,17 @@
     // Changing what a guest is configured with is an administrator's act, the
     // way every other write in this service is.
     canWrite = Chrome.isAdmin(me);
-    const view = await API.get("/vms");
-    renderGuests(view);
-    renderUndeclared(view);
-    fillChoices(view);
+    // A reading that succeeds clears the failure the last one reported, and
+    // one that fails leaves the table showing the answer it already had.
+    Reread.attach(
+      element("reread"),
+      async () => {
+        showBanner("");
+        await refresh();
+      },
+      (failure) => showBanner(failure.message)
+    );
+    await refresh();
     // Adding a VM commits the inventory and launches a run, which is an
     // administrator's act like every other write in this service.
     element("add").hidden = !Chrome.isAdmin(me);

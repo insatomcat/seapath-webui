@@ -21,6 +21,7 @@ runs inside this container. What a machine should *be* stays the inventory and
 a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
 #}
 {% extends "base.html" %}
+{% from "_controls.html" import reread %}
 {% block title %}Cluster - SEAPATH{% endblock %}
 
 {% block body %}
@@ -50,7 +51,10 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
      because a cluster without it stops moving resources and everything below
      is then a description of a cluster that is not doing anything. #}
   <section class="card pane" id="card-members">
-    <p class="pane-lead" id="members-lead"></p>
+    <div class="pane-head">
+      <p class="pane-lead" id="members-lead"></p>
+      {{ reread("members-reread", "the membership") }}
+    </div>
     <div class="loading" id="members-loading">Asking each node's exporter</div>
     <p class="warning" id="members-blocked" hidden></p>
     <div class="pane-body" id="members-body" hidden>
@@ -116,7 +120,10 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
   {# Resources: what is running, and where. In SEAPATH most of them are VMs,
      one Pacemaker resource per guest. #}
   <section class="card pane" id="card-resources" hidden>
-    <p class="pane-lead" id="resources-lead"></p>
+    <div class="pane-head">
+      <p class="pane-lead" id="resources-lead"></p>
+      {{ reread("resources-reread", "the resources") }}
+    </div>
     <div class="loading" id="resources-loading">Asking each node's exporter</div>
     <p class="warning" id="resources-blocked" hidden></p>
     <div class="pane-body" id="resources-body" hidden>
@@ -196,7 +203,10 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
   {# Storage: Ceph, when there is Ceph. Local storage is a supported SEAPATH
      configuration and this panel says so rather than drawing an empty cluster. #}
   <section class="card pane" id="card-storage" hidden>
-    <p class="pane-lead" id="storage-lead"></p>
+    <div class="pane-head">
+      <p class="pane-lead" id="storage-lead"></p>
+      {{ reread("storage-reread", "the storage") }}
+    </div>
     <div class="loading" id="storage-loading">Asking each node's manager</div>
     <p class="warning" id="storage-blocked" hidden></p>
     <div class="pane-body" id="storage-body" hidden>

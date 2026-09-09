@@ -23,6 +23,7 @@ launches its own deployment because `deploy_vms_*` is that narrow. This one is
 not.
 #}
 {% extends "base.html" %}
+{% from "_controls.html" import reread %}
 {% block title %}Containers - SEAPATH{% endblock %}
 
 {% block body %}
@@ -32,7 +33,10 @@ not.
   <section class="card">
     <div class="card-head">
       <h2>Containers</h2>
-      <button type="button" id="add" hidden>Add a container</button>
+      <div class="card-acts">
+        {{ reread("reread", "the containers") }}
+        <button type="button" id="add" hidden>Add a container</button>
+      </div>
     </div>
     <p class="lead" id="lead" hidden></p>
     <div class="loading" id="loading">Reading the inventory</div>

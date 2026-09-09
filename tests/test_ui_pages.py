@@ -1265,3 +1265,113 @@ def test_the_comment_binding_is_reachable_from_an_azerty_keyboard(
     # The slash is typed with Shift there, so a binding that required Shift
     # absent would not exist on the keyboards this service is operated from.
     assert 'event.key === "/" && chord && !event.altKey' in editing
+
+
+@pytest.mark.parametrize(
+    ("path", "controls"),
+    [
+        ("/vms", ['id="reread"']),
+        ("/containers", ['id="reread"']),
+        (
+            "/cluster",
+            [
+                'id="members-reread"',
+                'id="resources-reread"',
+                'id="storage-reread"',
+            ],
+        ),
+        ("/realtime", ['id="pool-reread"']),
+    ],
+)
+def test_a_panel_that_ages_can_be_read_again_where_it_is(
+    signed_in: TestClient, path: str, controls: list[str]
+) -> None:
+    """The panels that report what machines are doing right now carry a control.
+
+    Their answer ages while an operator reads it, and the only way to a fresh
+    one was reloading the page: every panel refetched, the view bar back
+    through its placeholders, the open panel back to its spinner, and the
+    scroll position gone. On the cluster page that is three fan outs to every
+    machine of the inventory to see one table again.
+    """
+    body = signed_in.get(path).text
+
+    for control in controls:
+        assert control in body
+    # A glyph in a ring, and the name of the reading for whoever hovers it or
+    # hears it read out. The control carries no text of its own.
+    assert body.count('class="reread"') == len(controls)
+    assert body.count('aria-label="Read ') == len(controls)
+
+
+def test_reading_a_panel_again_never_empties_it_first(signed_in: TestClient) -> None:
+    """The swap is one pass, and a failed reading changes nothing on screen.
+
+    The point of the control is that an operator keeps looking at an answer
+    while the next one is fetched. A panel that blanked itself on the way would
+    be the page reload it exists to avoid.
+    """
+    control = signed_in.get("/static/reread.js").text
+
+    # The render happens inside the loader, which is called once the whole
+    # reading is in hand.
+    assert "await read();" in control
+    # A reading that failed reports itself and leaves the panel alone.
+    assert "onFailure(failure);" in control
+    # And one reading at a time, so a run of clicks cannot leave two answers
+    # racing to draw the same table.
+    assert "button.disabled = true;" in control
+    assert 'button.setAttribute("aria-busy", "true");' in control
+
+
+def test_reading_the_cluster_again_asks_the_machines_once(
+    signed_in: TestClient,
+) -> None:
+    """Membership and resources come out of the same exposition.
+
+    Asking every machine of the inventory twice to see two panels of one
+    reading is a cost a substation hypervisor should not pay.
+    """
+    script = signed_in.get("/static/cluster.js").text
+
+    wiring = script.split("function wireReread()")[1].split("async function start")[0]
+    assert wiring.count("loadCluster") == 2
+    assert wiring.count("loadStorage") == 1
+
+
+def test_the_cluster_page_tells_a_reading_from_a_pacemaker_refresh(
+    signed_in: TestClient,
+) -> None:
+    """Two things called refresh would be one thing an operator gets wrong.
+
+    `crm resource refresh` reaches a live cluster and clears an operation
+    history. Reading the panel again touches nothing, so the two say what they
+    are in different words.
+    """
+    body = signed_in.get("/cluster").text
+
+    assert "Refresh every resource" in body
+    assert 'aria-label="Read the resources again"' in body
+
+
+def test_a_reading_that_came_back_empty_takes_down_the_one_before_it(
+    signed_in: TestClient,
+) -> None:
+    """A panel read again says one thing, not two.
+
+    These branches only ever ran on a first load until a panel could be read a
+    second time. A cluster that stopped answering would have left the table of
+    the reading before it standing under the sentence saying there was nothing
+    to read.
+    """
+    cluster = signed_in.get("/static/cluster.js").text
+    realtime = signed_in.get("/static/realtime.js").text
+
+    assert 'element("resources-body").hidden = true;' in cluster
+    assert 'element("storage-body").hidden = true;' in cluster
+    assert 'element("pool").hidden = true;' in realtime
+    # And the other way round: a cluster that answers again takes down the
+    # sentence that said it could not be read.
+    assert 'element("members-blocked").hidden = true;' in cluster
+    assert 'element("resources-blocked").hidden = true;' in cluster
+    assert 'element("storage-blocked").hidden = true;' in cluster

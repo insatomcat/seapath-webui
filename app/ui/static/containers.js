@@ -492,6 +492,16 @@
     // Starting a container changes no desired state, so it is the operator's
     // act, the way starting a guest is.
     canAct = me.role === "operator" || Chrome.isAdmin(me);
+    // A reading that succeeds clears the failure the last one reported, and
+    // one that fails leaves the table showing the answer it already had.
+    Reread.attach(
+      element("reread"),
+      async () => {
+        showBanner("");
+        await refresh();
+      },
+      (failure) => showBanner(failure.message)
+    );
     await refresh();
     // Declaring one is a commit, which is an administrator's act like every
     // other write in this service.

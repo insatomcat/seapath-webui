@@ -176,8 +176,12 @@ groups. All of it is read from the `ha_cluster_exporter` and the Ceph manager
 that a deployed cluster already runs, one HTTP GET per machine, and every
 member is asked because which of them answers is itself part of the answer.
 
-The page monitors nothing and holds no state of its own, deliberately. What it
-offers is placement, at both scopes. **Refresh** on a resource clears the
+The page monitors nothing and holds no state of its own, deliberately. Each
+panel carries a small **Read again**, which asks the reading that panel is
+drawn from and swaps it in one pass, so a table is brought up to date without
+the reload that refetched the whole page and sent every panel back through its
+spinner. The VMs, Containers and CPU pool panels carry the same control. What
+this page offers besides is placement, at both scopes. **Refresh** on a resource clears the
 operation history Pacemaker keeps for it, so a failure that has been dealt with
 stops holding it down, and a second button does the same for every resource on
 every node. **Move** asks Pacemaker to run a resource on a named node, and
