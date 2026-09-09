@@ -41,7 +41,7 @@ the UI runs is what the CI tests.
 
 ## The pages
 
-![The Node page: machine, CPU and isolation, disks, network](img/node.png)
+![The Node page: machine, CPU and isolation, disks, network](img/1-node.png)
 
 **Node** describes what the machine is. The hostname and the distribution, the
 isolated and housekeeping CPUs as the kernel command line and `sysfs` report
@@ -50,7 +50,7 @@ It is read only, and the console button opens a shell on the `ansible` account
 for the times a page is not enough. That account has passwordless sudo, so a
 console is root on the machine, and opening one asks for an administrator.
 
-![The Inventory page: the folder on the left, the file being edited on the right](img/inventory.png)
+![The Inventory page: the folder on the left, the file being edited on the right](img/2-inventory.png)
 
 **Inventory** is the desired state, edited as the folder of files it is. The
 left column lists what the repository carries, meaning the inventory and every
@@ -66,7 +66,7 @@ accepts a fast forward, so a machine carrying commits this node has never seen
 is named and left alone, and forcing the push says in the panel what that
 discards. See [D32](docs/decisions.md#d32).
 
-![The Deployment page: the playbooks, the SSH trust to the other machines, and the code this node runs](img/deployment.png)
+![The Deployment page: commissioning on the left, and the playbook that covers what was just edited on the right](img/3-deployment.png)
 
 **Deployment** is where a machine actually changes. Commissioning runs the full
 convergence; the picker beside it runs a single playbook when a single thing
@@ -79,6 +79,12 @@ The code this node runs is the pair that decides what an apply executes: the
 and the image is not out yet, and this service itself, which is
 `seapath_webui_image` in the inventory and changes the way every other change
 to a machine does, by an apply.
+
+![Reaching the other machines: the site key this node holds, and the host keys it has accepted](img/4-deployment-reaching.png)
+
+![The code this node runs: the collection a run executes, and the version of this service the inventory asks for](img/5-deployment-code.png)
+
+![The VMs page: one row per guest, what deploys it, whether it is running and where, and what the next run does to it](img/6-vms.png)
 
 **VMs** is the guests, and it exists because a guest is one object whose parts
 sit on three other pages. Its definition is an entry of the `VMs` group in the
@@ -96,6 +102,8 @@ the playbook that deploys it, the module that starts and stops it, the options
 its entry may carry, and whether it has an RBD image to hold metadata. A file
 with one flat group says nothing and its guests take the file's own mode, which
 is every inventory written before those groups existed.
+
+![Adding a VM: the name, where it is deployed, the disk image and the libvirt XML, over the folded placement options](img/6-1-add-vm.png)
 
 Adding a VM is the act it performs whole. Name the
 guest, pick a disk image and a libvirt XML, and the page uploads both, commits
@@ -129,6 +137,8 @@ so a start cannot slip in under a convergence. The confirmation names the guest
 and says what stopping it does, because on these machines what a guest serves
 is a substation function.
 
+![The Containers page: one row per quadlet, who manages it, the machine it is on and the state of its unit](img/7-containers.png)
+
 **Containers** is the same idea one layer down, and almost all of it already
 existed. A container in SEAPATH is a quadlet: `upload_extra_files` copies a
 `.container` file to `/etc/containers/systemd`, podman's generator turns it
@@ -151,7 +161,9 @@ it real is a run, named rather than launched: the playbook that uploads a
 quadlet is the prerequisites one, which reconfigures a great deal more than a
 container.
 
-![The Cluster page: the three view tabs and their summaries, over the Pacemaker members, quorum and fencing](img/cluster.png)
+![Declaring a container: the name, the quadlet file, the group it is uploaded to, and whether Pacemaker runs it](img/7-1-add-container.png)
+
+![The Cluster page, Membership: quorum, votes and fencing, over the nodes and the machines asked](img/8-cluster-membership.png)
 
 **Cluster** is what the machines are doing right now, which is the one question
 the other pages cannot answer: which node that VM is on, whether the cluster
@@ -181,7 +193,11 @@ on a host or touches the inventory. Evicting an OSD is not offered, for the
 reason `docs/ceph.md` gives, and adding a machine or a disk stays an inventory
 change and a run.
 
-![The Real time page: the four view tabs and their summaries, over one conformance row per check and one column per machine](img/realtime.png)
+![The Cluster page, Resources: one row per Pacemaker resource, with Refresh, Move and Return](img/9-cluster-resources.png)
+
+![The Cluster page, Storage: Ceph health and capacity, over the monitors, the managers and the OSDs](img/10-cluster-storage.png)
+
+![The Real time page, Conformance: the four view tabs and their summaries, over one row per check and one column per machine](img/11-1-realtime-conformance.png)
 
 **Real time** answers whether the machines came out of a convergence with the
 tuning they were told to have. One row per check, one column per machine: each
@@ -205,6 +221,8 @@ each host and publishes it, and this container could not compute it if it
 wanted to, since occupancy is the affinity of every QEMU thread in `/proc`.
 Asking the exporter is the opposite of holding a second source of truth for it.
 
+![The Real time page, CPU pool: one column per physical core and one cell per thread, on every machine the inventory declares](img/11-2-realtime-cpu-pool.png)
+
 It is the one page laid out as an application rather than as a document. Four
 views, Conformance, CPU pool, Latency and Firmware, and a bar of tabs that
 carries what each of them found: its worst status as a dot, and the one line
@@ -214,13 +232,21 @@ forty-eight threads need. Every reading is fetched before the first tab is
 drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
 [docs/decisions.md](docs/decisions.md).
 
-![The Runs page: the history on the left, one run and its task stream on the right](img/runs.png)
+![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/11-3-realtime-latency.png)
+
+![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/11-4-realtime-firmware.png)
+
+![The Runs page: the history on the left, one run and its task stream on the right](img/12-runs.png)
 
 **Runs** is what happened. Every run keeps the playbook, who launched it, the
 inventory commit it ran against and the exact `ansible-playbook` command, so a
 run can be read months later or replayed from a control machine. The event
 stream becomes the per host recap Ansible prints at the end, the task stream as
 it arrives, and where the time went. The log is downloadable whole.
+
+![The per host recap Ansible prints at the end, opened under the run](img/12-1-runs-results.png)
+
+![Where the time went: the tasks of a run, ordered by the seconds each took](img/12-2-runs-time.png)
 
 Every page is drawn in the palette the operator's system asks for, and the
 switch in the top bar overrides it in either direction or hands the choice
