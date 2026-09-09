@@ -17,6 +17,8 @@ from functools import partial
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 
 from app import __version__
 from app.api import v1
@@ -218,7 +220,9 @@ def create_app(
         version=__version__,
         description=_DESCRIPTION,
         openapi_url="/api/v1/openapi.json",
-        docs_url="/api/v1/docs",
+        # Served below rather than by FastAPI, which writes the absolute path
+        # of the specification into the page.
+        docs_url=None,
         redoc_url=None,
         lifespan=_lifespan,
     )
@@ -407,6 +411,32 @@ def create_app(
     app.add_middleware(SecurityHeadersMiddleware)
     app.include_router(v1.router)
     ui_routes.install(app)
+
+    @app.get("/api/v1/docs", include_in_schema=False)
+    def docs() -> HTMLResponse:
+        """Swagger UI, pointed at the specification by a relative URL.
+
+        FastAPI's own docs route writes `openapi_url` into the page as it was
+        given, and it is given as a path from the root. Behind a reverse proxy
+        serving this service under a prefix, that page asks for
+        `/api/v1/openapi.json` while the specification is at
+        `/<prefix>/api/v1/openapi.json`, and Swagger UI renders "Failed to load
+        API definition" over a 404.
+
+        `openapi.json` resolves against this page's own directory instead,
+        which is the rule the rest of this service already follows: every URL
+        the front end builds is relative, so a proxy can mount the application
+        under a prefix without the application being told what the prefix is.
+        It holds here for the same reason it holds there, because this page
+        sits beside the specification it asks for.
+        """
+        return get_swagger_ui_html(
+            openapi_url="openapi.json",
+            title=f"{app.title} - Swagger UI",
+            # This service authenticates with a session cookie and a PAM
+            # login, so there is no OAuth2 flow to hand a redirect back to.
+            oauth2_redirect_url=None,
+        )
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict[str, str]:

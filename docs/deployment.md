@@ -701,9 +701,15 @@ map $http_upgrade $connection_upgrade {
 }
 ```
 
-Two limits. The session and CSRF cookies are set with `path=/`, so under a
-prefix they are offered to the proxy's other applications as well; their names
-carry a per node suffix, so they collide with nothing, but a site that cares
-scopes them at the proxy. And `/api/v1/docs` is the one page that stays
-root anchored, because FastAPI builds it from `openapi_url` without a
-`root_path`; the OpenAPI document itself, and every endpoint, are unaffected.
+One limit remains. The session and CSRF cookies are set with `path=/`, so under
+a prefix they are offered to the proxy's other applications as well; their
+names carry a per node suffix, so they collide with nothing, but a site that
+cares scopes them at the proxy.
+
+`/api/v1/docs` used to be the other one. FastAPI's own docs route writes
+`openapi_url` into the page as the path it was given, which is a path from the
+root, so under a prefix that page asked for `/api/v1/openapi.json` while the
+document sat at `/<prefix>/api/v1/openapi.json` and Swagger UI rendered
+"Failed to load API definition" over a 404. The page is served by `main.py`
+now and asks for `openapi.json`, resolved against its own directory like every
+other URL here.

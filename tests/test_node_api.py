@@ -70,3 +70,22 @@ def test_the_openapi_schema_is_where_the_api_document_says(
 
     assert schema.status_code == 200
     assert "/api/v1/node" in schema.json()["paths"]
+
+
+def test_the_docs_page_asks_for_the_specification_relatively(
+    client: TestClient,
+) -> None:
+    """A reverse proxy may serve this service under a prefix.
+
+    FastAPI's own docs route writes `openapi_url` into the page as a path from
+    the root, so behind a prefix the page asked for `/api/v1/openapi.json`
+    while the specification was at `/<prefix>/api/v1/openapi.json`, and Swagger
+    UI rendered "Failed to load API definition" over a 404. Every other URL
+    this service emits is relative for exactly this reason, and this page sits
+    beside the specification it asks for.
+    """
+    page = client.get("/api/v1/docs")
+
+    assert page.status_code == 200
+    assert "url: 'openapi.json'" in page.text
+    assert "'/api/v1/openapi.json'" not in page.text
