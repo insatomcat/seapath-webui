@@ -638,12 +638,50 @@ it. The model keeps what it does not know in `extra` and loses which group a
 variable was written on, and that is what a remark has to name: a misspelling
 on `all` is one mistake, and reporting it once per machine reads like three.
 
+#### Completion
+
+`app/ui/static/complete.js` offers a name where one is being typed, drawn from
+`GET /inventory/vocabulary`, fetched once per page load and filtered in the
+browser. Three things decide whether it helps or annoys.
+
+**It offers where a variable name goes.** A key sits at the start of a line,
+after the indentation and after an optional `- `, and anything past the colon
+is a value. Offering `ceph_osd_disks` inside an IP address is a list that has
+to be dismissed rather than one that has to be read.
+
+**It offers what may be written there.** The scope of the caret is worked out
+from the shape of the file above it, by walking back through the lines that are
+less indented than the last one taken: `<group>: hosts: <host>:` is a machine,
+or a guest when the group is one of the three that hold guests, and
+`<group>: vars:` is the group. A YAML parser would be exact and would also have
+to parse a file that is half typed; the shape is what a half typed file still
+has. This is the same boundary the assistant reports after the fact, applied
+before the mistake.
+
+**It says what the variable is.** The role that reads it, and the caution when
+there is one, since a list of names an operator could have guessed is a list
+they stop opening.
+
+Accepting writes `name: `, colon and space included, through
+`document.execCommand` for the reason `yamledit.js` uses it: one `Ctrl`+`Z`
+after an accepted name would otherwise throw away everything typed before it.
+
+While the list is open it owns `Enter`, `Tab`, the arrows and `Escape`, and its
+listener is registered before the one `yamledit.js` attaches so those keys never
+reach the ones that indent a block. `complete.js` is loaded before
+`inventory.js` for the same reason.
+
+The caret's position on screen comes from a mirror: a div carrying the
+textarea's own metrics, filled with the text up to the caret, whose last span
+is where the caret is. A textarea offers no other way to ask.
+
 #### The switch
 
 The Inventory page carries a switch in the head of the editor card, remembered
 per browser in `localStorage` under `seapath-assistant`, the way the theme and
-the automatic reading are. Off means the page never calls the endpoint, rather
-than an answer arriving and being hidden. It appears only while the inventory
+the automatic reading are. One switch covers the whole assistant, the remarks
+and the completion alike: off means the page never calls the endpoint and never
+fetches the vocabulary, rather than an answer arriving and being hidden. It appears only while the inventory
 is the file open, since the vocabulary says nothing about a quadlet or a syslog
 template, and the reading is debounced 800 ms so that a held down key does not
 send one round trip per character.

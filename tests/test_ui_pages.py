@@ -1505,3 +1505,70 @@ def test_the_assistant_reads_while_the_file_is_typed_but_not_per_keystroke(
     # round trip per character.
     assert "ASSISTANT_DELAY_MS" in script
     assert "window.clearTimeout(assistantTimer)" in script
+
+
+def test_the_editor_completes_a_variable_name_where_one_goes(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/complete.js").text
+
+    # The vocabulary was readable through the API and not while typing the
+    # file, which is the one moment it is worth anything.
+    assert "complete.js" in body
+    assert "Complete.attach" in signed_in.get("/static/inventory.js").text
+    # Offered where a key goes and nowhere else: a name sits after the
+    # indentation and an optional dash, and anything past the colon is a value.
+    assert "/^([ \\t]*)(-[ \\t]+)?([A-Za-z_][A-Za-z0-9_]*)?$/" in script
+    # And it says what the variable is, since a list of names an operator could
+    # have guessed is a list they stop opening.
+    assert "completion-role" in script
+    assert "term.caution || term.summary" in script
+
+
+def test_the_completion_offers_what_may_be_written_where_the_caret_is(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/complete.js").text
+
+    # The same boundary the assistant reports after the fact, applied before
+    # the mistake: a guest entry is offered vm_disk and a hypervisor is not.
+    assert '"VMs", "cluster_VMs", "standalone_VMs"' in script
+    assert 'return guests ? "guest" : "host";' in script
+    # A connection variable is written wherever a host is, machine or guest.
+    assert 'term.scope === "connection"' in script
+
+
+def test_the_completion_owns_its_keys_while_it_is_open(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/complete.js").text
+
+    # An open list is a mode. Tab in that mode takes the highlighted name
+    # rather than indenting, which means this listener has to be registered
+    # before the one `yamledit.js` attaches.
+    assert "stopImmediatePropagation" in script
+    assert body.index("complete.js") < body.index("inventory.js")
+    inventory = signed_in.get("/static/inventory.js").text
+    assert inventory.index("Complete.attach") < inventory.index("YamlEdit.attach")
+
+
+def test_the_completion_writes_through_the_browsers_own_undo_stack(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/complete.js").text
+
+    # Same reason as `yamledit.js`: one Ctrl+Z after an accepted name would
+    # otherwise throw away everything typed before it.
+    assert 'document.execCommand("insertText", false, written)' in script
+    assert 'term.name + ": "' in script
+
+
+def test_the_completion_is_the_assistant_switch_too(signed_in: TestClient) -> None:
+    script = signed_in.get("/static/inventory.js").text
+
+    # One switch covers the whole assistant. Off means the vocabulary is not
+    # even fetched, rather than fetched and unused.
+    assert "vocabulary.length || !assistantOn()" in script
+    assert "completion.close()" in script

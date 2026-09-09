@@ -630,8 +630,10 @@
     button.setAttribute("aria-checked", String(next));
     rememberAssistant(next);
     if (next) {
+      loadVocabulary();
       runAssistant();
     } else {
+      completion.close();
       showRemarks(null);
     }
   });
@@ -674,6 +676,44 @@
     }
     assistantSoon();
   });
+
+  // The vocabulary, fetched once. 81 entries that say the same thing on every
+  // machine and change only when this service is updated, so a page load is
+  // the right granularity and a scope is filtered from them rather than asked
+  // for. Fetched only when the switch is on, like everything else the
+  // assistant does.
+  let vocabulary = [];
+
+  async function loadVocabulary() {
+    if (vocabulary.length || !assistantOn()) {
+      return;
+    }
+    try {
+      const answer = await API.get("/inventory/vocabulary");
+      vocabulary = answer.terms || [];
+    } catch (failure) {
+      // A page that cannot fetch it completes nothing and says nothing about
+      // it: the file is still editable, which is what the operator came for.
+      vocabulary = [];
+    }
+  }
+
+  // Registered before `yamledit.js` attaches its own keydown, so that while
+  // the list is open Tab takes the highlighted name instead of indenting.
+  const completion = Complete.attach(
+    element("editor"),
+    () => vocabulary,
+    () => {
+      const buffer = currentBuffer();
+      return (
+        assistantOn() &&
+        vocabulary.length > 0 &&
+        buffer !== null &&
+        buffer.store === "inventory" &&
+        !element("editor").readOnly
+      );
+    }
+  );
 
   // A file whose indentation carries meaning, edited in a text area: the keys
   // that shift a block and carry an indentation are in `yamledit.js`.
@@ -1295,6 +1335,9 @@
       });
     }
     await refresh();
+    // Alongside the folder rather than before it: the vocabulary is what the
+    // completion needs, and nothing on the page waits for it.
+    loadVocabulary();
     // The file the operator came here for. Opening it saves a click on every
     // visit, and it is the one file on this page that is always there.
     const inventory = state.entries.find((entry) => entry.store === "inventory");
