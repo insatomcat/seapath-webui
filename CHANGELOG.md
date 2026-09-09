@@ -22,6 +22,7 @@ real hardware is in [docs/validation.md](docs/validation.md).
 ## 0.3.61 - 2026-09-09
 
 - feat: the editor completes a variable name where one is being typed
+- fix: a commit sha that is all digits is not offered as a newer version
 
 ## 0.3.60 - 2026-09-09
 
