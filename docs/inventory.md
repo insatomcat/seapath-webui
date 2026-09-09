@@ -414,7 +414,7 @@ the operator starts from a filled form rather than from a blank file:
 | Discovered | Becomes |
 |---|---|
 | interface carrying the default route, and its address | `ansible_host`, `network_interface`, `ip_addr` |
-| default gateway, resolvers, prefix length | `gateway_addr`, `dns_servers`, `subnet` |
+| default gateway, prefix length | `gateway_addr`, `subnet`, plus `dns_servers` proposed as `8.8.8.8`, a resolver that answers from anywhere so a fresh machine can reach a mirror before the site says which resolver it runs |
 | hostname | the host key in the inventory, which is what `inventory_hostname` resolves to, and the `hostname` variable |
 | CPU topology, and the kernel command line if it already carries an isolated set | `isolcpus`, proposed from the topology on a freshly installed machine, since the ISO has not applied any isolation yet |
 | the account holding UID 1000, the one the installer created | `admin_user`, falling back to `admin` with a warning when no account holds that UID |

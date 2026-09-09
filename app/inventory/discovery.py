@@ -36,6 +36,11 @@ _HOUSEKEEPING_CPUS = 4
 # the machine could not be asked which account it actually has.
 _DEFAULT_ADMIN_USER = "admin"
 
+# A resolver that answers from anywhere, so a freshly installed machine can
+# reach a package mirror before the site says which resolver it runs. It is a
+# proposal like every other field here: a substation replaces it with its own.
+_DEFAULT_DNS_SERVERS = ["8.8.8.8"]
+
 # The tag that moves. The ISO installs it, and the seed resolves it to the
 # version answering rather than writing it into the inventory as a version.
 _MOVING_TAG = "latest"
@@ -115,7 +120,7 @@ def discover(reader: HostReader) -> Discovery:
             network_interface=admin.name,
             subnet=prefix or 24,
             gateway_addr=network.default_gateway,
-            dns_servers=[],
+            dns_servers=list(_DEFAULT_DNS_SERVERS),
             # Never guessed. Which NIC receives sampled values is a cabling
             # fact this machine cannot observe.
             ptp_interface=None,

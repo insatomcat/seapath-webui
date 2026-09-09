@@ -27,6 +27,12 @@ def test_the_administration_interface_is_proposed_from_the_default_route() -> No
     assert discovery.proposed.gateway_addr == "192.168.200.1"
 
 
+def test_a_public_resolver_is_proposed_so_the_machine_can_reach_a_mirror() -> None:
+    # The machine does not know which resolver the site runs, and a seed with
+    # no resolver at all cannot fetch a package. The operator replaces it.
+    assert discover(FakeHostReader()).proposed.dns_servers == ["8.8.8.8"]
+
+
 def test_the_ptp_interface_is_never_guessed() -> None:
     discovery = discover(FakeHostReader())
 
