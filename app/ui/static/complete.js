@@ -36,6 +36,9 @@ const Complete = (function () {
   // Enough of a prefix to be an intention rather than a stray keystroke.
   const MINIMUM = 1;
   const MOST = 8;
+  // What the list keeps between itself and the edge of the window before
+  // it decides there is no room under the caret.
+  const MARGIN = 8;
 
   // The styles the mirror has to carry for a character to land in the same
   // place in it as in the textarea.
@@ -199,11 +202,18 @@ const Complete = (function () {
       area.removeAttribute("aria-activedescendant");
     }
 
+    // Both the mirror and the list are placed against the card, and the text
+    // starts a header, a note and a margin below the top of it. So the mirror
+    // is laid over the textarea rather than over the card: anchored on the
+    // card the list came out one header too high, which is over the line being
+    // typed.
     function place() {
       const style = window.getComputedStyle(area);
       MIRRORED.forEach((name) => {
         mirror.style[name] = style[name];
       });
+      mirror.style.top = area.offsetTop + "px";
+      mirror.style.left = area.offsetLeft + "px";
       mirror.style.width = area.clientWidth + "px";
       mirror.textContent = area.value.slice(0, at);
       const marker = document.createElement("span");
@@ -212,13 +222,26 @@ const Complete = (function () {
       marker.textContent = "​";
       mirror.append(marker);
 
+      const line = parseFloat(style.lineHeight || "16") || 16;
+      const x = marker.offsetLeft - area.scrollLeft;
+      const y = marker.offsetTop - area.scrollTop;
+      const box = area.getBoundingClientRect();
+
+      // Under the line, and over it only when the window leaves no room under
+      // it. The list is read while the name is still being typed, so the one
+      // place it may not sit is on the line it completes.
+      const height = list.offsetHeight;
+      const under = window.innerHeight - (box.top + y + line) - MARGIN;
+      const over = under < height && box.top + y - height > MARGIN;
+      list.style.top = area.offsetTop + (over ? y - height : y + line) + "px";
+
+      // The left edge on the caret, kept inside the text: a name typed at the
+      // far right of a long line would open a list running off the card.
+      const room = area.offsetLeft + area.clientWidth - list.offsetWidth;
       list.style.left =
-        Math.max(0, marker.offsetLeft - area.scrollLeft) + "px";
-      list.style.top =
-        marker.offsetTop -
-        area.scrollTop +
-        parseFloat(style.lineHeight || "16") +
-        "px";
+        Math.round(
+          Math.max(area.offsetLeft, Math.min(area.offsetLeft + x, room))
+        ) + "px";
     }
 
     function draw() {
@@ -303,8 +326,10 @@ const Complete = (function () {
       open = offered;
       chosen = 0;
       at = found.from;
-      place();
+      // Drawn before it is placed: the list is placed from its own height, and
+      // a list that is still hidden has none.
       draw();
+      place();
     }
 
     area.addEventListener("input", refresh);

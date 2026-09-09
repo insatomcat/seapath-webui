@@ -1473,12 +1473,17 @@ button.secondary {
 
 /* Where the caret is, measured rather than guessed. Carries the textarea's own
    metrics and is never painted: a textarea offers no way to ask where a
-   character sits, so the same text is laid out again next to it. */
+   character sits, so the same text is laid out again next to it. It is laid
+   over the textarea by the script, since the card it is positioned against
+   begins a header above the first line of text. */
 .completion-mirror {
   position: absolute;
-  top: 0;
-  left: 0;
   visibility: hidden;
+  /* The border widths are copied from the textarea, and a width only counts
+     when there is a style to go with it. Transparent, since the mirror is
+     measured and never seen. */
+  border-style: solid;
+  border-color: transparent;
   overflow: hidden;
   height: 0;
   white-space: pre;

@@ -1539,6 +1539,21 @@ def test_the_completion_offers_what_may_be_written_where_the_caret_is(
     assert 'term.scope === "connection"' in script
 
 
+def test_the_completion_opens_under_the_line_it_completes(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/complete.js").text
+
+    # The mirror is laid over the textarea. Against the card it starts a header
+    # and a note too high, and the list drew itself over the line being typed.
+    assert 'mirror.style.top = area.offsetTop + "px";' in script
+    assert "area.offsetTop + (over ? y - height : y + line)" in script
+    # Over the line only when the window leaves no room under it, and the list
+    # has to be drawn before it can be measured.
+    assert "const over = under < height" in script
+    assert script.index("draw();\n      place();") > 0
+
+
 def test_the_completion_owns_its_keys_while_it_is_open(
     signed_in: TestClient,
 ) -> None:
