@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.57 - 2026-09-09
+
+- feat: the panels that carry Read again can take it on a timer, from a
+  switch in the top bar
+
 ## 0.3.56 - 2026-09-09
 
 - fix: the API docs page finds its specification behind a reverse proxy
