@@ -40,16 +40,20 @@ _VCPUS = "libvirt_domain_info_virtual_cpus"
 _UP = "libvirt_up"
 
 # libvirt's own domain state codes, which the exporter publishes as the value
-# and spells out in `state_desc`. The description is taken when it is there,
-# since it is libvirt's own wording, and this is the fallback for an exporter
-# that stops sending it.
+# and spells out in `state_desc`. The word here is the one the state column
+# uses for a Pacemaker resource, so the same column reads the same way whether
+# a guest is on a cluster or on a standalone machine: libvirt's `shut off` is
+# Pacemaker's `stopped`, and the sentence the exporter sends, `the domain is
+# running`, is kept as the description rather than shown in a table cell. The
+# states libvirt distinguishes and Pacemaker does not are kept as they are:
+# a paused or crashed domain is not a stopped one.
 _STATES = {
-    0: "no state",
+    0: "unknown",
     1: "running",
     2: "blocked",
     3: "paused",
     4: "shutting down",
-    5: "shut off",
+    5: "stopped",
     6: "crashed",
     7: "suspended",
 }
@@ -67,6 +71,8 @@ class LibvirtDomain(BaseModel):
     host: str
     """The machine whose exporter reported it."""
     state: str
+    """One word, the vocabulary the state column uses for a resource."""
+    description: str = ""
     """libvirt's own wording, `the domain is running` and its family."""
     running: bool
     maximum_memory_bytes: int | None = None
@@ -139,7 +145,8 @@ def _domains(series: dict[str, list[metrics.Sample]], host: str) -> list[Libvirt
             LibvirtDomain(
                 name=name,
                 host=host,
-                state=sample.labels.get("state_desc") or _STATES.get(code, "unknown"),
+                state=_STATES.get(code, "unknown"),
+                description=sample.labels.get("state_desc", ""),
                 running=code in _RUNNING,
                 maximum_memory_bytes=_whole(memory.get(name)),
                 vcpus=_whole(vcpus.get(name)),

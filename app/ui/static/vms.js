@@ -105,6 +105,7 @@
       status = guest.domain.running ? "ok" : "unknown";
       words = guest.domain.state;
       box.title =
+        (guest.domain.description ? guest.domain.description + ". " : "") +
         "Read from libvirt-exporter on " +
         guest.domain.host +
         ". This guest has no Pacemaker resource, so nothing else here " +
@@ -789,8 +790,11 @@
       row(rows, [
         cell(domain.name),
         cell(domain.host),
+        // No role: a role is what Pacemaker gives a resource, and nothing
+        // holds one for this domain. Its state is libvirt's, in the same
+        // words the table above uses.
+        cell(""),
         cell(domain.state),
-        cell(domain.running ? "running" : "stopped"),
         acts({ name: domain.name, domain }),
         metaButton(domain.name, "standalone"),
       ]);

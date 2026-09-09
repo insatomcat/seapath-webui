@@ -1005,7 +1005,11 @@ def test_a_standalone_guest_carries_what_libvirt_says_about_it(
 
     assert guests["ABBICT"]["resource"] is None
     assert guests["ABBICT"]["domain"]["running"] is True
-    assert guests["ABBICT"]["domain"]["state"] == "the domain is running"
+    # The word the state column uses for a Pacemaker resource, so a standalone
+    # guest and a cluster one read the same. libvirt's own sentence is kept
+    # beside it.
+    assert guests["ABBICT"]["domain"]["state"] == "running"
+    assert guests["ABBICT"]["domain"]["description"] == "the domain is running"
     assert guests["ABBICT"]["domain"]["host"] == "seapath-machine"
     assert guests["ABBICT"]["domain"]["vcpus"] == 2
 
@@ -1045,5 +1049,9 @@ def test_a_domain_the_machine_runs_and_the_inventory_ignores_is_named(
     # two declared ones are absent from the list.
     assert "VMUADMIN" in reported
     assert reported["VMUADMIN"]["running"] is False
+    # libvirt calls it `shut off` and Pacemaker calls it `stopped`. The column
+    # holding both says `stopped`, whatever answered for the guest.
+    assert reported["VMUADMIN"]["state"] == "stopped"
+    assert reported["VMUADMIN"]["description"] == "the domain is shut off"
     assert "ABBICT" not in reported
     assert "EITCS" not in reported
