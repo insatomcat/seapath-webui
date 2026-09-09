@@ -345,6 +345,7 @@
     const key = keyOf(store, entry.path);
     showError("editor-error", "");
     showFindings([]);
+    showRemarks(null);
     stopAsking();
 
     if (!state.buffers.has(key)) {
@@ -378,6 +379,7 @@
     state.current = key;
     renderEditor();
     render();
+    runAssistant();
   }
 
   function currentBuffer() {
@@ -396,6 +398,7 @@
         "Pick a file on the left, add one, or create one.";
       editor.hidden = true;
       element("editor-keys").hidden = true;
+      element("assistant").hidden = true;
       tag.hidden = true;
       download.hidden = true;
       element("editor-actions").hidden = true;
@@ -426,6 +429,7 @@
     }
     editor.readOnly = !admin();
     element("editor-keys").hidden = editor.hidden || editor.readOnly;
+    element("assistant").hidden = buffer.store !== "inventory";
 
     const dirty = buffer.text !== buffer.saved;
     element("editor-actions").hidden = !admin();
@@ -498,6 +502,132 @@
     );
   }
 
+  // The assistant
+  //
+  // A switch, and off means nothing is asked. The remarks are advisory: a
+  // variable of a site's own is a legitimate name this service has never read,
+  // so none of them refuses a commit and none of them reaches the findings
+  // list above. An operator who finds them noisy turns the switch off, and the
+  // page then never calls the endpoint at all.
+  //
+  // Remembered per browser, like the theme and the automatic reading, under a
+  // key carrying this node's suffix: two nodes reached through two ssh tunnels
+  // are one origin to the browser, and one key would carry one node's answer
+  // over the other's.
+
+  const ASSISTANT_KEY = "seapath-assistant";
+
+  function assistantOn() {
+    const button = element("assistant");
+    return button.getAttribute("aria-checked") === "true";
+  }
+
+  function rememberAssistant(on) {
+    try {
+      if (on) {
+        localStorage.setItem(ASSISTANT_KEY, "on");
+      } else {
+        localStorage.removeItem(ASSISTANT_KEY);
+      }
+    } catch (error) {
+      /* A browser refusing storage still has a working switch. */
+    }
+  }
+
+  function assistantRemembered() {
+    try {
+      return localStorage.getItem(ASSISTANT_KEY) === "on";
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function showRemarks(assistance) {
+    const list = element("editor-remarks");
+    const note = element("assistant-note");
+    list.replaceChildren();
+
+    if (!assistance) {
+      list.hidden = true;
+      note.hidden = true;
+      return;
+    }
+
+    (assistance.remarks || []).forEach((remark) => {
+      const item = document.createElement("li");
+      const name = document.createElement("b");
+      name.textContent = remark.name;
+      item.append(name);
+      item.append(
+        document.createTextNode(
+          " in " + remark.where.join(", ") + ". " + remark.message
+        )
+      );
+      list.append(item);
+    });
+    list.hidden = !assistance.remarks.length;
+
+    note.textContent = assistance.remarks.length
+      ? "Nothing here refuses a commit. A variable of your own is a name this " +
+        "service has never read, and it looks the same as a misspelling."
+      : assistance.known +
+        " variables read, and every one of them is read by a role.";
+    note.hidden = false;
+  }
+
+  // Asked for the inventory alone: the vocabulary describes an inventory, and
+  // it has nothing to say about a quadlet or a syslog template.
+  async function runAssistant() {
+    const buffer = currentBuffer();
+    if (!buffer || buffer.store !== "inventory" || !assistantOn()) {
+      showRemarks(null);
+      return;
+    }
+    try {
+      showRemarks(
+        await API.post("/inventory/raw/assist", { document: buffer.text })
+      );
+    } catch (failure) {
+      // A file that does not parse is already reported by the page, and the
+      // assistant has nothing to add to it.
+      showRemarks(null);
+    }
+  }
+
+  // While the file is being typed, and not on every keystroke. The reading is
+  // a round trip carrying the whole document, and an operator holding a key
+  // down would otherwise send one per character. Long enough to fire when a
+  // line has been finished rather than while it is half written.
+  const ASSISTANT_DELAY_MS = 800;
+  let assistantTimer = null;
+
+  function assistantSoon() {
+    if (assistantTimer !== null) {
+      window.clearTimeout(assistantTimer);
+    }
+    assistantTimer = window.setTimeout(() => {
+      assistantTimer = null;
+      runAssistant();
+    }, ASSISTANT_DELAY_MS);
+  }
+
+  element("assistant").addEventListener("click", () => {
+    const button = element("assistant");
+    const next = !assistantOn();
+    button.setAttribute("aria-checked", String(next));
+    rememberAssistant(next);
+    if (next) {
+      runAssistant();
+    } else {
+      showRemarks(null);
+    }
+  });
+
+  element("assistant").setAttribute(
+    "aria-checked",
+    String(assistantRemembered())
+  );
+
   function showFindings(findings) {
     const list = element("editor-findings");
     list.replaceChildren();
@@ -529,6 +659,7 @@
     if (wasDirty !== (buffer.text !== buffer.saved)) {
       render();
     }
+    assistantSoon();
   });
 
   // A file whose indentation carries meaning, edited in a text area: the keys
@@ -637,6 +768,7 @@
         document: buffer.text,
       });
       showFindings(result.findings);
+      runAssistant();
       if (!result.findings.length) {
         showBanner([
           "The file is valid, and Ansible parses it. Nothing was saved.",

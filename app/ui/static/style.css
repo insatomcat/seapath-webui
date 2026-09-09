@@ -1414,6 +1414,62 @@ button.secondary {
   resize: vertical;
 }
 
+/* The assistant switch, in the head of the editor card. Two positions and a
+   word: it sits among a path and a tag rather than in a bar of glyphs, so a
+   glyph alone would be one more thing to hover before knowing what it does. */
+.assistant {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0.15rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.assistant svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.assistant:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* On. A filled ground as well as a colour, for the same reason the automatic
+   reading switch has one: a colour alone reads as hover on the way past. */
+.assistant[aria-checked="true"] {
+  background: var(--accent-wash);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.assistant:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Remarks, under the findings and quieter than them. None of these refuses a
+   commit, and one that looked like a rule would be read as one. */
+.findings.remarks li {
+  color: var(--muted);
+}
+
+.findings.remarks li b {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* The bindings under the editor. Small and quiet: they are read once, on the
    first visit, and are in the way on every visit after that. */
 .editor-keys {

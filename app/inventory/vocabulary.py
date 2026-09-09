@@ -57,6 +57,14 @@ class Scope(str, Enum):
     """On `all` or on a machine, whichever a site prefers. Both are correct."""
     GUEST = "guest"
     """On an entry of the `VMs` group, which is a guest and never a machine."""
+    CONNECTION = "connection"
+    """On any host at all, machine or guest.
+
+    Ansible's own connection variables, which describe how it reaches a host
+    rather than what the host is. A guest gets them too: the reference VM
+    inventory writes `ansible_host` and `ansible_user` on its entries so the
+    play can wait for the guest to answer over SSH once it is created.
+    """
 
 
 class Kind(str, Enum):
@@ -113,7 +121,7 @@ _CONNECTION: tuple[Term, ...] = (
     Term(
         "ansible_host",
         Kind.STRING,
-        Scope.HOST,
+        Scope.CONNECTION,
         "The administration address every playbook reaches this machine at.",
         example="192.168.200.121",
         written=Written.FORM,
@@ -161,7 +169,7 @@ _CONNECTION: tuple[Term, ...] = (
     Term(
         "ansible_connection",
         Kind.STRING,
-        Scope.ANY,
+        Scope.CONNECTION,
         "How Ansible reaches the machine.",
         example="ssh",
         written=Written.FIXED,
@@ -169,7 +177,7 @@ _CONNECTION: tuple[Term, ...] = (
     Term(
         "ansible_user",
         Kind.STRING,
-        Scope.ANY,
+        Scope.CONNECTION,
         "The account a run connects as, and the one this service is trusted in.",
         example="ansible",
         written=Written.FIXED,
@@ -177,7 +185,7 @@ _CONNECTION: tuple[Term, ...] = (
     Term(
         "ansible_python_interpreter",
         Kind.STRING,
-        Scope.ANY,
+        Scope.CONNECTION,
         "The interpreter the modules run under on the machine.",
         example="/usr/bin/python3",
         written=Written.FIXED,
@@ -185,7 +193,7 @@ _CONNECTION: tuple[Term, ...] = (
     Term(
         "ansible_remote_tmp",
         Kind.STRING,
-        Scope.ANY,
+        Scope.CONNECTION,
         "Where a module unpacks itself on the machine.",
         example="/tmp/.ansible/tmp",
         written=Written.FIXED,
@@ -193,7 +201,7 @@ _CONNECTION: tuple[Term, ...] = (
     Term(
         "ansible_ssh_private_key_file",
         Kind.STRING,
-        Scope.ANY,
+        Scope.CONNECTION,
         "A private key other than the default one, for a control machine.",
         example="~/.ssh/seapath-v2.0.0-artifacts-key",
         caution=(
@@ -961,6 +969,10 @@ def vocabulary(scope: Scope | None = None) -> Vocabulary:
 
 def _in_scope(term: Term, scope: Scope | None) -> bool:
     if scope is None:
+        return True
+    # How Ansible reaches a host is written wherever the host is, so these
+    # belong to every answer.
+    if term.scope is Scope.CONNECTION:
         return True
     if scope is Scope.GUEST:
         return term.scope is Scope.GUEST

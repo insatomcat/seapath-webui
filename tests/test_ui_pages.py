@@ -1464,3 +1464,44 @@ def test_the_automatic_reading_is_remembered_by_this_browser(
     assert "localStorage.removeItem(KEY);" in control
     # A private window, or a policy: the switch still works there.
     assert "} catch (error) {\n      return false;\n    }" in control
+
+
+def test_the_assistant_is_a_switch_and_off_means_nothing_is_asked(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/inventory.js").text
+
+    # A site with variables of its own gets a remark about every one of them,
+    # so the assistance is something an operator turns on rather than something
+    # the page always does.
+    assert 'id="assistant"' in body
+    assert 'role="switch"' in body
+    assert "seapath-assistant" in script
+    # Off is not a filter over an answer that arrived anyway: the switch is
+    # tested before the call is made.
+    assert "!assistantOn()" in script
+    assert '"/inventory/raw/assist"' in script
+
+
+def test_the_assistant_remarks_are_kept_apart_from_the_findings(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    script = signed_in.get("/static/inventory.js").text
+
+    # None of these refuses a commit. Mixed into the findings list they would
+    # read as though one of them might.
+    assert 'id="editor-remarks"' in body
+    assert "Nothing here refuses a commit" in script
+
+
+def test_the_assistant_reads_while_the_file_is_typed_but_not_per_keystroke(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/inventory.js").text
+
+    # The reading carries the whole document, so a held down key would send one
+    # round trip per character.
+    assert "ASSISTANT_DELAY_MS" in script
+    assert "window.clearTimeout(assistantTimer)" in script

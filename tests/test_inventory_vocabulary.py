@@ -212,7 +212,30 @@ def test_a_guest_variable_is_never_offered_on_a_machine() -> None:
 
     guest = vocabulary.vocabulary(Scope.GUEST).terms
     assert guest
-    assert all(term.scope is Scope.GUEST for term in guest)
+    assert all(term.scope in (Scope.GUEST, Scope.CONNECTION) for term in guest), [
+        term.name for term in guest if term.scope not in (Scope.GUEST, Scope.CONNECTION)
+    ]
+
+
+def test_a_connection_variable_is_offered_wherever_a_host_is() -> None:
+    """Ansible's own describe how it reaches a host rather than what it is.
+
+    The reference VM inventory writes `ansible_host` and `ansible_user` on its
+    guest entries, for the play that waits for the guest to answer over SSH
+    once it is created. Reading them as a machine's made the assistant report
+    a file upstream ships.
+    """
+    connection = {
+        term.name for term in vocabulary.TERMS if term.scope is Scope.CONNECTION
+    }
+
+    assert "ansible_host" in connection
+    # `ip_addr`, `hostname` and `apply_network_config` stay a machine's: the
+    # roles that read them play machines.
+    assert "hostname" not in connection
+    for scope in (Scope.HOST, Scope.GROUP, Scope.GUEST):
+        offered = {term.name for term in vocabulary.vocabulary(scope).terms}
+        assert connection <= offered, scope
 
 
 def test_a_variable_written_anywhere_is_offered_on_a_machine_and_on_a_group() -> None:

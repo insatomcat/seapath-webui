@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import yaml
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -20,6 +21,7 @@ from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.core.security import require_role
+from app.inventory.assistance import Assistance, assist
 from app.inventory.discovery import Discovery
 from app.inventory.files import StoredFile, UnsafePath
 from app.inventory.grub import hash_password
@@ -318,6 +320,24 @@ def check_raw(
     try:
         return _service(request).check_document(payload.document)
     except InvalidInventory as error:
+        raise ApiError("invalid_inventory", str(error), 400) from error
+
+
+@router.post("/raw/assist")
+def assist_raw(payload: ImportRequest, user: User = viewer) -> Assistance:
+    """What the vocabulary has to say about this file, committing nothing.
+
+    Separate from `/raw/check` because the page asks for it separately: the
+    assistant is a switch an operator turns off, and off has to mean that
+    nothing is asked rather than that an answer is hidden.
+
+    Remarks rather than findings. A variable of a site's own is a legitimate
+    name this service has never read, so none of this refuses a commit, and
+    `validate()` never sees it.
+    """
+    try:
+        return assist(payload.document)
+    except yaml.YAMLError as error:
         raise ApiError("invalid_inventory", str(error), 400) from error
 
 

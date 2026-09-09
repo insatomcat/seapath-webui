@@ -608,6 +608,60 @@ lists a playbook nobody has read. It belongs here eventually. It does not
 belong here before the reviewed half exists, because a completion list is
 judged on its worst entry.
 
+### 4ter. The assistant, and the switch that decides whether it is asked
+
+`app/inventory/assistance.py` reads the file being typed against the vocabulary
+and answers `POST /inventory/raw/assist`. It says two things:
+
+- **a variable no role reads**, with the name that was probably meant when one
+  is within `difflib`'s reach at 0.88. `cephadm_netwrok` gets
+  `cephadm_network`; `cluster_nxt_ip_addr` is close to two different addresses
+  on two different machines, and the cutoff is set where a confident wrong
+  answer stops being offered;
+- **a variable written where nothing will read it**, which today means the
+  guest boundary alone: `vm_disk` on a hypervisor, `isolcpus` on an entry of
+  the `VMs` group.
+
+**Remarks rather than findings.** None of them reaches `validate()`, so none of
+them refuses a commit. A variable of a site's own is a legitimate name this
+service has never read, and it is written exactly the way a misspelling is.
+
+Reaching a reader is the test for a misplaced variable, rather than reaching
+only readers. `vm_disk` written on `all` is untidy and it does reach the
+guests, so it is left alone. Written on `hypervisors` it reaches none, and that
+is the mistake worth a line. Only the guest boundary is judged: a host variable
+written on a group sets it for every machine of that group, which is how the
+reference cluster writes `isolcpus`.
+
+Read off the document rather than off the model, the way `references.py` reads
+it. The model keeps what it does not know in `extra` and loses which group a
+variable was written on, and that is what a remark has to name: a misspelling
+on `all` is one mistake, and reporting it once per machine reads like three.
+
+#### The switch
+
+The Inventory page carries a switch in the head of the editor card, remembered
+per browser in `localStorage` under `seapath-assistant`, the way the theme and
+the automatic reading are. Off means the page never calls the endpoint, rather
+than an answer arriving and being hidden. It appears only while the inventory
+is the file open, since the vocabulary says nothing about a quadlet or a syslog
+template, and the reading is debounced 800 ms so that a held down key does not
+send one round trip per character.
+
+#### What keeps it usable
+
+The four reference inventories must draw **no remark at all**. A file that came
+straight from upstream producing a warning is what teaches an operator to
+ignore every warning, and the ones that matter go with it. That test is what
+caught the first version: `seapath-vm-deployement.yaml` writes `ansible_host`
+and `ansible_user` on its guest entries, for the play that waits for the guest
+over SSH once it is created, and calling those misplaced was a remark about a
+file this project ships. `Scope.CONNECTION` exists for that: Ansible's own
+connection variables describe how it reaches a host rather than what the host
+is, so they are at home on a machine and on a guest alike. `ip_addr`,
+`hostname` and `apply_network_config` stay a machine's, because the roles that
+read them play machines.
+
 ## 5. Validation
 
 Before a commit is accepted:
