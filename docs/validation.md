@@ -187,6 +187,8 @@ carrying production traffic the first time it is run.
 | 24 | The tuning columns and the pool grid come from one request per node: `tcpdump` or the exporter's own access log shows one GET per node per refresh | Two panels of the same reading must not double what a page refresh costs a hypervisor | |
 | 25 | On a cluster of four machines with 48 threads each, no value in the conformance view is cut, and the pool view holds every machine without scrolling | The layout of D28. A laptop cannot produce four real machines of that width, which is where the old three panel page was truncating everything | |
 | 26 | Each of the four tabs carries its own status and figure before it is opened, and switching between them asks no node for anything | The bar is the page's summary, and a view is a show and a hide. `tcpdump` on the exporter port answers the second half | |
+| 27 | The ACPI row reads the same on every column, and the same from every node's page | D36. Podman masks `/sys/firmware`, so the reading a container makes of itself differed from the one its own exporter published, and only a real container reproduces that | |
+| 28 | Stopping `node-exporter` on the node serving the page leaves that column answered from its own files, while the other columns fall back to their reason | The other half of D36. The fallback needs a real `/proc` and a real `/sys` under a real mask, which no fake provides | |
 
 ### Result
 

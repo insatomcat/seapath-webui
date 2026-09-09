@@ -494,7 +494,13 @@ class LocalHostReader:
             transparent_hugepage_defrag=_bracketed(
                 self._read_text("sys/kernel/mm/transparent_hugepage/defrag")
             ),
-            acpi_present=self._path("sys/firmware/acpi").is_dir(),
+            # The ACPI bus rather than /sys/firmware/acpi, which says the same
+            # thing on a machine and nothing at all here: podman masks
+            # /sys/firmware with an empty read only tmpfs, over the /sys the
+            # quadlet mounts, so the firmware path reads as absent on every
+            # node. The bus directory is visible through that same mount and
+            # exists exactly where the kernel registered ACPI. See D36.
+            acpi_present=self._path("sys/bus/acpi/devices").is_dir(),
             irq_count=irq_count,
             irqs_on_isolated_cpus=irqs,
             irqs_on_isolated=len(irqs),

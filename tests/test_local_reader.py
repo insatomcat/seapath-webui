@@ -10,7 +10,9 @@ is a parameter and every command goes through the injected runner.
 
 from __future__ import annotations
 
+import ast
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -486,3 +488,92 @@ def test_a_machine_with_no_tuned_profile_says_so_rather_than_guessing(
 
     assert realtime.tuned_profile is None
     assert any("configure_hypervisor" in warning for warning in realtime.warnings)
+
+
+def test_acpi_is_read_from_the_bus_the_container_can_see(
+    reader: LocalHostReader,
+) -> None:
+    assert reader.realtime().acpi_present is True
+
+
+def test_a_machine_with_no_acpi_bus_reads_as_absent(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    # acpi=off, or a kernel built without it. The check is advice either way,
+    # and the point of reading it is that hwlatdetect is what measures the
+    # interrupts ACPI hides.
+    shutil.rmtree(host / "sys/bus/acpi")
+
+    assert LocalHostReader(root=host, runner=runner).realtime().acpi_present is False
+
+
+# The container the reader runs in
+#
+# Every path above is read through a bind mount, and podman hides part of what
+# it mounts. The masked paths are replaced by an empty read only tmpfs, so a
+# reader that opens one gets no error and no content: the value reads as
+# absent, which is the worst shape a wrong answer can take. On a live cluster
+# it read as no ACPI on the node serving the page, and D36 records it.
+#
+# The recorded tree cannot catch that. It is built by this test suite and
+# carries whatever a fixture writes, container or no container. So the reader
+# is held against the list instead.
+
+_MASKED = (
+    # podman's default masked paths, the ones under a root this reader joins
+    # onto. `/sys` is the mount the quadlet grants, `/proc` is the container's
+    # own and reports the host's values.
+    "proc/acpi",
+    "proc/kcore",
+    "proc/keys",
+    "proc/latency_stats",
+    "proc/sched_debug",
+    "proc/scsi",
+    "proc/timer_list",
+    "proc/timer_stats",
+    "sys/dev/block",
+    "sys/firmware",
+    "sys/fs/selinux",
+)
+
+
+def _paths_read_by(source: Path) -> list[tuple[int, str]]:
+    """Every filesystem path `LocalHostReader` opens, with its line number.
+
+    A path is spelled as the constant arguments of `_path`, `_read_text` and
+    `_read_int`, which all join onto the reader's root. The leading constants
+    are enough: a masked directory is masked whole, so what a variable segment
+    holds further down cannot make the read work.
+    """
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(ast.parse(source.read_text())):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        if node.func.attr not in ("_path", "_read_text", "_read_int"):
+            continue
+        parts: list[str] = []
+        for argument in node.args:
+            if not isinstance(argument, ast.Constant) or not isinstance(
+                argument.value, str
+            ):
+                break
+            parts.append(argument.value.strip("/"))
+        if parts:
+            found.append((node.lineno, "/".join(parts)))
+    return found
+
+
+def test_the_reader_opens_no_path_the_container_masks() -> None:
+    source = Path(__file__).resolve().parent.parent / "app/hosts/local.py"
+    paths = _paths_read_by(source)
+
+    # The parser earning its keep: a reader that suddenly reads nothing would
+    # pass this test on an empty list.
+    assert len(paths) > 20
+
+    masked = [
+        f"local.py:{line} reads {path}"
+        for line, path in paths
+        if any(path == entry or path.startswith(entry + "/") for entry in _MASKED)
+    ]
+    assert masked == []

@@ -123,7 +123,9 @@ def build_host_tree(root: Path) -> Path:
     thp = root / "sys/kernel/mm/transparent_hugepage"
     _write(thp / "enabled", "always madvise [never]\n")
     _write(thp / "defrag", "always defer [never]\n")
-    (root / "sys/firmware/acpi").mkdir(parents=True, exist_ok=True)
+    # The ACPI root device, under the bus rather than under
+    # /sys/firmware, which is the part of /sys the container never sees.
+    (root / "sys/bus/acpi/devices/LNXSYSTM:00").mkdir(parents=True, exist_ok=True)
     # Two interrupts, one of which is still allowed on an isolated CPU. The
     # named subdirectory is how /proc/irq carries the device behind the number.
     _write(root / "proc/irq/22/smp_affinity_list", "0-3\n")
