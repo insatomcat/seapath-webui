@@ -1368,6 +1368,22 @@ button.secondary {
   resize: vertical;
 }
 
+/* The bindings under the editor. Small and quiet: they are read once, on the
+   first visit, and are in the way on every visit after that. */
+.editor-keys {
+  margin-top: 0.4rem;
+}
+
+.editor-keys kbd {
+  padding: 0.05rem 0.3rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+}
+
 .confirm-line {
   display: flex;
   align-items: center;

@@ -127,6 +127,29 @@ history under it is the audit trail.
   which replaces the desired state and leaves the version it replaced one
   revert away.
 
+#### The keys the box answers to
+
+A textarea moves the caret out of the field on Tab and drops it in column zero
+on Enter, which is a poor box to write a file whose indentation carries meaning
+in. `app/ui/static/yamledit.js` is the four bindings that close that gap, and
+the line under the editor says they are there:
+
+| Key | What it does |
+|---|---|
+| `Tab` | shifts the lines the selection touches one level in, or types to the next even column when nothing is selected |
+| `Shift`+`Tab` | shifts them one level out, taking what a line has when it has less than a level |
+| `Enter` | carries the indentation of the line it leaves: one level in under a key ending in a colon, aligned under the first key of a `- src:` entry, and the dash repeated in a list. An empty item ends the list and goes with it |
+| `Ctrl`+`/` | comments the block out at its outermost column, and back |
+
+Every one of them writes through `document.execCommand("insertText")`. It is
+deprecated and it is the only write that leaves the browser's own undo stack
+intact: `value` and `setRangeText` both empty it, so one `Ctrl`+`Z` after an
+automatic indent would throw away everything typed before it.
+
+The bindings are the editing half. The half that knows what a variable *is*,
+the vocabulary the roles define and completion over it, is a separate matter
+and is not there.
+
 `PUT /inventory` and `PATCH /inventory/hosts/{name}` take values rather than a
 file. The page stopped using them when the form went ([D20](decisions.md#d20)),
 and they remain the path for a client that holds variables rather than a

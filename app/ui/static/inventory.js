@@ -395,6 +395,7 @@
       element("editor-note").textContent =
         "Pick a file on the left, add one, or create one.";
       editor.hidden = true;
+      element("editor-keys").hidden = true;
       tag.hidden = true;
       download.hidden = true;
       element("editor-actions").hidden = true;
@@ -424,6 +425,7 @@
       editor.value = buffer.text;
     }
     editor.readOnly = !admin();
+    element("editor-keys").hidden = editor.hidden || editor.readOnly;
 
     const dirty = buffer.text !== buffer.saved;
     element("editor-actions").hidden = !admin();
@@ -529,17 +531,9 @@
     }
   });
 
-  // A file whose indentation carries meaning, edited in a text area: the tab
-  // key has to type something rather than leave the field.
-  element("editor").addEventListener("keydown", (event) => {
-    if (event.key !== "Tab" || event.ctrlKey || event.altKey || event.metaKey) {
-      return;
-    }
-    event.preventDefault();
-    const editor = event.target;
-    editor.setRangeText("  ", editor.selectionStart, editor.selectionEnd, "end");
-    editor.dispatchEvent(new Event("input"));
-  });
+  // A file whose indentation carries meaning, edited in a text area: the keys
+  // that shift a block and carry an indentation are in `yamledit.js`.
+  YamlEdit.attach(element("editor"));
 
   document.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key === "s") {

@@ -68,6 +68,15 @@ SPDX-License-Identifier: Apache-2.0
 
     <textarea id="editor" spellcheck="false" wrap="off" hidden></textarea>
 
+    {# The bindings are not guessable from a text area, and an operator who
+       does not know they are there indents six lines by hand. #}
+    <p class="help editor-keys" id="editor-keys" hidden>
+      <kbd>Tab</kbd> and <kbd>Shift</kbd>+<kbd>Tab</kbd> shift the lines the
+      selection touches, <kbd>Enter</kbd> keeps the indentation of the line it
+      leaves, <kbd>Ctrl</kbd>+<kbd>/</kbd> comments the block out, and
+      <kbd>Ctrl</kbd>+<kbd>S</kbd> saves.
+    </p>
+
     <p class="error" id="editor-error" hidden></p>
     <ul class="findings" id="editor-findings" hidden></ul>
 
@@ -172,4 +181,5 @@ SPDX-License-Identifier: Apache-2.0
 </div>
 {% endblock %}
 
-{% block scripts %}{{ script("inventory.js") }}{% endblock %}
+{% block scripts %}{{ script("yamledit.js") }}
+{{ script("inventory.js") }}{% endblock %}

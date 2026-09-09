@@ -1222,3 +1222,46 @@ def test_applying_a_metadata_change_is_offered_as_the_outage_it_is(
 
     assert "Stop and restart to apply" in body
     assert "created again" in body
+
+
+def test_the_inventory_editor_answers_the_keys_an_indented_file_needs(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    editing = signed_in.get("/static/yamledit.js").text
+
+    # A textarea moves the caret out of the field on Tab and drops it in
+    # column zero on Enter, which is a poor box to write an inventory in.
+    assert "yamledit.js" in body
+    assert "YamlEdit.attach" in signed_in.get("/static/inventory.js").text
+    # Shifting a block is the binding that pays for itself: six lines one
+    # level in, rather than a caret on each of them.
+    assert 'event.key === "Tab"' in editing
+    assert "event.shiftKey" in editing
+    assert 'event.key === "Enter"' in editing
+    # And the bindings are said out loud, since nothing about a text area
+    # suggests they are there.
+    assert 'id="editor-keys"' in body
+    assert "<kbd>Shift</kbd>+<kbd>Tab</kbd>" in body
+
+
+def test_the_editor_writes_through_the_browsers_own_undo_stack(
+    signed_in: TestClient,
+) -> None:
+    editing = signed_in.get("/static/yamledit.js").text
+
+    # `value` and `setRangeText` both empty the undo stack, so one Ctrl+Z
+    # after an automatic indent would throw away everything typed before it.
+    # `execCommand` is deprecated and is the only write that survives it.
+    assert 'document.execCommand("insertText", false, text)' in editing
+    assert "area.setRangeText" in editing
+
+
+def test_the_comment_binding_is_reachable_from_an_azerty_keyboard(
+    signed_in: TestClient,
+) -> None:
+    editing = signed_in.get("/static/yamledit.js").text
+
+    # The slash is typed with Shift there, so a binding that required Shift
+    # absent would not exist on the keyboards this service is operated from.
+    assert 'event.key === "/" && chord && !event.altKey' in editing
