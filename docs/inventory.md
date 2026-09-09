@@ -557,6 +557,57 @@ consequences worth knowing while editing the file by hand:
 
 See [D33](decisions.md#d33).
 
+### 4bis. The vocabulary, so the editor knows what a variable is
+
+An inventory is a YAML file with no schema. A name typed wrong is a name the
+file accepts, and the answer arrives three minutes into a convergence from a
+role that read a variable nobody set. `app/inventory/vocabulary.py` is the
+table that lets the service say something before then, and
+`GET /inventory/vocabulary` is how a page asks for it.
+
+Each entry carries the shape, where the variable is written, the role that
+reads it, its default, an example taken from the reference inventories, whether
+a form of this service writes it, and what goes wrong when it is absent or
+wrong. `scope` narrows the answer to what one place accepts: `host`, `group` or
+`guest`.
+
+**The table is curated, and that is the design.** The collection was measured
+rather than assumed about. `roles/*/defaults` and `roles/*/vars` hold 101 names
+between them, and almost all of them are role plumbing:
+`cephadm_install_registryurl`, `configure_ha_crm_command_path`. The variables a
+site actually writes are in no `defaults` at all, because a role that requires
+a variable does not default it. Reading them off the `{{ }}` of the task files
+instead yields 418 identifiers, 124 after the obvious filtering, and that list
+has `stdout_lines`, `to_datetime` and `getent_passwd` sitting beside
+`ceph_osd_disks` and `cluster_ip_addr`. Offering `stdout_lines` as an inventory
+variable in a box that configures substation hypervisors costs more than
+offering nothing at all. This is the same judgement `references.KNOWN` records
+for the path variables, and the same one the playbook catalogue records for the
+playbooks.
+
+What keeps a curated table honest is that nothing in it is trusted. Every entry
+is checked against an authority the repository already holds:
+
+| Claim | Checked against |
+|---|---|
+| a variable is written by a form | `model.NodeConfig` and `model.Guest` |
+| a variable is written and not offered | `renderer.FIXED_HOST_VARS`, `renderer.PTP_DOMAIN_ALIASES` |
+| a path variable is described | `references.KNOWN` |
+| a variable a rule names is described | the `field` of every `validation` finding |
+| a variable a site writes is described | the four `inventories/examples/*.yaml`, when the `seapath-ansible` checkout is beside this one |
+
+The last one is the test that decides whether the table is worth having. A site
+starts from those four files, and a variable one of them writes that the table
+cannot name is a variable the service would report as unknown on an inventory
+that came straight from upstream, which teaches an operator to ignore the
+warning.
+
+What is deliberately absent is the derived tail: every other name the
+collection mentions, listed and marked unreviewed the way `catalogue.resolve`
+lists a playbook nobody has read. It belongs here eventually. It does not
+belong here before the reviewed half exists, because a completion list is
+judged on its worst entry.
+
 ## 5. Validation
 
 Before a commit is accepted:

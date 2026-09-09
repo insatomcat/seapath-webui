@@ -157,6 +157,7 @@ operator typed is what gets committed.
 | GET | `/inventory/discovery` | What hardware discovery proposes for this node, never committed automatically |
 | GET | `/inventory/proposed` | The standalone inventory this machine would write about itself, rendered on demand and committed by nobody |
 | GET | `/inventory/export` | The repository as a tarball, for a site that wants a real control machine |
+| GET | `/inventory/vocabulary` | What the variables of a SEAPATH inventory are, one entry each: the shape, where it is written, the role that reads it, its default, an example from the reference inventories, whether a form of this service writes it, and what goes wrong when it is absent or wrong. A static table, the same on every machine, curated the way `references.KNOWN` is. `scope` narrows it to `host`, `group` or `guest` |
 
 ### The folder around the inventory
 

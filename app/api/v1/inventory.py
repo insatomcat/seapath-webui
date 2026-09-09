@@ -36,6 +36,7 @@ from app.inventory.service import (
     RefusedWrite,
 )
 from app.inventory.validation import ValidationResult
+from app.inventory.vocabulary import Scope, Vocabulary, vocabulary
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -126,6 +127,21 @@ def raw(request: Request, user: User = viewer) -> Response:
 @router.get("/discovery")
 def discovery(request: Request, user: User = viewer) -> Discovery:
     return _service(request).discovery()
+
+
+@router.get("/vocabulary")
+def variables(
+    scope: Scope | None = None,
+    user: User = viewer,
+) -> Vocabulary:
+    """What the variables of a SEAPATH inventory are, one entry each.
+
+    A static table. It says the same thing on every machine, reads nothing
+    about this one, and changes only when the service is updated. `scope`
+    narrows it to what may be written in one place, a machine, a group or a
+    guest entry.
+    """
+    return vocabulary(scope)
 
 
 @router.get("/proposed")
