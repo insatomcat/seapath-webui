@@ -19,6 +19,14 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.46 - 2026-09-09
+
+- fix: the credentials window on Deployment waits to be asked
+- feat: Escape dismisses the window on top, on every page
+- feat: the Inventory page fits a screen, the machines and the history in a
+  window each
+- feat: a run's per host counts fold, and its timings open in a window
+
 ## 0.3.45 - 2026-09-08
 
 - feat: the whole interface at four fifths, which is how it was being read
