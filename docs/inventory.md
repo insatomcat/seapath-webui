@@ -667,6 +667,28 @@ them proved much less than it looked.
   curated table, and it is the only pool a suggestion is drawn from. A wrong
   answer given confidently is worse than no answer.
 
+**An inventory reads its own variables, and that counts.** A site that writes
+
+```yaml
+custom_network:
+  eno1:
+    Network:
+      - Address: "{{ sec_ip_address | default(omit) }}"
+```
+
+and sets `sec_ip_address` on the machines that have a second address has a
+variable no role will ever mention and that is read on every run. So every
+`{{ }}` and `{% %}` in the file is scanned too, off the raw text rather than
+off the loaded structure, which catches a template inside a key, a list entry
+or a block scalar alike. The filter names come with it, `default` and `omit`
+among them, which costs silence about a variable somebody named `default` and
+saves keeping a list of Jinja's builtins in step with Jinja.
+
+The two halves of a mismatched pair are both reported, whichever side carries
+the mistake. A definition the templates never ask for is a value that reaches
+nothing; a reference nothing defines is a machine configured without the
+address it was given.
+
 Three rules keep the claim honest:
 
 - **`ansible_*` is never reported.** Those are read by Ansible rather than by a

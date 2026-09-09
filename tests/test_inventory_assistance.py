@@ -56,6 +56,7 @@ LEXICON = Lexicon(
             "apt_repo",
             "nics_affinity",
             "interfaces_to_wait_for",
+            "custom_network",
         }
     ),
     declared=frozenset({"cephadm_network", "isolcpus", "nics_affinity", "apt_repo"}),
@@ -391,3 +392,81 @@ def test_the_installed_collection_is_read_off_its_templates_too() -> None:
         assert lexicon.knows(name), name
     for typo in ("cephadm_netwrok", "network_interfce", "isolcpu"):
         assert not lexicon.knows(typo), typo
+
+
+# 6. The inventory reads its own variables, and that is a third reader.
+
+
+SELF_REFERENCE = """
+all:
+  hosts:
+    node1:
+      ansible_host: 192.168.200.121
+      network_interface: eno1
+    node2:
+      ansible_host: 192.168.200.122
+      network_interface: eno1
+      sec_ip_address: 10.0.1.2/24
+cluster_machines:
+  hosts:
+    node1:
+    node2:
+  vars:
+    custom_network:
+      eno1:
+        Network:
+          - Address: "{{ sec_ip_address | default(omit) }}"
+"""
+
+
+def test_a_variable_the_inventory_itself_reads_is_not_reported() -> None:
+    """A site's intermediate variable, read by a `{{ }}` in the same file.
+
+    `custom_network` is handed whole to `network_systemdnetworkd`, and the
+    addresses inside it come from variables the site sets per machine. No role
+    will ever mention `sec_ip_address`, and it is read on every run. The file
+    is the third reader, beside the collection and Ansible itself.
+    """
+    assert _names(assist(SELF_REFERENCE, LEXICON), "unknown") == set()
+
+
+def test_a_misspelling_in_the_definition_leaves_it_unread_and_reported() -> None:
+    # The `{{ }}` asks for `sec_ip_address` and the machine sets
+    # `sec_ip_addres`, so the value reaches nothing and the run silently gets
+    # the `default(omit)` branch.
+    document = SELF_REFERENCE.replace(
+        "      sec_ip_address: 10.0.1.2/24", "      sec_ip_addres: 10.0.1.2/24"
+    )
+
+    assert _names(assist(document, LEXICON), "unknown") == {"sec_ip_addres"}
+
+
+def test_a_misspelling_in_the_reference_leaves_the_definition_reported() -> None:
+    # The other half of the same mistake, and the useful direction: the
+    # variable is set, the template asks for a name nothing defines, and the
+    # machine is configured without the address it was given.
+    document = SELF_REFERENCE.replace("{{ sec_ip_address |", "{{ sec_ip_addres |")
+
+    assert _names(assist(document, LEXICON), "unknown") == {"sec_ip_address"}
+
+
+def test_a_template_in_a_block_scalar_counts_as_a_reader() -> None:
+    # `extra_crm_cmd_to_run` is written as a block, and a site templates the
+    # machine names into it. Reading the loaded structure rather than the text
+    # would miss every reference inside one.
+    document = """
+all:
+  hosts:
+    node1:
+      ansible_host: 192.168.200.121
+      network_interface: eno1
+      site_vip: 10.0.0.9
+cluster_machines:
+  hosts:
+    node1:
+  vars:
+    extra_crm_cmd_to_run: |
+      primitive vip IPaddr2 params ip={{ site_vip }}
+"""
+
+    assert _names(assist(document, LEXICON), "unknown") == set()

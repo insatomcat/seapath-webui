@@ -25,9 +25,11 @@ like three.
 from __future__ import annotations
 
 import difflib
+import re
 from dataclasses import dataclass
 from typing import Any
 
+import yaml
 from pydantic import BaseModel
 
 from app.inventory.lexicon import Lexicon
@@ -75,6 +77,19 @@ class Assistance(BaseModel):
 # rule.
 _ANSIBLE = "ansible_"
 
+# A `{{ }}` or a `{% %}` anywhere in the file, and the names inside it. An
+# inventory reads its own variables: a site that writes
+#
+#     custom_network:
+#       [...]
+#           - Address: "{{ sec_ip_address | default(omit) }}"
+#
+# and sets `sec_ip_address` on the machines that have a second address has a
+# variable no role will ever mention and that is read on every run. The
+# inventory is the third reader, beside the collection and Ansible itself.
+_TEMPLATE = re.compile(r"\{\{(.*?)\}\}|\{%(.*?)%\}", re.S)
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
 
 def assist(
     document: str | dict[str, Any], lexicon: Lexicon | None = None
@@ -87,13 +102,14 @@ def assist(
     alone, that claim is wrong about most of a real inventory.
     """
     written = _written(document)
+    referenced = _referenced(document)
     remarks: list[Remark] = []
     known = 0
 
     for name, places in written.items():
         term = BY_NAME.get(name)
         if term is None:
-            if lexicon is not None and not _recognised(name, lexicon):
+            if lexicon is not None and not _recognised(name, lexicon, referenced):
                 remarks.append(_unknown(name, places, lexicon))
             continue
         known += 1
@@ -104,8 +120,24 @@ def assist(
     return Assistance(remarks=remarks, known=known, roles_read=lexicon is not None)
 
 
-def _recognised(name: str, lexicon: Lexicon) -> bool:
-    return name.startswith(_ANSIBLE) or lexicon.knows(name)
+def _recognised(name: str, lexicon: Lexicon, referenced: set[str]) -> bool:
+    return name.startswith(_ANSIBLE) or lexicon.knows(name) or name in referenced
+
+
+def _referenced(document: str | dict[str, Any]) -> set[str]:
+    """Every name a `{{ }}` in this file asks for.
+
+    Read off the raw text rather than off the loaded structure, so a template
+    inside a key, a list entry or a block scalar counts the same as one in a
+    plain value. The filter names come with it, `default` and `omit` among
+    them, which costs silence about a variable somebody named `default` and
+    buys not having to keep a list of Jinja's builtins in step with Jinja.
+    """
+    text = document if isinstance(document, str) else yaml.safe_dump(document)
+    names: set[str] = set()
+    for expression, statement in _TEMPLATE.findall(text):
+        names.update(_IDENTIFIER.findall(expression or statement or ""))
+    return names
 
 
 @dataclass(frozen=True)
