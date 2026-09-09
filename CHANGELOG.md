@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.49 - 2026-09-09
+
+- feat: the inventory editor shifts a block, keeps an indentation and comments
+  one out
+
 ## 0.3.48 - 2026-09-09
 
 - fix: the VMs page fits a screen, and its badge fits a line
