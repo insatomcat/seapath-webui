@@ -391,17 +391,39 @@ def test_a_remote_node_answers_all_ten_checks_from_its_exporter() -> None:
     assert node2["smt"].observed == "off"
 
 
-def test_the_local_node_is_read_from_its_own_files_rather_than_its_exporter() -> None:
-    # It needs no exporter, it is never stale, and it answers on a machine
-    # where nothing has been deployed yet. The fake reader isolates 4-7 and
-    # leaves transparent hugepages on, and that is what the local column says
-    # whatever the exporter publishes.
+def test_the_local_node_is_judged_on_its_exporter_like_every_other() -> None:
+    # D36. The fake reader isolates 4-7 and leaves transparent hugepages on,
+    # the exporter here says 0-1 and never, and the exporter is what answers.
+    # One reading per machine, so the page cannot show a machine disagreeing
+    # with itself depending on which node the browser is pointed at.
     nodes, _ = _cluster({"10.0.0.1": _exposition("0,1", _TUNING)})
 
     node1 = {check.id: check for check in nodes["node1"].checks}
 
-    assert node1["cpu_isolation"].observed == "4-7"
-    assert node1["transparent_hugepages"].status is Status.WARNING
+    assert node1["cpu_isolation"].observed == "0-1"
+    assert node1["transparent_hugepages"].status is Status.OK
+
+
+def test_the_local_node_falls_back_to_its_files_when_no_exporter_answers() -> None:
+    # The machine D27 was defending, and the one node where a fallback exists
+    # at all: no collector deployed yet, or one too old to publish the block.
+    # An empty column there would take away the reading an operator makes
+    # before writing an isolation down.
+    unreachable, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING)})
+    old_collector, _ = _cluster(
+        {
+            "10.0.0.1": _exposition("0,1"),
+            "10.0.0.2": _exposition("4,5,6,7", _TUNING),
+        }
+    )
+
+    for nodes in (unreachable, old_collector):
+        node1 = {check.id: check for check in nodes["node1"].checks}
+        assert node1["cpu_isolation"].observed == "4-7"
+        assert node1["transparent_hugepages"].status is Status.WARNING
+        # The fallback is a reading, so the column is answered rather than
+        # carrying the sentence that asks for a collector upgrade.
+        assert nodes["node1"].tuning_error == ""
 
 
 def test_a_node_that_published_no_tuning_gets_no_checks_and_says_why() -> None:

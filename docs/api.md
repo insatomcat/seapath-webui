@@ -411,9 +411,11 @@ possible reasons, kept apart because each is fixed by a different act:
 | `tuning_error` | It answered with no `seapath_rt_*` block, so its collector predates it and the collection on that node is what to upgrade |
 | neither, `checks` filled | It answered. An empty label inside a check means it read and there was nothing there, which the check reports as a finding or as `unknown` |
 
-The local node is first in the list and is read from its own files rather than
-from its exporter: it needs no collector, it is never stale, and it answers on
-a machine where nothing has been deployed yet.
+The node the browser is pointed at is marked by `this_host` and is judged on
+its own exporter like every other, so one machine has one reading of itself
+whichever node's page it is read from. Its own files answer when that exporter
+says nothing, which is the machine with no collector deployed yet, and
+`GET /api/v1/realtime` reports them alone.
 
 Every check carries a `kind`, `conformance` where the inventory declares a
 value and `advice` where nothing does. `isolcpus` and the tuned profile it

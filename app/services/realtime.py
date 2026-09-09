@@ -12,13 +12,15 @@ carry is worth reading there. This module is what feeds them: it decides which
 readings each machine's checks are formed from, and which inventory entry they
 are held against.
 
-Two sources, one implementation. The local node reads its own `/proc`, `/sys`
-and the host `/etc` PAM already brought in, which works on a machine where
-nothing has been deployed yet. Every other node's readings arrive from its
-exporter, where `seapath-alloc` publishes them beside the pool (D27). A node
-answers for itself either way, and the difference is reported rather than
-hidden: a reading from an exporter carries its age, and a node running a
-collector too old to publish the block says so.
+One source, one implementation. Every node's readings arrive from its
+exporter, where `seapath-alloc` publishes them beside the pool (D27), the
+machine serving this page included (D36). Each reading carries its age, and a
+node running a collector too old to publish the block says so.
+
+The local node keeps a reading of its own for the machine that has no other:
+its `/proc`, `/sys` and the host `/etc` PAM already brought in answer where
+nothing has been deployed yet, which is what a silent exporter falls back to
+and what `GET /api/v1/realtime` reports on its own.
 """
 
 from __future__ import annotations
@@ -196,20 +198,27 @@ class RealtimeService:
     ) -> None:
         """Run the ten checks against one node, from the best reading available.
 
-        The local machine reads its own files, which works on a node whose
-        exporters were never deployed and is never stale. Every other node is
-        judged on what its exporter published, and a node that published no
-        tuning gets no checks rather than ten unknowns: `tuning_error` already
-        says what to do about it, and a column of grey dots would bury it.
+        Every node is judged on what its exporter published, the machine
+        serving this page included. One reading per machine is what keeps it
+        from disagreeing with itself, which is the whole of D36: the local
+        files and the exporter answer the same ten checks, and two readers of
+        one question drift apart where the container masks a path.
+
+        A node that published no tuning gets no checks rather than ten
+        unknowns. `tuning_error` already says what to do about it, and a column
+        of grey dots would bury it. The local machine is the one exception, in
+        the direction that costs nothing: its files are the only ones this
+        service can read, so a silent exporter there falls back to them instead
+        of emptying the column. That is the machine D27 was defending, the one
+        where nothing has been deployed yet.
         """
-        if node.host == this_host:
-            local = self.conformance()
-            node.reading = local.reading
-            node.kernel_cmdline = local.cpu.kernel_cmdline or ""
-            node.tuning_error = ""
-            node.checks = local.checks
-            return
         if node.reading is None:
+            if node.host == this_host:
+                local = self.conformance()
+                node.reading = local.reading
+                node.kernel_cmdline = local.cpu.kernel_cmdline or ""
+                node.tuning_error = ""
+                node.checks = local.checks
             return
         node.checks = checks_module.run(
             node.reading,
