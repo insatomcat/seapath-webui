@@ -8,3 +8,7 @@ venv/
 coverage.json
 htmlcov/
 *.egg-info/
+
+# Claude Code keeps its worktrees and its local settings here. Both belong to
+# a developer machine, and a worktree is a git repository of its own.
+.claude/
