@@ -567,11 +567,24 @@
     });
     list.hidden = !assistance.remarks.length;
 
-    note.textContent = assistance.remarks.length
-      ? "Nothing here refuses a commit. A variable of your own is a name this " +
-        "service has never read, and it looks the same as a misspelling."
-      : assistance.known +
-        " variables read, and every one of them is read by a role.";
+    // Whether the roles were read at all decides what the page may claim. A
+    // node with no collection installed can say where a variable is written
+    // and nothing about whether anything reads it, and reporting a clean file
+    // there would be the assistant saying it checked when it did not.
+    if (!assistance.roles_read) {
+      note.textContent =
+        "The collection is not installed on this node, so nothing can be " +
+        "said about a variable no role reads. The placement of the ones " +
+        "this service knows is still checked.";
+    } else if (assistance.remarks.length) {
+      note.textContent =
+        "Nothing here refuses a commit. A variable of your own is a name the " +
+        "collection has never heard of, and it looks the same as a misspelling.";
+    } else {
+      note.textContent =
+        "Every variable in this file is read by something in the collection " +
+        "this node runs.";
+    }
     note.hidden = false;
   }
 

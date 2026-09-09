@@ -613,11 +613,11 @@ judged on its worst entry.
 `app/inventory/assistance.py` reads the file being typed against the vocabulary
 and answers `POST /inventory/raw/assist`. It says two things:
 
-- **a variable no role reads**, with the name that was probably meant when one
-  is within `difflib`'s reach at 0.88. `cephadm_netwrok` gets
-  `cephadm_network`; `cluster_nxt_ip_addr` is close to two different addresses
-  on two different machines, and the cutoff is set where a confident wrong
-  answer stops being offered;
+- **a variable nothing in the installed collection reads**, with the name that
+  was probably meant when one is within `difflib`'s reach at 0.88.
+  `cephadm_netwrok` gets `cephadm_network`; `cluster_nxt_ip_addr` is close to
+  two different addresses on two different machines, and the cutoff is set
+  where a confident wrong answer stops being offered;
 - **a variable written where nothing will read it**, which today means the
   guest boundary alone: `vm_disk` on a hypervisor, `isolcpus` on an entry of
   the `VMs` group.
@@ -647,6 +647,43 @@ than an answer arriving and being hidden. It appears only while the inventory
 is the file open, since the vocabulary says nothing about a quadlet or a syslog
 template, and the reading is debounced 800 ms so that a held down key does not
 send one round trip per character.
+
+#### The collection is what answers
+
+`app/inventory/lexicon.py` scans the collection this node runs and returns two
+sets. The first shipped version of the assistant answered from the curated
+table alone, and the first real site inventory it met reported `apt_repo`,
+`nics_affinity`, `admin_ssh_keys`, `interfaces_to_wait_for` and seven more as
+read by no role. Every one of them is read by a role. The four reference
+inventories exercise some forty five variables between them, so passing against
+them proved much less than it looked.
+
+- `mentioned` is every identifier in every file of the tree, **templates
+  included**: `interfaces_to_wait_for` appears only in a `.j2`, and so does
+  `ptp_vlanid`. Reading it loosely is deliberate. A word in a comment marking a
+  name as known costs silence about one variable; a real variable missing from
+  the set costs a warning about working configuration.
+- `declared` is the keys of `defaults/main.yml` and `vars/main.yml` plus the
+  curated table, and it is the only pool a suggestion is drawn from. A wrong
+  answer given confidently is worse than no answer.
+
+Three rules keep the claim honest:
+
+- **`ansible_*` is never reported.** Those are read by Ansible rather than by a
+  role, so no collection mentions them and no table here would ever list them
+  all.
+- **No collection, no claim.** `roles_read` is false when nothing could be
+  read, the unknown half is not attempted, and the page says so rather than
+  reporting a clean file. The placement half still works, since it reads the
+  curated table alone.
+- **A tree holding under 500 identifiers is read as no collection.** A partial
+  install or a clone whose submodules never came down would otherwise report
+  almost every variable of a real inventory, which is the same failure from the
+  other side.
+
+The answer is therefore right for *this* node: a role that exists only on
+`seapathalloc` reads variables a laptop's install has never heard of, and the
+node that runs that branch is the one being asked.
 
 #### What keeps it usable
 

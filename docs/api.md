@@ -121,7 +121,7 @@ The heart of the API. See [inventory.md](inventory.md).
 
 | POST | `/inventory/import` | Replace the inventory with one the operator brought, committed whole |
 | POST | `/inventory/raw/check` | Parse, validate and ask Ansible about a whole file, committing nothing |
-| POST | `/inventory/raw/assist` | What the vocabulary has to say about a file being typed: a variable no role reads, with the name that was probably meant when one is close, and a variable written where nothing will read it, a guest's on a machine or a machine's on a guest entry. Remarks rather than findings: none of them refuses a commit, and `validate()` never sees them. Asked only when the assistant switch on the page is on |
+| POST | `/inventory/raw/assist` | What this service has to say about a file being typed: a variable nothing in the installed collection reads, with the name that was probably meant when one is close, and a variable written where nothing will read it, a guest's on a machine or a machine's on a guest entry. `roles_read` says whether the collection could be read at all, and the unknown half is skipped when it could not. Remarks rather than findings: none of them refuses a commit, and `validate()` never sees them. Asked only when the assistant switch on the page is on |
 | PUT | `/inventory/raw` | Commit the file as the operator typed it, `If-Match` on the commit hash |
 
 `GET /inventory/proposed` is the seed of first boot, offered again at any

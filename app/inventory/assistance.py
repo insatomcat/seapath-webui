@@ -30,6 +30,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.inventory.lexicon import Lexicon
 from app.inventory.model import GUEST_GROUP
 from app.inventory.resolve import ROOT, groups, members
 from app.inventory.vocabulary import BY_NAME, Scope
@@ -58,11 +59,33 @@ class Remark(BaseModel):
 class Assistance(BaseModel):
     remarks: list[Remark]
     known: int
-    """How many of the file's variables the vocabulary accounted for."""
+    """How many of the file's variables the curated table accounted for."""
+    roles_read: bool = False
+    """Whether the collection was read, which is what an unknown name needs.
+
+    False on a node with no collection installed. The remarks then carry the
+    misplaced half alone, and the page says why rather than reporting a clean
+    file.
+    """
 
 
-def assist(document: str | dict[str, Any]) -> Assistance:
-    """Every remark the vocabulary has about this document."""
+# Ansible's own namespace. `ansible_ssh_common_args`, `ansible_become` and the
+# rest are read by Ansible rather than by a role, so the collection never
+# mentions them and no table here will ever list them all. The prefix is the
+# rule.
+_ANSIBLE = "ansible_"
+
+
+def assist(
+    document: str | dict[str, Any], lexicon: Lexicon | None = None
+) -> Assistance:
+    """Every remark this service has about the document.
+
+    Without a `lexicon` the unknown half is not attempted at all. Saying that
+    no role reads a name is a claim about the roles, and the curated table is
+    81 of the several hundred names the collection reads: made from the table
+    alone, that claim is wrong about most of a real inventory.
+    """
     written = _written(document)
     remarks: list[Remark] = []
     known = 0
@@ -70,14 +93,19 @@ def assist(document: str | dict[str, Any]) -> Assistance:
     for name, places in written.items():
         term = BY_NAME.get(name)
         if term is None:
-            remarks.append(_unknown(name, places))
+            if lexicon is not None and not _recognised(name, lexicon):
+                remarks.append(_unknown(name, places, lexicon))
             continue
         known += 1
         misplaced = _misplaced(term.scope, places)
         if misplaced:
             remarks.append(_misplaced_remark(name, term.scope, misplaced))
 
-    return Assistance(remarks=remarks, known=known)
+    return Assistance(remarks=remarks, known=known, roles_read=lexicon is not None)
+
+
+def _recognised(name: str, lexicon: Lexicon) -> bool:
+    return name.startswith(_ANSIBLE) or lexicon.knows(name)
 
 
 @dataclass(frozen=True)
@@ -136,19 +164,24 @@ def _label(name: str) -> str:
     return "the whole inventory" if name == ROOT else f"the {name} group"
 
 
-def _unknown(name: str, places: list[_Place]) -> Remark:
-    near = difflib.get_close_matches(name, list(BY_NAME), n=1, cutoff=_NEAR)
+def _unknown(name: str, places: list[_Place], lexicon: Lexicon) -> Remark:
+    # Drawn from the names a role wrote down rather than from everything the
+    # collection mentions. A suggestion is an answer given confidently, and the
+    # loose set holds module names and words out of comments.
+    near = difflib.get_close_matches(name, sorted(lexicon.declared), n=1, cutoff=_NEAR)
     suggestion = near[0] if near else None
     if suggestion:
         message = (
-            f"No role reads {name}. Did you mean {suggestion}? "
-            "A name this service has never read is written the same way a "
-            "misspelling is, and only a run tells them apart."
+            f"Nothing in the collection reads {name}. Did you mean "
+            f"{suggestion}? A name this collection has never heard of is "
+            "written the same way a misspelling is, and only a run tells them "
+            "apart."
         )
     else:
         message = (
-            f"No role of the collection reads {name}. That is fine for a "
-            "variable of your own, and it is what a misspelling looks like."
+            f"Nothing in the collection this node runs reads {name}. That is "
+            "fine for a variable of your own, and it is what a misspelling "
+            "looks like."
         )
     return Remark(
         kind="unknown",

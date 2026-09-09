@@ -21,7 +21,7 @@ from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.core.security import require_role
-from app.inventory.assistance import Assistance, assist
+from app.inventory.assistance import Assistance
 from app.inventory.discovery import Discovery
 from app.inventory.files import StoredFile, UnsafePath
 from app.inventory.grub import hash_password
@@ -324,7 +324,9 @@ def check_raw(
 
 
 @router.post("/raw/assist")
-def assist_raw(payload: ImportRequest, user: User = viewer) -> Assistance:
+def assist_raw(
+    request: Request, payload: ImportRequest, user: User = viewer
+) -> Assistance:
     """What the vocabulary has to say about this file, committing nothing.
 
     Separate from `/raw/check` because the page asks for it separately: the
@@ -336,7 +338,7 @@ def assist_raw(payload: ImportRequest, user: User = viewer) -> Assistance:
     `validate()` never sees it.
     """
     try:
-        return assist(payload.document)
+        return _service(request).assist_document(payload.document)
     except yaml.YAMLError as error:
         raise ApiError("invalid_inventory", str(error), 400) from error
 

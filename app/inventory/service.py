@@ -17,8 +17,9 @@ from pydantic import BaseModel, Field
 
 from app.hosts.reader import HostReader
 from app.inventory import files as tree
-from app.inventory import references
+from app.inventory import lexicon, references
 from app.inventory.artefacts import ArtefactStore
+from app.inventory.assistance import Assistance, assist
 from app.inventory.discovery import Discovery, discover, seed_inventory
 from app.inventory.editor import (
     Scope,
@@ -34,6 +35,7 @@ from app.inventory.renderer import render
 from app.inventory.repository import INVENTORY_FILENAME, Commit, InventoryRepository
 from app.inventory.resolve import resolve
 from app.inventory.validation import Finding, Level, ValidationResult, validate
+from app.runs import catalogue
 
 logger = logging.getLogger(__name__)
 
@@ -227,6 +229,26 @@ class InventoryService:
             if node.ansible_host in addresses:
                 return name
         return None
+
+    def assist_document(self, document: str) -> Assistance:
+        """What the vocabulary and the installed collection say about a file.
+
+        The collection is the one this node runs, so the answer is right for
+        this node rather than for the branch a developer happens to have: a
+        role that exists only on `seapathalloc` reads variables that a laptop's
+        install has never heard of.
+        """
+        return assist(
+            document,
+            lexicon.read(self._collection_root(), self._collection_fingerprint()),
+        )
+
+    def _collection_fingerprint(self) -> str | None:
+        """What the installed collection is, so a reinstall is not cached over."""
+        root = self._collections_path
+        if callable(root):
+            root = root()
+        return catalogue.identity(root) if root is not None else None
 
     def check_document(self, document: str) -> ValidationResult:
         """Everything that can be said about a whole file, committing nothing.
