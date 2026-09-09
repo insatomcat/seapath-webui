@@ -2411,3 +2411,91 @@ and Ceph tables. Every one of those branches now takes down what the reading
 before it drew, and the branch that succeeds takes down the sentence that said
 the reading was impossible. A control that reads a panel twice is what turned
 those into paths that actually run.
+
+## D38 - Settled: the completion offers every variable the installed collection declares, behind the curated table
+
+`app/inventory/vocabulary.py` is 81 variables a human read off four
+authorities and wrote prose for, and the completion in the inventory editor
+offered exactly those. `seapath_alloc_strategy` is the case that ended that
+arrangement: written by a real site in a real inventory, defaulted by
+`deploy_seapath_alloc`, documented in that role's README, and absent from the
+four reference inventories the table was built from. So it was never typed into
+the table, the completion never offered it, and the only fix available was a
+commit here.
+
+That is the shape of the problem rather than one missing entry. The service and
+the collection are released separately, a site runs the collection it
+installed, and a table that has to be edited in step with a repository it does
+not ship is a table that is wrong on every node that updated one and left the
+other. Two places to edit for one fact is the defect; the missing variable is
+the symptom.
+
+**The vocabulary keeps its curated half and grows a derived tail read off the
+installed collection at the moment it is asked for.** `GET
+/inventory/vocabulary` answers the reviewed entries first, then every variable
+the collection declares that they do not account for, marked `reviewed: false`.
+
+### Where the information already is
+
+Two places in the collection, and both were written by whoever wrote the role.
+
+`roles/*/defaults/main.yml` and `roles/*/vars/*.yml` give the role that
+declares a name and the value it falls back to. That half was already scanned
+for `lexicon.declared`, and it is the half that carries the plumbing:
+`cephadm_install_registryurl`, `configure_ha_crm_command_path`.
+
+The variable table of `roles/*/README.md` gives the prose, and it is the only
+machine readable place a variable a role *requires* appears at all: a role that
+requires a variable does not default it, so `cephadm_network`, `isolcpus`,
+`cpumachines` and `ceph_osd_disks` are in no `defaults` file. The tables are
+regular across the collection, 46 of them, and the rule for taking one is its
+first column header: `Variable`. Nothing else is read. The same READMEs
+document metrics, allocation strategies, paths, thresholds and the members of a
+list entry in tables of the same shape, and taking those would offer `gauge`,
+`spreading` and `Purpose` as things to write in an inventory. On the installed
+collection the two sources yield 202 declarations, some ninety of them carrying
+a sentence.
+
+### What a derived entry is allowed to say
+
+Everything it carries comes from the collection. The name, the role, the
+default, the type and the sentence are copied; a variable no README documents
+gets `Declared by configure_ha.` and stops there. Inventing a summary would
+make a derived entry indistinguishable from a reviewed one, and the reviewed
+ones are worth reading precisely because none of them was guessed.
+
+The scope is the one claim this makes on its own, and `any` is the honest one:
+Ansible resolves a role default wherever the machine is described. That leaves
+the tail out of guest entries, where what may be written is `guest.xml.j2` and
+the deployment roles, reviewed above.
+
+A name the curated table already carries is dropped from the tail rather than
+merged into it. `isolcpus` carries a caution about a machine that reboots into
+a state where the housekeeping CPUs have nothing left, which no README says,
+and a README sentence overwriting it would be a regression dressed as
+freshness.
+
+### What it costs, and what pays for it
+
+A completion list is judged on its worst entry, and 202 derived names include a
+hundred of role plumbing. Three things keep that from spending the curation.
+The reviewed entries are ranked ahead of the derived ones at equal prefix
+match, so the eight rows an operator sees fill with the curated table first. A
+derived row says `not reviewed`, in the words the deployment page already uses
+for a playbook read off the collection. And the tail is absent from a node with
+no collection installed, where the service answers with the curated half alone
+rather than guessing.
+
+The freshness is bounded by the same fingerprint the run history uses: the
+lexicon is cached against `catalogue.identity()`, the version in `MANIFEST.json`
+plus a hash of `FILES.json`, so installing a collection is picked up without a
+restart, and editing a role in place inside an installed collection waits for
+one. That is the right boundary for a service that records which code converged
+a machine.
+
+### What it stayed clear of
+
+A schema. Nothing here refuses a commit because a variable is absent from the
+collection, and `validate()` is untouched. The tail feeds a completion and a
+suggestion, both of which an operator can ignore, and a site's own variable
+read only by its own templates stays as legitimate as it was.

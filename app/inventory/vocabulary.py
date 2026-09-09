@@ -31,19 +31,29 @@ is checked by a test rather than trusted:
 - what this service already knows, in `model.NodeConfig`,
   `renderer.FIXED_HOST_VARS` and `references.KNOWN`.
 
-What is deliberately absent is the derived tail: every other name the
-collection mentions, listed and marked unreviewed the way `catalogue.resolve`
-lists a playbook nobody has read. It belongs here eventually. It does not
-belong here before the reviewed half exists, because a completion list is
-judged on its worst entry.
+Behind them comes the derived tail, the way `catalogue.resolve` lists a
+playbook nobody has read: every variable the installed collection declares,
+carrying the role that declares it, the value it falls back to and the sentence
+its README wrote about it, marked unreviewed and ranked after everything above.
+`lexicon.py` reads it, this module shapes it, and neither invents a word of it.
+
+The tail is what keeps this table from being a second place to edit. A
+collection that grows a variable grows it here on the next scan, without a
+release of this service, which is the only arrangement under which a curated
+table can be allowed to exist at all: the four authorities move, and a site
+runs the collection it installed rather than the one this was written against.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:  # pragma: no cover - the import exists for the annotations
+    from app.inventory.lexicon import Declaration, Lexicon
 
 
 class Scope(str, Enum):
@@ -108,6 +118,12 @@ class Term:
     written: Written = Written.HAND
     caution: str = ""
     """What goes wrong when it is absent or wrong, when that is not obvious."""
+    reviewed: bool = True
+    """A human read this entry off an authority and wrote the prose.
+
+    False for one derived from the installed collection, which carries whatever
+    the role's README says and no judgement from here.
+    """
 
 
 # 1. Ansible's own, which describe the connection rather than the machine.
@@ -942,6 +958,7 @@ class Entry(BaseModel):
     example: str = ""
     written: Written
     caution: str = ""
+    reviewed: bool = True
 
 
 class Vocabulary(BaseModel):
@@ -949,22 +966,114 @@ class Vocabulary(BaseModel):
 
     terms: list[Entry]
     reviewed: int
-    """How many were read off a role or a reference inventory by a human."""
+    """How many were read off a role or a reference inventory by a human.
+
+    The entries beyond them were derived from the collection installed on this
+    node, so this number and the length of the list disagree exactly as much as
+    the collection has moved past the table.
+    """
 
 
 def entry(term: Term) -> Entry:
     return Entry(**vars(term))
 
 
-def vocabulary(scope: Scope | None = None) -> Vocabulary:
-    """The table, optionally narrowed to what one place accepts.
+def vocabulary(
+    scope: Scope | None = None, lexicon: Lexicon | None = None
+) -> Vocabulary:
+    """The table and the collection's own tail, narrowed to one place.
 
     A scope narrows to what may be written there and to what may be written
     anywhere: a machine takes a host variable and an `ANY` one, and a guest
     entry takes neither.
+
+    Without a lexicon the answer is the curated table alone, which is what a
+    node with no collection installed can honestly say. The tail is never
+    ranked among the reviewed entries: it comes after them, whatever it holds.
     """
-    terms = [term for term in TERMS if _in_scope(term, scope)]
-    return Vocabulary(terms=[entry(term) for term in terms], reviewed=len(terms))
+    reviewed = [term for term in TERMS if _in_scope(term, scope)]
+    tail = [
+        term
+        for term in (derive(declaration) for declaration in _declarations(lexicon))
+        if _in_scope(term, scope)
+    ]
+    return Vocabulary(
+        terms=[entry(term) for term in reviewed + tail], reviewed=len(reviewed)
+    )
+
+
+def _declarations(lexicon: Lexicon | None) -> list[Declaration]:
+    """What the collection declares and this table has not accounted for.
+
+    A name the curated table already carries is dropped rather than merged: the
+    entry above was written knowing what the role says, and a README sentence
+    replacing a caution about a machine that reboots into an unusable state
+    would be a regression dressed as freshness.
+    """
+    if lexicon is None:
+        return []
+    return [
+        declaration
+        for name, declaration in sorted(lexicon.declarations.items())
+        if name not in BY_NAME
+    ]
+
+
+def derive(declaration: Declaration) -> Term:
+    """A vocabulary entry for a variable nobody here has reviewed.
+
+    Everything it says comes from the collection. The scope is the one claim
+    this makes on its own, and `ANY` is the honest one: a role default is read
+    wherever Ansible resolves it for the machine, on the group or on the entry,
+    and nothing in a `defaults` file says which. A guest is left out of that on
+    purpose. What a guest entry may carry is `guest.xml.j2` and the deployment
+    roles, which is reviewed above, and offering `cephadm_network` inside a VM
+    is noise in the one place the file is hardest to get right.
+    """
+    return Term(
+        name=declaration.name,
+        kind=_derived_kind(declaration),
+        scope=Scope.ANY,
+        summary=declaration.summary or _derived_summary(declaration),
+        role=declaration.role,
+        default=declaration.default,
+        written=Written.HAND,
+        reviewed=False,
+    )
+
+
+def _derived_summary(declaration: Declaration) -> str:
+    """What to say about a variable whose README says nothing.
+
+    It says who declares it and stops. Inventing a sentence about what setting
+    it does is the one thing a derived entry must never do: the reviewed
+    entries above are worth reading because none of them was guessed.
+    """
+    if not declaration.role:
+        return "Declared by the installed collection."
+    return f"Declared by {declaration.role}."
+
+
+# The Type column of a README is prose, and a dozen spellings of the same four
+# shapes turn up in it. Order matters: a list of dictionaries is both.
+def _derived_kind(declaration: Declaration) -> Kind:
+    written = declaration.kind.lower()
+    listed = "list" in written or "array" in written
+    mapped = "dict" in written or "mapping" in written
+    if listed and mapped:
+        return Kind.ENTRIES
+    if listed:
+        return Kind.LIST
+    if mapped:
+        return Kind.MAPPING
+    if "bool" in written:
+        return Kind.BOOLEAN
+    if "int" in written:
+        return Kind.INTEGER
+    # Including the empty one, and including `custom` and `RSTP or HSR`: a
+    # scalar is what the file will hold, and the punctuation a completion
+    # writes after the name is the same either way.
+    return Kind.STRING
 
 
 def _in_scope(term: Term, scope: Scope | None) -> bool:

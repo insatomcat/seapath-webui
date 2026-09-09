@@ -1526,6 +1526,23 @@ def test_the_editor_completes_a_variable_name_where_one_goes(
     assert "term.caution || term.summary" in script
 
 
+def test_the_completion_ranks_the_reviewed_entries_first_and_marks_the_rest(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/complete.js").text
+
+    # The list carries every variable the installed collection declares behind
+    # the ones a human wrote prose for, and eight rows is what an operator
+    # sees. A tie on the prefix goes to the reviewed entry, or those rows fill
+    # with role plumbing named after the same prefix.
+    assert "if (reviewed(left) !== reviewed(right))" in script
+    assert "return term.reviewed !== false;" in script
+    # And the row says which half it came from, in the words the deployment
+    # page uses for a playbook read off the collection.
+    assert '"not reviewed"' in script
+    assert "completion-derived" in script
+
+
 def test_the_completion_offers_what_may_be_written_where_the_caret_is(
     signed_in: TestClient,
 ) -> None:

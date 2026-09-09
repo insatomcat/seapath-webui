@@ -38,7 +38,7 @@ from app.inventory.service import (
     RefusedWrite,
 )
 from app.inventory.validation import ValidationResult
-from app.inventory.vocabulary import Scope, Vocabulary, vocabulary
+from app.inventory.vocabulary import Scope, Vocabulary
 
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
@@ -133,17 +133,23 @@ def discovery(request: Request, user: User = viewer) -> Discovery:
 
 @router.get("/vocabulary")
 def variables(
+    request: Request,
     scope: Scope | None = None,
     user: User = viewer,
 ) -> Vocabulary:
     """What the variables of a SEAPATH inventory are, one entry each.
 
-    A static table. It says the same thing on every machine, reads nothing
-    about this one, and changes only when the service is updated. `scope`
-    narrows it to what may be written in one place, a machine, a group or a
-    guest entry.
+    Two halves. `reviewed` of them were read off a role or a reference
+    inventory by a human and say what setting the variable does; the rest were
+    derived from the collection installed on this node, carry what its READMEs
+    and `defaults` files say, and are marked `reviewed: false`. So the answer
+    follows the collection a site installed rather than the release of this
+    service, and a node with no collection answers with the curated half alone.
+
+    `scope` narrows it to what may be written in one place, a machine, a group
+    or a guest entry.
     """
-    return vocabulary(scope)
+    return _service(request).vocabulary(scope)
 
 
 @router.get("/proposed")

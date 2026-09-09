@@ -3,12 +3,15 @@
 
 // Completing a variable name, where one is being typed.
 //
-// The vocabulary knows 81 variables, what each one does, which role reads it
-// and what goes wrong when it is absent. Until now an operator could read all
-// of that through the API and none of it while typing the file, which is the
-// one moment it is worth anything.
+// The vocabulary knows 81 variables read off an authority by a human, what
+// each one does, which role reads it and what goes wrong when it is absent.
+// Behind them it carries every other variable the collection installed on this
+// node declares, derived from its READMEs and its `defaults` files and marked
+// unreviewed. Until now an operator could read all of that through the API and
+// none of it while typing the file, which is the one moment it is worth
+// anything.
 //
-// Three things decide whether this helps or annoys.
+// Four things decide whether this helps or annoys.
 //
 // It offers only where a variable name goes. A key sits at the start of a
 // line, after the indentation and after an optional `- `, and anything past
@@ -23,6 +26,11 @@
 // And it says what the variable is. A list of names an operator could have
 // guessed is a list they will stop opening; the role that reads it, the
 // summary and the caution are the reason the vocabulary was written by hand.
+//
+// The reviewed entries come first, always. A derived entry carries whatever
+// its README says, which is often a sentence written for a reader who already
+// knows the role, so it is offered under the ones a human wrote for this page
+// and it says which of the two it is.
 //
 // The caret's position on screen comes from a mirror: a div carrying the
 // textarea's own metrics, filled with the text up to the caret, whose last
@@ -157,7 +165,9 @@ const Complete = (function () {
   }
 
   // Ranked so that what was typed at the front of a name comes first: an
-  // operator typing `ceph` means `ceph_osd_disks` before `deploy_cephfs`.
+  // operator typing `ceph` means `ceph_osd_disks` before `deploy_cephfs`. A
+  // reviewed entry then wins the tie, which is what keeps the eight rows an
+  // operator sees from filling with role plumbing named after the same prefix.
   function candidates(terms, scope, prefix) {
     const wanted = prefix.toLowerCase();
     return terms
@@ -171,9 +181,18 @@ const Complete = (function () {
         if (here !== there) {
           return here - there;
         }
+        if (reviewed(left) !== reviewed(right)) {
+          return reviewed(left) ? -1 : 1;
+        }
         return left.name.localeCompare(right.name);
       })
       .slice(0, MOST);
+  }
+
+  // Absent means reviewed: the API has answered with a curated table alone for
+  // as long as there was one, and an older answer is a table of curated terms.
+  function reviewed(term) {
+    return term.reviewed !== false;
   }
 
   function attach(area, terms, enabled) {
@@ -257,6 +276,15 @@ const Complete = (function () {
         name.className = "completion-name";
         name.textContent = term.name;
         item.append(name);
+
+        // Which half of the vocabulary this came from, in the words the
+        // deployment page already uses for a playbook read off the collection.
+        if (!reviewed(term)) {
+          const derived = document.createElement("span");
+          derived.className = "completion-derived";
+          derived.textContent = "not reviewed";
+          item.append(derived);
+        }
 
         if (term.role) {
           const role = document.createElement("span");

@@ -677,11 +677,12 @@
     assistantSoon();
   });
 
-  // The vocabulary, fetched once. 81 entries that say the same thing on every
-  // machine and change only when this service is updated, so a page load is
-  // the right granularity and a scope is filtered from them rather than asked
-  // for. Fetched only when the switch is on, like everything else the
-  // assistant does.
+  // The vocabulary, fetched once. 81 curated entries that say the same thing on
+  // every machine, and behind them what the collection installed on this node
+  // declares, which changes when a collection is installed and not while a file
+  // is being typed. So a page load is the right granularity and a scope is
+  // filtered from them rather than asked for. Fetched only when the switch is
+  // on, like everything else the assistant does.
   let vocabulary = [];
 
   async function loadVocabulary() {

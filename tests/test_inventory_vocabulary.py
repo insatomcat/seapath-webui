@@ -20,8 +20,10 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.inventory import references, renderer, vocabulary
+from app.inventory.lexicon import Declaration, Lexicon
 from app.inventory.model import WEBUI_IMAGE_VARIABLE, Guest, NodeConfig
 from app.inventory.vocabulary import Scope, Written
+from tests.fakes import write_fake_collection
 
 REFERENCE = Path.home() / "dev/seapath-ansible/inventories/examples"
 
@@ -293,3 +295,184 @@ def test_the_vocabulary_narrows_to_the_place_it_is_asked_about(
 
 def test_the_vocabulary_needs_a_session(client: TestClient) -> None:
     assert client.get("/api/v1/inventory/vocabulary").status_code == 401
+
+
+# 7. The derived tail, which is what keeps this table from being a second place
+# to edit. A collection that grows a variable grows it here on the next scan.
+
+
+def _lexicon(**declared: Declaration) -> Lexicon:
+    """A collection that declares exactly these, as the reader would return it."""
+    return Lexicon(
+        mentioned=frozenset(declared),
+        declared=frozenset(declared),
+        declarations=dict(declared),
+    )
+
+
+ALLOC = Declaration(
+    name="seapath_alloc_strategy",
+    role="deploy_seapath_alloc",
+    kind="String",
+    default="spreading",
+    summary="Allocation strategy written to /etc/seapath/alloc.yaml.",
+)
+
+
+def test_a_variable_the_collection_declares_is_offered_without_being_curated() -> None:
+    """The case this was built for.
+
+    `seapath_alloc_strategy` is written by a real site, read by a real role and
+    absent from the four reference inventories, so nobody ever typed it into
+    the table above. A completion that cannot offer it is a completion an
+    operator has to work around, and adding it by hand would make this table a
+    second place to edit every time the collection moves.
+    """
+    answer = vocabulary.vocabulary(None, _lexicon(alloc=ALLOC))
+
+    offered = {term.name: term for term in answer.terms}
+    assert "seapath_alloc_strategy" in offered
+    entry = offered["seapath_alloc_strategy"]
+    assert entry.reviewed is False
+    assert entry.role == "deploy_seapath_alloc"
+    assert entry.default == "spreading"
+    assert entry.summary == "Allocation strategy written to /etc/seapath/alloc.yaml."
+    assert entry.kind is vocabulary.Kind.STRING
+
+
+def test_the_curated_half_is_answered_first_and_counted() -> None:
+    # A derived entry is ranked behind every reviewed one, whatever it holds,
+    # and `reviewed` says where the boundary is.
+    answer = vocabulary.vocabulary(None, _lexicon(alloc=ALLOC))
+
+    assert answer.reviewed == len(vocabulary.TERMS)
+    assert [term.reviewed for term in answer.terms[: answer.reviewed]] == [True] * (
+        answer.reviewed
+    )
+    assert all(term.reviewed is False for term in answer.terms[answer.reviewed :])
+
+
+def test_a_reviewed_entry_is_never_replaced_by_what_the_collection_says() -> None:
+    """The prose above was written knowing what the role says.
+
+    `isolcpus` carries a caution about a machine that reboots into a state
+    where the housekeeping CPUs have nothing left, which no README says. A
+    README sentence overwriting it would be a regression dressed as freshness.
+    """
+    collection = _lexicon(
+        isolcpus=Declaration(
+            name="isolcpus",
+            role="somewhere_else",
+            summary="CPU cores isolate.",
+        )
+    )
+
+    answer = vocabulary.vocabulary(None, collection)
+
+    entries = [term for term in answer.terms if term.name == "isolcpus"]
+    assert len(entries) == 1
+    assert entries[0].reviewed is True
+    assert entries[0].caution
+
+
+def test_a_derived_entry_says_who_declares_it_and_invents_nothing_else() -> None:
+    # Half the variables a `defaults` file declares carry no prose anywhere.
+    # The entry says where it comes from and stops: a sentence guessed here
+    # would be indistinguishable from the ones that were read off a role.
+    answer = vocabulary.vocabulary(
+        None,
+        _lexicon(plumbing=Declaration(name="configure_ha_tmpdir", role="configure_ha")),
+    )
+
+    entry = next(term for term in answer.terms if term.name == "configure_ha_tmpdir")
+    assert entry.summary == "Declared by configure_ha."
+
+
+@pytest.mark.parametrize(
+    ("written", "expected"),
+    [
+        ("String", vocabulary.Kind.STRING),
+        ("Boolean", vocabulary.Kind.BOOLEAN),
+        ("bool", vocabulary.Kind.BOOLEAN),
+        ("Integer", vocabulary.Kind.INTEGER),
+        ("int", vocabulary.Kind.INTEGER),
+        ("String list", vocabulary.Kind.LIST),
+        ("list of strings", vocabulary.Kind.LIST),
+        ("Dict", vocabulary.Kind.MAPPING),
+        ("Dict list", vocabulary.Kind.ENTRIES),
+        ("list of dict", vocabulary.Kind.ENTRIES),
+        # The Type column is prose, and a role is free to write a sentence in
+        # it. A scalar is what the file will hold, and the punctuation a
+        # completion writes after the name is the same either way.
+        ("RSTP or HSR", vocabulary.Kind.STRING),
+        ("", vocabulary.Kind.STRING),
+    ],
+)
+def test_the_type_a_readme_writes_is_mapped_onto_a_shape(
+    written: str, expected: vocabulary.Kind
+) -> None:
+    derived = vocabulary.derive(Declaration(name="whatever", kind=written))
+
+    assert derived.kind is expected
+
+
+def test_a_derived_entry_is_never_offered_inside_a_guest() -> None:
+    """What a guest entry may carry is reviewed above, and only there.
+
+    A role default is read wherever Ansible resolves it for a machine, which is
+    a group or a host entry and never a libvirt domain. Offering
+    `cephadm_network` inside a VM entry would put the whole tail in the one
+    place the file is hardest to get right.
+    """
+    collection = _lexicon(alloc=ALLOC)
+
+    guest = vocabulary.vocabulary(Scope.GUEST, collection)
+    assert all(term.reviewed for term in guest.terms)
+
+    for scope in (Scope.HOST, Scope.GROUP):
+        offered = vocabulary.vocabulary(scope, collection).terms
+        assert "seapath_alloc_strategy" in {term.name for term in offered}
+
+
+def test_a_node_with_no_collection_answers_with_the_curated_table_alone() -> None:
+    # A laptop, or an image whose collection failed to install. The table it
+    # was released with is what it can honestly say.
+    answer = vocabulary.vocabulary(None, None)
+
+    assert len(answer.terms) == len(vocabulary.TERMS)
+    assert all(term.reviewed for term in answer.terms)
+
+
+def test_the_endpoint_answers_from_the_collection_this_node_runs(
+    signed_in_with, tmp_path: Path
+) -> None:
+    """The property the whole tail exists for.
+
+    The service is released, then the collection moves. What the page offers
+    has to follow the collection installed on the machine, without a version of
+    this service that knows the name.
+    """
+    collections = write_fake_collection(tmp_path / "collections")
+    role = (
+        collections / "ansible_collections/seapath/ansible/roles/deploy_seapath_alloc"
+    )
+    role.mkdir(parents=True)
+    (role / "README.md").write_text(
+        "| Variable | Type | Comments |\n|---|---|---|\n"
+        "| `seapath_alloc_strategy` | String | Allocation strategy. |\n"
+    )
+    # The reader answers nothing at all for a tree too small to be a
+    # collection, which the fake one is until it holds a collection's worth of
+    # names. See `tests/test_inventory_lexicon.py`.
+    playbooks = collections / "ansible_collections/seapath/ansible/playbooks"
+    (playbooks / "filler.yaml").write_text(
+        "\n".join(f"filler_{index}: true" for index in range(600))
+    )
+
+    body = signed_in_with(collections).get("/api/v1/inventory/vocabulary").json()
+
+    offered = {term["name"]: term for term in body["terms"]}
+    assert body["reviewed"] == len(vocabulary.TERMS)
+    assert offered["seapath_alloc_strategy"]["reviewed"] is False
+    assert offered["seapath_alloc_strategy"]["summary"] == "Allocation strategy."
+    assert offered["isolcpus"]["reviewed"] is True

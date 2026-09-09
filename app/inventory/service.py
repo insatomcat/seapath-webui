@@ -35,6 +35,9 @@ from app.inventory.renderer import render
 from app.inventory.repository import INVENTORY_FILENAME, Commit, InventoryRepository
 from app.inventory.resolve import resolve
 from app.inventory.validation import Finding, Level, ValidationResult, validate
+from app.inventory.vocabulary import Scope as VariableScope
+from app.inventory.vocabulary import Vocabulary
+from app.inventory.vocabulary import vocabulary as variables
 from app.runs import catalogue
 
 logger = logging.getLogger(__name__)
@@ -229,6 +232,19 @@ class InventoryService:
             if node.ansible_host in addresses:
                 return name
         return None
+
+    def vocabulary(self, scope: VariableScope | None = None) -> Vocabulary:
+        """The variables of an inventory, curated first, then the collection's.
+
+        The tail is read from the collection this node runs, so a variable a
+        role grew after this service was released is offered on the node that
+        installed it and on no other. That is the whole point of deriving it:
+        the answer follows the machine rather than the release.
+        """
+        return variables(
+            scope,
+            lexicon.read(self._collection_root(), self._collection_fingerprint()),
+        )
 
     def assist_document(self, document: str) -> Assistance:
         """What the vocabulary and the installed collection say about a file.

@@ -602,11 +602,42 @@ cannot name is a variable the service would report as unknown on an inventory
 that came straight from upstream, which teaches an operator to ignore the
 warning.
 
-What is deliberately absent is the derived tail: every other name the
-collection mentions, listed and marked unreviewed the way `catalogue.resolve`
-lists a playbook nobody has read. It belongs here eventually. It does not
-belong here before the reviewed half exists, because a completion list is
-judged on its worst entry.
+**Behind the curated half comes the derived tail**, the way `catalogue.resolve`
+lists a playbook nobody has read. It is every variable the collection installed
+on this node declares, carrying the role that declares it, the value it falls
+back to and the sentence its README wrote about it, marked `reviewed: false`
+and ranked after everything above. `lexicon.py` reads it, `vocabulary.py`
+shapes it, and neither invents a word of it.
+
+The tail is what keeps the curated table from being a second place to edit. A
+collection that grows a variable grows it here on the next scan, on the node
+that installed it, without a release of this service. That is the only
+arrangement under which a curated table can be allowed to exist at all: the
+four authorities move, and a site runs the collection it installed rather than
+the one this was written against. `seapath_alloc_strategy` is the case that
+settled it: written by a real site, read by a real role, absent from the four
+reference inventories, and so absent from the table nobody had thought to add
+it to.
+
+Two rules keep the tail from costing what the curation bought:
+
+- **a curated entry is never replaced.** A name the table already carries is
+  dropped from the tail rather than merged into it. The prose above was written
+  knowing what the role says, and `isolcpus` carries a caution about a machine
+  that reboots into a state where the housekeeping CPUs have nothing left,
+  which no README says;
+- **a derived entry says who declares it and nothing more** when the collection
+  says nothing more. `Declared by configure_ha.` is the whole summary of a
+  variable no README documents. A sentence guessed here would be
+  indistinguishable from the ones that were read off a role.
+
+A derived entry is scoped `any`, which is the honest reading of a role default:
+Ansible resolves it wherever the machine is described, on the group or on the
+host entry, and nothing in a `defaults` file says which. That leaves the tail
+out of a guest entry entirely, which is deliberate. What a guest may carry is
+`guest.xml.j2` and the deployment roles, reviewed above, and offering
+`cephadm_network` inside a VM would put two hundred names in the one place the
+file is hardest to get right.
 
 ### 4ter. The assistant, and the switch that decides whether it is asked
 
@@ -642,7 +673,7 @@ on `all` is one mistake, and reporting it once per machine reads like three.
 
 `app/ui/static/complete.js` offers a name where one is being typed, drawn from
 `GET /inventory/vocabulary`, fetched once per page load and filtered in the
-browser. Three things decide whether it helps or annoys.
+browser. Four things decide whether it helps or annoys.
 
 **It offers where a variable name goes.** A key sits at the start of a line,
 after the indentation and after an optional `- `, and anything past the colon
@@ -661,6 +692,14 @@ before the mistake.
 **It says what the variable is.** The role that reads it, and the caution when
 there is one, since a list of names an operator could have guessed is a list
 they stop opening.
+
+**The reviewed entries come first, always.** Ranking is the position of what
+was typed inside the name, so `ceph` offers `ceph_osd_disks` before
+`deploy_cephfs`, and a reviewed entry then wins the tie. That is what keeps the
+eight rows an operator sees from filling with role plumbing named after the
+same prefix, `cephadm_install_registryurl` and the rest. A derived entry says
+so in the row, in the words the deployment page uses for a playbook read off
+the collection: `not reviewed`.
 
 Accepting writes `name: `, colon and space included, through
 `document.execCommand` for the reason `yamledit.js` uses it: one `Ctrl`+`Z`
@@ -701,9 +740,31 @@ them proved much less than it looked.
   `ptp_vlanid`. Reading it loosely is deliberate. A word in a comment marking a
   name as known costs silence about one variable; a real variable missing from
   the set costs a warning about working configuration.
-- `declared` is the keys of `defaults/main.yml` and `vars/main.yml` plus the
-  curated table, and it is the only pool a suggestion is drawn from. A wrong
-  answer given confidently is worse than no answer.
+- `declared` is the keys of `defaults/main.yml` and `vars/main.yml`, the names
+  the role READMEs document, and the curated table, and it is the only pool a
+  suggestion is drawn from. A wrong answer given confidently is worse than no
+  answer.
+- `declarations` is `declared` with what the collection says about each name
+  beside it: the role that declares it, the value it falls back to, the type
+  its README writes and the sentence in its Comments column. It is what the
+  derived tail of the vocabulary is built from.
+
+**The variable tables of the role READMEs are read, and only those.** A role
+that requires a variable does not default it, so the names a site actually
+writes are in no `defaults` file: `cephadm_network`, `isolcpus`, `cpumachines`,
+`ceph_osd_disks` are documented in a markdown table and nowhere else machine
+readable. The tables are regular across the collection, and the one rule for
+taking one is its first column header: `Variable`. That header is what keeps
+the tables listing metrics, allocation strategies, paths and thresholds out of
+a list of variable names, since all of them are tables of the same shape in the
+same files. On the installed collection this yields 202 declarations, of which
+some ninety carry a sentence written by whoever wrote the role.
+
+The prose of a README stays out of `mentioned`. Feeding it every English word
+of the documentation would answer "something here knows this name" for half the
+typos an operator can make, and take the warning that catches a misspelling
+with it. The variable names in those tables do go in: a documented variable is
+one the collection knows, whether or not a task file spells it out.
 
 **An inventory reads its own variables, and that counts.** A site that writes
 

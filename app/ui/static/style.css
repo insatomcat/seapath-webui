@@ -1461,6 +1461,16 @@ button.secondary {
   font-size: 0.7rem;
 }
 
+/* An entry read off the collection rather than written by a human. The words
+   are the deployment page's, for the same distinction. No border: a row of
+   this list is a name, a mark and a sentence at 0.7rem, and a box around the
+   middle one would be the loudest thing on a list that is read while typing. */
+.completion-derived {
+  flex: 0 0 auto;
+  color: var(--warn);
+  font-size: 0.7rem;
+}
+
 /* The summary, or the caution when there is one. It is the half that says why
    the name is the right one, so it takes the room left and gives it up rather
    than pushing the name out of the row. */
