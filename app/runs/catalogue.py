@@ -15,9 +15,11 @@ existing upstream. What the UI runs is a whole playbook, never a free form
 selection of tags: the tags in `seapath-ansible` were not designed as a public
 interface, and a tag selector produces combinations nobody has ever run.
 
-`targets` is copied from the playbook's own `hosts:` lines and is not a
-parameter a caller can override. Narrowing `cluster_setup_ha.yaml` to one
-member of three would be accepted by Ansible and would mean nothing.
+`targets` is copied from the playbook's own `hosts:` lines. It says what the
+playbook plays; which of those machines a run is actually sent to is
+`app.runs.scope`, which subtracts the guests by default and carries the
+narrowing an operator asked for. Both end up as `--limit` on the command line
+the run records, so the two statements stay separate and both readable.
 
 `preview` is read off the modules the playbook's roles use, so the value can be
 checked against the collection rather than argued about:
@@ -734,7 +736,9 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         # Two plays, and the second one is worth the scope line it takes: it
         # reaches every guest of the group over SSH to wait for it to answer,
         # for the guests whose entry asks. A guest that never answers is a run
-        # that waits for it.
+        # that waits for it, which is why the default scope subtracts the
+        # group: the guests are still created by the first play, and the wait
+        # comes back on a run narrowed to a guest. See `app.runs.scope`.
         targets=["standalone_machine", "VMs"],
         # `community.libvirt.virt` lists the domains and every task after it
         # reads `.list_vms` off that register. Same shape as the cluster one.

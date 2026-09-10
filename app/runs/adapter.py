@@ -132,6 +132,10 @@ class RunRequest:
     extra_key_files: tuple[Path, ...] = ()
     extra_vars: dict[str, Any] = field(default_factory=dict)
     check: bool = False
+    # The `--limit` value, resolved by `app.runs.scope` against the inventory
+    # and never taken from a caller as text. `None` passes no limit at all,
+    # which is what a playbook naming no guest group and no narrowing gets.
+    limit: str | None = None
 
 
 @dataclass
@@ -195,9 +199,13 @@ def build_command(request: RunRequest) -> list[str]:
         command.append("--check")
     for name, value in sorted(request.extra_vars.items()):
         command += ["--extra-vars", f"{name}={_as_ansible_literal(value)}"]
-    # No --limit, ever. Which hosts a playbook plays against is a property of
-    # the playbook, copied into the catalogue. Narrowing cluster_setup_ha to
-    # one member of three would be accepted by Ansible and would mean nothing.
+    if request.limit:
+        # Never a string a caller typed: `app.runs.scope` builds this from the
+        # groups and hosts the inventory declares, which is what keeps it from
+        # being the free form field D8 refuses. The ordinary value is
+        # `all:!VMs`, subtracting the guests from every playbook that names
+        # them, and the operator sees it on the command line the run records.
+        command += ["--limit", request.limit]
     command.append(request.playbook)
     return command
 

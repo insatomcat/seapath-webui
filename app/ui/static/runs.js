@@ -259,6 +259,19 @@
     return parts.join(", ") + " (" + (bytes / (1024 * 1024)).toFixed(1) + " MB)";
   }
 
+  // The scope a run was launched with, as one line.
+  function describeScope(record) {
+    const scope = record.scope || { kind: "default" };
+    // Null where the playbook's patterns were not read, which is a different
+    // answer from an empty list: one is unknown, the other is a run that
+    // played nothing.
+    const machines = record.machines;
+    const named = machines === null || machines === undefined
+      ? "every machine the playbook plays"
+      : machines.join(", ") || "no machine of this inventory";
+    return scope.kind === "default" ? named : scope.name + " (" + named + ")";
+  }
+
   function renderRecord(record) {
     element("run-detail").hidden = false;
     element("run-title").textContent =
@@ -272,6 +285,10 @@
       ["Inventory commit", (record.inventory_commit || "none").slice(0, 12)],
       ["Collection", record.collection_version],
       ["Files staged", describeFiles(record.files)],
+      // What this run was aimed at, beside what it reached. The host table
+      // below says who answered; this says who was asked, which is the only
+      // way to tell a machine that failed from one the run never played.
+      ["Machines", describeScope(record)],
       ["Command", (record.command || []).join(" ")],
     ]);
 
@@ -363,13 +380,18 @@
     element("confirm-disruption").textContent =
       "Relaunching is safe: the playbooks are idempotent, so converging again " +
       "is the recovery. It will run against this machine from the current " +
-      "inventory, which may have changed since the run that failed.";
+      "inventory, which may have changed since the run that failed." +
+      (scope.kind === "default"
+        ? ""
+        : " Narrowed to " + scope.name + ", as the original run was.");
 
-    // A relaunch repeats the run it relaunches, variables included. Dropping
-    // them silently would reboot a machine whose run was launched with
-    // skip_reboot_setup, and would send cluster_remove_machine off without the
-    // machine to remove.
+    // A relaunch repeats the run it relaunches, variables and scope included.
+    // Dropping the variables silently would reboot a machine whose run was
+    // launched with skip_reboot_setup, and would send cluster_remove_machine
+    // off without the machine to remove. Dropping the scope would widen a run
+    // that was narrowed to one machine on purpose.
     const variables = record.variables || {};
+    const scope = record.scope || { kind: "default", name: null };
     const named = Object.keys(variables);
     const line = element("confirm-variables");
     line.textContent = named.length
@@ -389,6 +411,7 @@
           playbook: record.playbook_id,
           check: record.check,
           variables,
+          scope,
         });
         modal.hidden = true;
         await show(started.run_id);

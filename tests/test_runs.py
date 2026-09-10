@@ -155,7 +155,7 @@ def test_the_generated_config_is_readable_by_a_config_parser(
     assert parser["tags"]["skip"] == "package-install"
 
 
-def test_the_command_never_narrows_the_hosts(tmp_path: Path) -> None:
+def test_a_run_with_no_scope_narrows_nothing(tmp_path: Path) -> None:
     preparation = prepare(
         RunRequest(
             run_id="r1",
@@ -168,10 +168,31 @@ def test_the_command_never_narrows_the_hosts(tmp_path: Path) -> None:
         )
     )
 
-    # Which hosts a playbook plays against is a property of the playbook.
-    # cluster_setup_ha on one member of three is not a smaller cluster.
+    # The playbook's own `hosts:` line, untouched. A limit appears only when
+    # the guests are subtracted or an operator narrowed the run, and
+    # `app.runs.scope` is the only thing that decides either.
     assert "--limit" not in preparation.command
     assert preparation.command[-1] == "seapath.ansible.cluster_setup_ha"
+
+
+def test_the_scope_reaches_the_command_line(tmp_path: Path) -> None:
+    preparation = prepare(
+        RunRequest(
+            run_id="r1",
+            playbook="seapath.ansible.seapath_setup_main",
+            inventory_file=tmp_path / "inventory.yaml",
+            private_data_dir=tmp_path / "run",
+            collections_path=tmp_path / "collections",
+            private_key_file=tmp_path / "key",
+            known_hosts_file=tmp_path / "known_hosts",
+            limit="all:!VMs",
+        )
+    )
+
+    command = preparation.command
+    assert command[command.index("--limit") + 1] == "all:!VMs"
+    # Before the playbook, which is where ansible-playbook takes its options.
+    assert command[-1] == "seapath.ansible.seapath_setup_main"
 
 
 def test_check_mode_and_declared_variables_reach_the_command(tmp_path: Path) -> None:

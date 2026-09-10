@@ -41,21 +41,67 @@ Each entry carries what the UI needs to present the run honestly:
 | `requires` | Preconditions checked before the run is offered |
 | `variables` | The only variables `POST /runs` accepts for this playbook, each with a type and a validation rule. Empty for most entries |
 
-The `targets` attribute is copied from the playbook's own `hosts:` lines and is
-not a parameter the caller can override. A caller cannot narrow a run to one
-node: Ansible would accept it and the result would be meaningless, since
-`cluster_setup_ha.yaml` on a single member of three is not a smaller version of
-forming a cluster.
+The `targets` attribute is copied from the playbook's own `hosts:` lines. It
+says what the playbook plays, and section 2bis says which of those machines this
+service actually sends a run to.
 
-That has a consequence the preconditions have to carry. A run plays **every**
-host the inventory declares, and a node begins life with an SSH trust with
-itself alone. `peer_reachable` is therefore checked before a run is offered: it
-asks whether a key would be presented to the other machines and whether their
-host keys are known, and it names the machines that fail. Without it the
-operator confirms a disruptive convergence and learns two hosts were
-unreachable a minute later, which is a late and expensive way to find out.
-Reachability here is about credentials; whether the network answers is the
-run's own business, and it says so host by host.
+That has a consequence the preconditions have to carry. A run plays every host
+the pattern matches, and a node begins life with an SSH trust with itself alone.
+`peer_reachable` is therefore checked before a run is offered: it asks whether a
+key would be presented to the other machines and whether their host keys are
+known, and it names the machines that fail. Without it the operator confirms a
+disruptive convergence and learns two hosts were unreachable a minute later,
+which is a late and expensive way to find out. Reachability here is about
+credentials; whether the network answers is the run's own business, and it says
+so host by host. A narrowed run is judged on the machines it narrowed to, so a
+node whose neighbour is down still converges itself.
+
+## 2bis. Which machines a run plays
+
+Two rules, both in `app/runs/scope.py`, both visible on the command line the run
+records.
+
+**The guests are not played by default.** Eight entries name `VMs` in their
+`hosts:` line, `seapath_setup_main` among them, so a convergence would reach into
+every guest the inventory declares, over SSH, as the `ansible` account. That
+holds for a guest built from a SEAPATH image and not for the appliances, Windows
+machines and vendor images a site actually runs. With `any_errors_fatal = True`
+one of them refusing a connection ends the whole convergence, and the machines
+are what the operator came for. So a run whose playbook names the group is
+launched with `--limit all:!VMs`.
+
+The subtraction is a limit rather than a catalogue rewritten to claim the
+playbook plays something else: `targets` keeps saying `VMs`, the card and the
+confirmation name the guests being left out, and the command line says
+`--limit all:!VMs`. A file with no guest in it gets no limit at all.
+
+What a limit changes is which hosts a play runs on. It leaves `groups['VMs']`
+alone, so the roles that loop over the guest list to create, define and start
+them keep seeing every guest the inventory declares: `deploy_vms_standalone`
+creates the same VMs under the default scope as without it.
+
+One entry loses something to this and is worth naming. `deploy_vms_standalone.yaml`
+has a second play on `VMs` that reaches each guest over SSH to wait for it to
+answer. Under the default scope that play matches nothing: the guests are still
+created and started by the first play, on the machine, and the run no longer
+waits on a guest that was never going to answer. Narrow the run to a guest, or
+to the `VMs` group, to get the wait back.
+
+**A run can be narrowed, to one group or one machine.** The confirmation carries
+a selector: the whole scope above, any group the inventory declares, any host it
+declares, guests included. It becomes `--limit <name>`, and the name is checked
+against the file's own groups and hosts before it reaches a command line, which
+is what keeps it from being the free form field [D8](decisions.md#d8) refuses. A
+narrowing that would play no machine at all is refused rather than run, because
+Ansible accepts it and ends green having converged nothing.
+
+What a narrowed run is not is a smaller playbook. `cluster_setup_ha.yaml`
+limited to one member of three still forms no cluster, and the confirmation says
+so wherever a narrowing is chosen. Judging that is the operator's, exactly as it
+is when they run the same playbook from a control machine.
+
+The scope is recorded with the run, beside the variables, so a relaunch repeats
+the run it relaunches rather than a wider one.
 
 ### Which collection a run actually ran
 

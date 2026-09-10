@@ -203,6 +203,17 @@ SPDX-License-Identifier: Apache-2.0
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>
+    {#
+    Which machines this run plays. The default is the playbook's own hosts
+    without the VMs group, and narrowing it is a choice made here, beside the
+    sentence that says what an apply disturbs, rather than a setting somewhere
+    else on the page.
+    #}
+    <div class="field" id="confirm-scope" hidden>
+      <label for="confirm-scope-choice">Machines</label>
+      <select id="confirm-scope-choice"></select>
+      <p class="help" id="confirm-scope-help"></p>
+    </div>
     <div id="confirm-variables" hidden></div>
     <p class="warning" id="confirm-reboot" hidden></p>
     <p class="error" id="confirm-error" hidden></p>

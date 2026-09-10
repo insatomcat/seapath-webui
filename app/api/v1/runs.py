@@ -22,6 +22,7 @@ from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
 from app.runs.models import RunRecord
+from app.runs.scope import RunScope, ScopeChoices
 from app.runs.service import PlaybookAvailability, RunService
 
 router = APIRouter(tags=["runs"])
@@ -43,6 +44,14 @@ class LaunchRequest(BaseModel):
     playbook: str = Field(description="An id from GET /playbooks")
     check: bool = False
     variables: dict[str, Any] = Field(default_factory=dict)
+    scope: RunScope | None = Field(
+        default=None,
+        description=(
+            "Which machines to play. Omitted means the playbook's own hosts "
+            "minus the VMs group. A group or a host narrows the run, and the "
+            "name has to be one GET /playbooks/scopes offers"
+        ),
+    )
 
 
 class LaunchResponse(BaseModel):
@@ -59,6 +68,16 @@ def playbooks(request: Request, user: User = viewer) -> list[PlaybookAvailabilit
     return _service(request).playbooks()
 
 
+@router.get("/playbooks/scopes")
+def scopes(request: Request, user: User = viewer) -> ScopeChoices:
+    """What a run may be narrowed to: the inventory's groups and its hosts.
+
+    Read from the file rather than from the typed model, so an adopted
+    inventory offers the groups it actually declares.
+    """
+    return _service(request).scopes()
+
+
 @router.post("/runs", status_code=202)
 def launch(
     request: Request, payload: LaunchRequest, user: User = admin
@@ -69,6 +88,7 @@ def launch(
         launched_by=user.username,
         variables=payload.variables,
         check=payload.check,
+        scope=payload.scope,
     )
     entry = next(item for item in service.entries() if item.id == payload.playbook)
     # Carried back so the UI can refuse to present a partial check as a

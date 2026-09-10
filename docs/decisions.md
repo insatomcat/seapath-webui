@@ -689,9 +689,11 @@ on whatever it reaches.
 The node view already reads `/etc/os-release`, so the service knows which of
 the five distributions this machine runs. It now uses that to refuse the other
 four, with a sentence naming both distributions. The reasoning that makes this
-sound rather than convenient: a run plays every machine the inventory declares,
-without `--limit`, and this node is one of them, so a playbook for another
-distribution is wrong for at least this machine whatever the others run.
+sound rather than convenient: a run plays every machine the playbook's pattern
+matches, this node among them, so a playbook for another distribution is wrong
+for at least this machine whatever the others run. [D39](#d39) narrows a run to
+a group or a machine and leaves this check where it is, for the reason it
+records.
 
 Two silences are deliberate, and both leave the entry available:
 
@@ -1108,7 +1110,7 @@ Two properties keep it honest, and both are tested:
 
 The Real time page was incoherent about scope: the conformance list and the CPU
 map read the local machine, while a measurement brought back one file per
-machine because a run plays the whole inventory and carries no `--limit`. Two
+machine because a measurement plays every machine the inventory declares. Two
 answers were available, local only or cluster wide, and the pool decides it:
 once every node's pool is on the page, showing one machine's measurement would
 make the measurement the odd panel out.
@@ -2499,3 +2501,66 @@ A schema. Nothing here refuses a commit because a variable is absent from the
 collection, and `validate()` is untouched. The tail feeds a completion and a
 suggestion, both of which an operator can ignore, and a site's own variable
 read only by its own templates stays as legitimate as it was.
+
+## D39 - Settled: the guests are subtracted from a convergence, and a run can be narrowed
+
+Eight catalogue entries name `VMs` in their `hosts:` line, `seapath_setup_main`
+among them. A convergence therefore reached into every guest the inventory
+declares, over SSH, as the `ansible` account. That works for a guest built from
+a SEAPATH image. A site's guests are appliances, Windows machines and vendor
+images, and with `any_errors_fatal = True` the first one that refuses a
+connection ends the whole convergence of the machines the operator came for.
+
+So the default scope subtracts the group: a run whose playbook names the guests
+is launched with `--limit all:!VMs`.
+
+A limit decides which hosts a play runs on and leaves `groups['VMs']` alone, so
+the roles that loop over the guest list to create, define and start the guests
+keep seeing every one of them. What the subtraction removes is the plays that
+reach *into* a guest over SSH: `detect_seapath_distro`, the five prerequisites,
+the hardening, and the `wait_for_connection` of `deploy_vms_standalone`.
+
+**The subtraction is a limit rather than a catalogue rewritten.** `targets`
+stays copied from the playbook's own `hosts:` lines, because it answers "what
+does this playbook play" and that answer is upstream's. What this service sends
+a run to is a separate question, answered on the command line the run records,
+where an operator can read it. The card and the confirmation name the guests
+being left out, so the two statements sit side by side rather than one quietly
+replacing the other.
+
+**A run can now be narrowed, to one group or one machine.** [D8](#d8) refuses a
+tag selector and that stands: tags were never a public interface, and a
+combination nobody has ever run is not a smaller version of a playbook. A host
+pattern is the interface Ansible documents and the first thing an operator
+reaches for on a control machine. The difference that makes it acceptable here
+is that the name is chosen from the inventory's own groups and hosts and checked
+against them before it reaches a command line, so it is a list rather than the
+free form field this service refuses to have.
+
+Three consequences were accepted deliberately.
+
+- **A narrowed run is the same playbook against fewer machines.**
+  `cluster_setup_ha` limited to one member of three still forms no cluster, and
+  reports success doing it. The confirmation says so wherever a narrowing is
+  chosen, and the judgement is the operator's, exactly as it is when they run
+  the same playbook from a control machine. The one thing refused is a scope
+  with no machine in common with the playbook's targets: Ansible accepts that
+  and ends green having converged nothing, which is the worst of the three
+  possible answers.
+- **`peer_reachable` follows the scope.** It names the machines the run will
+  play rather than every machine in the file, so a node whose neighbour is down
+  converges itself by narrowing to itself. That is half of what narrowing is
+  worth on a live site.
+- **`distribution_matches` does not follow it.** The check is about the
+  distribution *this* node runs, and this node is where a wrong prerequisites
+  playbook does its damage. A narrowed run that excludes this node is refused
+  along with the others, which refuses more than strictly necessary. Reading
+  another machine's `/etc/os-release` is not something this service does, and
+  guessing would be worse than refusing.
+
+The pattern matching behind the machine names is Ansible's, restricted to the
+operators the catalogue uses: union, intersection, exclusion and the subscript.
+It feeds the sentence an operator reads before confirming, never the run itself,
+which carries the playbook's own patterns and the limit. A pattern it cannot
+read, a wildcard in a derived entry, is reported as unread rather than answered
+with a guess.

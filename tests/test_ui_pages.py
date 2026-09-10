@@ -337,7 +337,7 @@ def test_the_deployment_page_offers_the_version_the_registry_holds(
     # And what the button does is a commit, then the confirmation every other
     # convergence gets.
     assert 'API.post("/node/update", { version: state.latest.latest })' in script
-    assert "confirmRun(item.entry, false)" in script
+    assert "confirmRun(item, false)" in script
 
 
 def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
@@ -485,6 +485,26 @@ def test_the_apply_confirmation_says_what_it_will_disturb(
     assert 'id="confirm-disruption"' in body
     assert 'id="confirm-reboot"' in body
     assert "confirm-input" not in body
+
+
+def test_the_confirmation_chooses_the_machines_and_names_them(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
+
+    # Which machines a run plays is decided beside the sentence that says what
+    # an apply disturbs, and the sentence is rebuilt when the choice changes:
+    # the confirmation has to name the machines this run will play, not the
+    # ones the playbook could play.
+    assert 'id="confirm-scope"' in body
+    assert 'id="confirm-scope-choice"' in body
+    assert "scopeSentence(item, scope.kind, scope.name)" in script
+    assert 'API.get("/playbooks/scopes")' in script
+    assert "scope: scope()," in script
+    # The guests the default leaves out are named where the scope line says
+    # `VMs`, so the two do not contradict each other.
+    assert "item.excluded" in script
 
 
 def test_the_reboot_is_declined_by_default_on_a_node_the_run_plays(

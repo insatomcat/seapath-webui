@@ -28,6 +28,10 @@
     latest: null,
     hostKeys: [],
     catalogue: [],
+    // The groups and hosts a run may be narrowed to, as the inventory
+    // declares them. Read once with the rest of the page, because the
+    // confirmation offers them and cannot wait for a fetch of its own.
+    scopes: null,
   };
 
   const MAIN = "seapath_setup_main";
@@ -240,7 +244,7 @@
       error.hidden = false;
       return;
     }
-    confirmRun(item.entry, false);
+    confirmRun(item, false);
   }
 
   element("update-check").addEventListener("click", loadLatest);
@@ -572,6 +576,19 @@
     groups.className = "playbook-groups";
     groups.textContent = entry.targets.join(", ");
     scope.append("Plays ", groups);
+    // The guests this service subtracts from the groups above. Said on the
+    // card rather than only in the confirmation, because the line right before
+    // it names `VMs` and the two would contradict each other.
+    if (item.excluded && item.excluded.length) {
+      const kept = document.createElement("span");
+      kept.className = "playbook-excluded";
+      kept.textContent =
+        ", without the " +
+        item.excluded.length +
+        (item.excluded.length === 1 ? " guest" : " guests") +
+        " of VMs";
+      scope.append(kept);
+    }
 
     const detail = document.createElement("p");
     detail.className = item.available ? "help" : "warning";
@@ -636,13 +653,13 @@
         check.className = "secondary";
         check.textContent =
           entry.preview === "full" ? "Preview" : "Preview (partial)";
-        check.addEventListener("click", () => confirmRun(entry, true));
+        check.addEventListener("click", () => confirmRun(item, true));
         actions.append(check);
       }
       const apply = document.createElement("button");
       apply.type = "button";
       apply.textContent = "Apply";
-      apply.addEventListener("click", () => confirmRun(entry, false));
+      apply.addEventListener("click", () => confirmRun(item, false));
       actions.append(apply);
     }
     container.append(actions);
@@ -884,6 +901,144 @@
     return asked;
   }
 
+  // Which machines a run plays, and how it is narrowed.
+  //
+  // The default is what the playbook plays without the guests, and the API has
+  // already resolved it: `item.machines` is the answer Ansible's own group
+  // membership gives, so the sentence below the title names the machines the
+  // run will name. A narrowing is intersected with that same list here, which
+  // is what the service does again before it launches.
+
+  function scopeChoices() {
+    const found = state.scopes;
+    if (!found) {
+      return [];
+    }
+    const guests = found.guests || [];
+    const machines = (found.hosts || []).filter(
+      (name) => guests.indexOf(name) === -1
+    );
+    return [
+      { label: "Groups", options: found.groups || [], kind: "group" },
+      {
+        label: "Machines",
+        options: machines.map((name) => ({ name, hosts: [name] })),
+        kind: "host",
+      },
+      {
+        label: "Guests",
+        options: guests.map((name) => ({ name, hosts: [name] })),
+        kind: "host",
+      },
+    ].filter((section) => section.options.length);
+  }
+
+  function hostsOf(kind, name) {
+    if (kind === "host") {
+      return [name];
+    }
+    const found = (state.scopes && state.scopes.groups) || [];
+    const group = found.find((row) => row.name === name);
+    return group ? group.hosts : [];
+  }
+
+  // The machines this run plays, or null when the playbook's own `hosts:` line
+  // is one this service does not read. Null is said as such rather than as an
+  // empty list: a confirmation naming no machine reads as a run that plays
+  // none, and this one plays every machine the pattern matches.
+  function playedBy(item, kind, name) {
+    const played = item.machines;
+    if (kind === "default") {
+      return played;
+    }
+    const hosts = hostsOf(kind, name);
+    return played === null
+      ? hosts
+      : hosts.filter((host) => played.indexOf(host) !== -1);
+  }
+
+  function scopeSentence(item, kind, name) {
+    const played = playedBy(item, kind, name);
+    if (played === null) {
+      return (
+        " It plays " +
+        item.entry.targets.join(", ") +
+        ", which this page cannot resolve to machine names."
+      );
+    }
+    if (!played.length) {
+      return " It plays no machine of this inventory.";
+    }
+    let sentence = " Machines played: " + played.join(", ") + ".";
+    if (kind === "default" && item.excluded && item.excluded.length) {
+      // Named, because the playbook's own scope line says `VMs` and an
+      // operator who reads it has to be told the guests are not in this run.
+      sentence +=
+        " The " +
+        item.excluded.length +
+        (item.excluded.length === 1 ? " guest" : " guests") +
+        " of VMs (" +
+        item.excluded.join(", ") +
+        ") are left out: pick one below to converge it on purpose.";
+    }
+    return sentence;
+  }
+
+  // The scope control. Absent while the inventory has not been read, because a
+  // selector with nothing in it is worse than the default it would replace.
+  function scopeField(item, onChange) {
+    const field = element("confirm-scope");
+    const select = element("confirm-scope-choice");
+    const help = element("confirm-scope-help");
+    const sections = scopeChoices();
+    select.replaceChildren();
+    field.hidden = !sections.length;
+
+    const whole = document.createElement("option");
+    whole.value = "default";
+    whole.textContent =
+      "Every machine this playbook plays" +
+      (item.excluded && item.excluded.length ? ", except the VMs group" : "");
+    select.append(whole);
+    sections.forEach((section) => {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = section.label;
+      section.options.forEach((option) => {
+        const line = document.createElement("option");
+        line.value = section.kind + ":" + option.name;
+        line.textContent = option.name;
+        optgroup.append(line);
+      });
+      select.append(optgroup);
+    });
+
+    const chosen = () => {
+      const value = select.value;
+      const cut = value.indexOf(":");
+      return cut === -1
+        ? { kind: "default", name: null }
+        : { kind: value.slice(0, cut), name: value.slice(cut + 1) };
+    };
+
+    select.onchange = () => {
+      const scope = chosen();
+      help.textContent =
+        scope.kind === "default"
+          ? ""
+          : // Said every time, because it is the one thing an operator gets
+            // wrong here: a limit makes the run shorter, never the playbook
+            // smaller. cluster_setup_ha on one member of three forms no
+            // cluster, and reports success doing it.
+            "A narrowed run is the same playbook against fewer machines. It is " +
+            "not a smaller version of it: forming a cluster, or deploying Ceph, " +
+            "against one member is not what either playbook does.";
+      onChange(scope);
+    };
+    select.value = "default";
+    help.textContent = "";
+    return chosen;
+  }
+
   // The single most dangerous button in the product. It asks once, in a modal
   // that says what the run will disturb and which machines it will play, and
   // that is where the friction stops. Typing the machine's name back as a
@@ -891,25 +1046,31 @@
   // twenty times a day types it twenty times without reading the sentence
   // above it, which buys nothing. The picker below stays because the playbook
   // has no other way of knowing which machine is leaving.
-  function confirmRun(entry, check) {
+  function confirmRun(item, check) {
+    const entry = item.entry;
     const modal = element("confirm");
     const go = element("confirm-go");
     const reboot = element("confirm-reboot");
+    const disruption = element("confirm-disruption");
 
     element("confirm-title").textContent =
       (check ? "Preview " : "Apply ") + entry.title.toLowerCase();
-    element("confirm-disruption").textContent = check
-      ? "Check mode changes nothing. " +
-        (entry.preview === "full"
-          ? "This playbook writes through modules check mode understands, so " +
-            "what it reports is what an apply would change."
-          : "Part of this playbook is command driven, and check mode skips " +
-            "those tasks. Read the result as an indication, not as a " +
-            "guarantee.")
-      : entry.disruption +
-        " Machines played: " +
-        machineNames().join(", ") +
-        ".";
+    // Rebuilt on every change of the scope, because the machines it names are
+    // the reason the scope is chosen here rather than anywhere else.
+    const describe = (scope) => {
+      disruption.textContent = check
+        ? "Check mode changes nothing. " +
+          (entry.preview === "full"
+            ? "This playbook writes through modules check mode understands, so " +
+              "what it reports is what an apply would change."
+            : "Part of this playbook is command driven, and check mode skips " +
+              "those tasks. Read the result as an indication, not as a " +
+              "guarantee.") +
+          scopeSentence(item, scope.kind, scope.name)
+        : entry.disruption + scopeSentence(item, scope.kind, scope.name);
+    };
+    const scope = scopeField(item, describe);
+    describe(scope());
     element("confirm-error").hidden = true;
     go.textContent = check ? "Preview" : "Apply";
 
@@ -976,6 +1137,7 @@
           playbook: entry.id,
           check,
           variables,
+          scope: scope(),
         });
         window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
       } catch (failure) {
@@ -1008,13 +1170,22 @@
         "There is no inventory to apply yet. Fill it in on the Inventory page.";
       return;
     }
-    // Said plainly, because it is what surprises people: there is no --limit,
-    // so a run plays every machine the file declares.
+    // Said plainly, because it is what surprises people: a run plays the whole
+    // group a playbook names, and the guests are the one group it does not.
     lead.textContent =
       "A run plays every machine the inventory declares, which is " +
       Object.keys(payload.inventory.hosts).join(", ") +
-      ". It runs from this node, so this node needs a way to reach the others." +
+      ". It runs from this node, so this node needs a way to reach the others. " +
+      "The guests of the VMs group are left out unless a run is narrowed to " +
+      "one on purpose, and every confirmation names the machines it plays." +
       (Chrome.isAdmin(state.me) ? "" : " Applying requires the admin role.");
+  }
+
+  // The groups and the hosts a run may be narrowed to. Read from the file
+  // rather than from the typed inventory, so a site whose file carries groups
+  // this service never writes can still narrow a run to one of them.
+  async function loadScopes() {
+    state.scopes = await API.get("/playbooks/scopes");
   }
 
   async function refresh() {
@@ -1026,6 +1197,7 @@
       loadHostKeys(),
       loadCollection(),
       loadUpdate(),
+      loadScopes(),
     ]);
     await loadPlaybooks();
   }

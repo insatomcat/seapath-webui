@@ -425,3 +425,26 @@ because the policy blocked the script that fills it. See
 ### Result
 
 Not yet run.
+
+## The scope of a run
+
+The suite asserts the command line, against fakes. What no fake answers is what
+Ansible does with `--limit all:!VMs` on a real inventory: whether the guests are
+really left out of the plays that reach into them, and whether the roles that
+loop over `groups['VMs']` still see every guest. See [D39](decisions.md#d39).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | `seapath_setup_main` on a site whose guests are not SEAPATH machines converges the machines and reaches no guest, where it used to die on the first guest that refused a connection | The failure being fixed is an SSH connection to a machine nobody prepared for Ansible | Pending |
+| 2 | The run's `PLAY RECAP` lists the machines and none of the guests, and the command line in the run view carries `--limit all:!VMs` | The recap is Ansible's own account of what it played | Pending |
+| 3 | `deploy_vms_standalone` under the default scope still creates, defines and starts every guest the inventory declares | The claim that a limit narrows the plays and leaves `groups['VMs']` alone, which only a real run proves | Pending |
+| 4 | A run narrowed to one machine of a cluster converges that machine and leaves the others untouched, `crm status` unchanged on them | What a narrowed convergence does to a live cluster | Pending |
+| 5 | A run narrowed to one guest that *is* a SEAPATH machine converges it, from a `VMs` entry that the default scope leaves out | The escape hatch the default needs, over a real SSH path to a guest | Pending |
+| 6 | On a node whose neighbour is down, narrowing to this node produces a run that is offered and succeeds | `peer_reachable` following the scope, against a machine that really does not answer | Pending |
+| 7 | Exporting the inventory and running the same playbooks from a control machine with the same `--limit` reports no change | Point 5 of the definition of done, on the scope this service now chooses | Pending |
+
+### Result
+
+Not yet run.

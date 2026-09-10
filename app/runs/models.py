@@ -11,6 +11,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.runs.scope import RunScope
+
 
 class RunState(str, Enum):
     PENDING = "pending"
@@ -91,6 +93,19 @@ class RunRecord(BaseModel):
     # had asked to leave up.
     variables: dict[str, Any] = Field(default_factory=dict)
     command: list[str] = Field(default_factory=list)
+    # What the run was narrowed to, kept for the same reason the variables are:
+    # a relaunch has to repeat the run rather than a wider one. The default
+    # scope is a value like any other here, so a record says plainly that the
+    # guests were left out rather than leaving it to be inferred from `command`.
+    scope: RunScope = Field(default_factory=RunScope)
+    machines: list[str] | None = None
+    """The hosts the scope resolved to at launch, as the confirmation named them.
+
+    What the run actually reached is `progress.hosts`, and the two differ
+    exactly when something went wrong, which is why both are kept. `None` where
+    the playbook's own patterns were not readable, which an empty list would
+    report as a run that played nothing.
+    """
     return_code: int | None = None
     progress: RunProgress = Field(default_factory=RunProgress)
     message: str | None = None

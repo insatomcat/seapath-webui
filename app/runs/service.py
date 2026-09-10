@@ -21,6 +21,7 @@ from app.hosts.local import parse_cpu_list
 from app.inventory.model import Mode
 from app.inventory.service import InventoryService, InventoryState
 from app.runs import actions, catalogue, cyclictest, hwlatdetect, progress, staging
+from app.runs import scope as scoping
 from app.runs.adapter import RunAdapter, RunRequest, build_command
 from app.runs.catalogue import (
     PlaybookEntry,
@@ -29,6 +30,7 @@ from app.runs.catalogue import (
     VariableType,
 )
 from app.runs.models import RunProgress, RunRecord, RunState
+from app.runs.scope import RunScope, Scope, ScopeRefused
 from app.runs.store import RunLocked, RunStore
 from app.trust import known_hosts
 from app.trust.authorized_keys import MissingAccount
@@ -52,6 +54,13 @@ class PlaybookAvailability(BaseModel):
     # once, and it cannot do that by comparing thirteen sentences that each
     # name a different playbook.
     unmet_codes: list[str] = []
+    # What the default scope resolves to against the current inventory: the
+    # machines this entry would play, and the guests it leaves out. Computed
+    # here rather than in the browser because the answer is Ansible's, read
+    # from the file's groups, and the confirmation that names the machines has
+    # to name the same ones the run will play.
+    machines: list[str] | None = None
+    excluded: list[str] = []
 
 
 class RunPaths(BaseModel):
@@ -120,15 +129,21 @@ class RunService:
     def playbooks(self) -> list[PlaybookAvailability]:
         unmet_by_condition = self._unmet_preconditions()
         missing = self._missing_playbooks()
+        # Parsed once for the whole catalogue: every entry asks the same file
+        # the same question, and the list is a few hundred entries long.
+        table = scoping.table(self._document())
         rows = []
         for entry in self.entries():
             blocking = self._blocking(entry, unmet_by_condition, missing)
+            plan = scoping.plan(entry.targets, table)
             rows.append(
                 PlaybookAvailability(
                     entry=entry,
                     available=not blocking,
                     unmet=[reason for _, reason in blocking],
                     unmet_codes=[code for code, _ in blocking],
+                    machines=plan.hosts,
+                    excluded=plan.excluded,
                 )
             )
         return rows
@@ -223,7 +238,15 @@ class RunService:
     def _missing_playbooks(self) -> set[str]:
         return catalogue.missing_from(self._paths.collections_path)
 
-    def _unmet_preconditions(self) -> dict[Precondition, str]:
+    def _unmet_preconditions(
+        self, played: list[str] | None = None
+    ) -> dict[Precondition, str]:
+        """Why an entry cannot be launched right now.
+
+        `played` narrows the reachability question to the machines a scope
+        actually selected. The catalogue listing passes none, because a listing
+        is about the ordinary run: every machine the playbook plays.
+        """
         unmet: dict[Precondition, str] = {}
         state = self._inventory.state()
 
@@ -254,12 +277,18 @@ class RunService:
                 )
 
         unreachable = self._unreachable(state)
+        if played is not None:
+            # A narrowed run is refused by the machines it plays and by no
+            # others, which is half of what narrowing is for: a node whose
+            # neighbour is down still converges itself.
+            unreachable = [name for name in unreachable if name in played]
         if unreachable:
             unmet[Precondition.PEER_REACHABLE] = (
                 f"{', '.join(unreachable)} cannot be reached from this node. A "
-                "run plays every machine the inventory declares, so it would "
-                "die on those. Upload the site key, and accept their host "
-                "keys, in Reaching the other machines."
+                "run plays every machine the playbook names, so it would die "
+                "on those. Upload the site key, and accept their host keys, in "
+                "Reaching the other machines. Narrowing the run to a group or "
+                "a machine that answers is the other way out."
             )
 
         # Which machines the inventory has, rather than which single mode it
@@ -354,6 +383,7 @@ class RunService:
         launched_by: str,
         variables: dict[str, Any] | None = None,
         check: bool = False,
+        scope: RunScope | None = None,
     ) -> RunRecord:
         entries = {item.id: item for item in self.entries()}
         entry = entries.get(playbook_id)
@@ -364,7 +394,7 @@ class RunService:
                 404,
                 {"available": sorted(entries)},
             )
-        return self._launch(entry, launched_by, variables, check)
+        return self._launch(entry, launched_by, variables, check, scope=scope)
 
     def launch_action(
         self,
@@ -404,6 +434,39 @@ class RunService:
             guest=guest,
         )
 
+    def scopes(self) -> scoping.ScopeChoices:
+        """The groups and hosts a run may be narrowed to, from the inventory."""
+        return scoping.choices(scoping.table(self._document()))
+
+    def _document(self) -> str:
+        """The inventory as Ansible will read it, empty where there is none.
+
+        A machine with no inventory yet has every entry blocked by
+        INVENTORY_VALID, so an empty document here resolves to a scope with no
+        machine in it rather than to an error with no sentence.
+        """
+        try:
+            return self._inventory.raw()
+        except OSError as error:
+            logger.warning("Could not read the inventory to scope a run: %s", error)
+            return ""
+
+    def _scope(self, entry: PlaybookEntry, requested: RunScope | None) -> Scope:
+        """What this run plays, checked against the inventory it will use.
+
+        The default subtracts the guests from every playbook that names them,
+        which is what keeps a convergence of the machines from dying on a VM
+        nobody ever meant to reach with Ansible. See `app.runs.scope`.
+        """
+        try:
+            return scoping.plan(
+                entry.targets, scoping.table(self._document()), requested
+            )
+        except ScopeRefused as refused:
+            raise ApiError(
+                refused.code, refused.message, 400, refused.detail
+            ) from refused
+
     def _mode(self) -> Mode:
         state = self._inventory.state()
         return state.inventory.mode if state.inventory else Mode.STANDALONE
@@ -416,9 +479,16 @@ class RunService:
         check: bool = False,
         play: str | None = None,
         guest: str | None = None,
+        scope: RunScope | None = None,
     ) -> RunRecord:
+        # The scope first: it decides which machines the preconditions are
+        # about, and a scope naming a group the file does not declare is
+        # refused before anything is locked or written.
+        plan = self._scope(entry, scope)
         blocking = self._blocking(
-            entry, self._unmet_preconditions(), self._missing_playbooks()
+            entry,
+            self._unmet_preconditions(plan.hosts),
+            self._missing_playbooks(),
         )
         if blocking:
             # Named, never a bare 400: the operator has to know which condition
@@ -472,6 +542,8 @@ class RunService:
             collection_version=self.collection_version(),
             variables=chosen,
             guest=guest,
+            scope=plan.requested,
+            machines=plan.hosts,
         )
 
         # The lock before the directory: two operators must not converge the
@@ -508,7 +580,9 @@ class RunService:
             self._store.release(run_id)
             raise
 
-        request = self._request(record, entry, directory, staged, extra_vars, playbook)
+        request = self._request(
+            record, entry, directory, staged, extra_vars, playbook, plan.limit
+        )
         record.state = RunState.RUNNING
         record.started_at = datetime.now(tz=UTC)
         # Recorded before the thread starts, so the run view shows the exact
@@ -523,6 +597,11 @@ class RunService:
             user=launched_by,
             check=check,
             commit=state.commit,
+            # The audit trail says what was played, not only what was asked
+            # for: a convergence of one machine and a convergence of five are
+            # different acts under the same playbook name.
+            limit=plan.limit or "",
+            machines=",".join(plan.hosts or []),
         )
 
         thread = threading.Thread(
@@ -635,6 +714,7 @@ class RunService:
         staged: staging.Staging,
         extra_vars: dict[str, Any],
         playbook: str | None = None,
+        limit: str | None = None,
     ) -> RunRequest:
         return RunRequest(
             run_id=record.id,
@@ -649,6 +729,7 @@ class RunService:
             extra_key_files=self._paths.extra_key_files(),
             extra_vars=extra_vars,
             check=record.check,
+            limit=limit,
         )
 
     def _execute(self, record: RunRecord, request: RunRequest) -> None:

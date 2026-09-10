@@ -256,8 +256,9 @@ Four things have to be true of what lands there:
   touches only the lines it changes.
 
 One limit of M1 is worth knowing before importing a cluster inventory: a run
-plays every host the inventory declares, since the adapter passes no `--limit`,
-while M1 only provisions the trust between this node and itself. Applying
+plays every host the playbook's own pattern matches, which is every machine of
+the file for the commissioning path, while M1 only provisions the trust between
+this node and itself. Applying
 against the other machines fails on them, as unreachable, until the trust mesh
 of [cluster-join.md](cluster-join.md) exists at M3. Importing, reading and
 editing all work today.
