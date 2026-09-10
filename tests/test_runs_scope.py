@@ -17,7 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.runs import scope as scoping
-from app.runs.scope import RunScope, ScopeKind, ScopeRefused
+from app.runs.scope import RunScope, ScopeRefused
 
 CLUSTER = """
 all:
@@ -128,44 +128,59 @@ def test_the_guests_are_subtracted_from_an_unread_pattern_that_names_them() -> N
 
 
 def test_a_run_can_be_narrowed_to_one_group() -> None:
-    plan = scoping.plan(
-        MAIN, table(CLUSTER), RunScope(kind=ScopeKind.GROUP, name="hypervisors")
-    )
+    plan = scoping.plan(MAIN, table(CLUSTER), RunScope(groups=["hypervisors"]))
 
     assert plan.limit == "hypervisors"
     assert plan.hosts == ["node1", "node2"]
 
 
 def test_a_run_can_be_narrowed_to_one_machine() -> None:
-    plan = scoping.plan(
-        MAIN, table(CLUSTER), RunScope(kind=ScopeKind.HOST, name="node2")
-    )
+    plan = scoping.plan(MAIN, table(CLUSTER), RunScope(hosts=["node2"]))
 
     assert plan.limit == "node2"
     assert plan.hosts == ["node2"]
 
 
+def test_several_boxes_checked_join_as_the_union_ansible_reads() -> None:
+    """`--limit a:b` is every host of either, which is what checking both means."""
+    plan = scoping.plan(
+        MAIN, table(CLUSTER), RunScope(groups=["observers"], hosts=["node1", "guest1"])
+    )
+
+    # Sorted, groups first, so the same selection is the same command line
+    # twice and a run is comparable to the one before it.
+    assert plan.limit == "observers:guest1:node1"
+    assert plan.hosts == ["guest1", "node1", "node3"]
+
+
 def test_a_guest_named_on_purpose_is_played() -> None:
     """The escape hatch the default needs: one guest that is a SEAPATH machine."""
-    plan = scoping.plan(
-        MAIN, table(CLUSTER), RunScope(kind=ScopeKind.HOST, name="guest1")
-    )
+    plan = scoping.plan(MAIN, table(CLUSTER), RunScope(hosts=["guest1"]))
 
     assert plan.limit == "guest1"
     assert plan.hosts == ["guest1"]
     assert plan.excluded == []
 
 
+def test_the_single_choice_of_an_older_record_still_parses() -> None:
+    """0.3.66 wrote `{"kind", "name"}`, and the run history is files."""
+    older = RunScope.model_validate({"kind": "host", "name": "node2"})
+
+    assert older.hosts == ["node2"]
+    assert older.groups == []
+    assert RunScope.model_validate({"kind": "default", "name": None}).narrowed is False
+
+
 def test_a_group_the_inventory_does_not_declare_is_refused() -> None:
     with pytest.raises(ScopeRefused) as refused:
-        scoping.plan(MAIN, table(CLUSTER), RunScope(kind=ScopeKind.GROUP, name="mons"))
+        scoping.plan(MAIN, table(CLUSTER), RunScope(groups=["mons"]))
 
     assert refused.value.code == "unknown_group"
 
 
 def test_a_machine_the_inventory_does_not_declare_is_refused() -> None:
     with pytest.raises(ScopeRefused) as refused:
-        scoping.plan(MAIN, table(CLUSTER), RunScope(kind=ScopeKind.HOST, name="node9"))
+        scoping.plan(MAIN, table(CLUSTER), RunScope(hosts=["node9"]))
 
     assert refused.value.code == "unknown_host"
 
@@ -177,7 +192,7 @@ def test_a_narrowing_that_plays_nothing_is_refused_rather_than_run() -> None:
         scoping.plan(
             ["hypervisors:&cluster_machines"],
             table(CLUSTER),
-            RunScope(kind=ScopeKind.GROUP, name="observers"),
+            RunScope(groups=["observers"]),
         )
 
     assert refused.value.code == "empty_scope"
@@ -250,7 +265,7 @@ def test_a_convergence_of_the_machines_never_reaches_the_guests(
     command = record["command"]
     assert command[command.index("--limit") + 1] == "all:!VMs"
     assert record["machines"] == ["seapath-machine"]
-    assert record["scope"] == {"kind": "default", "name": None}
+    assert record["scope"] == {"groups": [], "hosts": []}
     wait_for(signed_in, record["id"])
 
 
@@ -259,13 +274,13 @@ def test_a_run_is_narrowed_to_what_the_caller_named(signed_in: TestClient) -> No
         "/api/v1/inventory/import", json={"document": STANDALONE_WITH_GUESTS}
     )
 
-    record = launch(signed_in, scope={"kind": "host", "name": "ABBICT"})
+    record = launch(signed_in, scope={"groups": [], "hosts": ["ABBICT"]})
 
     command = record["command"]
     assert command[command.index("--limit") + 1] == "ABBICT"
     # Kept on the record, so a relaunch repeats this run rather than a wider
     # one.
-    assert record["scope"] == {"kind": "host", "name": "ABBICT"}
+    assert record["scope"] == {"groups": [], "hosts": ["ABBICT"]}
     assert record["machines"] == ["ABBICT"]
     wait_for(signed_in, record["id"])
 
@@ -281,7 +296,7 @@ def test_a_scope_the_inventory_does_not_declare_is_refused_by_the_api(
         "/api/v1/runs",
         json={
             "playbook": "seapath_setup_main",
-            "scope": {"kind": "group", "name": "webservers"},
+            "scope": {"groups": ["webservers"]},
         },
     )
 
@@ -373,6 +388,22 @@ all:
 """
 
 
+def test_the_chooser_names_the_machines_this_node_cannot_reach(
+    signed_in: TestClient,
+) -> None:
+    """The one precondition a narrowing lifts travels with the choices.
+
+    Without it the deployment page draws an entry as unavailable, with the way
+    out on the far side of a button it has no reason to draw.
+    """
+    signed_in.post("/api/v1/inventory/import", json={"document": TWO_MACHINES})
+
+    choices = signed_in.get("/api/v1/playbooks/scopes").json()
+
+    assert choices["unreachable"] == ["node2"]
+    assert "seapath-machine" in choices["hosts"]
+
+
 def test_a_run_narrowed_to_a_machine_that_answers_is_not_refused_for_one_that_does_not(
     signed_in: TestClient,
 ) -> None:
@@ -396,7 +427,7 @@ def test_a_run_narrowed_to_a_machine_that_answers_is_not_refused_for_one_that_do
     record = launch(
         signed_in,
         playbook="seapath_setup_timemaster",
-        scope={"kind": "host", "name": "seapath-machine"},
+        scope={"hosts": ["seapath-machine"]},
     )
 
     assert record["machines"] == ["seapath-machine"]

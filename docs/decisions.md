@@ -2528,7 +2528,7 @@ where an operator can read it. The card and the confirmation name the guests
 being left out, so the two statements sit side by side rather than one quietly
 replacing the other.
 
-**A run can now be narrowed, to one group or one machine.** [D8](#d8) refuses a
+**A run can now be narrowed, to any set of groups and machines.** [D8](#d8) refuses a
 tag selector and that stands: tags were never a public interface, and a
 combination nobody has ever run is not a smaller version of a playbook. A host
 pattern is the interface Ansible documents and the first thing an operator
@@ -2557,6 +2557,17 @@ Three consequences were accepted deliberately.
   along with the others, which refuses more than strictly necessary. Reading
   another machine's `/etc/os-release` is not something this service does, and
   guessing would be worse than refusing.
+
+**The choice is made before Apply.** The first version put the selector inside
+the confirmation, which contradicted the screen: the card listed the groups, the
+operator pressed Apply expecting that list to be what runs, and was asked a
+question they had no reason to expect. So the card carries `Choose machines`
+beside Apply, the scope line on the card follows what was chosen, and the
+confirmation restates it. The window is checkboxes rather than one choice,
+because `--limit` takes a union and an operator converging two hypervisors
+should not have to launch twice. Nothing checked is the default, which is how
+the way back to the playbook's own scope stays a checkbox rather than a fourth
+control.
 
 The pattern matching behind the machine names is Ansible's, restricted to the
 operators the catalogue uses: union, intersection, exclusion and the subscript.

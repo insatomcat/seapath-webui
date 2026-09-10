@@ -87,17 +87,30 @@ created and started by the first play, on the machine, and the run no longer
 waits on a guest that was never going to answer. Narrow the run to a guest, or
 to the `VMs` group, to get the wait back.
 
-**A run can be narrowed, to one group or one machine.** The confirmation carries
-a selector: the whole scope above, any group the inventory declares, any host it
-declares, guests included. It becomes `--limit <name>`, and the name is checked
-against the file's own groups and hosts before it reaches a command line, which
-is what keeps it from being the free form field [D8](decisions.md#d8) refuses. A
-narrowing that would play no machine at all is refused rather than run, because
-Ansible accepts it and ends green having converged nothing.
+**A run can be narrowed, to any set of groups and machines.** The card carries a
+`Choose machines` button, beside Apply and before it, which opens a window of
+checkboxes: every group the inventory declares, every machine, every guest.
+Nothing checked is the playbook's own scope, so unchecking is the way back. What
+is checked joins with `:`, the union Ansible reads, and becomes the `--limit`.
+Every name is checked against the file's own groups and hosts before it reaches
+a command line, which is what keeps it from being the free form field
+[D8](decisions.md#d8) refuses. A narrowing that would play no machine at all is
+refused rather than run, because Ansible accepts it and ends green having
+converged nothing.
+
+`GET /playbooks/scopes` carries the machines this node cannot reach, and the
+window marks them, because `peer_reachable` is the one precondition a narrowing
+lifts: an entry blocked by a neighbour that is down still offers the chooser,
+and Apply comes back once what is checked is machines that answer.
+
+The choice is made before Apply and never inside it. An operator reads the scope
+line on the card, presses Apply and expects that line to be what runs; a
+selector that appeared in the confirmation contradicted the list they had just
+read. So the card line follows the choice, and the confirmation restates it.
 
 What a narrowed run is not is a smaller playbook. `cluster_setup_ha.yaml`
-limited to one member of three still forms no cluster, and the confirmation says
-so wherever a narrowing is chosen. Judging that is the operator's, exactly as it
+limited to one member of three still forms no cluster, and the window says so
+wherever a narrowing is chosen. Judging that is the operator's, exactly as it
 is when they run the same playbook from a control machine.
 
 The scope is recorded with the run, beside the variables, so a relaunch repeats

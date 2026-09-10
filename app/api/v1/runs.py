@@ -47,9 +47,10 @@ class LaunchRequest(BaseModel):
     scope: RunScope | None = Field(
         default=None,
         description=(
-            "Which machines to play. Omitted means the playbook's own hosts "
-            "minus the VMs group. A group or a host narrows the run, and the "
-            "name has to be one GET /playbooks/scopes offers"
+            "Which machines to play, as groups and hosts of the inventory. "
+            "Omitted, or both lists empty, means the playbook's own hosts "
+            "minus the VMs group. Every name has to be one "
+            "GET /playbooks/scopes offers"
         ),
     )
 

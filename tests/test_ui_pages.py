@@ -487,24 +487,60 @@ def test_the_apply_confirmation_says_what_it_will_disturb(
     assert "confirm-input" not in body
 
 
-def test_the_confirmation_chooses_the_machines_and_names_them(
+def test_the_machines_are_chosen_before_apply_and_never_inside_it(
     signed_in: TestClient,
 ) -> None:
     body = signed_in.get("/deployment").text
     script = signed_in.get("/static/deployment.js").text
 
-    # Which machines a run plays is decided beside the sentence that says what
-    # an apply disturbs, and the sentence is rebuilt when the choice changes:
-    # the confirmation has to name the machines this run will play, not the
-    # ones the playbook could play.
-    assert 'id="confirm-scope"' in body
-    assert 'id="confirm-scope-choice"' in body
-    assert "scopeSentence(item, scope.kind, scope.name)" in script
+    # An operator reads the list on the card, presses Apply and expects that
+    # list to be what runs. A selector inside the confirmation contradicted the
+    # line they had just read, so the choice is a button of its own beside
+    # Apply, in a window, and the card line follows it.
+    assert 'id="machines"' in body
+    assert 'id="machines-list"' in body
+    assert '"Choose machines"' in script
+    assert "chooseMachines(item, () => rerender(item))" in script
+    assert 'id="confirm-scope"' not in body
+    # And the confirmation restates what was chosen rather than asking again.
+    assert "scopeSentence(item, selection)" in script
+    assert "scope: selection," in script
     assert 'API.get("/playbooks/scopes")' in script
-    assert "scope: scope()," in script
-    # The guests the default leaves out are named where the scope line says
-    # `VMs`, so the two do not contradict each other.
-    assert "item.excluded" in script
+
+
+def test_an_entry_blocked_only_by_a_peer_still_offers_the_way_out(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/deployment.js").text
+
+    # Narrowing is what lifts `peer_reachable`, and a card that draws no button
+    # while a neighbour is down leaves the way out on the far side of a button
+    # it does not draw. So the chooser is offered there, and Apply comes back
+    # once the machines chosen are ones this node can reach.
+    assert 'item.unmet_codes.join() !== "peer_reachable"' in script
+    assert "availableWith(item, selection)" in script
+    assert "state.scopes.unreachable" in script
+
+
+def test_the_machines_are_checked_rather_than_picked_one_at_a_time(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
+    css = signed_in.get("/static/style.css").text
+
+    # Several groups and several machines at once, because `--limit` takes a
+    # union and an operator converging two hypervisors should not have to
+    # launch twice. Nothing checked is the default, which is how the way back
+    # to the playbook's own scope stays a checkbox rather than a fourth
+    # control.
+    assert 'input.type = "checkbox"' in script
+    assert "Nothing checked plays what the " in script
+    assert 'id="machines-played"' in body
+    # A site with forty guests must not push Cancel and Use these under the
+    # fold.
+    assert "#machines-list {" in css
+    assert "overflow-y: auto;" in css
 
 
 def test_the_reboot_is_declined_by_default_on_a_node_the_run_plays(

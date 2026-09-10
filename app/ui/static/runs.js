@@ -259,17 +259,25 @@
     return parts.join(", ") + " (" + (bytes / (1024 * 1024)).toFixed(1) + " MB)";
   }
 
+  // What the operator checked, groups and hosts together. Empty means the
+  // playbook's own scope.
+  function chosen(scope) {
+    return (scope.groups || []).concat(scope.hosts || []);
+  }
+
   // The scope a run was launched with, as one line.
   function describeScope(record) {
-    const scope = record.scope || { kind: "default" };
+    const scope = record.scope || {};
     // Null where the playbook's patterns were not read, which is a different
     // answer from an empty list: one is unknown, the other is a run that
     // played nothing.
     const machines = record.machines;
-    const named = machines === null || machines === undefined
-      ? "every machine the playbook plays"
-      : machines.join(", ") || "no machine of this inventory";
-    return scope.kind === "default" ? named : scope.name + " (" + named + ")";
+    const named =
+      machines === null || machines === undefined
+        ? "every machine the playbook plays"
+        : machines.join(", ") || "no machine of this inventory";
+    const narrowed = chosen(scope);
+    return narrowed.length ? narrowed.join(", ") + " (" + named + ")" : named;
   }
 
   function renderRecord(record) {
@@ -381,9 +389,9 @@
       "Relaunching is safe: the playbooks are idempotent, so converging again " +
       "is the recovery. It will run against this machine from the current " +
       "inventory, which may have changed since the run that failed." +
-      (scope.kind === "default"
-        ? ""
-        : " Narrowed to " + scope.name + ", as the original run was.");
+      (chosen(scope).length
+        ? " Narrowed to " + chosen(scope).join(", ") + ", as the original run was."
+        : "");
 
     // A relaunch repeats the run it relaunches, variables and scope included.
     // Dropping the variables silently would reboot a machine whose run was
@@ -391,7 +399,7 @@
     // off without the machine to remove. Dropping the scope would widen a run
     // that was narrowed to one machine on purpose.
     const variables = record.variables || {};
-    const scope = record.scope || { kind: "default", name: null };
+    const scope = record.scope || { groups: [], hosts: [] };
     const named = Object.keys(variables);
     const line = element("confirm-variables");
     line.textContent = named.length

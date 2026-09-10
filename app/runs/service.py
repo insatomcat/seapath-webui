@@ -435,8 +435,16 @@ class RunService:
         )
 
     def scopes(self) -> scoping.ScopeChoices:
-        """The groups and hosts a run may be narrowed to, from the inventory."""
-        return scoping.choices(scoping.table(self._document()))
+        """The groups and hosts a run may be narrowed to, from the inventory.
+
+        The machines this node cannot reach travel with them, because that is
+        the one precondition a narrowing lifts and the chooser is where an
+        operator lifts it.
+        """
+        return scoping.choices(
+            scoping.table(self._document()),
+            self._unreachable(self._inventory.state()),
+        )
 
     def _document(self) -> str:
         """The inventory as Ansible will read it, empty where there is none.

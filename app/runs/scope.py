@@ -22,13 +22,15 @@ seeing all of them. What the subtraction removes is the plays that reach *into*
 a guest: `detect_seapath_distro`, the prerequisites, the hardening, and the
 `wait_for_connection` of `deploy_vms_standalone`.
 
-**A run can be narrowed, to one group or one machine.** [D8](decisions.md#d8)
+**A run can be narrowed, to any set of groups and machines.** [D8](decisions.md#d8)
 refuses a tag selector and that stands: tags were never a public interface, and
 a combination nobody has run is not a smaller version of a playbook. A host
 pattern is a different thing. It is the interface Ansible documents, an
 operator running the same playbook from a control machine reaches for `--limit`
 first, and the narrowing is checked here against the inventory rather than
-typed: a group the file declares, or a host it declares, and nothing else.
+typed: groups the file declares, hosts it declares, and nothing else. Several
+of them join with `:`, which is the union Ansible reads and what checking
+several boxes means.
 
 What a narrowed run is not is a smaller playbook. `cluster_setup_ha` limited to
 one member of three still forms no cluster. The UI says so where the choice is
@@ -42,32 +44,47 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.inventory.model import GUEST_GROUP
 from app.inventory.resolve import ROOT, Group, groups, members
 
 
-class ScopeKind(str, Enum):
-    DEFAULT = "default"
-    """Every host the playbook plays, minus the guests."""
-    GROUP = "group"
-    HOST = "host"
-
-
 class RunScope(BaseModel):
     """What a caller asked the run to be narrowed to.
 
-    Two fields rather than a pattern string, because a pattern string is the
-    free form field this service refuses to have: `name` is checked against the
-    inventory before it reaches a command line.
+    Two lists of names rather than a pattern string, because a pattern string
+    is the free form field this service refuses to have: every name here is
+    checked against the inventory before it reaches a command line. Both empty
+    means the playbook's own scope, minus the guests.
     """
 
-    kind: ScopeKind = ScopeKind.DEFAULT
-    name: str | None = None
+    groups: list[str] = Field(default_factory=list)
+    hosts: list[str] = Field(default_factory=list)
+
+    @property
+    def narrowed(self) -> bool:
+        return bool(self.groups or self.hosts)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_the_single_choice(cls, data: Any) -> Any:
+        """The shape 0.3.66 wrote, which is still on disk.
+
+        That version took one group or one host, as `{"kind", "name"}`. The
+        run history is files, so a record written then has to keep parsing
+        into the record a run view reads.
+        """
+        if not isinstance(data, dict) or not data.get("name"):
+            return data
+        kind, name = data.get("kind"), data["name"]
+        if kind == "group":
+            return {"groups": [name], "hosts": []}
+        if kind == "host":
+            return {"groups": [], "hosts": [name]}
+        return data
 
 
 @dataclass(frozen=True)
@@ -110,6 +127,13 @@ class ScopeChoices(BaseModel):
     hosts: list[str] = Field(default_factory=list)
     guests: list[str] = Field(default_factory=list)
     guest_group: str = GUEST_GROUP
+    unreachable: list[str] = Field(default_factory=list)
+    """The machines this node holds no way of reaching, named where it matters.
+
+    A run of the whole inventory is refused while one of them is in it, and a
+    run narrowed to the machines that answer is not. The chooser is where an
+    operator acts on that, so it is where the list belongs.
+    """
 
 
 def table(document: str | dict[str, Any]) -> dict[str, Group]:
@@ -122,7 +146,7 @@ def table(document: str | dict[str, Any]) -> dict[str, Group]:
     return groups(document)
 
 
-def choices(table: dict[str, Group]) -> ScopeChoices:
+def choices(table: dict[str, Group], unreachable: Sequence[str] = ()) -> ScopeChoices:
     """Every group and every host a scope may name.
 
     Read from the file rather than from the typed model, because an adopted
@@ -138,6 +162,7 @@ def choices(table: dict[str, Group]) -> ScopeChoices:
         groups=[group for group in named if group.hosts],
         hosts=sorted(members(table, ROOT)),
         guests=sorted(members(table, GUEST_GROUP)),
+        unreachable=sorted(unreachable),
     )
 
 
@@ -151,17 +176,16 @@ def plan(
     played = _matching(table, targets)
     guests = members(table, GUEST_GROUP)
 
-    if asked.kind is ScopeKind.DEFAULT:
+    if not asked.narrowed:
         return _default(targets, played, guests, asked)
 
-    name = (asked.name or "").strip()
-    if not name:
-        raise ScopeRefused(
-            "invalid_scope",
-            f"A {asked.kind.value} scope has to name one.",
-            {"kind": asked.kind.value},
-        )
-    selected = _selected(table, asked.kind, name)
+    chosen = sorted(set(asked.groups)), sorted(set(asked.hosts))
+    selected: set[str] = set()
+    for name in chosen[0]:
+        selected |= _group(table, name)
+    for name in chosen[1]:
+        selected |= _host(table, name)
+
     narrowed = selected if played is None else selected & played
     if not narrowed:
         # Ansible would accept this and play nothing, ending green on a
@@ -169,12 +193,15 @@ def plan(
         # can still be read.
         raise ScopeRefused(
             "empty_scope",
-            f"{name} holds none of the hosts this playbook plays "
-            f"({', '.join(targets)}).",
-            {"scope": name, "targets": list(targets)},
+            f"{', '.join(chosen[0] + chosen[1])} holds none of the hosts this "
+            f"playbook plays ({', '.join(targets)}).",
+            {"scope": chosen[0] + chosen[1], "targets": list(targets)},
         )
     return Scope(
-        limit=name,
+        # A union, which is what checking several boxes means and what Ansible
+        # reads a colon separated list as. Sorted, so the same selection is
+        # the same command line twice.
+        limit=":".join(chosen[0] + chosen[1]),
         hosts=sorted(narrowed),
         excluded=[],
         requested=asked,
@@ -218,16 +245,17 @@ def _without(played: set[str] | None, guests: set[str]) -> list[str] | None:
     return None if played is None else sorted(played - guests)
 
 
-def _selected(table: dict[str, Group], kind: ScopeKind, name: str) -> set[str]:
-    if kind is ScopeKind.GROUP:
-        if name not in table or (name != ROOT and not members(table, name)):
-            raise ScopeRefused(
-                "unknown_group",
-                f"{name} is not a group of this inventory, or holds no host.",
-                {"groups": sorted(n for n in table if n != ROOT)},
-            )
-        return members(table, name)
+def _group(table: dict[str, Group], name: str) -> set[str]:
+    if name not in table or (name != ROOT and not members(table, name)):
+        raise ScopeRefused(
+            "unknown_group",
+            f"{name} is not a group of this inventory, or holds no host.",
+            {"groups": sorted(n for n in table if n != ROOT)},
+        )
+    return members(table, name)
 
+
+def _host(table: dict[str, Group], name: str) -> set[str]:
     hosts = members(table, ROOT)
     if name not in hosts:
         raise ScopeRefused(

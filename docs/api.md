@@ -216,7 +216,7 @@ starts. `409 no_replicas` where the inventory declares no other machine, and
 | Method | Path | Description |
 |---|---|---|
 | GET | `/playbooks` | Every playbook the installed collection carries: targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them. `reviewed` says whether a human wrote the entry or this service read it off the collection, `derivation` carries what the reading counted (plays, tasks, command driven tasks, roles, imports), and `distribution` names the one SEAPATH distribution an entry configures, set on the five prerequisites entries and on nothing else. `machines` resolves the entry's targets against the current inventory, `excluded` names the guests the default scope leaves out |
-| GET | `/playbooks/scopes` | What a run may be narrowed to: every group of the inventory with its hosts, every host, and which of them are guests |
+| GET | `/playbooks/scopes` | What a run may be narrowed to: every group of the inventory with its hosts, every host, which of them are guests, and `unreachable`, the machines this node holds no way of reaching. That last list is the one precondition a narrowing lifts, so the chooser can say which boxes will get the run refused |
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode, and the scope |
 | GET | `/runs` | History, most recent first |
 | GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used |
@@ -233,20 +233,24 @@ no collection from a service that could not answer.
 `POST /runs` takes a playbook from the catalogue and, optionally, `check: true`
 for a preview. It refuses a tag list, and it refuses a host pattern as text.
 
-What it does take is a `scope`: `{"kind": "default"}`, `{"kind": "group",
-"name": "hypervisors"}` or `{"kind": "host", "name": "node2"}`. The name is
-checked against the groups and hosts the inventory declares, which is what makes
-it a choice from a list rather than the free form field this API refuses to
-have, and it becomes `--limit <name>` on the command line the run records.
+What it does take is a `scope`: `{"groups": ["hypervisors"], "hosts": ["node2",
+"guest3"]}`. Every name is checked against the groups and hosts the inventory
+declares, which is what makes it a choice from a list rather than the free form
+field this API refuses to have. The names join with `:`, the union Ansible
+reads, and become the `--limit` on the command line the run records.
 `400 unknown_group`, `400 unknown_host`, and `400 empty_scope` where the
 narrowing and the playbook's own targets have no machine in common, a
 combination Ansible accepts and ends green having converged nothing.
 
-Omitting `scope` means the playbook's own hosts, minus the `VMs` group:
-`--limit all:!VMs` wherever the playbook names the guests, and no limit
-otherwise. [playbooks.md](playbooks.md) §2bis has the reasoning. The record
-carries the scope it was launched with and the machines it resolved to, so a
-relaunch repeats that run rather than a wider one.
+Omitting `scope`, or sending two empty lists, means the playbook's own hosts,
+minus the `VMs` group: `--limit all:!VMs` wherever the playbook names the
+guests, and no limit otherwise. [playbooks.md](playbooks.md) §2bis has the
+reasoning. The record carries the scope it was launched with and the machines
+it resolved to, so a relaunch repeats that run rather than a wider one.
+
+0.3.66 took one name, as `{"kind": "group", "name": "hypervisors"}`. A record
+written then still parses, folded into the lists, because the run history is
+files.
 
 The only accepted variables are the ones the catalogue entry declares, each with
 a type and a validation rule. Today that is `machine_to_remove` for

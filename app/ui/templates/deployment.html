@@ -203,23 +203,30 @@ SPDX-License-Identifier: Apache-2.0
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>
-    {#
-    Which machines this run plays. The default is the playbook's own hosts
-    without the VMs group, and narrowing it is a choice made here, beside the
-    sentence that says what an apply disturbs, rather than a setting somewhere
-    else on the page.
-    #}
-    <div class="field" id="confirm-scope" hidden>
-      <label for="confirm-scope-choice">Machines</label>
-      <select id="confirm-scope-choice"></select>
-      <p class="help" id="confirm-scope-help"></p>
-    </div>
     <div id="confirm-variables" hidden></div>
     <p class="warning" id="confirm-reboot" hidden></p>
     <p class="error" id="confirm-error" hidden></p>
     <div class="actions">
       <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
       <button type="button" id="confirm-go" disabled>Apply</button>
+    </div>
+  </div>
+</div>
+{#
+Which machines a run plays, chosen before Apply rather than inside it. The card
+says what it will play and Apply confirms exactly that: a choice that appeared
+after the button would contradict the list the operator just read.
+#}
+<div class="modal" id="machines" data-dismiss="machines-cancel" hidden>
+  <div class="modal-body">
+    <h2 id="machines-title"></h2>
+    <p class="help" id="machines-lead"></p>
+    <div id="machines-list"></div>
+    <p id="machines-played"></p>
+    <p class="warning" id="machines-narrowed" hidden></p>
+    <div class="actions">
+      <button type="button" id="machines-cancel" class="secondary">Cancel</button>
+      <button type="button" id="machines-go">Use these</button>
     </div>
   </div>
 </div>
