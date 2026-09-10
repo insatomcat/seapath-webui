@@ -184,7 +184,10 @@ SPDX-License-Identifier: Apache-2.0
           versions it holds, and nothing else. Choosing one writes the tag
           into the inventory as a commit, on every machine that names an
           image, and then asks for the same confirmation as any other apply.
-          A node with no route to a registry says so and keeps working.
+          A node with no route to a registry says so and keeps working. When
+          the inventory already names a version this service is not the one
+          answering, the button below applies it: the commit is there and only
+          the run is missing.
         </p>
         <p class="error" id="update-error" hidden></p>
         <p class="help" id="update-latest" hidden></p>

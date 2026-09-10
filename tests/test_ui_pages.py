@@ -340,6 +340,28 @@ def test_the_deployment_page_offers_the_version_the_registry_holds(
     assert "confirmRun(item, false)" in script
 
 
+def test_a_version_the_inventory_already_names_is_offered_as_an_apply(
+    signed_in: TestClient,
+) -> None:
+    """The gap the registry cannot close.
+
+    The tag is committed and this machine is still answering with the old
+    version, which is the state an operator lands in by cancelling the
+    confirmation once. It is a run away, and the panel that says so offers it.
+    """
+    script = signed_in.get("/static/deployment.js").text
+
+    # Rendered from this node's own answer, so the button is there before
+    # anything asks a registry, and hidden from a viewer like every other write
+    # on this page.
+    assert "if (state.update && state.update.pending)" in script
+    assert 'go.textContent = "Apply " + state.update.wanted' in script
+    assert "go.hidden = !admin" in script
+    # And it launches the catalogue entry the inventory itself names, with the
+    # confirmation every other convergence gets.
+    assert "applyService(\n      state.update.playbook," in script
+
+
 def test_the_commissioning_playbook_is_the_page_and_the_rest_is_a_list(
     signed_in: TestClient,
 ) -> None:

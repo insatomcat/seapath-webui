@@ -142,6 +142,7 @@
         "This service is the version the inventory names for this machine.";
       note.className = "help";
     }
+    renderUpdateAction();
     renderCollectionState();
     return update;
   }
@@ -168,10 +169,13 @@
   }
 
   function renderLatest() {
+    renderLatestLine();
+    renderUpdateAction();
+  }
+
+  function renderLatestLine() {
     const line = element("update-latest");
-    const go = element("update-go");
     const latest = state.latest;
-    go.hidden = true;
     if (!latest) {
       line.hidden = true;
       return;
@@ -197,10 +201,39 @@
       latest.pinned + " the inventory names for " +
       latest.machines.join(", ") + ".";
     line.className = "help warn";
-    // Writing it is an administrator's act, like every other write to the
-    // desired state on this page.
-    go.hidden = !Chrome.isAdmin(state.me);
-    go.textContent = "Pin " + latest.latest + " and apply";
+  }
+
+  // One button under the summary, and which of the two gaps is open decides
+  // what it does. A registry holding a version above the pinned one is a
+  // commit and then a run. An inventory naming a version other than the one
+  // answering is the run alone: the desired state is already written, and what
+  // is missing is the convergence that reaches it. An operator lands in that
+  // second state by pinning and then cancelling the confirmation, and after
+  // any apply that did not reach this machine. Saying an apply is due and
+  // offering nothing to do it with leaves them to hunt for the playbook card.
+  function renderUpdateAction() {
+    const go = element("update-go");
+    // Writing the desired state and applying it are both an administrator's
+    // act, like every other one on this page.
+    const admin = Chrome.isAdmin(state.me);
+    if (pinnable()) {
+      go.hidden = !admin;
+      go.textContent = "Pin " + state.latest.latest + " and apply";
+      return;
+    }
+    if (state.update && state.update.pending) {
+      go.hidden = !admin;
+      go.textContent = "Apply " + state.update.wanted;
+      return;
+    }
+    go.hidden = true;
+  }
+
+  // Whether the registry answered with something the inventory does not name
+  // yet, which is the only case where the button writes before it runs.
+  function pinnable() {
+    const latest = state.latest;
+    return Boolean(latest && !latest.reason && latest.newer);
   }
 
   // Two acts behind one button, and they stay two acts. The commit happens
@@ -235,24 +268,42 @@
     if (!pinned) {
       return;
     }
-    const item = state.catalogue.find((row) => row.entry.id === pinned.playbook);
-    if (!item || !item.available) {
-      // The inventory now names the new version, and this node cannot apply
-      // it. Said here rather than swallowed: the commit is real either way.
-      error.textContent =
-        "The inventory now names " + pinned.image + ". Applying it is " +
-        (item
-          ? item.entry.title + ", which is not available here: " +
-            item.unmet.join(" ")
-          : "a playbook this collection does not ship.");
-      error.hidden = false;
+    applyService(pinned.playbook, "The inventory now names " + pinned.image + ".");
+  }
+
+  // The run that replaces this service, which is the catalogue entry the cards
+  // below launch, with the confirmation they all get. `lead` names the click
+  // being answered: a node that cannot run the playbook has to be told so in
+  // the terms of what was just asked of it, and after a pin the commit is real
+  // whether the run happens or not.
+  function applyService(playbook, lead) {
+    const item = state.catalogue.find((row) => row.entry.id === playbook);
+    if (item && item.available) {
+      confirmRun(item, false);
       return;
     }
-    confirmRun(item, false);
+    const error = element("update-error");
+    error.textContent =
+      lead + " Applying it is " +
+      (item
+        ? item.entry.title + ", which is not available here: " +
+          item.unmet.join(" ")
+        : "a playbook this collection does not ship.");
+    error.hidden = false;
   }
 
   element("update-check").addEventListener("click", loadLatest);
-  element("update-go").addEventListener("click", pinAndApply);
+  element("update-go").addEventListener("click", () => {
+    element("update-error").hidden = true;
+    if (pinnable()) {
+      pinAndApply();
+      return;
+    }
+    applyService(
+      state.update.playbook,
+      "The inventory names " + state.update.wanted + " for this machine."
+    );
+  });
 
   // The shut summary line carries both halves, so which code this node runs is
   // answerable without opening the panel.
