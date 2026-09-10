@@ -79,9 +79,20 @@ RUN set -eu; \
 # prepare.sh installs the local collection before it updates the git submodules
 # and fetches the Cockpit plugins, so the collection it installed is missing the
 # submodule contents. Installing it again, after those steps, brings them in.
+#
+# The `rm` drops a collection tree from inside the collection. prepare.sh has
+# already installed the dependencies into /src/collections by now, so the
+# artefact built from /src carries them: `build_ignore` in galaxy.yml does not
+# list `collections/`, and community.general, ansible.posix, containers.podman
+# and openstack end up under the SEAPATH collection as well as beside it. The
+# copies that matter are the ones at the root of /opt/ansible/collections,
+# which is where ansible-runner resolves them; the nested ones are shipped
+# twice and resolved never. Deleting them here rather than installing
+# elsewhere keeps prepare.sh's own layout untouched.
 RUN ansible-galaxy collection install --collections-path=/src/collections --force . && \
     mkdir -p /opt/ansible && \
-    cp -a /src/collections /opt/ansible/collections
+    cp -a /src/collections /opt/ansible/collections && \
+    rm -rf /opt/ansible/collections/ansible_collections/seapath/ansible/collections
 
 # Restore the two Cockpit plugin archives. `build_ignore` in galaxy.yml lists
 # "*.tar.gz", and ansible-galaxy matches those patterns against the whole

@@ -83,6 +83,19 @@ _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # from the other side.
 _MINIMUM_IDENTIFIERS = 500
 
+# A collection that carries a collection tree of its own is read for its own
+# roles and for nothing else. The image builds the SEAPATH collection from a
+# working tree where `prepare.sh` has already installed the dependencies under
+# `collections/`, and `build_ignore` does not drop that directory, so the
+# artefact ships `community.general`, `ansible.posix`, `containers.podman` and
+# `openstack` inside itself. Reading them costs twice: a completion offers
+# variables of roles no SEAPATH playbook runs, and `mentioned` grows four
+# collections of identifiers, which is the set that decides whether to warn
+# that nothing reads a name. A site installing its own collection under
+# `site_collections_dir` is not built here at all, so the guard belongs in the
+# walk rather than in the packaging.
+_NESTED = "ansible_collections"
+
 # A markdown table is a header row, a rule, then the rows. The rule is what
 # says the row above it was a header.
 _TABLE_RULE = re.compile(r"^\|[\s:|-]+\|$")
@@ -164,6 +177,8 @@ def read(root: Path | None, fingerprint: str | None = None) -> Lexicon | None:
     found = False
     for path in sorted(directory.rglob("*")):
         if not path.is_file():
+            continue
+        if _NESTED in path.relative_to(directory).parts:
             continue
         if path.name == "README.md":
             text = _text(path)

@@ -761,6 +761,20 @@ a list of variable names, since all of them are tables of the same shape in the
 same files. On the installed collection this yields 202 declarations, of which
 some ninety carry a sentence written by whoever wrote the role.
 
+**A collection tree inside the collection is skipped.** The image installs the
+SEAPATH collection from a working tree where `prepare.sh` has already put the
+dependencies under `collections/`, and `build_ignore` does not drop that
+directory, so the artefact carries `community.general`, `ansible.posix`,
+`containers.podman` and `openstack` inside itself as well as beside itself. On
+a node running such a build the scan read all four, and the vocabulary answered
+809 terms instead of 251: variables of roles no SEAPATH playbook runs, offered
+while an operator types an inventory. `mentioned` grew by the same four
+collections, which is worse, since it is the set that decides whether to say
+that nothing reads a name. The walk now skips any path holding an
+`ansible_collections` segment below the root. The packaging drops the tree too,
+and the guard stays: a site installs its own collection under
+`site_collections_dir` and that one is not built here.
+
 The prose of a README stays out of `mentioned`. Feeding it every English word
 of the documentation would answer "something here knows this name" for half the
 typos an operator can make, and take the warning that catches a misspelling

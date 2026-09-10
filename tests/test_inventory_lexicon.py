@@ -272,3 +272,38 @@ def test_a_tree_that_is_not_a_collection_is_not_answered_from(tmp_path: Path) ->
     # A README and nothing else: too little was read to say what this
     # collection does and does not know.
     assert read(root, "test") is None
+
+
+def test_a_collection_shipped_inside_the_collection_is_not_read(
+    tmp_path: Path,
+) -> None:
+    """The image ships four dependencies twice, and only one copy is resolved.
+
+    `prepare.sh` installs the dependencies into the working tree the artefact
+    is then built from, so the SEAPATH collection carries `community.general`
+    and three others inside itself. Reading them offers an operator variables
+    of roles no SEAPATH playbook runs, and it grows `mentioned` by four
+    collections, which is the set that decides whether to say that nothing
+    reads a name.
+    """
+    nested = "collections/ansible_collections/community/general"
+    root = _collection(
+        tmp_path,
+        {
+            "roles/deploy_seapath_alloc/README.md": README,
+            f"{nested}/roles/keycloak/README.md": (
+                "| Variable | Comments |\n|---|---|\n"
+                "| `keycloak_realm` | The realm |\n"
+            ),
+            f"{nested}/roles/keycloak/defaults/main.yml": "keycloak_port: 8080\n",
+            f"{nested}/plugins/modules/bad_beers.py.yml": "bad_beers: true\n",
+        },
+    )
+
+    found = read(root, "test")
+
+    assert found is not None
+    assert "seapath_alloc_strategy" in found.declarations
+    assert "keycloak_realm" not in found.declarations
+    assert "keycloak_port" not in found.declarations
+    assert not found.knows("bad_beers")
