@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.69 - 2026-09-10
+
+- fix: the update panel offers the apply the inventory already asks for
+
 ## 0.3.68 - 2026-09-10
 
 - feat: the machines a run plays are chosen before Apply, by checkbox
