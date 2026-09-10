@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.66 - 2026-09-10
+
+- feat: a run leaves the guests out, and can be narrowed
+
 ## 0.3.65 - 2026-09-09
 
 - feat: the seed proposes a resolver instead of none
