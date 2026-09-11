@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.73 - 2026-09-11
+
+- feat: the pinning profile field offers a basic profile
+
 ## 0.3.72 - 2026-09-11
 
 - fix: an upload refused by a reverse proxy says so
