@@ -845,18 +845,16 @@
     element("guest-table").hidden = !(view.guests || []).length;
   }
 
-  // The filter, with how many guests each choice lists. The undeclared ones
-  // count as well: a resource Pacemaker runs is a cluster guest, and a domain
-  // on a machine Pacemaker does not answer for is a standalone one.
+  // The filter, with how many rows of the table each choice lists. The count
+  // sits on the guest table and is read against it, so it counts the guests
+  // the inventory declares and nothing else. The filter still narrows the
+  // undeclared panel beside it, whose own rows say how many there are.
   function renderFilter(view) {
-    const counts = {
-      cluster: (view.undeclared || []).length,
-      standalone: (view.undeclared_domains || []).length,
-    };
+    const counts = { cluster: 0, standalone: 0 };
     (view.guests || []).forEach((guest) => {
       counts[guest.deployment] = (counts[guest.deployment] || 0) + 1;
     });
-    counts.all = counts.cluster + counts.standalone;
+    counts.all = (view.guests || []).length;
     const box = element("filter");
     box.hidden = !counts.all;
     box.querySelectorAll("button").forEach((button) => {
