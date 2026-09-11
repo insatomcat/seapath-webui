@@ -111,6 +111,27 @@ def _tuning(
     return "\n".join(lines) + "\n"
 
 
+def _clock(
+    level: int = 2,
+    clock_class: int = 6,
+    accuracy: str = "0x21",
+    gm: str = "ec4670.fffe.0aadd5",
+) -> str:
+    """node_exporter's timex series, and the block ptpstatus writes beside it."""
+    return (
+        "node_timex_sync_status 1\n"
+        "node_timex_offset_seconds 0.000000210\n"
+        "node_timex_estimated_error_seconds 0.000002\n"
+        "node_timex_maxerror_seconds 0.0154\n"
+        f'seapath_ptp_info{{gm_present="true",gm_identity="{gm}",'
+        f'clock_class="{clock_class}",clock_accuracy="{accuracy}",'
+        f'port_state="SLAVE"}} 1\n'
+        f"seapath_ptp_smpsynch {level}\n"
+        "seapath_ptp_master_offset_seconds -0.000000012\n"
+        f"seapath_ptp_timestamp_seconds {time.time() - 3:.3f}\n"
+    )
+
+
 def _machine(occupied: dict[int, dict[str, str]], isolated: range) -> str:
     """Twelve cores, two threads each, in the reference topology."""
     lines = [
@@ -206,7 +227,13 @@ _NODE1 = (
     # The containers of the golden inventory: the exporter's own quadlet runs
     # on every machine, and the site's nginx is the one Pacemaker holds, so it
     # runs here and is inactive on the other member.
-    + _units(("node-exporter.service", "active"), ("nginxquadlet.service", "active"))
+    + _units(
+        ("node-exporter.service", "active"),
+        ("nginxquadlet.service", "active"),
+        ("timemaster.service", "active"),
+        ("ptpstatus.service", "active"),
+    )
+    + _clock()
 )
 _BUSY = (
     _BUSY
@@ -220,7 +247,15 @@ _BUSY = (
     # Its exporter quadlet failed, which is the row the Containers page exists
     # to show: the file was uploaded, the unit exists, and the container is
     # down on one machine of three.
-    + _units(("node-exporter.service", "failed"), ("nginxquadlet.service", "inactive"))
+    + _units(
+        ("node-exporter.service", "failed"),
+        ("nginxquadlet.service", "inactive"),
+        ("timemaster.service", "active"),
+        ("ptpstatus.service", "active"),
+    )
+    # Following a boundary clock with no GPS behind it, which is SmpSynch 1:
+    # the finding a substation that lost its antenna reads here.
+    + _clock(level=1, clock_class=248, accuracy="0xfe", gm="3c8b7f.fffe.d63f00")
 )
 
 # Keyed by what the reader actually puts in the URL, which is the inventory's

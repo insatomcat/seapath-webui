@@ -212,6 +212,14 @@ class RealtimeService:
         of emptying the column. That is the machine D27 was defending, the one
         where nothing has been deployed yet.
         """
+        # The clock is judged apart from the tuning, and on any node whose
+        # exporter said something about it: timex is node_exporter's own, so a
+        # node with no seapath-alloc yet still has a clock worth reading.
+        clock = (
+            checks_module.clock(node.clock, declared)
+            if node.clock is not None and node.clock.published
+            else []
+        )
         if node.reading is None:
             if node.host == this_host:
                 local = self.conformance()
@@ -219,14 +227,18 @@ class RealtimeService:
                 node.kernel_cmdline = local.cpu.kernel_cmdline or ""
                 node.tuning_error = ""
                 node.checks = local.checks
+            node.checks = [*node.checks, *clock]
             return
-        node.checks = checks_module.run(
-            node.reading,
-            CpuReading(
-                isolated=node.isolated,
-                kernel_cmdline=node.kernel_cmdline or None,
-            ),
-            declared,
+        node.checks = (
+            checks_module.run(
+                node.reading,
+                CpuReading(
+                    isolated=node.isolated,
+                    kernel_cmdline=node.kernel_cmdline or None,
+                ),
+                declared,
+            )
+            + clock
         )
 
     def _local_node(self) -> NodePool:

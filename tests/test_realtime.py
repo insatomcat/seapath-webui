@@ -466,3 +466,138 @@ def test_a_machine_with_no_inventory_still_has_a_conformance_column() -> None:
     assert pool.nodes[0].host == "n1"
     assert len(pool.nodes[0].checks) == 10
     assert pool.available is False
+
+
+# The clock: whether chrony holds it, and the PTP level the guests stamp.
+
+from app.cluster.timesync import ClockReading, PtpReading  # noqa: E402
+from app.services import checks as checks_module  # noqa: E402
+
+_HYPERVISOR = NodeConfig(
+    ansible_host="10.0.0.1",
+    network_interface="eno1",
+    ptp_interface="eno2",
+    ntp_servers=["10.0.0.254"],
+)
+
+
+def _clock(**changes: Any) -> dict[str, Any]:
+    reading = ClockReading(
+        synchronised=True,
+        estimated_error_seconds=0.000002,
+        max_error_seconds=0.0154,
+        timemaster="active",
+        ptpstatus="active",
+        ptp=PtpReading(
+            smpsynch=2,
+            gm_present=True,
+            gm_identity="ec4670.fffe.0aadd5",
+            clock_class=6,
+            clock_accuracy="0x21",
+            port_state="SLAVE",
+            age_seconds=3,
+        ),
+    )
+    reading = reading.model_copy(update=changes)
+    return {check.id: check for check in checks_module.clock(reading, _HYPERVISOR)}
+
+
+def test_a_clock_chrony_holds_and_a_global_grandmaster_both_pass() -> None:
+    found = _clock()
+
+    assert found["clock_sync"].status is Status.OK
+    assert found["clock_sync"].observed == "synchronised, within 2.0 us"
+    # The sources the inventory declares are said, which is the NTP answer.
+    assert "10.0.0.254" in found["clock_sync"].detail
+    assert found["ptp"].status is Status.OK
+    assert found["ptp"].observed == "2, global"
+    assert "100 ns" in found["ptp"].detail
+
+
+def test_a_grandmaster_with_no_global_reference_is_level_one_and_a_finding() -> None:
+    found = _clock(
+        ptp=PtpReading(
+            smpsynch=1, clock_class=248, clock_accuracy="0xfe", age_seconds=1
+        )
+    )
+
+    assert found["ptp"].status is Status.WARNING
+    assert found["ptp"].observed == "1, local"
+    assert "clockClass 248" in found["ptp"].detail
+
+
+def test_no_grandmaster_at_all_is_level_zero() -> None:
+    found = _clock(ptp=PtpReading(smpsynch=0, gm_present=False, age_seconds=1))
+
+    assert found["ptp"].status is Status.WARNING
+    assert found["ptp"].observed == "0, no grandmaster"
+    assert "eno2" in found["ptp"].detail
+
+
+def test_an_unsynchronised_kernel_clock_is_a_finding() -> None:
+    found = _clock(synchronised=False)
+
+    assert found["clock_sync"].status is Status.WARNING
+    assert found["clock_sync"].observed == "not synchronised"
+
+
+def test_a_stopped_timemaster_is_read_before_the_flag_it_leaves_behind() -> None:
+    # The kernel keeps its synchronised flag for hours after the last
+    # correction, so the flag alone would call this clock fine.
+    found = _clock(timemaster="failed")
+
+    assert found["clock_sync"].status is Status.WARNING
+    assert found["clock_sync"].observed == "timemaster failed"
+
+
+def test_a_declared_ptp_interface_with_nothing_published_names_what_adds_it() -> None:
+    found = _clock(ptp=None)
+
+    assert found["ptp"].status is Status.UNKNOWN
+    assert found["ptp"].observed == "not published"
+    assert "ptp_status_vsock" in found["ptp"].detail
+
+
+def test_a_machine_with_no_ptp_interface_is_told_so_rather_than_failed() -> None:
+    reading = ClockReading(synchronised=True, timemaster="active")
+    declared = NodeConfig(ansible_host="10.0.0.1", network_interface="eno1")
+
+    found = {check.id: check for check in checks_module.clock(reading, declared)}
+
+    assert found["ptp"].status is Status.INFO
+    assert found["ptp"].observed == "not configured"
+
+
+def test_a_ptp_reading_ptpstatus_stopped_rewriting_is_stale() -> None:
+    found = _clock(ptp=PtpReading(smpsynch=2, age_seconds=600))
+
+    assert found["ptp"].status is Status.UNKNOWN
+    assert found["ptp"].observed.startswith("stale")
+
+
+_CLOCK = (
+    "node_timex_sync_status 1\n"
+    "node_timex_estimated_error_seconds 0.000002\n"
+    'node_systemd_unit_state{name="timemaster.service",state="active"} 1\n'
+    'seapath_ptp_info{gm_present="true",gm_identity="ec4670.fffe.0aadd5",'
+    'clock_class="248",clock_accuracy="0xfe",port_state="SLAVE"} 1\n'
+    "seapath_ptp_smpsynch 1\n"
+)
+
+
+def test_a_node_s_clock_arrives_with_its_tuning_and_adds_two_rows() -> None:
+    nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7", _TUNING + _CLOCK)})
+
+    node2 = {check.id: check for check in nodes["node2"].checks}
+
+    assert len(node2) == 12
+    assert node2["clock_sync"].status is Status.OK
+    assert node2["ptp"].observed == "1, local"
+
+
+def test_a_node_with_no_seapath_alloc_still_has_its_clock_judged() -> None:
+    # timex is node_exporter's own, so the clock is readable on a machine
+    # where deploy_seapath_alloc has not run.
+    nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7", _CLOCK)})
+
+    assert [check.id for check in nodes["node2"].checks] == ["clock_sync", "ptp"]

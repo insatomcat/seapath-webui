@@ -2575,3 +2575,36 @@ It feeds the sentence an operator reads before confirming, never the run itself,
 which carries the playbook's own patterns and the limit. A pattern it cannot
 read, a wildcard in a derived entry, is reported as unread rather than answered
 with a guess.
+
+## D40 - Settled: the clock is read from the exposition, and the PTP level is published by ptpstatus
+
+A sampled value carries the time of the machine that produced it, so whether
+a hypervisor's clock is synchronised belongs to the real time question beside
+the isolated cores. The Real time page answers it with two rows of the
+conformance matrix, for every machine, and adds no scrape to do it.
+
+**The kernel clock comes from `node_exporter`.** Its default `timex`
+collector publishes the flag chrony maintains, and chrony is what `timemaster`
+runs whatever feeds it, an NTP server or the PTP hardware clock. So one flag
+answers "is this clock synchronised" for both protocols, with chrony's own
+error bounds beside it. The `systemd` collector adds the state of
+`timemaster.service`, which is read first: the kernel keeps its synchronised
+flag for hours after the last correction, and a clock nobody disciplines any
+more would otherwise read as fine.
+
+**The PTP level is published by `ptpstatus`, upstream.** `ptp_status_vsock`
+already runs `ptpstatus.sh`, which asks `pmc` every second and derives the IEC
+61850-9-2 `SmpSynch` the guests are told over vsock: 2 for a grandmaster
+traceable to a global reference, 1 for one that is not, 0 for none. It wrote
+that to `/var/run/ptpstatus`, which no exporter reads. It now also writes
+`seapath_ptp_*` to the textfile directory `seapath-alloc` writes to, every ten
+seconds and at once on a change, which is D27's move again: the host computes,
+the exporter publishes, this service reads one current value. Asking `pmc`
+from here would have meant an SSH command per page refresh, or a second
+implementation of a derivation the guests already depend on.
+
+What was accepted: a node running a collection older than that change reports
+`not published` on the PTP row where its inventory declares a PTP interface,
+and names `ptp_status_vsock` as what adds it. The NTP side stops at chrony's
+own flag and bounds: which source chrony selected is `chronyc tracking`, which
+nothing publishes yet.

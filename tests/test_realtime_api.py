@@ -375,6 +375,10 @@ def test_every_node_carries_its_conformance_beside_its_pool(
         "transparent_hugepages",
         "irq_affinity",
         "acpi",
+        # The clock, from the same exposition: timex, the units, and the
+        # block ptpstatus writes.
+        "clock_sync",
+        "ptp",
     }
     # The raw values the checks were formed from, for an automation client
     # asking the same question of a machine it cannot log into.

@@ -39,9 +39,10 @@ from enum import Enum
 
 from pydantic import BaseModel
 
+from app.cluster.timesync import ClockReading, PtpReading
 from app.hosts.local import parse_cpu_list
 from app.hosts.models import CpuReading, RealtimeReading
-from app.inventory.model import NodeConfig
+from app.inventory.model import NodeConfig, Role
 
 # What `configure_hypervisor` selects once the inventory carries `isolcpus`.
 # The role gates the whole tuned block on that variable, so a hypervisor with
@@ -531,6 +532,258 @@ def _acpi(reading: RealtimeReading) -> Check:
             "this page. hwlatdetect is what measures them."
         ),
     )
+
+
+# The clock. Two rows, because they answer two questions: whether chrony holds
+# the kernel clock at all, whatever feeds it, and what PTP level the guests on
+# this machine will stamp into their sampled values.
+
+# A reading `ptpstatus` has not rewritten for this long is a `ptpstatus` that
+# stopped: it rewrites the file every few seconds while it runs.
+PTP_STALE_SECONDS = 60.0
+
+# IEEE 1588 clockAccuracy, for the values a substation grandmaster announces.
+_ACCURACY = {
+    "0x20": "25 ns",
+    "0x21": "100 ns",
+    "0x22": "250 ns",
+    "0x23": "1 us",
+    "0x24": "2.5 us",
+    "0x25": "10 us",
+    "0x26": "25 us",
+    "0x27": "100 us",
+    "0xfe": "unknown",
+}
+
+
+def clock(reading: ClockReading, declared: NodeConfig | None) -> list[Check]:
+    """The two clock checks, for a node whose exporter published its clock."""
+    return [_clock_sync(reading, declared), _ptp(reading, declared)]
+
+
+def _sources(declared: NodeConfig | None) -> str:
+    """What the inventory asks this machine to synchronise to, as a sentence."""
+    if declared is None:
+        return "This machine has no inventory entry, so no source is declared for it."
+    parts = []
+    if declared.ptp_interface:
+        parts.append(f"PTP on {declared.ptp_interface}")
+    if declared.ntp_servers:
+        parts.append(f"the NTP servers {', '.join(declared.ntp_servers)}")
+    if not parts:
+        return (
+            "The inventory declares neither ntp_servers nor a ptp_interface for "
+            "this machine, so chrony runs on the distribution's own sources."
+        )
+    return f"The inventory declares {' and '.join(parts)}."
+
+
+def _clock_sync(reading: ClockReading, declared: NodeConfig | None) -> Check:
+    """Whether chrony, under timemaster, holds the kernel clock.
+
+    The kernel's flag rather than a protocol's view, because chrony is what
+    disciplines the clock whether its source is an NTP server or the PTP
+    hardware clock, and it is the flag chrony maintains.
+    """
+    kind = (
+        Kind.CONFORMANCE
+        if declared is not None and (declared.ptp_interface or declared.ntp_servers)
+        else Kind.ADVICE
+    )
+    sources = _sources(declared)
+    base = {"id": "clock_sync", "title": "Clock synchronisation", "kind": kind}
+    # The unit first. The kernel keeps its synchronised flag for hours after
+    # the last correction, so a clock nobody is disciplining any more still
+    # reads as synchronised until the error bound runs out.
+    if reading.timemaster is not None and reading.timemaster != "active":
+        return Check(
+            **base,
+            status=Status.WARNING,
+            observed=f"timemaster {reading.timemaster}",
+            detail=(
+                f"timemaster starts chrony, and ptp4l where a PTP interface is "
+                f"declared, so with it {reading.timemaster} nothing disciplines "
+                "this clock. seapath_setup_timemaster is the playbook that "
+                f"configures it. {sources}"
+            ),
+        )
+    if reading.synchronised is None:
+        return Check(
+            **base,
+            status=Status.UNKNOWN,
+            observed="unknown",
+            detail=(
+                "node_exporter published no timex reading, so whether chrony "
+                f"holds this clock cannot be read here. {sources}"
+            ),
+        )
+    if not reading.synchronised:
+        return Check(
+            **base,
+            status=Status.WARNING,
+            observed="not synchronised",
+            detail=(
+                "The kernel flags this clock unsynchronised: chrony holds no "
+                "source it trusts, so what this machine and its guests stamp "
+                f"drifts from the rest of the substation. {sources}"
+            ),
+        )
+    error = reading.estimated_error_seconds
+    bounds = []
+    if error is not None:
+        bounds.append(f"estimated error {_duration(error)}")
+    if reading.max_error_seconds is not None:
+        bounds.append(f"maximum error {_duration(reading.max_error_seconds)}")
+    return Check(
+        **base,
+        status=Status.OK,
+        observed="synchronised" + (f", within {_duration(error)}" if error else ""),
+        detail=(
+            "chrony holds the kernel clock"
+            + (f", {', '.join(bounds)}" if bounds else "")
+            + f". {sources}"
+        ),
+    )
+
+
+def _ptp(reading: ClockReading, declared: NodeConfig | None) -> Check:
+    """The IEC 61850-9-2 `SmpSynch` this machine's guests stamp, from ptpstatus."""
+    interface = declared.ptp_interface if declared is not None else None
+    ptp = reading.ptp
+    base = {"id": "ptp", "title": "PTP (SmpSynch)"}
+    if ptp is None:
+        if not interface:
+            observer = declared is not None and declared.role is Role.OBSERVER
+            return Check(
+                **base,
+                kind=Kind.ADVICE,
+                status=Status.INFO,
+                observed="not configured",
+                detail=(
+                    "An observer receives no sampled values, so it needs no PTP."
+                    if observer
+                    else "The inventory declares no ptp_interface for this "
+                    "machine, so timemaster runs chrony on NTP alone and nothing "
+                    "derives an SmpSynch. A hypervisor running IEC 61850 guests "
+                    "needs one."
+                ),
+            )
+        unit = (
+            f" ptpstatus.service is {reading.ptpstatus} on this machine."
+            if reading.ptpstatus
+            else ""
+        )
+        return Check(
+            **base,
+            kind=Kind.CONFORMANCE,
+            status=Status.UNKNOWN,
+            observed="not published",
+            detail=(
+                f"The inventory declares PTP on {interface}, and this node "
+                "publishes no seapath_ptp_* series. ptp_status_vsock from a "
+                "collection whose ptpstatus writes them to node_exporter's "
+                "textfile directory is what adds them; until then the clock row "
+                f"is the only reading.{unit}"
+            ),
+        )
+
+    kind = Kind.CONFORMANCE if interface else Kind.ADVICE
+    if ptp.age_seconds is not None and ptp.age_seconds > PTP_STALE_SECONDS:
+        return Check(
+            **base,
+            kind=kind,
+            status=Status.UNKNOWN,
+            observed=f"stale, {int(ptp.age_seconds)}s old",
+            detail=(
+                "ptpstatus rewrites this every few seconds, so a reading this "
+                "old is a ptpstatus that stopped"
+                + (
+                    f": ptpstatus.service is {reading.ptpstatus}."
+                    if reading.ptpstatus
+                    else "."
+                )
+            ),
+        )
+
+    grandmaster = _grandmaster(ptp)
+    if ptp.smpsynch == 2:
+        return Check(
+            **base,
+            kind=kind,
+            status=Status.OK,
+            observed="2, global",
+            detail=(
+                f"{grandmaster} Traceable to a global reference, which is what "
+                "SmpSynch 2 in the guests' sampled values says."
+            ),
+        )
+    if ptp.smpsynch == 1:
+        return Check(
+            **base,
+            kind=kind,
+            status=Status.WARNING,
+            observed="1, local",
+            detail=(
+                f"{grandmaster} A grandmaster answers and it is not traceable "
+                "to a global reference: level 2 needs clockClass 6 or 7 with an "
+                "accuracy of 1 us or better. A GPS lost beyond holdover, or a "
+                "boundary clock that took over as grandmaster, reads like this. "
+                "The guests here agree with each other and not with the grid."
+            ),
+        )
+    if ptp.smpsynch == 0:
+        return Check(
+            **base,
+            kind=kind,
+            status=Status.WARNING,
+            observed="0, no grandmaster",
+            detail=(
+                "No grandmaster: ptp4l"
+                + (f" on {interface}" if interface else "")
+                + " hears no announce, so the PTP hardware clock runs free and "
+                "the guests stamp SmpSynch 0."
+                + (f" Port state {ptp.port_state}." if ptp.port_state else "")
+            ),
+        )
+    return Check(
+        **base,
+        kind=kind,
+        status=Status.UNKNOWN,
+        observed="unknown",
+        detail="ptpstatus published its block with no SmpSynch value in it.",
+    )
+
+
+def _grandmaster(ptp: PtpReading) -> str:
+    """The grandmaster and this machine's view of it, in one sentence."""
+    parts = []
+    if ptp.gm_identity:
+        parts.append(f"Grandmaster {ptp.gm_identity}")
+    if ptp.clock_class is not None:
+        parts.append(f"clockClass {ptp.clock_class}")
+    if ptp.clock_accuracy:
+        meaning = _ACCURACY.get(ptp.clock_accuracy.lower())
+        parts.append(
+            f"accuracy {ptp.clock_accuracy}" + (f" ({meaning})" if meaning else "")
+        )
+    if ptp.port_state:
+        parts.append(f"port {ptp.port_state}")
+    if ptp.offset_seconds is not None:
+        parts.append(f"offset {_duration(ptp.offset_seconds)}")
+    return (", ".join(parts) + ".") if parts else ""
+
+
+def _duration(seconds: float) -> str:
+    """A small time the way an operator reads it, signed when it is an offset."""
+    magnitude = abs(seconds)
+    sign = "-" if seconds < 0 else ""
+    if magnitude < 1e-6:
+        return f"{sign}{magnitude * 1e9:.0f} ns"
+    if magnitude < 1e-3:
+        return f"{sign}{magnitude * 1e6:.1f} us"
+    if magnitude < 1:
+        return f"{sign}{magnitude * 1e3:.1f} ms"
+    return f"{sign}{magnitude:.1f} s"
 
 
 def _sizes(pools: list) -> set[int]:

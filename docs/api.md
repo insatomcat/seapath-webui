@@ -435,6 +435,21 @@ whichever node's page it is read from. Its own files answer when that exporter
 says nothing, which is the machine with no collector deployed yet, and
 `GET /api/v1/realtime` reports them alone.
 
+Two more rows answer for the clock, on every node whose exporter publishes it,
+and on a node with no `seapath-alloc` yet as well, since the readings are
+`node_exporter`'s own:
+
+| Check | Read from | What it says |
+|---|---|---|
+| `clock_sync` | `node_timex_*` and the `timemaster.service` unit state | Whether chrony, started by `timemaster`, holds the kernel clock, with its estimated and maximum error, and the NTP servers and PTP interface the inventory declares. A `timemaster` that is not active is reported first, because the kernel keeps its synchronised flag for hours after the last correction |
+| `ptp` | `seapath_ptp_*`, written by `ptpstatus` to the textfile directory | The IEC 61850-9-2 `SmpSynch` of the machine: `2` for a grandmaster traceable to a global reference (clockClass 6 or 7, accuracy 1 us or better), `1` for a grandmaster that is not, `0` for none, with the grandmaster identity, clockClass, accuracy, port state and offset. `not published` where the inventory declares a PTP interface and the node publishes no block, `stale` where `ptpstatus` stopped rewriting it |
+
+The `seapath_ptp_*` block is `seapath_ptp_info{gm_present, gm_identity,
+clock_class, clock_accuracy, port_state}`, `seapath_ptp_smpsynch`,
+`seapath_ptp_master_offset_seconds` and `seapath_ptp_timestamp_seconds`.
+`ptpstatus.sh` already computes all of it from `pmc` every second; publishing
+it beside the pool is what lets this page read it without asking `pmc` again.
+
 Every check carries a `kind`, `conformance` where the inventory declares a
 value and `advice` where nothing does. `isolcpus` and the tuned profile it
 selects are the two conformance checks: the comparison has an action behind it,

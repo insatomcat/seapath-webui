@@ -44,13 +44,14 @@ import time
 
 from pydantic import BaseModel, Field, computed_field
 
-from app.cluster import metrics, tuning
+from app.cluster import metrics, timesync, tuning
 from app.cluster.exporters import (
     Exposition,
     MetricsClient,
     UrllibMetricsClient,
     read_all,
 )
+from app.cluster.timesync import ClockReading
 from app.hosts.models import RealtimeReading
 from app.services.checks import Check
 
@@ -132,6 +133,13 @@ class NodePool(BaseModel):
     """
     kernel_cmdline: str = ""
     tuning_error: str = ""
+    clock: ClockReading | None = None
+    """Whether this node's clock is synchronised, and to what PTP level.
+
+    Read from the same exposition, from `node_exporter`'s timex and systemd
+    collectors and the `seapath_ptp_*` block `ptpstatus` writes beside the
+    pool. None only when the node did not answer.
+    """
     checks: list[Check] = Field(default_factory=list)
     """The same ten checks the local machine gets, run against this node.
 
@@ -208,6 +216,7 @@ class PoolReader:
         series = exposition.series
         reading, cmdline = tuning.read(series)
         release, model = tuning.kernel(series)
+        clock = timesync.read(series)
         if _CPU_DETAIL not in series:
             # The kernel still comes back from node_exporter's own series, so
             # a node with no allocator says which kernel it booted rather than
@@ -223,6 +232,7 @@ class PoolReader:
                 ),
                 kernel=release,
                 preemption=model,
+                clock=clock,
             )
         return NodePool(
             host=host,
@@ -255,6 +265,7 @@ class PoolReader:
             tuning_error="" if reading else _NO_TUNING,
             kernel=release,
             preemption=model,
+            clock=clock,
         )
 
 
