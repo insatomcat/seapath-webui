@@ -2749,6 +2749,25 @@ td.recreated {
   margin-top: 0.3rem;
 }
 
+/* A label with a button that fills its field. The row carries the spacing the
+   label carries on its own elsewhere, so the fields keep one rhythm. */
+.modal-body .field-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.modal-body .field-head label {
+  margin-top: 0;
+}
+
+.modal-body .field-head button {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.8rem;
+}
+
 td.meta-value {
   max-width: 32rem;
 }

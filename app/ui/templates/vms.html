@@ -249,7 +249,12 @@ image and losing its disk. D31 records the bounds.
         the one knob on the element it builds.
       </p>
 
-      <label for="add-profile">CPU pinning profile</label>
+      <div class="field-head">
+        <label for="add-profile">CPU pinning profile</label>
+        <button type="button" id="add-profile-basic" class="secondary">
+          Use the basic profile
+        </button>
+      </div>
       <textarea id="add-profile" rows="6" spellcheck="false" wrap="off"
         placeholder="version: 1&#10;vcpus:&#10;  isolation: exclusive_physical&#10;  scheduler: FIFO&#10;  priority: 90"></textarea>
       <p class="help">

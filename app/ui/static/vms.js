@@ -1013,6 +1013,32 @@
     element("add-migration").hidden = !event.target.checked;
   });
 
+  // The profile most guests want: every vCPU on a logical CPU of its own, in
+  // FIFO at the lowest real time priority. A starting point typed for the
+  // operator, who edits it in the field like any profile of their own.
+  const BASIC_PROFILE = [
+    "version: 1",
+    "vcpus:",
+    "  isolation: exclusive_logical",
+    "  scheduler: FIFO",
+    "  priority: 1",
+    "",
+  ].join("\n");
+
+  element("add-profile-basic").addEventListener("click", () => {
+    const field = element("add-profile");
+    const current = field.value.trim();
+    if (
+      current &&
+      current !== BASIC_PROFILE.trim() &&
+      !window.confirm("Replace the profile in the field with the basic one?")
+    ) {
+      return;
+    }
+    field.value = BASIC_PROFILE;
+    field.focus();
+  });
+
   // What the form holds beyond the three files, which is what
   // `cluster_vm create` is given and what the image's metadata then carries.
   function declaration() {
