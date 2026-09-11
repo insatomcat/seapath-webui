@@ -81,7 +81,7 @@ const API = (function () {
 
     if (!response.ok) {
       const detail = (payload && payload.error) || {};
-      const failure = new Error(detail.message || response.statusText);
+      const failure = new Error(detail.message || unexplained(response));
       failure.code = detail.code || "error";
       failure.status = response.status;
       // The envelope's detail carries the failing rules, which is the whole
@@ -90,6 +90,23 @@ const API = (function () {
       throw failure;
     }
     return payload;
+  }
+
+  // A refusal without the envelope was written by something in front of the
+  // service, a reverse proxy most of the time, and its status text alone sends
+  // the operator looking in the wrong place.
+  function unexplained(response) {
+    if (response.status === 413) {
+      return (
+        "The upload was refused before it reached this service (HTTP 413). " +
+        "A reverse proxy in front of it limits the size of a request: nginx " +
+        "takes one megabyte unless client_max_body_size says otherwise."
+      );
+    }
+    return (
+      (response.statusText || "The request failed") +
+      " (HTTP " + response.status + ")"
+    );
   }
 
   return {

@@ -689,6 +689,13 @@ location /seapath/ {
     proxy_set_header Connection $connection_upgrade;
     proxy_buffering off;
     proxy_read_timeout 3600s;
+
+    # A VM image goes through as it arrives. nginx otherwise refuses any body
+    # above one megabyte with a bare 413, and spools the rest to its own disk
+    # before the service sees a byte of a twenty gigabyte upload. The service
+    # watches the room left on its artefact partition itself.
+    client_max_body_size 0;
+    proxy_request_buffering off;
 }
 ```
 
