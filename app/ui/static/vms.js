@@ -977,6 +977,7 @@
     gateDeployment();
     if (open) {
       element("add-error").hidden = true;
+      element("add-replace").hidden = true;
       element("add-steps").hidden = true;
       element("add-name").focus();
     }
@@ -1104,12 +1105,24 @@
     return element("add-where").hidden ? mode : field.value;
   }
 
-  async function addGuest() {
+  // The files the last attempt stored, so that a retry after a refusal sends
+  // none of them again. The disk image can be twenty gigabytes.
+  let sent = null;
+
+  function declaredAlready(name) {
+    return ((lastView && lastView.guests) || []).some(
+      (guest) => guest.name === name
+    );
+  }
+
+  async function addGuest(replace) {
     const name = element("add-name").value.trim();
     const disk = element("add-disk").files[0];
     const xml = element("add-xml").files[0];
     const error = element("add-error");
+    const replaceButton = element("add-replace");
     error.hidden = true;
+    replaceButton.hidden = true;
 
     if (!name || !disk || !xml) {
       error.textContent =
@@ -1119,13 +1132,36 @@
       return;
     }
 
+    // Asked before the upload rather than after it: the declaration is the
+    // third step, and learning there that the name is taken costs the whole
+    // disk image in transfer.
+    if (!replace && declaredAlready(name)) {
+      error.textContent =
+        name +
+        " is already declared in this inventory, typically by an earlier " +
+        "attempt. Replacing its declaration writes this form over it and " +
+        "deploys it. A guest the hypervisor already runs under that name is " +
+        "left as it is.";
+      error.hidden = false;
+      replaceButton.hidden = false;
+      return;
+    }
+
     gzipped = disk.name.endsWith(".gz");
     const diskPath = stored(name, disk.name);
     const xmlPath = stored(name, xml.name);
+    const already =
+      sent !== null &&
+      sent.disk === disk &&
+      sent.xml === xml &&
+      sent.diskPath === diskPath &&
+      sent.xmlPath === xmlPath;
     const progress = steps([
-      "Uploading " + diskPath,
-      "Committing " + xmlPath,
-      "Declaring " + name + " in the inventory",
+      (already ? "Already uploaded: " : "Uploading ") + diskPath,
+      (already ? "Already committed: " : "Committing ") + xmlPath,
+      (replace ? "Replacing the declaration of " : "Declaring ") +
+        name +
+        " in the inventory",
       "Launching the deployment",
     ]);
 
@@ -1133,13 +1169,19 @@
     go.disabled = true;
     go.setAttribute("aria-busy", "true");
     try {
-      progress.at(0, "doing");
-      await API.upload("/inventory/artefacts/" + diskPath, disk);
-      progress.at(0, "done");
+      if (already) {
+        progress.at(0, "done");
+        progress.at(1, "done");
+      } else {
+        progress.at(0, "doing");
+        await API.upload("/inventory/artefacts/" + diskPath, disk);
+        progress.at(0, "done");
 
-      progress.at(1, "doing");
-      await API.upload("/inventory/files/" + xmlPath, xml);
-      progress.at(1, "done");
+        progress.at(1, "doing");
+        await API.upload("/inventory/files/" + xmlPath, xml);
+        progress.at(1, "done");
+        sent = { disk, xml, diskPath, xmlPath };
+      }
 
       progress.at(2, "doing");
       const entry = Object.assign(
@@ -1147,6 +1189,9 @@
         declaration()
       );
       entry[xmlVariable(xml.name)] = "../" + xmlPath;
+      if (replace) {
+        entry.replace = true;
+      }
       const declared = await API.post("/vms", entry);
       progress.at(2, "done");
 
@@ -1167,6 +1212,11 @@
       // nothing has to be uploaded twice.
       error.textContent = failure.message;
       error.hidden = false;
+      // The page's reading of the inventory can be older than the file,
+      // when another administrator declared the name in between.
+      if (failure.code === "guest_exists") {
+        replaceButton.hidden = false;
+      }
     } finally {
       go.disabled = false;
       go.removeAttribute("aria-busy");
@@ -1175,7 +1225,13 @@
 
   element("add").addEventListener("click", () => showAdd(true));
   element("add-cancel").addEventListener("click", () => showAdd(false));
-  element("add-go").addEventListener("click", addGuest);
+  element("add-go").addEventListener("click", () => addGuest(false));
+  element("add-replace").addEventListener("click", () => addGuest(true));
+  // The offer is about the name that was refused, and a different name is a
+  // new question.
+  element("add-name").addEventListener("input", () => {
+    element("add-replace").hidden = true;
+  });
 
   // What this page is made of: the declaration of every guest joined to what
   // the cluster is doing with it. One request, and the three renders that

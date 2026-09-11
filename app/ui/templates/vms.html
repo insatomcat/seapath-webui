@@ -282,6 +282,12 @@ image and losing its disk. D31 records the bounds.
 
     <div class="card-actions">
       <button type="button" id="add-go">Add and deploy</button>
+      {# Offered only once a declaration was refused because the name is a
+         guest the inventory already declares, typically by an attempt that
+         failed after declaring it. #}
+      <button type="button" id="add-replace" hidden>
+        Replace its declaration and deploy
+      </button>
       <button type="button" id="add-cancel" class="secondary">Cancel</button>
     </div>
 

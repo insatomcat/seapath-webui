@@ -22,10 +22,12 @@ from app.inventory.artefacts import ArtefactStore
 from app.inventory.assistance import Assistance, assist
 from app.inventory.discovery import Discovery, discover, seed_inventory
 from app.inventory.editor import (
+    GuestDeclared,
     Scope,
     UneditableInventory,
     add_guest,
     edit,
+    guest_entry,
     set_variables,
 )
 from app.inventory.fidelity import Divergence, unintended_changes
@@ -80,6 +82,14 @@ class RefusedWrite(Exception):
     def __init__(self, message: str, divergences: list[Divergence]) -> None:
         super().__init__(message)
         self.divergences = divergences
+
+
+class GuestExists(RefusedWrite):
+    """The name is a guest the file already declares.
+
+    The one refusal of a declaration with a remedy the caller can offer, which
+    is the same declaration with `replace`.
+    """
 
 
 class InventoryState(BaseModel):
@@ -477,6 +487,7 @@ class InventoryService:
         author: str,
         expected_head: str | None = None,
         group: str = GUEST_GROUP,
+        replace: bool = False,
     ) -> tuple[Commit, ValidationResult]:
         """Add one guest to the `VMs` group, as a commit like any other.
 
@@ -489,6 +500,10 @@ class InventoryService:
         The write is a splice and it is checked the way every other write is,
         with one addition: exactly this host may appear, and nothing else may
         move.
+
+        `replace` writes over a guest the file already declares. The check
+        then holds that its entry alone changed: what the old entry carried and
+        the new one leaves out is intended gone, and no host may appear.
         """
         document = self._repository.read()
         if not document.strip():
@@ -497,12 +512,23 @@ class InventoryService:
                 "to declare a guest in.",
                 [],
             )
+        previous = guest_entry(document, name) if replace else None
         try:
-            edited = add_guest(document, name, variables, group)
+            edited = add_guest(document, name, variables, group, replace=replace)
+        except GuestDeclared as error:
+            raise GuestExists(str(error), []) from error
         except UneditableInventory as error:
             raise RefusedWrite(str(error), []) from error
 
-        unintended = unintended_changes(document, edited, {name: variables}, {name})
+        intended = dict(variables)
+        if previous is not None:
+            intended.update({key: None for key in previous if key not in variables})
+        unintended = unintended_changes(
+            document,
+            edited,
+            {name: intended},
+            set() if previous is not None else {name},
+        )
         if unintended:
             raise RefusedWrite(
                 f"Declaring {name} could not be written without changing other "
@@ -514,13 +540,18 @@ class InventoryService:
         if not result.valid:
             raise ImportRefused(result.errors()[0].message, result)
 
+        replaced = previous is not None
         commit = self._repository.commit(
             content=edited,
-            message=f"vms: declare {name}",
+            message=(
+                f"vms: replace the declaration of {name}"
+                if replaced
+                else f"vms: declare {name}"
+            ),
             author=author,
             expected_head=expected_head,
         )
-        logger.info("Declared the guest %s", name)
+        logger.info("%s the guest %s", "Redeclared" if replaced else "Declared", name)
         return commit, result
 
     def declare_container(

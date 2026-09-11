@@ -25,7 +25,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
-from app.inventory.editor import UneditableInventory, add_guest
+from app.inventory.editor import (
+    GuestDeclared,
+    UneditableInventory,
+    add_guest,
+    guest_entry,
+)
 from app.inventory.fidelity import unintended_changes
 from app.inventory.parser import parse
 from app.inventory.resolve import resolve
@@ -277,3 +282,86 @@ def test_a_host_that_appears_without_being_asked_for_is_a_refusal() -> None:
 
     assert [d.kind for d in divergences] == ["host_added"]
     assert divergences[0].hosts == ["ABB15"]
+
+
+# 4. Replacing one, which is how a second attempt at adding it goes through.
+
+RTVM = """\
+    rtvm:
+      vm_template: "../templates/vm/guest.xml.j2"
+      vm_disk: "../files/guest.qcow2"
+      force: true
+      vm_features: ["rt", "isolated"]
+      cpuset: [4, 5]
+"""
+
+
+def test_a_guest_name_and_a_machine_name_are_refused_apart() -> None:
+    # The page offers a replacement for the first and nothing for the second.
+    document = OURS.read_text() + GUESTS
+
+    with pytest.raises(GuestDeclared):
+        add_guest(document, "rtvm", {})
+    with pytest.raises(UneditableInventory) as refused:
+        add_guest(document, "seapath-machine", {}, replace=True)
+    assert not isinstance(refused.value, GuestDeclared)
+
+
+def test_a_replacement_writes_over_the_entry_and_nothing_else() -> None:
+    document = OURS.read_text() + GUESTS
+
+    edited = add_guest(
+        document, "rtvm", {"vm_disk": "../files/rtvm.qcow2"}, replace=True
+    )
+
+    # Byte for byte, the file is the old one with this entry swapped.
+    assert edited == document.replace(
+        RTVM, "    rtvm:\n      vm_disk: ../files/rtvm.qcow2\n"
+    )
+
+
+def test_a_replacement_passes_the_check_every_declaration_gets() -> None:
+    # What the old entry carried and the new one leaves out is intended gone,
+    # and no host may appear.
+    document = OURS.read_text() + GUESTS
+    variables = {"vm_disk": "../files/rtvm.qcow2"}
+    previous = guest_entry(document, "rtvm")
+    edited = add_guest(document, "rtvm", variables, replace=True)
+
+    intended = dict(variables)
+    intended.update({key: None for key in previous if key not in variables})
+
+    assert unintended_changes(document, edited, {"rtvm": intended}, set()) == []
+
+
+def test_the_entry_of_a_guest_is_its_own_variables_alone() -> None:
+    document = OURS.read_text() + GUESTS
+
+    # The group's `ansible_user` belongs to the group, which a replacement
+    # leaves alone.
+    assert set(guest_entry(document, "rtvm")) == {
+        "vm_template",
+        "vm_disk",
+        "force",
+        "vm_features",
+        "cpuset",
+    }
+    assert guest_entry(document, "seapath-machine") is None
+    assert guest_entry(document, "absent") is None
+
+
+def test_a_replacement_does_not_move_a_guest_to_the_other_deployment() -> None:
+    document = OURS.read_text() + (
+        "\nVMs:\n"
+        "  children:\n"
+        "    standalone_VMs:\n"
+        "      hosts:\n"
+        "        rtvm:\n"
+        '          vm_disk: "../files/guest.qcow2"\n'
+    )
+
+    with pytest.raises(UneditableInventory):
+        add_guest(document, "rtvm", {}, group="cluster_VMs", replace=True)
+    # Its own group, or the flat `VMs` a caller names by default, is fine.
+    add_guest(document, "rtvm", {}, group="standalone_VMs", replace=True)
+    add_guest(document, "rtvm", {}, replace=True)

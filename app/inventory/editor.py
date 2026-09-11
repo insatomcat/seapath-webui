@@ -47,6 +47,15 @@ class UneditableInventory(Exception):
     """
 
 
+class GuestDeclared(UneditableInventory):
+    """The name belongs to a guest the file already declares.
+
+    Told apart from a machine of the same name because it has a remedy: the
+    declaration written over the entry, on request. A machine is refused
+    either way.
+    """
+
+
 def edit(document: str, changes: dict[str, dict[str, Any]]) -> str:
     """Apply per host variable changes, touching only the lines they occupy."""
     if not changes:
@@ -402,7 +411,11 @@ def _members(table: dict, name: str) -> set[str]:
 
 
 def add_guest(
-    document: str, name: str, variables: dict[str, Any], group: str = GUEST_GROUP
+    document: str,
+    name: str,
+    variables: dict[str, Any],
+    group: str = GUEST_GROUP,
+    replace: bool = False,
 ) -> str:
     """Declare a guest in `VMs`, or in one of its two deployment children.
 
@@ -416,6 +429,11 @@ def add_guest(
     The entry is spliced in like every other change, so the rest of the file
     survives byte for byte, and `fidelity` checks afterwards that exactly this
     host appeared and nothing else moved.
+
+    `replace` writes the entry over a guest of that name the file already
+    declares, in the group it sits in, which is what a second attempt at adding
+    the same guest needs. The old entry goes whole, comments included, since
+    the form describes the guest completely.
     """
     yaml = _yaml()
     loaded = yaml.load(document)
@@ -425,10 +443,16 @@ def add_guest(
         raise UneditableInventory("The inventory is not a mapping of groups.")
 
     if name in resolve(document):
-        raise UneditableInventory(
+        declared = _declared_guest(loaded, name)
+        taken = (
             f"{name} is already in this inventory. A guest is named after the "
             "libvirt domain it becomes, so two of them cannot share a name."
         )
+        if declared is None:
+            raise UneditableInventory(taken)
+        if not replace:
+            raise GuestDeclared(taken)
+        return _replace_guest(document, declared, name, variables, group)
 
     lines = document.splitlines(keepends=True)
     body = _named_group(loaded, group)
@@ -439,6 +463,66 @@ def add_guest(
     else:
         splice = _deployment_group(lines, loaded, group, name, variables)
     lines[splice.start : splice.end] = splice.replacement
+    return "".join(lines)
+
+
+def guest_entry(document: str, name: str) -> dict[str, Any] | None:
+    """The variables a declared guest's own entry carries.
+
+    None when the file declares no guest of that name. Group variables are left
+    out, because a replacement writes the entry and never the group.
+    """
+    loaded = _yaml().load(document)
+    if not isinstance(loaded, dict):
+        return None
+    declared = _declared_guest(loaded, name)
+    if declared is None:
+        return None
+    _, hosts = declared
+    return dict(hosts[name] or {})
+
+
+def _declared_guest(loaded: Any, name: str) -> tuple[str, Any] | None:
+    """The group a guest is declared in, and the `hosts` mapping holding it.
+
+    Searched in `VMs` and its deployment children alone, which is where a guest
+    lives and a machine never does.
+    """
+    top = _named_group(loaded, GUEST_GROUP)
+    stack = [(GUEST_GROUP, top)] if isinstance(top, dict) else []
+    while stack:
+        group, body = stack.pop()
+        hosts = body.get("hosts")
+        if isinstance(hosts, dict) and name in hosts:
+            return group, hosts
+        children = body.get("children")
+        if isinstance(children, dict):
+            stack.extend(
+                (child, value)
+                for child, value in children.items()
+                if isinstance(value, dict)
+            )
+    return None
+
+
+def _replace_guest(
+    document: str,
+    declared: tuple[str, Any],
+    name: str,
+    variables: dict[str, Any],
+    group: str,
+) -> str:
+    sits, hosts = declared
+    if GUEST_GROUP not in (sits, group) and sits != group:
+        raise UneditableInventory(
+            f"{name} is declared in {sits}, so its declaration is replaced "
+            "there. Moving a guest to the other deployment is an edit of the "
+            "inventory itself, where the move shows in the diff."
+        )
+    lines = document.splitlines(keepends=True)
+    key_line, column = hosts.lc.key(name)
+    end = _block_end(lines, key_line + 1, column)
+    lines[key_line:end] = _guest_lines(name, variables, column)
     return "".join(lines)
 
 

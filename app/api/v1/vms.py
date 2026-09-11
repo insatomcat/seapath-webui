@@ -21,7 +21,7 @@ from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
 from app.inventory.model import Mode
-from app.inventory.service import ImportRefused, RefusedWrite
+from app.inventory.service import GuestExists, ImportRefused, RefusedWrite
 from app.runs.actions import Action
 from app.runs.service import RunService
 from app.services.metadata import (
@@ -78,6 +78,15 @@ class GuestDeclaration(BaseModel):
         default=None, description="A libvirt XML taken as it is"
     )
     force: bool = False
+    replace: bool = Field(
+        default=False,
+        description=(
+            "Write the entry over a guest of that name the file already "
+            "declares, in the group it sits in. The guest itself is left as it "
+            "is: the roles skip a guest the hypervisor already has, unless its "
+            "entry carries `force`"
+        ),
+    )
 
     # What `cluster_vm create` is given, and therefore what is written into the
     # image's metadata once and for good. Changing one afterwards is the
@@ -168,10 +177,19 @@ def declare(
 
     try:
         commit = service.declare(
-            payload.name, definition, user.username, if_match, deployment
+            payload.name,
+            definition,
+            user.username,
+            if_match,
+            deployment,
+            replace=payload.replace,
         )
     except InvalidGuest as error:
         raise ApiError("invalid_guest", str(error), 400) from error
+    except GuestExists as error:
+        # A code of its own because it has a remedy the page offers: the same
+        # declaration again, with `replace`.
+        raise ApiError("guest_exists", str(error), 409) from error
     except RefusedWrite as error:
         raise ApiError(
             "refused_write",

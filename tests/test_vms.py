@@ -305,7 +305,58 @@ def test_a_name_that_is_already_in_the_inventory_is_refused(
     machine = signed_in.post("/api/v1/vms", json={"name": "seapath-machine"})
 
     assert again.status_code == 409
+    assert again.json()["error"]["code"] == "guest_exists"
     assert machine.status_code == 409
+    # Nothing replaces a machine, so its refusal is the ordinary one and the
+    # page offers no replacement for it.
+    assert machine.json()["error"]["code"] == "refused_write"
+
+
+def test_a_declared_guest_is_replaced_on_request(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # An attempt that failed after declaring the guest, then the retry.
+    signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "vm_disk": "../files/old.qcow2", "enable": False},
+    )
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "vm_disk": "../files/newvm.qcow2", "replace": True},
+    )
+
+    assert response.status_code == 201, response.text
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    assert "../files/newvm.qcow2" in written
+    # The old entry goes whole, including what the new form leaves out.
+    assert "old.qcow2" not in written
+    assert "enable: false" not in written
+    guests = signed_in.get("/api/v1/vms").json()["guests"]
+    assert [guest["name"] for guest in guests] == ["newvm"]
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "vms: replace the declaration of newvm"
+
+
+def test_a_replacement_of_a_name_nobody_declared_is_a_declaration(
+    signed_in: TestClient,
+) -> None:
+    response = signed_in.post("/api/v1/vms", json={"name": "fresh", "replace": True})
+
+    assert response.status_code == 201
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "vms: declare fresh"
+
+
+def test_a_machine_is_never_replaced_by_a_guest(signed_in: TestClient) -> None:
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "seapath-machine", "replace": True}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "refused_write"
+    hosts = signed_in.get("/api/v1/inventory").json()["inventory"]["hosts"]
+    assert "seapath-machine" in hosts
 
 
 def test_a_name_that_could_not_be_a_domain_is_refused(signed_in: TestClient) -> None:

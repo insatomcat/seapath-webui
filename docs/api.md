@@ -594,7 +594,7 @@ domain and the resource.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `domain` is what libvirt says about it, read from libvirt-exporter on the machine running it, which is the only reading a guest with no Pacemaker resource has, its `state` being one word in the vocabulary the Pacemaker resource uses so that both read the same, with libvirt's own sentence kept in `description`; `undeclared` lists the guests the cluster runs and the inventory does not describe, and `undeclared_domains` the same for the machines Pacemaker does not answer for; `machines` are the cluster members that run libvirt, which is where a guest may be placed, and `placement_nodes` narrows that to the ones the cluster currently reports online and out of standby, which is where a move may send one; each guest carries `preferred_host` and `pinned_host` from its entry beside the `constraints` Pacemaker holds for it, so the page can tell a declared placement from an operator's override, which the CIB cannot ([D34](decisions.md#d34)); each guest carries the `deployment` it belongs to, whether the file `declared` it and the `playbook` that creates it; `deployments` names the kinds of machine this inventory has, and `split` says whether the file assigns its guests; `playbook` names the entry that deploys the group in this mode; `disabled` is true on a cluster guest Ceph holds and Pacemaker does not, which is what `disable` leaves and what `cluster_vm status` calls Disabled, read from `rbd group list` only when such a row exists and the cluster answered; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
-| POST | `/vms` | Declare one guest, one commit, `If-Match` on the commit hash. `deployment` picks the group it goes into, `cluster` or `standalone`; absent leaves it in `VMs` itself. Answers with the commit and the playbook that creates it. `admin` |
+| POST | `/vms` | Declare one guest, one commit, `If-Match` on the commit hash. `deployment` picks the group it goes into, `cluster` or `standalone`; absent leaves it in `VMs` itself. Answers with the commit and the playbook that creates it. A name the file already declares as a guest answers `409 guest_exists`, and `replace: true` writes the entry over it instead. `admin` |
 | POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
 | POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |
 | POST | `/vms/{name}/disable` | Take one guest out of the cluster: `cluster_vm disable`, which stops it and removes its Pacemaker resource and keeps its RBD group, image and metadata. `202` with the run; `409 not_in_cluster` for a standalone guest. `operator` |
@@ -613,6 +613,17 @@ image to `PUT /inventory/artefacts/files/<name>.qcow2`, the libvirt XML to
 that names them, then `POST /runs` with the playbook it answered. Every one of
 those is a write this service already made, and no machine is touched outside
 the run. See [D30](decisions.md#d30).
+
+An attempt that fails after the third request leaves the guest declared, and
+the next attempt under the same name is refused with `409 guest_exists`. The
+page checks the name against the guests it has read before uploading anything,
+and offers to replace the declaration. `replace: true` writes the new entry
+over the old one in the group it sits in, as one commit named `vms: replace
+the declaration of <name>`; the fidelity check holds that this entry alone
+changed. It replaces the declaration and nothing else: a guest the hypervisor
+already has is still skipped by the role, unless the entry carries `force`.
+A machine of the same name is refused with `409 refused_write` either way, and
+so is a replacement that would move the guest to the other deployment group.
 
 `POST /vms` also takes what `cluster_vm create` is given, and that is where it
 belongs: every one of `preferred_host`, `pinned_host`, `priority`,

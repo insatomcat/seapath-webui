@@ -388,6 +388,7 @@ class VmService:
         author: str,
         expected_head: str | None = None,
         deployment: Mode | None = None,
+        replace: bool = False,
     ) -> Commit:
         """Write one guest into the `VMs` group, as a commit.
 
@@ -395,6 +396,9 @@ class VmService:
         the commit or the playbook that follows. What happens underneath is the
         ordinary path: a splice into the inventory, checked by `fidelity`, then
         an upstream playbook. See D30.
+
+        `replace` writes over a guest of that name the file already declares,
+        which is how a second attempt at adding it goes through.
         """
         if not _NAME.match(name):
             raise InvalidGuest(
@@ -409,7 +413,12 @@ class VmService:
         }
         self._check_definition(name, variables, deployment)
         commit, _ = self._inventory.declare_guest(
-            name, variables, author, expected_head, _group_for(deployment)
+            name,
+            variables,
+            author,
+            expected_head,
+            _group_for(deployment),
+            replace=replace,
         )
         return commit
 
