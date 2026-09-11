@@ -244,6 +244,45 @@ def stop(request: Request, name: str, user: User = operator) -> ActionResponse:
     return _act(request, name, Action.STOP, user)
 
 
+def _in_cluster(request: Request, name: str) -> None:
+    """A guest Pacemaker can hold, which is the only kind these two act on."""
+    if not _service(request).in_cluster(name):
+        raise ApiError(
+            "not_in_cluster",
+            f"{name} is deployed on a standalone machine, so there is no "
+            "Pacemaker resource to remove or to create. Stopping it is what "
+            "keeps it down there.",
+            409,
+        )
+
+
+@router.post("/{name}/disable", status_code=202)
+def disable(request: Request, name: str, user: User = operator) -> ActionResponse:
+    """Take one guest out of the cluster, as a run.
+
+    `cluster_vm disable`: the guest is stopped and its Pacemaker resource
+    removed. The disk image, its metadata and the inventory entry stay, so
+    `POST /vms/{name}/enable` puts it back, and a deployment run leaves it
+    alone because `deploy_vms_cluster` only creates a guest Ceph does not
+    hold.
+    """
+    _known(request, name)
+    _in_cluster(request, name)
+    return _act(request, name, Action.DISABLE, user)
+
+
+@router.post("/{name}/enable", status_code=202)
+def enable(request: Request, name: str, user: User = operator) -> ActionResponse:
+    """Put a disabled guest back in the cluster, as a run.
+
+    `cluster_vm enable`, which builds the Pacemaker resource from the metadata
+    on the guest's image and lets Pacemaker start it where it chooses.
+    """
+    _known(request, name)
+    _in_cluster(request, name)
+    return _act(request, name, Action.ENABLE, user)
+
+
 def _definition(payload: GuestDeclaration) -> dict[str, Any]:
     """The entry to write, in the order it reads well in the file.
 

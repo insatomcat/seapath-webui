@@ -391,6 +391,9 @@ def create_app(
         # out as the cluster and storage views.
         client=exporters,
         libvirt_port=settings.libvirt_exporter_port,
+        # The RBD groups, which tell a guest taken out of the cluster from one
+        # never deployed: Pacemaker has no resource for either.
+        rbd=rbd_client,
     )
     # The containers: the quadlets the inventory uploads, the systemd units
     # they become on each machine, and the Pacemaker resources holding some of

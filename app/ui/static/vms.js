@@ -38,6 +38,24 @@
   let canWrite = false;
   let mode = "standalone";
 
+  // Which guests the tables list: `all`, `cluster` or `standalone`, by the
+  // playbook that deploys them. Kept in the browser, per viewer, because it
+  // is a way of reading the page rather than anything about the guests.
+  const FILTER_KEY = "seapath-webui.vms.filter";
+  let filter = "all";
+  try {
+    filter = localStorage.getItem(FILTER_KEY) || "all";
+  } catch (ignored) {
+    filter = "all";
+  }
+  // The last reading, so a change of filter redraws without asking the
+  // cluster again.
+  let lastView = null;
+
+  function shown(deployment) {
+    return filter === "all" || filter === deployment;
+  }
+
   function element(id) {
     return document.getElementById(id);
   }
@@ -110,6 +128,15 @@
         guest.domain.host +
         ". This guest has no Pacemaker resource, so nothing else here " +
         "reports it.";
+    } else if (guest.disabled) {
+      // Taken out of the cluster: Ceph holds its disk, Pacemaker holds
+      // nothing. Grey rather than red, because somebody asked for it.
+      words = "out of the cluster";
+      status = "unknown";
+      box.title =
+        "Ceph holds this guest's disk and Pacemaker has no resource for it, " +
+        "which is what Disable leaves. Enable puts it back, and a deployment " +
+        "run leaves it alone.";
     } else if (!resource && guest.deployment !== "cluster") {
       words = "not reported";
       box.title =
@@ -176,7 +203,9 @@
   // that carries it, so a run an operator reads as "converge my VMs"
   // reinstalls that one and whatever it had written is gone.
   function ondeploy(guest) {
-    const there = Boolean(guest.resource || guest.domain);
+    // A disabled guest is there too: the role asks `cluster_vm status`, which
+    // answers Disabled rather than Undefined, and skips it.
+    const there = Boolean(guest.resource || guest.domain || guest.disabled);
     if (there && !guest.force) {
       return cell("left alone");
     }
@@ -195,16 +224,32 @@
   // because there is no domain to act on until it has been deployed.
   function acts(guest) {
     const cell = document.createElement("td");
+    cell.className = "acts";
+    if (!canAct) {
+      return cell;
+    }
+    // Out of the cluster, with its disk still in Ceph: the one act left is
+    // putting it back.
+    if (guest.disabled) {
+      cell.append(actButton(guest.name, "enable"));
+      return cell;
+    }
     // Something has to have reported the guest before it can be acted on: a
     // name nothing answers for is a guest that has not been deployed, and
     // starting one is a deployment run rather than a button here.
-    if (!canAct || !(guest.resource || guest.domain)) {
+    if (!(guest.resource || guest.domain)) {
       return cell;
     }
     const running = guest.resource
       ? guest.resource.role === "started"
       : guest.domain.running;
     cell.append(actButton(guest.name, running ? "stop" : "start"));
+    // Taking it out of the cluster, offered wherever Pacemaker holds it: a
+    // stop keeps the resource and a node failure or a Start brings the guest
+    // back, while this removes the resource and leaves the disk.
+    if (guest.resource) {
+      cell.append(" ", actButton(guest.name, "disable"));
+    }
     return cell;
   }
 
@@ -410,7 +455,7 @@
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
-    button.textContent = action === "stop" ? "Stop" : "Start";
+    button.textContent = VERBS[action];
     button.addEventListener("click", () => confirmAct(name, action));
     return button;
   }
@@ -418,7 +463,23 @@
   // Stopping a guest stops what it was serving, and on these machines that is
   // a substation function. The confirmation names the guest and says what the
   // act does, the way an apply names the machines it disturbs.
+  const VERBS = {
+    stop: "Stop",
+    start: "Start",
+    reconfigure: "Apply",
+    disable: "Disable",
+    enable: "Enable",
+  };
+
   const DISRUPTION = {
+    disable:
+      "Stops the guest and removes its Pacemaker resource, so the cluster " +
+      "no longer runs it, restarts it or moves it. Its disk image, the " +
+      "metadata on it and its inventory entry all stay: Enable puts it back " +
+      "as it was, and a deployment run leaves it alone.",
+    enable:
+      "Creates the guest's Pacemaker resource again from the metadata on its " +
+      "image, and Pacemaker starts it on the node it chooses.",
     reconfigure:
       "Stops the guest, removes its Pacemaker resource and creates it again " +
       "from the metadata. That is what makes a metadata change take effect, " +
@@ -484,9 +545,14 @@
   }
 
   function confirmAct(name, action) {
-    const verb = { stop: "Stop", start: "Start", reconfigure: "Apply" }[action];
+    const verb = VERBS[action];
     confirm({
-      title: verb + " " + name,
+      title:
+        action === "disable"
+          ? "Take " + name + " out of the cluster"
+          : action === "enable"
+            ? "Put " + name + " back in the cluster"
+            : verb + " " + name,
       body: DISRUPTION[action],
       note:
         action === "stop" && mode !== "cluster"
@@ -759,9 +825,10 @@
     element("empty").textContent = view.note;
     element("empty").hidden = !view.note;
 
+    renderFilter(view);
     const rows = element("guest-rows");
     rows.replaceChildren();
-    (view.guests || []).forEach((guest) => {
+    (view.guests || []).filter((guest) => shown(guest.deployment)).forEach((guest) => {
       row(rows, [
         cell(guest.name),
         deployedBy(guest),
@@ -778,9 +845,48 @@
     element("guest-table").hidden = !(view.guests || []).length;
   }
 
+  // The filter, with how many guests each choice lists. The undeclared ones
+  // count as well: a resource Pacemaker runs is a cluster guest, and a domain
+  // on a machine Pacemaker does not answer for is a standalone one.
+  function renderFilter(view) {
+    const counts = {
+      cluster: (view.undeclared || []).length,
+      standalone: (view.undeclared_domains || []).length,
+    };
+    (view.guests || []).forEach((guest) => {
+      counts[guest.deployment] = (counts[guest.deployment] || 0) + 1;
+    });
+    counts.all = counts.cluster + counts.standalone;
+    const box = element("filter");
+    box.hidden = !counts.all;
+    box.querySelectorAll("button").forEach((button) => {
+      const name = button.dataset.filter;
+      const label = name.charAt(0).toUpperCase() + name.slice(1);
+      button.textContent = label + " (" + (counts[name] || 0) + ")";
+      button.setAttribute("aria-pressed", String(name === filter));
+    });
+  }
+
+  element("filter").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-filter]");
+    if (!button) {
+      return;
+    }
+    filter = button.dataset.filter;
+    try {
+      localStorage.setItem(FILTER_KEY, filter);
+    } catch (ignored) {
+      // A browser that keeps nothing still filters, for this visit.
+    }
+    if (lastView) {
+      renderGuests(lastView);
+      renderUndeclared(lastView);
+    }
+  });
+
   function renderUndeclared(view) {
-    const resources = view.undeclared || [];
-    const domains = view.undeclared_domains || [];
+    const resources = shown("cluster") ? view.undeclared || [] : [];
+    const domains = shown("standalone") ? view.undeclared_domains || [] : [];
     element("undeclared-card").hidden = !(resources.length || domains.length);
     const rows = element("undeclared-rows");
     rows.replaceChildren();
@@ -1054,6 +1160,7 @@
   // another node, shows up without the page being loaded again.
   async function refresh() {
     const view = await API.get("/vms");
+    lastView = view;
     renderGuests(view);
     renderUndeclared(view);
     fillChoices(view);

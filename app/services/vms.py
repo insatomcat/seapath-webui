@@ -23,6 +23,7 @@ service holds no second source of truth for what the cluster is doing.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -34,6 +35,7 @@ from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResour
 from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
+from app.cluster.rbd import RbdClient, RbdUnavailable
 from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
@@ -46,6 +48,7 @@ from app.inventory.repository import Commit
 from app.inventory.service import InventoryService, InventoryState
 from app.services.cluster import ClusterService
 
+logger = logging.getLogger(__name__)
 # What `vm_manager` names the agent of the resource it creates per guest, and
 # the only resources on this page. A cluster carries others, `ha_cluster_exporter`
 # reports all of them, and a fencing device listed among the VMs would be a
@@ -133,6 +136,17 @@ class GuestView(BaseModel):
     operator's doing: a move writes the same `cli-prefer` constraint
     `preferred_host` writes, so the only way to see that a guest is being held
     somewhere it was not declared to be is to compare the two. See D34.
+    """
+
+    disabled: bool = False
+    """Ceph holds the guest and Pacemaker has no resource for it.
+
+    What `cluster_vm disable` leaves behind, and what `cluster_vm status`
+    calls Disabled: the RBD group and image are there, so `enable` brings the
+    guest back and a deployment run skips it. Told apart from a guest never
+    deployed by asking Ceph for its groups, and only said when the cluster
+    answered, since an empty reading from a cluster that did not answer says
+    nothing about any resource.
     """
 
     domain: LibvirtDomain | None = None
@@ -306,9 +320,11 @@ class VmService:
         client: MetricsClient | None = None,
         libvirt_port: int = DEFAULT_PORT,
         timeout: float = 2.0,
+        rbd: RbdClient | None = None,
     ) -> None:
         self._inventory = inventory
         self._cluster = cluster
+        self._rbd = rbd
         self._client = client or UrllibMetricsClient()
         self._libvirt_port = libvirt_port
         self._timeout = timeout
@@ -333,6 +349,20 @@ class VmService:
                 f"No guest called {name!r} is declared in this inventory or "
                 "reported by the cluster."
             )
+
+    def in_cluster(self, name: str) -> bool:
+        """Whether a guest is one Pacemaker holds or held, and can be told to.
+
+        A guest the file puts in the cluster deployment, or one the cluster
+        reports and the inventory does not declare: the second is exactly the
+        guest an operator wants out of the cluster, and nothing else here
+        reaches it.
+        """
+        view = self.guests()
+        for guest in view.guests:
+            if guest.name == name:
+                return guest.deployment == Mode.CLUSTER.value or bool(guest.resource)
+        return any(resource.id == name for resource in view.undeclared)
 
     def deploy_playbook(self, guest: str = "") -> str:
         """The playbook that creates a guest, or the file's own default."""
@@ -498,6 +528,17 @@ class VmService:
             and "standby" not in node.flags
         ]
         domains = self._domains(state)
+        # Ceph is asked only when a cluster guest has no resource and the
+        # cluster did answer: that is the one row the groups can change, and
+        # every other page load costs no rbd call at all.
+        held_by_ceph = self._groups(
+            not reading.error
+            and any(
+                state.inventory.deployment_of(name) is Mode.CLUSTER
+                and name not in resources
+                for name in state.inventory.guests
+            )
+        )
 
         for name, guest in state.inventory.guests.items():
             deployment = state.inventory.deployment_of(name)
@@ -518,6 +559,11 @@ class VmService:
                     resource=resources.get(name),
                     constraints=constraints.get(name, []),
                     domain=domains.get(name),
+                    disabled=(
+                        deployment is Mode.CLUSTER
+                        and name not in resources
+                        and name in held_by_ceph
+                    ),
                 )
             )
 
@@ -566,6 +612,20 @@ class VmService:
             for domain in reading.domains:
                 found.setdefault(domain.name, domain)
         return found
+
+    def _groups(self, wanted: bool) -> set[str]:
+        """The guests Ceph holds, or nothing when it was not worth asking.
+
+        Ceph not answering costs the one word it would have added, and the row
+        then reads as a guest nothing reports, which is what it was before.
+        """
+        if not wanted or self._rbd is None:
+            return set()
+        try:
+            return set(self._rbd.list_groups())
+        except RbdUnavailable as error:
+            logger.info("Could not list the RBD groups: %s", error)
+            return set()
 
     def _files_by_host(self) -> dict[str, list[Reference]]:
         """Every path the inventory names, kept under the entry that names it.

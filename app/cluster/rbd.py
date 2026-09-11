@@ -73,6 +73,8 @@ class RbdClient(Protocol):
 
     def remove_metadata(self, image: str, key: str) -> None: ...
 
+    def list_groups(self) -> list[str]: ...
+
 
 class CommandRbdClient:
     """`rbd image-meta`, run against the Ceph configuration the quadlet mounts."""
@@ -100,6 +102,25 @@ class CommandRbdClient:
     def remove_metadata(self, image: str, key: str) -> None:
         self._run(["image-meta", "remove", image, key])
         logger.info("Removed %s from %s", key, image)
+
+    def list_groups(self) -> list[str]:
+        """The guests Ceph holds, whatever Pacemaker is doing with them.
+
+        `vm_manager` creates one RBD group per guest and names it after the
+        guest, and its own `status` answers `Undefined` exactly when that group
+        is missing. So the group is what separates a guest taken out of the
+        cluster, which `enable` brings back, from one that was never deployed.
+        """
+        result = self._run(["group", "list", "--format", "json"])
+        try:
+            document = json.loads(result or "[]")
+        except ValueError as error:
+            raise RbdUnavailable(
+                f"rbd answered something that is not JSON: {error}"
+            ) from error
+        if not isinstance(document, list):
+            raise RbdUnavailable("rbd answered something that is not a list.")
+        return [str(name) for name in document]
 
     def _run(self, arguments: list[str]) -> str:
         result = self._runner.run(

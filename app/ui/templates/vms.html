@@ -41,6 +41,14 @@ image and losing its disk. D31 records the bounds.
       <div class="card-head">
         <h2>Guests</h2>
         <div class="card-acts">
+          {# Which guests the table lists, by the playbook that deploys them.
+             The two runtimes differ in everything an operator acts on here,
+             so reading one of them at a time is the ordinary question. #}
+          <div class="segmented" id="filter" role="group" aria-label="Show" hidden>
+            <button type="button" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" data-filter="cluster" aria-pressed="false">Cluster</button>
+            <button type="button" data-filter="standalone" aria-pressed="false">Standalone</button>
+          </div>
           {{ reread("reread", "the guests") }}
           <button type="button" id="add" hidden>Add a VM</button>
         </div>

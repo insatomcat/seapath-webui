@@ -1055,3 +1055,146 @@ def test_a_domain_the_machine_runs_and_the_inventory_ignores_is_named(
     assert reported["VMUADMIN"]["description"] == "the domain is shut off"
     assert "ABBICT" not in reported
     assert "EITCS" not in reported
+
+
+# 7. Taking a guest out of the cluster, and putting it back. `cluster_vm
+# disable` removes the Pacemaker resource and keeps the RBD group and image,
+# which is what `cluster_vm status` then calls Disabled.
+
+# vm-guest4 is held by the fake Ceph and reported by no Pacemaker resource.
+DISABLED_GUEST = """
+    vm-guest4:
+      vm_template: "../templates/vm/guest.xml.j2"
+      vm_disk: "../files/guest4.qcow2"
+"""
+
+
+def _declare_cluster_with_disabled(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS + DISABLED_GUEST},
+    )
+    assert response.status_code == 200, response.text
+
+
+def _pacemaker_answers(monkeypatch) -> None:
+    """The fake cluster, served on the first member of the cluster fixture.
+
+    The fixture's machines live at addresses the fake exporters do not
+    answer on, and a disabled guest is only said when Pacemaker did answer.
+    """
+    from app.cluster import fake
+
+    monkeypatch.setitem(fake.HA_EXPORTERS, "10.132.159.60", fake._pacemaker())
+
+
+def test_a_guest_ceph_holds_and_pacemaker_does_not_reads_as_disabled(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_disabled(signed_in)
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["vm-guest4"]["disabled"] is True
+    # A guest Pacemaker holds, even a failed one, is in the cluster.
+    assert guests["vm-guest1"]["disabled"] is False
+    assert guests["vm-guest3"]["disabled"] is False
+
+
+def test_a_guest_ceph_does_not_hold_is_never_deployed_rather_than_disabled(
+    signed_in: TestClient, rbd_client: FakeRbdClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    rbd_client.images.pop("system_vm-guest4")
+    _declare_cluster_with_disabled(signed_in)
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["vm-guest4"]["disabled"] is False
+
+
+def test_ceph_not_answering_costs_the_word_and_nothing_else(
+    signed_in: TestClient, rbd_client: FakeRbdClient, monkeypatch
+) -> None:
+    def refuse() -> list[str]:
+        raise RbdUnavailable("no monitor")
+
+    _pacemaker_answers(monkeypatch)
+    monkeypatch.setattr(rbd_client, "list_groups", refuse)
+    _declare_cluster_with_disabled(signed_in)
+
+    response = signed_in.get("/api/v1/vms")
+
+    assert response.status_code == 200
+    guests = {item["name"]: item for item in response.json()["guests"]}
+    assert guests["vm-guest4"]["disabled"] is False
+
+
+def test_disabling_a_guest_is_the_upstream_module_on_one_member(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster(signed_in)
+
+    response = signed_in.post("/api/v1/vms/vm-guest1/disable")
+
+    assert response.status_code == 202, response.text
+    run = response.json()
+    assert run["action"] == "disable"
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_disable.yaml"))
+    document = yaml.safe_load(written[0].read_text())
+    assert document[0]["hosts"] == "{{ groups['cluster_machines'][0] }}"
+    assert document[0]["tasks"] == [
+        {
+            "name": "Take vm-guest1 out of the cluster",
+            "seapath.ansible.cluster_vm": {"name": "vm-guest1", "command": "disable"},
+        }
+    ]
+
+
+def test_enabling_a_guest_is_the_upstream_module_on_one_member(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster_with_disabled(signed_in)
+
+    run = signed_in.post("/api/v1/vms/vm-guest4/enable").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_enable.yaml"))
+    tasks = yaml.safe_load(written[0].read_text())[0]["tasks"]
+    assert tasks[0]["seapath.ansible.cluster_vm"] == {
+        "name": "vm-guest4",
+        "command": "enable",
+    }
+
+
+def test_a_guest_the_cluster_runs_and_the_inventory_ignores_can_be_disabled(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    # Pacemaker reports vm-guest2 and the file declares vm-guest1 and
+    # vm-guest3: the guest an operator most wants out of the cluster.
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster(signed_in)
+
+    assert signed_in.post("/api/v1/vms/vm-guest2/disable").status_code == 202
+
+
+def test_a_standalone_guest_has_no_resource_to_disable(signed_in: TestClient) -> None:
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    response = signed_in.post("/api/v1/vms/ABBICT/disable")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "not_in_cluster"
+
+
+def test_a_viewer_may_not_take_a_guest_out_of_the_cluster(
+    signed_in_viewer: TestClient,
+) -> None:
+    assert signed_in_viewer.post("/api/v1/vms/vm-guest1/disable").status_code == 403
+    assert signed_in_viewer.post("/api/v1/vms/vm-guest1/enable").status_code == 403

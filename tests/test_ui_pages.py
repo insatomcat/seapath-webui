@@ -1155,7 +1155,12 @@ def test_the_deployment_column_says_what_the_run_does_to_this_guest(
     # the operator who is about to launch that run.
     script = signed_in.get("/static/vms.js").text
 
-    assert "const there = Boolean(guest.resource || guest.domain);" in script
+    # A disabled guest is there as well: Ceph holds it, `cluster_vm status`
+    # answers Disabled, and the role skips it.
+    assert (
+        "const there = Boolean(guest.resource || guest.domain || guest.disabled);"
+        in script
+    )
     assert "if (there && !guest.force) {" in script
     assert 'return cell("left alone");' in script
     assert 'there ? "recreated" : "created"' in script

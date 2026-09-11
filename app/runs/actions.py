@@ -47,6 +47,8 @@ class Action(str, Enum):
     START = "start"
     STOP = "stop"
     RECONFIGURE = "reconfigure"
+    ENABLE = "enable"
+    DISABLE = "disable"
     REFRESH = "refresh"
     REFRESH_ALL = "refresh_all"
     UNIT_START = "unit_start"
@@ -107,6 +109,29 @@ _SPECS: dict[Action, ActionSpec] = {
             "take effect, and it is an outage: `enable` reads those keys only "
             "when the guest is not already a resource, so there is no way to "
             "apply one without the guest going down and coming back."
+        ),
+    ),
+    Action.DISABLE: ActionSpec(
+        verb="Disable",
+        title="Take {name} out of the cluster",
+        disruption=(
+            "Stops the guest and removes its Pacemaker resource, so the "
+            "cluster no longer runs it, restarts it or moves it anywhere. Its "
+            "disk image and the metadata on it stay in Ceph, and so does its "
+            "inventory entry: Enable puts it back as it was, and a deployment "
+            "run leaves it alone, because deploy_vms_cluster creates only a "
+            "guest Ceph does not hold. Deleting a guest for good is an edit "
+            "of the inventory."
+        ),
+    ),
+    Action.ENABLE: ActionSpec(
+        verb="Enable",
+        title="Put {name} back in the cluster",
+        disruption=(
+            "Creates the guest's Pacemaker resource again from the metadata on "
+            "its image, and Pacemaker starts it on the node it chooses. The "
+            "placement, priority and migration settings are the ones the image "
+            "carries, which is what the metadata window edits."
         ),
     ),
     Action.REFRESH_ALL: ActionSpec(
@@ -334,6 +359,8 @@ def play(action: Action, guest: str, mode: Mode, host: str = "", node: str = "")
 # is no cluster to hold one.
 _CLUSTER_ONLY = (
     Action.RECONFIGURE,
+    Action.ENABLE,
+    Action.DISABLE,
     Action.REFRESH,
     Action.REFRESH_ALL,
     Action.RESOURCE_START,
@@ -508,6 +535,21 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
                     "command": "enable",
                 },
             },
+        ]
+    if action in (Action.ENABLE, Action.DISABLE):
+        # The two halves of a reconfigure, each on its own. `disable` removes
+        # the resource and keeps the RBD group and image, which is what
+        # `cluster_vm status` then calls Disabled; `enable` builds the resource
+        # back from the image's metadata. Always the cluster module, whatever
+        # the file's mode: a standalone guest has no resource to take away.
+        return [
+            {
+                "name": title,
+                "seapath.ansible.cluster_vm": {
+                    "name": guest,
+                    "command": action.value,
+                },
+            }
         ]
     return [{"name": title, **_task(action, guest, mode)}]
 

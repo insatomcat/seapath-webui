@@ -509,6 +509,9 @@ IMAGE_METADATA: dict[str, dict[str, str]] = {
         ),
     },
     "system_vm-guest3": {"vm_name": "vm-guest3"},
+    # Taken out of the cluster: Ceph holds its disk and its group, and
+    # Pacemaker has no resource for it. The row the Enable button is for.
+    "system_vm-guest4": {"vm_name": "vm-guest4"},
 }
 
 
@@ -538,3 +541,10 @@ class FakeRbdClient:
 
     def remove_metadata(self, image: str, key: str) -> None:
         self.images.setdefault(image, {}).pop(key, None)
+
+    def list_groups(self) -> list[str]:
+        # One group per guest, named after it, which is what `vm_manager`
+        # creates beside the system image.
+        return sorted(
+            name[len("system_") :] for name in self.images if name.startswith("system_")
+        )

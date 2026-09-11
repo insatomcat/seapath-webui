@@ -2636,6 +2636,33 @@ td.recreated {
   gap: 0.5rem;
 }
 
+/* Three buttons read as one control: which guests the table lists. */
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.vms .segmented button {
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.vms .segmented button + button {
+  border-left: 1px solid var(--line);
+}
+
+.vms .segmented button[aria-pressed="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
 .vms label {
   display: block;
   margin-top: 1rem;
