@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.70 - 2026-09-11
+
+- feat: a cluster guest can be disabled and enabled, and filtered
+- feat: the real time conformance reads the clock and the PTP level
+- feat: the measurement tabs name the tool behind them
+
 ## 0.3.69 - 2026-09-10
 
 - fix: the update panel offers the apply the inventory already asks for
