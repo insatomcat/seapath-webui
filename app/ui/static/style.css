@@ -1799,6 +1799,15 @@ button.secondary {
   color: var(--text);
 }
 
+/* The tool a measurement tab reads, beside its name. Kept in its own case: a
+   program name in capitals is a name nobody types. */
+.view-tool {
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
+}
+
 /* The answer. Two lines at most: it is a verdict and a number, and a tab that
    grows with its sentence moves the panel under it. */
 .view-answer {

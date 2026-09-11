@@ -36,12 +36,15 @@ the whole screen.
     </button>
     <button type="button" class="view" data-view="cyclictest">
       <span class="dot status-unknown"></span>
-      <span class="view-name">Latency</span>
+      {# The tool behind the number, on the tab itself: "latency" alone does
+         not say which one, and an operator comparing with rtperfui or a
+         vendor report needs to know it is cyclictest's. #}
+      <span class="view-name">Latency <span class="view-tool">(cyclictest)</span></span>
       <span class="view-answer">Reading past measurements</span>
     </button>
     <button type="button" class="view" data-view="hwlatdetect">
       <span class="dot status-unknown"></span>
-      <span class="view-name">Firmware</span>
+      <span class="view-name">Firmware <span class="view-tool">(hwlatdetect: SMIs and other stalls)</span></span>
       <span class="view-answer">Reading past measurements</span>
     </button>
   </nav>
