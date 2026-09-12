@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.75 - 2026-09-12
+
+- feat: the latency is measured inside a guest, over the operator's key
+
 ## 0.3.74 - 2026-09-11
 
 - feat: a guest declared by a failed attempt can be declared again
