@@ -24,6 +24,7 @@ from app.hosts.models import (
     IrqOnIsolatedCpu,
     NetworkInterface,
     NetworkReading,
+    NicIrqPin,
     NodeIdentity,
     NodeMode,
     PtpClock,
@@ -131,7 +132,14 @@ class FakeHostReader:
             irq_count=112,
             irqs_on_isolated_cpus=[
                 IrqOnIsolatedCpu(number="34", name="ahci0", cpus=[4]),
+                IrqOnIsolatedCpu(number="181", name="eno2-TxRx-0", cpus=[5]),
             ],
+            irqs_on_isolated=2,
+            # The process bus card, pinned where the inventory of this fake
+            # machine asks for it. It is also one of the two interrupts above:
+            # /proc/irq counts it like any other, and the check is what tells
+            # the two apart.
+            nic_irqs=[NicIrqPin(iface="eno2", irqs="181", cpus=[5])],
         )
 
     def network(self) -> NetworkReading:

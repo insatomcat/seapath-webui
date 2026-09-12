@@ -52,6 +52,7 @@ from app.cluster.exporters import (
     read_all,
 )
 from app.cluster.timesync import ClockReading
+from app.hosts.local import format_cpu_list
 from app.hosts.models import RealtimeReading
 from app.services.checks import Check
 
@@ -342,17 +343,9 @@ def _parse(raw: str) -> set[int]:
 
 
 def _ranges(cpus: list[int]) -> str:
-    """The kernel's own notation, so the two columns compare by eye."""
-    ordered = sorted(cpu for cpu in cpus if cpu >= 0)
-    if not ordered:
-        return ""
-    parts: list[str] = []
-    start = previous = ordered[0]
-    for cpu in ordered[1:]:
-        if cpu == previous + 1:
-            previous = cpu
-            continue
-        parts.append(str(start) if start == previous else f"{start}-{previous}")
-        start = previous = cpu
-    parts.append(str(start) if start == previous else f"{start}-{previous}")
-    return ",".join(parts)
+    """The kernel's own notation, so the two columns compare by eye.
+
+    The negative CPUs are the ones a malformed label produced: `_slot` reads a
+    missing `cpu` as -1, and a machine is not isolating CPU -1.
+    """
+    return format_cpu_list([cpu for cpu in cpus if cpu >= 0])

@@ -155,6 +155,27 @@ class IrqOnIsolatedCpu(BaseModel):
     cpus: list[int] = Field(default_factory=list)
 
 
+class NicIrqPin(BaseModel):
+    """One interface's MSI interrupts, and the isolated CPUs they sit on.
+
+    The positive half of the interrupt question, and the one SEAPATH cares
+    about: the process bus NIC has to land its interrupts on an isolated core,
+    or a sampled value waits behind whatever else the housekeeping CPUs are
+    doing. `configure_nic_irq_affinity` writes that placement from
+    `nics_affinity`, and this is what the machine came back with.
+
+    Only interrupts that reached an isolated CPU are described, on both reading
+    paths. `seapath-alloc` publishes no other kind, and a local reading that
+    answered more would make the local column disagree with every other one.
+    """
+
+    iface: str
+    irqs: str = ""
+    """The interrupt numbers, in Linux cpu-list notation, as the exporter groups
+    them: `181-189` for a nine queue NIC whose vectors share one CPU."""
+    cpus: list[int] = Field(default_factory=list)
+
+
 class RealtimeReading(Reading):
     """The real time tuning of this machine, as configured rather than as felt.
 
@@ -210,11 +231,14 @@ class RealtimeReading(Reading):
     irqs_on_isolated_cpus: list[IrqOnIsolatedCpu] = Field(default_factory=list)
     """The interrupts whose `smp_affinity_list` still reaches an isolated CPU.
 
+    Every interrupt, the ones a site put there on purpose included: this is
+    read from `/proc/irq` alone, which says where an interrupt may be
+    delivered and never why. `nic_irqs` is what says which of them are the
+    process bus NIC's, and the check reports the difference.
+
     Counted rather than described: on a machine with `isolcpus=managed_irq` the
-    kernel keeps managed interrupts off the isolated set by itself, so a long
-    list here is a finding and an empty one is the expected shape. The
-    per-device affinity is `configure_nic_irq_affinity`'s to write, never this
-    service's.
+    kernel keeps managed interrupts off the isolated set by itself, so what is
+    left is the interrupts nothing manages.
     """
     irqs_on_isolated: int | None = None
     """How many there are, which the list above may only summarise.
@@ -224,3 +248,7 @@ class RealtimeReading(Reading):
     nothing off its isolated cores would otherwise cost one series per
     interrupt, per node, on every scrape. The count stays true either way, and
     it is the count the check reports."""
+
+    nic_irqs: list[NicIrqPin] = Field(default_factory=list)
+    """Where the NIC interrupts sit, which is the check `nics_affinity` is held
+    against. Empty on a machine that pins none of them on an isolated CPU."""

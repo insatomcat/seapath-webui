@@ -34,7 +34,8 @@ made are kept apart all the way to the check, which is what lets the page say
 from __future__ import annotations
 
 from app.cluster import metrics
-from app.hosts.models import HugepagePool, IrqOnIsolatedCpu, RealtimeReading
+from app.hosts.local import parse_cpu_list
+from app.hosts.models import HugepagePool, IrqOnIsolatedCpu, NicIrqPin, RealtimeReading
 
 # The family that says the block is there. An exporter predating it publishes
 # the pool and nothing else, which is a node to upgrade rather than a node
@@ -53,6 +54,17 @@ _ACPI = "seapath_rt_acpi_present"
 _IRQS_TOTAL = "seapath_rt_irqs_total"
 _IRQS_ON_ISOLATED = "seapath_rt_irqs_on_isolated_cpus"
 _IRQ_INFO = "seapath_rt_irq_on_isolated_info"
+
+# The one family read here that the allocator publishes rather than the tuning
+# block. It belongs to this reading all the same: where the process bus NIC
+# lands its interrupts is what `nics_affinity` is held against, and the check
+# that compares them takes one reading per machine. Splitting it out would put
+# half of an answer in the pool and half here.
+#
+# It needs no guard of its own. It predates `seapath_rt_*` in the collector, so
+# an exporter publishing the block above publishes this one, and an exporter
+# that publishes neither produces no reading and no checks at all.
+_NIC_IRQ_INFO = "seapath_alloc_irq_info"
 
 # node_exporter's own, which is how the kernel of a machine this service cannot
 # read comes back. `version` is where the PREEMPT_RT build flag appears.
@@ -125,6 +137,7 @@ def read(series: dict[str, list[metrics.Sample]]) -> tuple[RealtimeReading | Non
             irq_count=_optional_int(series, _IRQS_TOTAL),
             irqs_on_isolated=_optional_int(series, _IRQS_ON_ISOLATED),
             irqs_on_isolated_cpus=_irqs(series),
+            nic_irqs=_nic_irqs(series),
         ),
         _labels(series, _CMDLINE).get("cmdline", ""),
     )
@@ -217,6 +230,29 @@ def _irqs(series: dict) -> list[IrqOnIsolatedCpu]:
             )
         )
     return found
+
+
+def _nic_irqs(series: dict) -> list[NicIrqPin]:
+    """Which NIC interrupts the allocator found on an isolated CPU.
+
+    One series per interface and per CPU group, so a multi queue NIC whose
+    queues are spread over two cores comes back as two entries. The allocator
+    reads them from `/sys/class/net/*/device/msi_irqs`, which is what keeps
+    storage and USB vectors the kernel placed itself out of this list.
+    """
+    found: list[NicIrqPin] = []
+    for sample in series.get(_NIC_IRQ_INFO, []):
+        iface = sample.labels.get("iface")
+        if not iface:
+            continue
+        found.append(
+            NicIrqPin(
+                iface=iface,
+                irqs=sample.labels.get("irq_range", ""),
+                cpus=parse_cpu_list(sample.labels.get("cpu", "")),
+            )
+        )
+    return sorted(found, key=lambda pin: (pin.iface, pin.cpus))
 
 
 def _cpus(raw: str) -> list[int]:

@@ -41,6 +41,7 @@ from app.hosts.models import (
     IrqOnIsolatedCpu,
     NetworkInterface,
     NetworkReading,
+    NicIrqPin,
     NodeIdentity,
     NodeMode,
     PtpClock,
@@ -507,6 +508,7 @@ class LocalHostReader:
             irq_count=irq_count,
             irqs_on_isolated_cpus=irqs,
             irqs_on_isolated=len(irqs),
+            nic_irqs=self._nic_irqs(isolated),
             warnings=warnings,
         )
 
@@ -576,6 +578,53 @@ class LocalHostReader:
                     )
                 )
         return len(entries), offenders
+
+    def _nic_irqs(self, isolated: set[int]) -> list[NicIrqPin]:
+        """Where the NIC interrupts of this machine sit, grouped by interface.
+
+        The same reading `seapath-alloc` publishes for every other node, made
+        the same way: the interrupt numbers come from
+        `/sys/class/net/<iface>/device/msi_irqs`, never from the handler names
+        under `/proc/irq`, which are the driver's to choose and match `eth1`
+        against `eth10`. Only what reached an isolated CPU is described, so the
+        local column of the matrix answers exactly what the others do.
+
+        Both trees are already here: `/sys` is mounted read only by the
+        quadlet, and the container shares the host's network namespace, so
+        `/sys/class/net` is the machine's own interface list.
+        """
+        if not isolated:
+            return []
+        by_iface: dict[str, dict[tuple[int, ...], list[int]]] = {}
+        for interface in sorted(_iterdir(self._path("sys/class/net"))):
+            for entry in sorted(
+                _iterdir(interface / "device" / "msi_irqs"),
+                key=lambda path: int(path.name) if path.name.isdigit() else -1,
+            ):
+                if not entry.name.isdigit():
+                    continue
+                raw = _text_at(self._path("proc/irq", entry.name, "smp_affinity_list"))
+                if raw is None:
+                    continue
+                overlap = tuple(sorted(isolated.intersection(parse_cpu_list(raw))))
+                if not overlap:
+                    continue
+                by_iface.setdefault(interface.name, {}).setdefault(overlap, []).append(
+                    int(entry.name)
+                )
+        pins: list[NicIrqPin] = []
+        for iface in sorted(by_iface):
+            for cpus, numbers in sorted(
+                by_iface[iface].items(), key=lambda pair: min(pair[1])
+            ):
+                pins.append(
+                    NicIrqPin(
+                        iface=iface,
+                        irqs=format_cpu_list(numbers),
+                        cpus=list(cpus),
+                    )
+                )
+        return pins
 
     # PTP
 
@@ -742,6 +791,28 @@ def parse_cpu_list(raw: str | None) -> list[int]:
             # `isolcpus=nohz,domain,4-7` carries flags before the list.
             continue
     return sorted(set(cpus))
+
+
+def format_cpu_list(cpus: list[int]) -> str:
+    """The kernel's own range notation, `4-7` rather than `4, 5, 6, 7`.
+
+    The inverse of the parser above, and the shape the inventory writes, so a
+    comparison an operator makes by eye between a declared list and an observed
+    one is a comparison of like with like.
+    """
+    ordered = sorted(set(cpus))
+    if not ordered:
+        return ""
+    ranges: list[str] = []
+    start = previous = ordered[0]
+    for cpu in ordered[1:]:
+        if cpu == previous + 1:
+            previous = cpu
+            continue
+        ranges.append(str(start) if start == previous else f"{start}-{previous}")
+        start = previous = cpu
+    ranges.append(str(start) if start == previous else f"{start}-{previous}")
+    return ",".join(ranges)
 
 
 # What `detect_seapath_distro` answers, worked out from `/etc/os-release`.

@@ -16,6 +16,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.hosts.local import parse_cpu_list
+
 
 class Mode(str, Enum):
     STANDALONE = "standalone"
@@ -84,6 +86,54 @@ class NodeConfig(BaseModel):
     # form submission would be a configuration change nobody asked for and
     # nobody would see until a run behaved differently.
     extra: dict[str, Any] = Field(default_factory=dict)
+
+
+# `configure_nic_irq_affinity`'s variable, and the one placement in this
+# inventory that decides whether a sampled value is received on an isolated
+# core or behind whatever the housekeeping CPUs are doing. It is not a field of
+# `NodeConfig`: no form writes it yet, and a site's own file already carries
+# it, so it is read out of `extra` where the parser leaves every variable this
+# service does not model.
+NIC_AFFINITY_VARIABLE = "nics_affinity"
+
+
+def nics_affinity(node: NodeConfig) -> dict[str, list[int]]:
+    """`nics_affinity`, as the interfaces and the CPUs it names.
+
+    The role takes a list of one key mappings, and the value is either a CPU
+    list, `9` or `7,10-13`, or `slot=<name>:<cpu>`, which pins to the same CPU
+    and additionally declares a seapath-alloc slot on it. Both forms pin, so
+    both are read here for the CPUs; the slot is the pool view's to show.
+
+    What it cannot read it leaves out rather than raising: this is an
+    unmodelled variable of a file a site wrote by hand, and the writers here
+    are a check and a warning, neither of which may refuse a save over it.
+    `malformed_nics_affinity` in `validation.py` is what says so out loud.
+    """
+    raw = node.extra.get(NIC_AFFINITY_VARIABLE)
+    if not isinstance(raw, list):
+        return {}
+    found: dict[str, list[int]] = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        for iface, value in entry.items():
+            cpus = _pinned_cpus(value)
+            if cpus:
+                found[str(iface)] = cpus
+    return found
+
+
+def _pinned_cpus(value: Any) -> list[int]:
+    text = str(value).strip()
+    if text.startswith("slot="):
+        name, separator, cpus = text.partition("=")[2].partition(":")
+        # `slot=` with no name or no CPU pins nothing: the daemon logs it and
+        # returns. Nothing is declared, so nothing is checked.
+        if not separator or not name:
+            return []
+        text = cpus
+    return parse_cpu_list(text)
 
 
 class Guest(BaseModel):

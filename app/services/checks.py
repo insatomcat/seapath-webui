@@ -35,14 +35,15 @@ design.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from enum import Enum
 
 from pydantic import BaseModel
 
 from app.cluster.timesync import ClockReading, PtpReading
-from app.hosts.local import parse_cpu_list
-from app.hosts.models import CpuReading, RealtimeReading
-from app.inventory.model import NodeConfig, Role
+from app.hosts.local import format_cpu_list, parse_cpu_list
+from app.hosts.models import CpuReading, NicIrqPin, RealtimeReading
+from app.inventory.model import NodeConfig, Role, nics_affinity
 
 # What `configure_hypervisor` selects once the inventory carries `isolcpus`.
 # The role gates the whole tuned block on that variable, so a hypervisor with
@@ -97,7 +98,7 @@ def run(
         _hugepages(reading),
         _smt(reading, cpu),
         _transparent_hugepages(reading),
-        _irq_affinity(reading),
+        _irq_affinity(reading, cpu, declared),
         _acpi(reading),
     ]
 
@@ -470,53 +471,144 @@ def _transparent_hugepages(reading: RealtimeReading) -> Check:
     )
 
 
-def _irq_affinity(reading: RealtimeReading) -> Check:
-    if reading.irq_count is None:
+def _irq_affinity(
+    reading: RealtimeReading, cpu: CpuReading, declared: NodeConfig | None
+) -> Check:
+    """Where the NIC interrupts are, against where the inventory put them.
+
+    The check a substation runs on: the process bus card has to raise its
+    interrupts on an isolated CPU, or a sampled value waits behind whatever the
+    housekeeping cores are doing, and the guest that was going to publish a
+    GOOSE within four milliseconds waits with it. `nics_affinity` is where a
+    site writes that placement and `configure_nic_irq_affinity` is what applies
+    it, on every link up rather than once at boot, because the driver resets
+    the mask each time the interface is opened.
+
+    Counting the interrupts allowed on an isolated CPU is what this check used
+    to do, and it answered a question nobody acts on: the non managed ones keep
+    the boot mask that covers every CPU, so the count is permanently non zero
+    on a correctly tuned machine and the deliberate NIC interrupts were counted
+    among the offenders. That count survives as the last sentence of the
+    detail, with the interrupts a site asked for taken out of it.
+    """
+    wanted = nics_affinity(declared) if declared else {}
+    observed = {pin.iface: pin for pin in reading.nic_irqs}
+
+    if not wanted:
+        if not observed:
+            return Check(
+                id="irq_affinity",
+                title="NIC IRQ affinity",
+                kind=Kind.ADVICE,
+                status=Status.INFO,
+                observed="not configured",
+                detail=(
+                    "No interface has its interrupts pinned. A machine "
+                    "receiving sampled values wants nics_affinity in the "
+                    "inventory, naming the process bus interface and an "
+                    "isolated CPU. "
+                )
+                + _other_irqs(reading, observed),
+            )
         return Check(
             id="irq_affinity",
-            title="IRQ affinity",
+            title="NIC IRQ affinity",
             kind=Kind.ADVICE,
-            status=Status.UNKNOWN,
-            observed="unknown",
-            detail="/proc/irq could not be read.",
+            status=Status.INFO,
+            observed=_pins(observed.values()),
+            detail=(
+                "Pinned on the machine and declared nowhere. The inventory "
+                "has no nics_affinity for it, so the next convergence on a "
+                "reinstalled machine places nothing. "
+            )
+            + _other_irqs(reading, observed),
         )
-    offenders = reading.irqs_on_isolated_cpus
-    # How many there are, which is not always how many were named: a reading
-    # that arrived from an exporter carries a capped list and the true count
-    # beside it, because a machine keeping nothing off its isolated cores would
-    # otherwise publish one series per interrupt on every scrape.
-    total = (
-        reading.irqs_on_isolated
-        if reading.irqs_on_isolated is not None
-        else len(offenders)
-    )
-    if not total:
+
+    isolated = set(cpu.isolated)
+    failures: list[str] = []
+    for iface in sorted(wanted):
+        asked = wanted[iface]
+        pin = observed.get(iface)
+        if pin is None:
+            outside = [one for one in asked if one not in isolated]
+            if outside and isolated:
+                # The one cause the reading cannot show: a pin to a
+                # housekeeping core is invisible to a reading that only
+                # describes what reached an isolated CPU.
+                failures.append(
+                    f"{iface} is declared on {cpu_list(asked)}, which "
+                    f"{'is' if len(outside) == 1 else 'are'} not isolated"
+                )
+            else:
+                failures.append(f"{iface} carries no interrupt on {cpu_list(asked)}")
+            continue
+        if sorted(pin.cpus) != sorted(asked):
+            failures.append(
+                f"{iface} is on {cpu_list(pin.cpus)} and declared "
+                f"on {cpu_list(asked)}"
+            )
+
+    if failures:
         return Check(
             id="irq_affinity",
-            title="IRQ affinity",
-            kind=Kind.ADVICE,
-            status=Status.OK,
-            observed=f"none of {reading.irq_count} reaches an isolated CPU",
+            title="NIC IRQ affinity",
+            kind=Kind.CONFORMANCE,
+            status=Status.WARNING,
+            observed=_pins(observed.values()) or "nothing pinned",
+            declared=_declaration(wanted),
+            detail=(
+                ". ".join(failures)
+                + ". configure_nic_irq_affinity applies the placement on every "
+                "link up, so a machine reading like this was either never "
+                "converged with it or is declaring a CPU the kernel is not "
+                "isolating. "
+            )
+            + _other_irqs(reading, observed),
         )
-    shown = offenders[:4]
-    named = ", ".join(
-        f"{entry.name or entry.number} on {cpu_list(entry.cpus)}" for entry in shown
-    )
-    if total > len(shown):
-        named = f"{named}, and {total - len(shown)} more" if named else ""
+
     return Check(
         id="irq_affinity",
-        title="IRQ affinity",
-        kind=Kind.ADVICE,
-        status=Status.WARNING,
-        observed=f"{total} of {reading.irq_count} reach an isolated CPU",
-        detail=(
-            (f"{named}. " if named else "")
-            + "An affinity mask is a permission rather than a measurement: "
-            "the interrupt may not have fired there yet. NIC queues are "
-            "configure_nic_irq_affinity's to place, and the rest follows "
-            "isolcpus=managed_irq where the kernel supports it."
-        ),
+        title="NIC IRQ affinity",
+        kind=Kind.CONFORMANCE,
+        status=Status.OK,
+        observed=_pins(observed.values()),
+        declared=_declaration(wanted),
+        detail=_other_irqs(reading, observed),
+    )
+
+
+def _declaration(wanted: dict[str, list[int]]) -> str:
+    return ", ".join(
+        f"{iface} on {cpu_list(cpus)}" for iface, cpus in sorted(wanted.items())
+    )
+
+
+def _pins(pins: Iterable[NicIrqPin]) -> str:
+    return ", ".join(
+        f"{pin.iface} on {cpu_list(pin.cpus)}"
+        for pin in sorted(pins, key=lambda pin: pin.iface)
+    )
+
+
+def _other_irqs(reading: RealtimeReading, observed: dict[str, NicIrqPin]) -> str:
+    """The interrupts on isolated CPUs that nobody asked for, said once.
+
+    The count the exporter publishes covers every interrupt whose mask reaches
+    the isolated set, the NIC queues a site pinned there on purpose included.
+    Those are taken out here, or the sentence would report the configuration
+    working as a problem with it.
+    """
+    if reading.irq_count is None or reading.irqs_on_isolated is None:
+        return ""
+    deliberate = sum(len(parse_cpu_list(pin.irqs)) for pin in observed.values())
+    others = max(reading.irqs_on_isolated - deliberate, 0)
+    if not others:
+        return f"No other interrupt of the {reading.irq_count} reaches an isolated CPU."
+    return (
+        f"{others} other interrupt{'' if others == 1 else 's'} of "
+        f"{reading.irq_count} may also be delivered to an isolated CPU. A mask "
+        "is a permission rather than a measurement, and isolcpus=managed_irq "
+        "is what keeps the kernel's own off the isolated set."
     )
 
 
@@ -799,19 +891,9 @@ def _page_size(size_kb: int) -> str:
 def cpu_list(cpus: list[int]) -> str:
     """The kernel's own range notation, `4-7` rather than `4, 5, 6, 7`.
 
-    The same shape the inventory writes, so a comparison an operator makes by
-    eye between the two columns is a comparison of like with like.
+    The reader's own formatter, under the name the checks read it by: the two
+    columns of this page are a declared list and an observed one, and they are
+    written the same way by the same function or the comparison an operator
+    makes by eye is not one.
     """
-    if not cpus:
-        return ""
-    ordered = sorted(cpus)
-    ranges: list[str] = []
-    start = previous = ordered[0]
-    for cpu in ordered[1:]:
-        if cpu == previous + 1:
-            previous = cpu
-            continue
-        ranges.append(str(start) if start == previous else f"{start}-{previous}")
-        start = previous = cpu
-    ranges.append(str(start) if start == previous else f"{start}-{previous}")
-    return ",".join(ranges)
+    return format_cpu_list(cpus)

@@ -451,10 +451,11 @@ clock_class, clock_accuracy, port_state}`, `seapath_ptp_smpsynch`,
 it beside the pool is what lets this page read it without asking `pmc` again.
 
 Every check carries a `kind`, `conformance` where the inventory declares a
-value and `advice` where nothing does. `isolcpus` and the tuned profile it
-selects are the two conformance checks: the comparison has an action behind it,
-edit the inventory and converge, and the commonest finding is a machine
-converged and never rebooted, since the kernel reads `isolcpus` at boot. The
+value and `advice` where nothing does. `isolcpus`, the tuned profile it selects
+and the NIC interrupt affinity are the three conformance checks: the comparison
+has an action behind it, edit the inventory and converge, and the commonest
+finding is a machine converged and never rebooted, since the kernel reads
+`isolcpus` at boot. The
 rest report what the machine came out with and say what it costs, because a
 site is entitled to its own answer about SMT and presenting one as a failure
 would be this service voting on it.

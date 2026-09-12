@@ -2684,3 +2684,57 @@ at the moment of the measurement is not recorded on the run: the CPU pool view
 reads it live from each node's exporter, and the run already carries the
 inventory commit, so what is missing is only the history of a placement
 `seapath-alloc` chooses at every start.
+
+## D42 - Settled: the interrupt row asks where the process bus interrupts are, not how many reach an isolated CPU
+
+The row read `57 of 227 reach an isolated CPU`, in amber, on every machine,
+forever. It counted the entries of `/proc/irq` whose `smp_affinity_list`
+intersects the isolated set, which answers a question nobody acts on and
+answers it backwards for SEAPATH.
+
+Backwards, because the interrupts of the process bus card belong on an isolated
+core. A sampled value arrives as a NIC interrupt, and an interrupt handled on a
+housekeeping CPU waits behind whatever else that CPU is doing, which is the
+latency the whole isolation exists to remove. `nics_affinity` is where a site
+writes that placement, `configure_nic_irq_affinity` is what applies it, on every
+link up rather than once at boot, because the driver resets the mask in
+`ndo_open()`. So the deliberate ones were being counted among the offenders.
+
+Permanently amber, because the non managed interrupts keep the boot mask, which
+covers every CPU. `isolcpus=managed_irq` moves what the kernel manages and
+nothing else, so a correctly tuned machine has dozens of masks still reaching
+the isolated set and no act of an operator changes that. A row that is amber on
+every machine of every cluster is a row an operator learns to skip, and it sits
+next to rows that are not.
+
+So the check is the comparison every other conformance check here makes.
+`nics_affinity` on one side, read out of `extra` where the parser leaves the
+variables this service does not model. `seapath_alloc_irq_info` on the other,
+which the allocator already publishes: one series per interface and CPU group,
+read from `/sys/class/net/*/device/msi_irqs`, so the storage and USB vectors the
+kernel placed itself stay out of it. Four outcomes, and each one is an act: the
+declaration holds, the interface carries no interrupt where it was declared, it
+carries them somewhere else, or nothing is declared at all.
+
+**The case that justifies it is the CPU that is not isolated.** The reading
+describes only what reached an isolated core, on both paths, so an interface
+pinned to a housekeeping CPU is an absence rather than a value. The check
+derives it from the declaration and the isolated set, which it already has, and
+names the CPU. Everything else reports that placement as a success: the role
+applies it, the daemon logs `pinned eno1 IRQs to cpu 2`, and the mask is exactly
+what was asked for. `validation.py` warns about the same thing at the moment the
+inventory is written, where it costs a convergence less to find out.
+
+**The old count survives as a sentence, with the NIC interrupts taken out of
+it.** It still says something true, that a mask is a permission rather than a
+measurement, and it belongs behind the click with the rest of the reasoning
+rather than in the column an operator scans.
+
+**The local node reads it from `/sys` and `/proc`, the same way.** The quadlet
+mounts `/sys` read only and shares the host's network namespace, so
+`/sys/class/net` is the machine's own interface list. It describes only
+interrupts on isolated CPUs, like the exporter, because a local column answering
+more than the others is [D36](#d36) undone.
+
+**What it does not do is write a mask.** The fix for every finding here is an
+inventory edit and a run, which is the whole design.

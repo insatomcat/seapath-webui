@@ -166,7 +166,8 @@ carrying production traffic the first time it is run.
 | 3 | Editing `isolcpus`, converging, and **not** rebooting leaves the isolation check reporting a mismatch that names the reboot | The kernel reads `isolcpus` at boot. This is the finding the page exists for and no fake can produce it | |
 | 4 | After the reboot, the same check passes with the observed and declared columns equal | | |
 | 5 | The preemption check reads `PREEMPT_RT` on a SEAPATH image | `/proc/version` of the real kernel, which is the one place the build flag appears | |
-| 6 | The interrupt check counts the machine's real interrupts and names any that reach an isolated CPU | A real `/proc/irq` on a machine with real devices. On a kernel with `isolcpus=managed_irq` the expected result is none | |
+| 6 | On a machine whose inventory carries `nics_affinity`, the NIC interrupt check reads the process bus interface on the declared CPU and marks it a conformance pass | A real NIC with real MSI vectors, and `configure_nic_irq_affinity` having actually run. The role applies the placement on link up, so bringing the interface down and up again must leave the check passing | |
+| 6b | Declaring an interface on a CPU the kernel is not isolating is reported as such, naming the CPU, rather than as an absence | The reading describes only what reached an isolated CPU, so this is the one cause it cannot show and the check derives. A wrong CPU here is silent everywhere else | |
 | 7 | Hugepages are reported per NUMA node on a two socket machine | The fixture has one node; a starved second node is the case that costs a guest its start | |
 | 8 | Launching a measurement asks for confirmation naming the machines and saying what it runs, rather than what it writes | | |
 | 9 | The run completes and `results/cyclictest_<host>.txt` exists under the run directory for **every** machine of the inventory | The role's `fetch` with `flat: true`, over the real SSH mesh | |

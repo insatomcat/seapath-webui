@@ -26,7 +26,12 @@ from app.services.realtime import Kind, RealtimeService, Status
 class _Inventory:
     """Just enough of the inventory service: the state the checks read."""
 
-    def __init__(self, isolcpus: str | None, this_host: str | None = "node1") -> None:
+    def __init__(
+        self,
+        isolcpus: str | None,
+        this_host: str | None = "node1",
+        extra: dict[str, Any] | None = None,
+    ) -> None:
         self._state = InventoryState(
             inventory=(
                 Inventory(
@@ -36,6 +41,7 @@ class _Inventory:
                             ansible_host="192.168.200.121",
                             network_interface="eno1",
                             isolcpus=isolcpus,
+                            extra=extra or {},
                         )
                     },
                 )
@@ -240,11 +246,106 @@ def test_the_isolated_range_is_written_the_way_the_inventory_writes_it() -> None
     assert checks["cpu_isolation"].observed == "2,4-6"
 
 
-def test_interrupts_reaching_an_isolated_cpu_are_counted_and_the_worst_named() -> None:
-    check = _checks(_Reader(), _Inventory("4-7"))["irq_affinity"]
+# NIC interrupt affinity
+#
+# The check a substation runs on. The process bus card has to raise its
+# interrupts on an isolated CPU, `nics_affinity` is where a site writes that,
+# and `configure_nic_irq_affinity` is what applies it. Every case below is the
+# same comparison the isolation check makes, on that pair.
+
+
+def _affinity(value: str, iface: str = "eno2") -> dict[str, Any]:
+    """`nics_affinity` as a site writes it: a list of one key mappings.
+
+    `eno2` is the interface the fake machine carries an interrupt for, on CPU
+    5. Any other name is an interface it pins nothing for.
+    """
+    return {"nics_affinity": [{iface: value}]}
+
+
+def test_a_nic_pinned_where_the_inventory_asks_is_a_conformance_pass() -> None:
+    # The fake machine isolates 4-7 and carries eno2's interrupt on CPU 5.
+    check = _checks(_Reader(), _Inventory("4-7", extra=_affinity("5")))["irq_affinity"]
+
+    assert check.kind is Kind.CONFORMANCE
+    assert check.status is Status.OK
+    assert check.observed == "eno2 on 5"
+    assert check.declared == "eno2 on 5"
+
+
+def test_the_slot_form_pins_the_same_cpu_and_is_read_the_same_way() -> None:
+    # `slot=<name>:<cpu>` pins to the CPU like a plain list and additionally
+    # declares a seapath-alloc slot on it, so the placement is checked the same
+    # way. The slot itself is the CPU pool's to show.
+    check = _checks(_Reader(), _Inventory("4-7", extra=_affinity("slot=sv0:5")))[
+        "irq_affinity"
+    ]
+
+    assert check.status is Status.OK
+    assert check.declared == "eno2 on 5"
+
+
+def test_a_nic_the_inventory_pins_and_the_machine_does_not_is_a_finding() -> None:
+    # The role applies the placement on every link up rather than once at boot,
+    # so a machine reading like this was never converged with it.
+    check = _checks(_Reader(), _Inventory("4-7", extra=_affinity("4", "eno3")))[
+        "irq_affinity"
+    ]
 
     assert check.status is Status.WARNING
-    assert "ahci0" in check.detail
+    assert "eno3 carries no interrupt on 4" in check.detail
+
+
+def test_a_nic_pinned_to_a_cpu_the_kernel_is_not_isolating_says_so() -> None:
+    # The cause a reading cannot show: only interrupts that reached an isolated
+    # CPU are described, so a pin to a housekeeping core is an absence. The
+    # declared list against the isolated set is what tells the two apart, and
+    # this is the configuration error that is silent everywhere else.
+    check = _checks(_Reader(), _Inventory("4-7", extra=_affinity("12", "eno3")))[
+        "irq_affinity"
+    ]
+
+    assert check.status is Status.WARNING
+    assert "eno3 is declared on 12, which is not isolated" in check.detail
+
+
+def test_a_nic_pinned_somewhere_else_than_declared_names_both() -> None:
+    check = _checks(_Reader(), _Inventory("4-7", extra=_affinity("4,5")))[
+        "irq_affinity"
+    ]
+
+    assert check.status is Status.WARNING
+    assert "eno2 is on 5 and declared on 4-5" in check.detail
+
+
+def test_a_machine_pinning_nothing_and_declaring_nothing_is_advice() -> None:
+    # A node with no process bus is entitled to pin nothing, and a machine with
+    # no inventory entry has nobody to hold it against.
+    check = _checks(_Reader({"nic_irqs": []}), _Inventory(None))["irq_affinity"]
+
+    assert check.kind is Kind.ADVICE
+    assert check.status is Status.INFO
+    assert check.observed == "not configured"
+
+
+def test_a_pin_the_inventory_never_asked_for_is_reported_as_undeclared() -> None:
+    # It works today and disappears on the next reinstall, which is the whole
+    # reason this service holds a machine against a file.
+    check = _checks(_Reader(), _Inventory("4-7"))["irq_affinity"]
+
+    assert check.kind is Kind.ADVICE
+    assert check.status is Status.INFO
+    assert check.observed == "eno2 on 5"
+    assert "nics_affinity" in check.detail
+
+
+def test_the_interrupts_nobody_asked_for_are_counted_apart_from_the_nic_ones() -> None:
+    # The fake machine has two interrupts reaching an isolated CPU, and one of
+    # them is the NIC queue the inventory asked for. Counting that one as an
+    # offender would report the configuration working as a problem with it.
+    check = _checks(_Reader(), _Inventory("4-7", extra=_affinity("5")))["irq_affinity"]
+
+    assert "1 other interrupt of 112" in check.detail
 
 
 def test_a_topology_with_no_cpu_still_produces_every_check() -> None:

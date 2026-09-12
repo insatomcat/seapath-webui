@@ -132,8 +132,19 @@ def _clock(
     )
 
 
-def _machine(occupied: dict[int, dict[str, str]], isolated: range) -> str:
-    """Twelve cores, two threads each, in the reference topology."""
+def _machine(
+    occupied: dict[int, dict[str, str]],
+    isolated: range,
+    nic_irqs: tuple[tuple[str, str, str], ...] = (),
+) -> str:
+    """Twelve cores, two threads each, in the reference topology.
+
+    `nic_irqs` is what `configure_nic_irq_affinity` left behind, as the
+    allocator republishes it: the interface, its interrupt numbers and the
+    isolated CPU they were steered to. It is the observed half of the check
+    `nics_affinity` is held against, and it has to agree with the slot the CPU
+    map shows on the same core.
+    """
     lines = [
         "# HELP seapath_alloc_cpu_detail Per-CPU detail",
         "# TYPE seapath_alloc_cpu_detail gauge",
@@ -152,6 +163,11 @@ def _machine(occupied: dict[int, dict[str, str]], isolated: range) -> str:
                 state=extra.get("state", "free" if is_isolated else "housekeeping"),
                 **{k: v for k, v in extra.items() if k != "state"},
             )
+        )
+    for iface, irq_range, cpu in nic_irqs:
+        lines.append(
+            f'seapath_alloc_irq_info{{iface="{iface}",'
+            f'irq_range="{irq_range}",cpu="{cpu}"}} 1'
         )
     lines.append(f"seapath_alloc_scrape_timestamp_seconds {time.time() - 4:.3f}")
     return "\n".join(lines) + "\n"
@@ -177,6 +193,7 @@ _NODE1 = _machine(
         },
     },
     range(3, 12),
+    (("eno12419", "181-189", "3"),),
 )
 
 # elabo2: two guests, one of them holding four cores with their HT siblings
@@ -209,6 +226,7 @@ _NODE2 = _machine(
         22: {"state": "reserved", "label": "10"},
     },
     range(3, 12),
+    (("eno12419", "181-189", "3"),),
 )
 
 _BUSY = _NODE2 + 'seapath_alloc_active_fallbacks{severity="soft"} 1\n'
