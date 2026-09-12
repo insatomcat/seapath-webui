@@ -102,8 +102,11 @@ class LocalHostReader:
         except ValueError:
             return None
 
+    def _etc_path(self, *parts: str) -> Path:
+        return self._etc_root.joinpath(*[p.lstrip("/") for p in parts])
+
     def _read_etc(self, *parts: str) -> str | None:
-        return _text_at(self._etc_root.joinpath(*[p.lstrip("/") for p in parts]))
+        return _text_at(self._etc_path(*parts))
 
     # Node identity
 
@@ -450,7 +453,7 @@ class LocalHostReader:
             # found in neither is a profile that does not exist.
             installed = (
                 any(
-                    self._etc_root.joinpath("tuned", directory, profile).is_dir()
+                    self._etc_path("tuned", directory, profile).is_dir()
                     for directory in ("profiles", ".")
                 )
                 or self._path("usr/lib/tuned", profile).is_dir()

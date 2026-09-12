@@ -43,6 +43,10 @@ _PRE_START = " ".join(
         # mount source is a container that does not start.
         "/etc/corosync",
         "/etc/ceph",
+        # Absent from a machine that never installed tuned. Created by a line
+        # of its own, which the unit is allowed to fail on, so the assertion
+        # below is about the path appearing at all.
+        "/usr/lib/tuned",
     ],
 )
 def test_a_mount_source_that_may_be_absent_is_created_by_the_unit(
@@ -226,14 +230,14 @@ def test_the_site_collection_rides_in_the_state_volume() -> None:
 
 
 def test_the_tuned_profile_is_read_through_the_mount_that_is_already_there() -> None:
-    """The real time page costs the container no new host surface.
+    """The profile name costs the container no host surface of its own.
 
-    The reading it added answers what the machine *is*: the profile
+    The reading answers what the machine *is*: the profile
     `configure_hypervisor` selected, the preemption the kernel was built with,
-    the pages that were reserved. Every one of them comes from the container's
-    own /proc, the read only /sys, or the host's /etc that PAM already needs,
-    and the test above still refuses /etc/tuned and /run/tuned as mounts of
-    their own.
+    the pages that were reserved. The name comes from the host's /etc that PAM
+    already needs, and the test above still refuses /etc/tuned and /run/tuned
+    as mounts of their own: those two are the daemon's live state, which the
+    exporter answers for.
 
     The latency measurement adds nothing either: cyclictest runs on the target
     over SSH, through an Ansible run, so this container never needs the real
@@ -241,6 +245,18 @@ def test_the_tuned_profile_is_read_through_the_mount_that_is_already_there() -> 
     """
     assert "/etc:/run/host/etc:ro" in _VOLUMES
     assert "SEAPATH_WEBUI_HOST_ETC_ROOT" not in _QUADLET
+
+
+def test_the_profiles_the_distribution_ships_are_visible_to_the_reader() -> None:
+    """Whether the selected profile exists is the half that needed a mount.
+
+    `configure_hypervisor` writes its profile under /etc/tuned/profiles, which
+    the mount above carries, and a profile shipped by the distribution lives
+    under /usr/lib/tuned. Without it the container searched its own /usr, where
+    tuned is not installed, and reported a tuned machine as untuned. It is read
+    only and it holds profiles, never the daemon's state.
+    """
+    assert "/usr/lib/tuned:/usr/lib/tuned:ro" in _VOLUMES
 
 
 def test_the_container_never_asks_for_the_privileges_a_measurement_needs() -> None:

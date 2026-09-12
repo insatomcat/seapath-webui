@@ -228,12 +228,12 @@ two host paths are mounted writable: the service's own state, and the
 `authorized_keys` of the `ansible` account, which is the trust material. Every
 other mount serves the runtime plane or a read only view.
 
-Thirteen bind mounts, in four groups:
+Fourteen bind mounts, in four groups:
 
 | Group | Mounts | Why |
 |---|---|---|
 | Service state and trust | `/etc/seapath/webui`, `/etc/seapath/inventory`, `/var/lib/seapath-webui`, `/home/ansible/.ssh`, `/etc/ssh` | The configuration plane, which is SSH and nothing else |
-| Hardware and identity | `/sys`, `/dev/disk`, `/etc/hostname`, `/etc/os-release`, `/etc/corosync` | What the seed inventory and the node view are written from |
+| Hardware and identity | `/sys`, `/dev/disk`, `/etc/hostname`, `/etc/os-release`, `/etc/corosync`, `/usr/lib/tuned` | What the seed inventory and the node view are written from |
 | Runtime plane, M2 | libvirt socket, `/etc/ceph` | Starting, stopping and migrating VMs |
 | Authentication | `/etc` at `/run/host/etc` | PAM against the machine's own accounts |
 
@@ -339,6 +339,17 @@ What is left:
   image symlinks the three files into that mount, and a symlink is resolved at
   every open. If the mount is missing the symlinks dangle, and the service says
   so in the journal at startup rather than silently refusing every password.
+- **`/usr/lib/tuned`, read only.** The profiles the distribution ships. The
+  name of the active profile comes from `/run/host/etc/tuned/active_profile`,
+  and whether a profile of that name exists is what separates a tuned machine
+  from one that selected a profile tuning nothing. `configure_hypervisor`
+  writes its own under `/etc/tuned/profiles`, which the mount above carries,
+  and everything else lives here. Without this mount the container searched its
+  own `/usr`, where tuned is not installed, and a machine running a
+  distribution profile was reported as untuned: a path the container does not
+  share reads as absent rather than as an error, which is the failure
+  [D36](decisions.md#d36) was written about. The daemon's live state,
+  `/run/tuned`, stays out, and the exporter answers for it.
 
 Some of those paths do not exist on a freshly installed machine:
 `/etc/seapath/webui`, `/etc/seapath/inventory`, `/var/lib/seapath-webui`,
@@ -349,6 +360,13 @@ project exists to prevent. So the quadlet creates them itself, in
 Dropping the file on a machine and starting the unit is meant to be enough, and
 it was not: the first deployment on real hardware needed three directories
 created by hand before the container would start.
+
+`/usr/lib/tuned` is created the same way, on a line of its own that the unit
+tolerates failing. A machine that never installed tuned has no such directory,
+and an empty one states what is true there: the distribution ships no profile.
+The failure is tolerated because `/usr` can be mounted read only, and a node
+that stops answering its browser over one conformance check being less precise
+would be the wrong trade.
 
 Each of those paths is inert when empty, which is what makes creating them
 harmless, and that constraint is why the list may never grow carelessly:

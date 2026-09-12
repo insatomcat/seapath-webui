@@ -189,6 +189,7 @@ carrying production traffic the first time it is run.
 | 26 | Each of the four tabs carries its own status and figure before it is opened, and switching between them asks no node for anything | The bar is the page's summary, and a view is a show and a hide. `tcpdump` on the exporter port answers the second half | |
 | 27 | The ACPI row reads the same on every column, and the same from every node's page | D36. Podman masks `/sys/firmware`, so the reading a container makes of itself differed from the one its own exporter published, and only a real container reproduces that | |
 | 28 | Stopping `node-exporter` on the node serving the page leaves that column answered from its own files, while the other columns fall back to their reason | The other half of D36. The fallback needs a real `/proc` and a real `/sys` under a real mask, which no fake provides | |
+| 29 | With the exporter stopped, a machine whose tuned profile comes from the distribution rather than from `configure_hypervisor` still reads as installed | The `/usr/lib/tuned` mount, on the fallback path. Only a real container, whose own `/usr` carries no tuned, distinguishes a mounted profile directory from a missing one | |
 
 ### Result
 

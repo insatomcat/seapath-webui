@@ -2306,6 +2306,18 @@ podman's default masked list. The ACPI check moved to `/sys/bus/acpi/devices`,
 which is visible through the same `/sys` mount, and the recorded tree no longer
 carries a `/sys/firmware` a real container never sees.
 
+A masked path is one shape of this. A path the quadlet simply does not mount is
+the other, and the same reading carried one: the tuned check decided whether
+the selected profile exists by looking in `/etc/tuned/profiles`, reached through
+`/run/host/etc`, and in `/usr/lib/tuned`, reached through a `/usr` that belongs
+to the image. The container has no tuned, so a machine running a profile its
+distribution ships was reported as selecting one that tunes nothing. The
+quadlet now mounts `/usr/lib/tuned` read only, and the walker was widened at
+the same time: it had been dropping every call whose leading path segment was a
+variable, which hid six reads, and it never looked at the helper that joins
+onto the `/etc` mount at all. Every read now goes through one of two helpers
+per root, and a method that reaches a root itself fails a test of its own.
+
 ## D37 - Settled: a panel that ages is read again where it is, by a control of its own
 
 The pages that report a live plane, VMs, Containers, the CPU pool and the three

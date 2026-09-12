@@ -381,9 +381,12 @@ def test_no_administration_address_without_a_default_route(
     assert read_admin_address(host, runner) is None
 
 
-# Real time. The whole reading comes from files the container already sees: its
-# own /proc, the read only /sys, and the host's /etc that PAM brought in. A
-# test that needed a new mount here would be a test of a design change.
+# Real time. The reading comes from files the container already sees: its own
+# /proc, the read only /sys, the host's /etc that PAM brought in, and
+# /usr/lib/tuned, which is where the profiles the distribution ships are. That
+# last one is a mount of its own, and the only one this reading asked for: the
+# container has no tuned of its own, so a profile installed there read as
+# missing and a tuned machine was reported as untuned.
 
 
 def test_the_tuned_profile_is_the_configured_one_not_the_running_one(
@@ -411,6 +414,22 @@ def test_a_selected_profile_that_is_not_installed_is_reported_as_such(
 
     assert realtime.tuned_profile == "site-rt"
     assert realtime.tuned_profile_installed is False
+
+
+def test_a_profile_shipped_by_the_distribution_counts_as_installed(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    # A profile under /usr/lib/tuned is as installed as one under
+    # /etc/tuned/profiles, and the container sees it because the quadlet mounts
+    # that directory read only. Before it did, this machine was reported as
+    # selecting a profile that tunes nothing.
+    (host / "etc/tuned/active_profile").write_text("realtime\n")
+    (host / "usr/lib/tuned/realtime").mkdir(parents=True, exist_ok=True)
+
+    realtime = LocalHostReader(root=host, runner=runner).realtime()
+
+    assert realtime.tuned_profile == "realtime"
+    assert realtime.tuned_profile_installed is True
 
 
 def test_the_preemption_model_prefers_preempt_rt_over_preempt(
@@ -519,6 +538,8 @@ def test_a_machine_with_no_acpi_bus_reads_as_absent(
 # carries whatever a fixture writes, container or no container. So the reader
 # is held against the list instead.
 
+_SOURCE = "app/hosts/local.py"
+
 _MASKED = (
     # podman's default masked paths, the ones under a root this reader joins
     # onto. `/sys` is the mount the quadlet grants, `/proc` is the container's
@@ -537,34 +558,120 @@ _MASKED = (
 )
 
 
-def _paths_read_by(source: Path) -> list[tuple[int, str]]:
-    """Every filesystem path `LocalHostReader` opens, with its line number.
+# The two roots the reader joins onto, and the helpers that join onto each. A
+# read that goes through neither is a read this test cannot see, which is why
+# `test_every_read_goes_through_a_helper` refuses one.
+_ROOT_HELPERS = ("_path", "_read_text", "_read_int")
+_ETC_HELPERS = ("_etc_path", "_read_etc")
+# Where the host's /etc is mounted in the container. The helpers above join
+# onto it rather than onto the reader's root, so their paths are checked in
+# that space: a masked path can only be reached from there by escaping it.
+_ETC_MOUNT = "run/host/etc"
 
-    A path is spelled as the constant arguments of `_path`, `_read_text` and
-    `_read_int`, which all join onto the reader's root. The leading constants
-    are enough: a masked directory is masked whole, so what a variable segment
-    holds further down cannot make the read work.
+
+def _string_constants(tree: ast.AST) -> dict[str, str]:
+    """Names assigned a single string literal, wherever they are assigned.
+
+    `base = "sys/devices/system/cpu"` inside a method and `_QUADLET_PATH` at
+    module level are both read this way, so a path spelled through a local
+    constant is as visible to this test as a literal.
     """
-    found: list[tuple[int, str]] = []
-    for node in ast.walk(ast.parse(source.read_text())):
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+    found: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
-        if node.func.attr not in ("_path", "_read_text", "_read_int"):
-            continue
-        parts: list[str] = []
-        for argument in node.args:
-            if not isinstance(argument, ast.Constant) or not isinstance(
-                argument.value, str
-            ):
-                break
-            parts.append(argument.value.strip("/"))
-        if parts:
-            found.append((node.lineno, "/".join(parts)))
+        target = node.targets[0]
+        if isinstance(target, ast.Name) and isinstance(node.value, ast.Constant):
+            if isinstance(node.value.value, str):
+                found[target.id] = node.value.value
     return found
 
 
+def _paths_read_by(source: Path) -> list[tuple[int, str]]:
+    """Every filesystem path `LocalHostReader` opens, with its line number.
+
+    A path is spelled as the arguments of one of the helpers above, each of
+    which joins onto a root. The leading constant segments are enough: a masked
+    directory is masked whole, so what a variable segment holds further down
+    cannot make the read work. A leading segment that is a name is resolved
+    through its assignment, and one that resolves to nothing raises rather than
+    being dropped, which is how six reads under a `base` variable went
+    unchecked.
+    """
+    tree = ast.parse(source.read_text())
+    constants = _string_constants(tree)
+    found: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+            continue
+        helpers = _ROOT_HELPERS + _ETC_HELPERS
+        if node.func.attr not in helpers:
+            continue
+        prefix = _ETC_MOUNT if node.func.attr in _ETC_HELPERS else ""
+        parts: list[str] = [prefix] if prefix else []
+        for argument in node.args:
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                parts.append(argument.value.strip("/"))
+                continue
+            if isinstance(argument, ast.Name) and argument.id in constants:
+                parts.append(constants[argument.id].strip("/"))
+                continue
+            break
+        if len(parts) > (1 if prefix else 0):
+            found.append((node.lineno, "/".join(parts)))
+            continue
+        # A helper called with nothing this test can resolve. The forwarding
+        # calls inside the helpers themselves are the only legitimate case.
+        if not _forwards_arguments(node):
+            raise AssertionError(
+                f"{source.name}:{node.lineno} reads a path this test cannot "
+                f"see: {node.func.attr} is called with no resolvable leading "
+                "segment. Spell it as a literal or a module level constant."
+            )
+    return found
+
+
+def _forwards_arguments(node: ast.Call) -> bool:
+    """Whether the call is one helper handing `*parts` to another."""
+    return any(isinstance(argument, ast.Starred) for argument in node.args)
+
+
+def test_every_read_goes_through_a_helper() -> None:
+    """No method reaches a root directly, so the guard below sees everything.
+
+    `self._root` and `self._etc_root` are joined onto in one place each. A
+    method that builds a path from either itself is invisible to the walker,
+    and `/etc/tuned/profiles` was read that way while the test that is supposed
+    to hold this reader to its container said nothing about it.
+    """
+    tree = ast.parse((Path(__file__).resolve().parent.parent / _SOURCE).read_text())
+    allowed = {"__init__", "_path", "_etc_path"}
+    offenders: list[str] = []
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if function.name in allowed:
+            continue
+        for node in ast.walk(function):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr in ("_root", "_etc_root")
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "self"
+            ):
+                offenders.append(f"{function.name} line {node.lineno}")
+    assert offenders == []
+
+
+def test_no_read_escapes_the_root_it_is_joined_onto() -> None:
+    # `_etc_path` joins onto /run/host/etc, which podman masks nothing under.
+    # That holds only as long as nothing climbs out of it.
+    source = Path(__file__).resolve().parent.parent / _SOURCE
+    assert [path for _, path in _paths_read_by(source) if ".." in path] == []
+
+
 def test_the_reader_opens_no_path_the_container_masks() -> None:
-    source = Path(__file__).resolve().parent.parent / "app/hosts/local.py"
+    source = Path(__file__).resolve().parent.parent / _SOURCE
     paths = _paths_read_by(source)
 
     # The parser earning its keep: a reader that suddenly reads nothing would

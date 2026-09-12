@@ -101,6 +101,17 @@ Volume=/etc/ceph:/etc/ceph:ro
 # open.
 Volume=/etc:/run/host/etc:ro
 
+# The profiles the distribution ships, read only. The profile *name* is read
+# through the mount above, and whether a profile of that name exists is what
+# separates "this machine is tuned" from "a profile is selected and nothing is
+# tuning this machine". `configure_hypervisor` writes its own under
+# /etc/tuned/profiles, which /run/host/etc already carries; a profile that came
+# with the distribution lives here. Without this mount the container looks for
+# it in its own /usr, where tuned is not installed, and finds nothing: a path
+# the container does not share, read as absent rather than as an error, which
+# is the failure D36 was written about.
+Volume=/usr/lib/tuned:/usr/lib/tuned:ro
+
 Environment=PYTHONUNBUFFERED=1
 # Administration address, from ip_addr in the inventory, substituted by the
 # role. `auto` is what a fresh ISO boots with, and the service resolves it to
@@ -138,6 +149,13 @@ RestartSec=5
 # whose creation is what turns the host's journal persistent.
 ExecStartPre=/usr/bin/mkdir -p /etc/seapath/webui /etc/seapath/inventory \
     /var/lib/seapath-webui /etc/corosync /etc/ceph
+# The tuned profile directory, created separately and without the unit
+# depending on it. A machine that never installed tuned has no /usr/lib/tuned,
+# and an empty one says exactly what is true there: the distribution ships no
+# profile. The failure is tolerated because /usr can be read only, and a node
+# that does not answer its browser over one conformance check being less
+# precise would be the wrong trade.
+ExecStartPre=-/usr/bin/mkdir -p /usr/lib/tuned
 # The TLS private key, the SSH private key and the session secret live there.
 ExecStartPre=/usr/bin/chmod 0700 /etc/seapath/webui
 # Housekeeping CPUs only, substituted from the node's isolated set by the
