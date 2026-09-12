@@ -226,7 +226,7 @@ stays an inventory change and a run.
 
 ![The Cluster page, Storage: Ceph health and capacity, over the monitors, the managers and the OSDs](img/10-cluster-storage.png)
 
-![The Real time page, Conformance: the four view tabs and their summaries, over one row per check and one column per machine](img/11-1-realtime-conformance.png)
+![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/11-1-realtime-conformance.png)
 
 **Real time** answers whether the machines came out of a convergence with the
 tuning they were told to have. One row per check, one column per machine: each
@@ -263,7 +263,7 @@ drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
 
 ![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/11-3-realtime-latency.png)
 
-![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/11-4-realtime-firmware.png)
+![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/11-5-realtime-firmware.png)
 
 Latency and Firmware carry a form, which the other two views have no use for.
 Reading what a machine publishes costs one HTTP GET; a measurement asks the
@@ -291,6 +291,8 @@ copy: an address, that key in the account Ansible connects as with sudo, and
 `rt-tests` installed. This service installs none of the three, because writing
 inside a VM would be configuring a machine behind Ansible's back. See D41 in
 [docs/decisions.md](docs/decisions.md).
+
+![The Real time page, Guest latency: what cyclictest measured inside one guest, over the form and this node's public key that make a guest measurable](img/11-4-realtime-guest-latency.png)
 
 ![The Runs page: the history on the left, one run and its task stream on the right](img/12-runs.png)
 
