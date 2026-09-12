@@ -33,6 +33,7 @@ from app.services.metadata import (
     RbdUnavailable,
 )
 from app.services.vms import GuestsView, InvalidGuest, UnknownGuest, VmService
+from app.trust.service import GuestTrust, TrustService
 
 router = APIRouter(
     prefix="/vms",
@@ -153,6 +154,14 @@ class DeclarationResponse(BaseModel):
     playbook: str = Field(
         description="The catalogue entry that deploys the group in this mode"
     )
+    trusted_key: str | None = Field(
+        default=None,
+        description=(
+            "The fingerprint of this node's key, where the seed installs it "
+            "in the guest. What an operator compares against the guest's "
+            "`authorized_keys` when a run into it is refused"
+        ),
+    )
     mac_address: str | None = Field(
         default=None,
         description=(
@@ -197,7 +206,8 @@ def declare(
     # declaration leaves it out, resolved once so that the entry, the check
     # and the answer all carry the same one.
     network = payload.network.completed() if payload.network else None
-    definition = _definition(payload, network)
+    trust = _trust(request, network)
+    definition = _definition(payload, network, trust)
     try:
         deployment = Mode(payload.deployment) if payload.deployment else None
     except ValueError as error:
@@ -246,6 +256,7 @@ def declare(
         message=commit.message if commit else None,
         playbook=service.deploy_playbook(payload.name),
         mac_address=network.mac_address if network else None,
+        trusted_key=trust.fingerprint if trust else None,
     )
 
 
@@ -337,8 +348,24 @@ def enable(request: Request, name: str, user: User = operator) -> ActionResponse
     return _act(request, name, Action.ENABLE, user)
 
 
+def _trust(
+    request: Request, network: cloudinit.GuestNetwork | None
+) -> GuestTrust | None:
+    """This node's account and key line, where the declaration asks to install them.
+
+    Read only then: the key pair is created on first use, and a declaration
+    that asked for no trust has no reason to touch the trust material.
+    """
+    if network is None or not network.trust_this_node:
+        return None
+    trust: TrustService = request.app.state.trust_service
+    return trust.guest_trust(request.app.state.node_hostname)
+
+
 def _definition(
-    payload: GuestDeclaration, network: cloudinit.GuestNetwork | None = None
+    payload: GuestDeclaration,
+    network: cloudinit.GuestNetwork | None = None,
+    trust: GuestTrust | None = None,
 ) -> dict[str, Any]:
     """The entry to write, in the order it reads well in the file.
 
@@ -353,7 +380,16 @@ def _definition(
         "vm_disk": payload.vm_disk,
         "vm_template": payload.vm_template,
         "xml_path": payload.xml_path,
-        **(cloudinit.variables(payload.name, network) if network else {}),
+        **(
+            cloudinit.variables(
+                payload.name,
+                network,
+                account=trust.account if trust else None,
+                key_line=trust.key_line if trust else None,
+            )
+            if network
+            else {}
+        ),
         "preferred_host": payload.preferred_host,
         "pinned_host": payload.pinned_host,
         "priority": payload.priority,

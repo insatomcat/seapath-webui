@@ -31,6 +31,14 @@ _SELF_KEY_NAME = "id_ed25519_self"
 _LOOPBACK = ("127.0.0.1", "::1")
 
 
+class GuestTrust(BaseModel):
+    """What a guest needs installed for a run from this node to reach inside it."""
+
+    account: str
+    key_line: str
+    fingerprint: str
+
+
 class TrustRelation(BaseModel):
     """One direction of trust, as the trust view shows it."""
 
@@ -61,6 +69,32 @@ class TrustService:
 
     def self_key(self) -> KeyPair:
         return ensure_key_pair(self._ssh_dir, _SELF_KEY_NAME)
+
+    @staticmethod
+    def offered_comment(hostname: str) -> str:
+        """The comment on the line this node hands over for an account it cannot write.
+
+        Distinct from `self_comment` on purpose: revocation removes lines by
+        their `seapath-webui:` comment from the file this service writes, and a
+        line in a guest is outside that file and outside that reach.
+        """
+        return f"seapath-webui@{hostname}"
+
+    def guest_trust(self, hostname: str) -> GuestTrust:
+        """The account and the key line a guest's seed installs.
+
+        The account is the one every run connects as, so a guest trusted this
+        way is reached by the same `ansible_user` a machine is. The line is
+        public by nature, which is what lets it be committed to the inventory:
+        what it authorises is the private half, and that never leaves
+        `/etc/seapath/webui`.
+        """
+        key = self.self_key()
+        return GuestTrust(
+            account=self._ansible_user,
+            key_line=f"{key.public_key} {self.offered_comment(hostname)}",
+            fingerprint=key.fingerprint,
+        )
 
     def ensure_self_trust(
         self, hostname: str, addresses: list[str]

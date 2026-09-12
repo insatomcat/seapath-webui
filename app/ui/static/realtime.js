@@ -971,8 +971,10 @@
       "needs an address on the guest's inventory entry, the guest's host key " +
       "accepted on this node, under Reaching the other machines on the " +
       "Deployment page, this node's public key in the account it connects as, " +
-      "with sudo, and rt-tests installed in the guest. Nothing here installs " +
-      "any of them: a measurement changes nothing on what it measures.";
+      "with sudo, and rt-tests installed in the guest. A measurement installs " +
+      "none of them, since it changes nothing on what it measures. A guest " +
+      "added on the VMs page with a network and the log in option already " +
+      "has the address and the key, from its first boot.";
     await loadPublicKey(pending && pending.key);
     renderAffinity(GUEST_AFFINITY);
     let choices = { addressable_guests: [] };

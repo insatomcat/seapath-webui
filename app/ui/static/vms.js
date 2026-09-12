@@ -1105,7 +1105,15 @@
       !asked.hostname &&
       !asked.dns.length &&
       !asked.dhcp;
-    return empty ? null : asked;
+    if (empty) {
+      return null;
+    }
+    // Judged after the emptiness above rather than as part of it: the box is
+    // checked by default, and a guest whose section was left blank is one
+    // whose image carries its own configuration, which a seed would only get
+    // in the way of.
+    asked.trust_this_node = element("add-trust").checked;
+    return asked;
   }
 
   // A lease carries the address, the route and the resolvers, so the fields

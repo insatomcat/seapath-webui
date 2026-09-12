@@ -269,3 +269,51 @@ def test_a_hostname_the_guest_could_not_answer_to_is_refused() -> None:
 
     assert refusal is not None
     assert "hostname" in refusal
+
+
+# This node's trust, installed by the seed.
+
+KEY_LINE = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample seapath-webui@node1"
+
+
+def test_the_trust_writes_the_account_and_the_key_and_nothing_wider() -> None:
+    network = GuestNetwork(
+        bridge="br0", mac_address=MAC, address="10.0.0.42/24", trust_this_node=True
+    )
+
+    written = cloudinit.variables("vm1", network, account="ansible", key_line=KEY_LINE)
+
+    # Who a run logs in as, beside where the guest is.
+    assert written["ansible_user"] == "ansible"
+    # One account, the key and nothing else: no `default`, which on Debian is
+    # a `debian` account with passwordless sudo, and no `sudo`, which would
+    # widen the rights the image gave `ansible`.
+    assert written["cloud_init"]["users"] == [
+        {"name": "ansible", "ssh_authorized_keys": [KEY_LINE]}
+    ]
+
+
+def test_no_trust_is_written_unless_it_was_asked_for() -> None:
+    network = GuestNetwork(bridge="br0", mac_address=MAC, address="10.0.0.42/24")
+
+    written = cloudinit.variables("vm1", network, account="ansible", key_line=KEY_LINE)
+
+    assert "ansible_user" not in written
+    assert "users" not in written["cloud_init"]
+
+
+def test_the_trust_alone_is_a_section_that_says_something() -> None:
+    # A guest whose interface is in the operator's own XML, and whose address
+    # the image already carries, may still want to be reachable from here.
+    network = GuestNetwork(trust_this_node=True)
+
+    assert network.asked_for is True
+    assert cloudinit.refusal("vm1", network) is None
+    assert cloudinit.variables(
+        "vm1", network, account="ansible", key_line=KEY_LINE
+    ) == {
+        "ansible_user": "ansible",
+        "cloud_init": {
+            "users": [{"name": "ansible", "ssh_authorized_keys": [KEY_LINE]}]
+        },
+    }

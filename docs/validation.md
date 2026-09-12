@@ -595,6 +595,8 @@ its label and applying it. See [D47](decisions.md#d47).
 | 8 | The MAC the form reports is the MAC `virsh dumpxml` shows on the domain, and the one the guest's own interface carries | The YAML 1.1 trap, end to end: a number here would show as a MAC nobody typed | Pending |
 | 9 | A guest added with DHCP gets a lease, and its entry carries no `ansible_host` | The one case where the address is not knowable when the entry is written | Pending |
 | 10 | Two guests created from one uploaded image answer on two addresses with two hostnames | The claim the whole feature exists for | Pending |
+| 11 | A guest added with the log in option accepts `ssh ansible@<address>` from this container with this node's key, once its host key is accepted, and the account's sudo rights are still the image's | cloud-init applying `users` to an account the image already created, which no fake runs | Pending |
+| 12 | The latency measurement runs inside that guest with nothing pasted by hand, and no `debian` account exists in it | The loop D41 left open, closed on a real guest | Pending |
 
 ### Result
 

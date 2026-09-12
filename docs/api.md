@@ -714,6 +714,19 @@ the ones that matter most on a substation network: a duplicate address is a
 guest that half works, and a duplicate MAC on one bridge is a guest receiving
 somebody else's frames.
 
+**`trust_this_node` lets runs from here log into the guest.** The seed installs
+this node's public key, the line `GET /trust/public-key` hands over, in the
+account every run connects as, and the entry names that account as
+`ansible_user`. The answer carries the key's fingerprint as `trusted_key`. The
+`users` entry written into `cloud_init` names that account and its key and
+nothing else: no `default`, which on Debian creates a `debian` account with
+passwordless sudo, and no `sudo`, which would widen the rights the image gave
+the account. A SEAPATH VM image creates `ansible` with those rights; a guest
+from another image fails at `become` and says so. The guest's host key still has
+to be accepted once the guest is up, under Reaching the other machines. With the
+address above and this, the guest is one the latency measurement can aim at from
+its first boot.
+
 An entry is read once when the guest is created and never again. Both roles
 skip the creation of a guest the hypervisor already has, seed included, so
 changing `cloud_init` afterwards reaches a guest only through `force`, which

@@ -17,6 +17,13 @@ variables, and each has a different reader:
 - `ansible_host`, read by Ansible itself, which is how a play reaches inside the
   guest afterwards.
 
+Where the form asks for it, the seed also installs this node's public key in the
+account every run connects as, and the entry names that account as
+`ansible_user`. That is the trust [D41](../../docs/decisions.md) left to the
+operator, and it stays within the rule D41 held it to: the key reaches the
+guest through the upstream role, from the inventory, on the guest's first boot,
+exactly as it would from a control machine running the same playbook.
+
 The address is typed once and written twice, because the two statements are
 different: one gives the guest an address, the other says where to find it.
 Writing both from one field is what keeps them equal.
@@ -104,6 +111,16 @@ class GuestNetwork(BaseModel):
             "guest's own name, which is what this leaves alone"
         ),
     )
+    trust_this_node: bool = Field(
+        default=False,
+        description=(
+            "Install this node's public key, through the seed, in the guest "
+            "account runs connect as, and name that account as `ansible_user` "
+            "on the entry. What lets a run from here, the latency measurement "
+            "among them, reach inside the guest with nothing pasted by hand. "
+            "The account's sudo rights stay the image's"
+        ),
+    )
 
     @property
     def asked_for(self) -> bool:
@@ -116,6 +133,7 @@ class GuestNetwork(BaseModel):
             or self.dns
             or self.gateway
             or self.hostname
+            or self.trust_this_node
         )
 
     def completed(self) -> GuestNetwork:
@@ -141,25 +159,65 @@ def generate_mac() -> str:
     return ":".join(f"{byte:02x}" for byte in (*_OUI, *secrets.token_bytes(3)))
 
 
-def variables(guest: str, network: GuestNetwork) -> dict[str, Any]:
+def variables(
+    guest: str,
+    network: GuestNetwork,
+    account: str | None = None,
+    key_line: str | None = None,
+) -> dict[str, Any]:
     """The entry's network variables, in the order they read well in the file.
 
     Each piece is written only where the form gave it something to say. A
     section naming a bridge and nothing else declares an interface and leaves
     the guest's own configuration alone, which is the entry for an image that
     carries its address already.
+
+    `account` and `key_line` are this node's trust, read by the caller from the
+    trust material, which this module has no business opening. They are
+    written only where `trust_this_node` asked for them.
     """
     written: dict[str, Any] = {}
     if network.address and not network.dhcp:
         written["ansible_host"] = network.address.split("/", 1)[0]
+    trusted = bool(network.trust_this_node and account and key_line)
+    if trusted:
+        # Beside the address, because the pair is what a run needs: where the
+        # guest is and who to log in as. Without it Ansible connects as
+        # whoever runs it, and in this container that is no account any guest
+        # has.
+        written["ansible_user"] = account
     if network.bridge:
         written["bridges"] = [
             {"name": network.bridge, "mac_address": network.mac_address}
         ]
     seed = _seed(guest, network)
+    if trusted:
+        seed["users"] = [_user(str(account), str(key_line))]
     if seed:
         written["cloud_init"] = seed
     return written
+
+
+def _user(account: str, key_line: str) -> dict[str, Any]:
+    """One cloud-config `users` entry: the account runs use, with this key.
+
+    Three things are left out, and each is a decision.
+
+    `default` is absent from the list, so cloud-init creates no distribution
+    default user. On Debian that is a `debian` account with passwordless sudo,
+    and a substation guest gaining one because this node wanted to log in is a
+    hole nobody asked for.
+
+    `sudo` is absent too. A SEAPATH VM image creates `ansible` with the narrow
+    rights its FAI class grants, and `ALL=(ALL) NOPASSWD:ALL` written here
+    would widen them behind the image's back. A guest from another image, whose
+    account has no sudo, fails at `become` and says so.
+
+    The password is left to cloud-init's default, which locks it on every
+    account the list names. On `ansible` that changes nothing: the account
+    logs in by key alone.
+    """
+    return {"name": account, "ssh_authorized_keys": [key_line]}
 
 
 def _seed(guest: str, network: GuestNetwork) -> dict[str, Any]:

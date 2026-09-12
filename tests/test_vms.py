@@ -1043,6 +1043,65 @@ def test_a_network_that_could_not_work_is_refused_before_it_is_written(
     assert (settings.inventory_dir / "inventory.yaml").read_text() == before
 
 
+def test_the_seed_installs_the_key_this_node_connects_with(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The same line `/trust/public-key` hands over to be pasted, so a guest
+    # declared here is reachable by a run from its first boot, and an operator
+    # comparing the two sees one key.
+    offered = signed_in.get("/api/v1/trust/public-key").json()
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": {**NETWORK, "trust_this_node": True}},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["trusted_key"] == offered["fingerprint"]
+
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert entry["ansible_user"] == settings.ansible_user
+    assert entry["cloud_init"]["users"] == [
+        {
+            "name": settings.ansible_user,
+            "ssh_authorized_keys": [f"{offered['public_key']} {offered['comment']}"],
+        }
+    ]
+
+
+def test_a_declaration_asking_for_no_trust_carries_none(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "network": dict(NETWORK)}
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["trusted_key"] is None
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert "ansible_user" not in entry
+    assert "users" not in entry["cloud_init"]
+
+
+def test_a_guest_trusted_this_way_is_one_a_measurement_can_aim_at(
+    signed_in: TestClient,
+) -> None:
+    # The loop D41 left open: an address and an account on the entry, written
+    # by the declaration, and the guest shows up where the measurement looks.
+    signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": {**NETWORK, "trust_this_node": True}},
+    )
+
+    scopes = signed_in.get("/api/v1/playbooks/scopes").json()
+
+    assert "newvm" in scopes["addressable_guests"]
+
+
 def test_a_declaration_replaced_keeps_its_own_address(
     signed_in: TestClient, settings: Settings
 ) -> None:

@@ -235,6 +235,22 @@ image and losing its disk. D31 records the bounds.
     <input type="text" id="add-hostname" autocomplete="off" spellcheck="false"
       placeholder="the name above">
 
+    {# Checked by default, and only ever sent with the rest of the section: a
+       guest this node gives an address to is a guest it will want to reach,
+       for the latency measurement first. The key goes in through the seed and
+       the upstream role, so the line D41 draws is where it was. #}
+    <label class="switch">
+      <input type="checkbox" id="add-trust" checked>
+      Let runs from this node log into the guest
+    </label>
+    <p class="help">
+      Installs this node's public key in the guest's <code>ansible</code>
+      account on its first boot, and names that account as
+      <code>ansible_user</code> on the entry. The account and its sudo rights
+      are the image's: a SEAPATH VM image has both. The guest's host key still
+      has to be accepted once it is up, under Reaching the other machines.
+    </p>
+
     <p class="help">
       All of this is read once, when the guest is created, and never again. The
       image has to carry cloud-init, which is what

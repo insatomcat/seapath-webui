@@ -80,17 +80,19 @@ def public_key(request: Request, user: User = viewer) -> PublicKey:
     installing it is the operator's act: appending to a file on a VM would be
     this service configuring a machine outside Ansible, which is the one thing
     it never does. So the key is handed over to be pasted, or to be put in the
-    guest's `cloud_init` mapping, where the deployment installs it.
+    guest's `cloud_init` mapping, where the deployment installs it. The VMs
+    page does the second for a guest it declares, with this same line.
 
     Public by nature, and a viewer may read it: what it authorises is the
     private half, which never leaves `/etc/seapath/webui`.
     """
-    key = _service(request).self_key()
+    service = _service(request)
+    key = service.self_key()
     hostname = request.app.state.node_hostname
     return PublicKey(
         public_key=key.public_key,
         fingerprint=key.fingerprint,
-        comment=f"seapath-webui@{hostname}",
+        comment=service.offered_comment(hostname),
     )
 
 

@@ -582,8 +582,9 @@ VMs:
     myvm:
       vm_disk: '../files/myvm.qcow2'
       vm_template: '../templates/vm/guest.xml.j2'
-      # Where a play reaches inside the guest, once its key is installed there.
+      # Where a play reaches inside the guest, and as whom.
       ansible_host: 10.0.0.42
+      ansible_user: ansible
       # The interface `guest.xml.j2` renders. Quote the MAC: Ansible reads this
       # file as YAML 1.1, where 52:54:00:11:22:33 unquoted is a number.
       bridges:
@@ -601,10 +602,18 @@ VMs:
               routes:
                 - to: default
                   via: 10.0.0.1
+        # This node's key, in the account runs connect as. Written by the
+        # form's log in option, and public by nature.
+        users:
+          - name: ansible
+            ssh_authorized_keys:
+              - ssh-ed25519 AAAA... seapath-webui@node1
 ```
 
 The address appears twice on purpose: once to give it to the guest, once to say
-where to find the guest. The netplan document under `cloud_init.network` is a
+where to find the guest. `ansible_user` names the account because nothing else
+does on a guest: the renderer writes it on every machine, and a run into a guest
+without it connects as whoever runs Ansible. The netplan document under `cloud_init.network` is a
 v2 document without its `version: 2` header, which the role adds, and the
 interface is selected by its MAC because what the guest calls that interface is
 the guest's own business.
@@ -618,11 +627,11 @@ Three consequences worth knowing while editing the file by hand:
 - **The image has to carry cloud-init**, which is `build_qcow2.sh --cloud-init`
   in `build_debian_iso`. Without it the seed is attached and the guest ignores
   it.
-- **Everything else cloud-config accepts belongs here too**: `users`,
+- **Everything else cloud-config accepts belongs here too**: more `users`,
   `packages`, `runcmd`, `write_files`, or a `user_data_file` naming a complete
-  document in this folder. The form writes the network and the hostname; the
-  rest is written here, and this service reads it back and writes it out
-  untouched.
+  document in this folder. The form writes the network, the hostname and this
+  node's key; the rest is written here, and this service reads it back and
+  writes it out untouched.
 
 See [D47](decisions.md#d47).
 

@@ -3276,6 +3276,51 @@ list somebody has to keep. A string that comes back as itself is written bare,
 so `52:54:00:e4:ff:02`, which has hexadecimal digits in it and is a string in
 both versions, stays unquoted and the file still reads like one somebody wrote.
 
+### The trust into the guest, through the same seed
+
+[D41](#d41) left the trust into a guest to the operator: the Real time page
+shows this node's key, and pasting it into the guest is theirs to do. The
+reason was the rule, since appending to a file inside a VM is this service
+configuring a machine outside Ansible. The seed changes the means and leaves the
+rule standing. The key line goes into the guest's entry, `cloud_init.users`, as
+an inventory variable; `cloud_init_seed` builds it into the seed; cloud-init
+installs it on the guest's first boot. Nothing here reaches the guest, and a
+control machine running the same playbook from an exported inventory installs
+the same key. So the form offers it, checked by default wherever the network
+section is filled in, since a guest this node gives an address to is a guest it
+will want to reach.
+
+Two variables are written, and the second one was the surprise. `users` carries
+the key, and `ansible_user` on the entry names the account. Without it a run
+into the guest connects as whoever runs Ansible, which in this container is an
+account no guest has: the renderer writes `ansible_user` on every machine, and
+nothing ever wrote it on a guest. The reference VM inventory sets it on its
+`VMs` group for exactly this reason.
+
+The `users` entry is kept as narrow as the job. It leaves out `default`, so
+cloud-init creates no distribution default user, which on Debian is a `debian`
+account with passwordless sudo. It leaves out `sudo`, because a SEAPATH VM image
+creates `ansible` with the rights its FAI class grants, `/bin/sh` and `rsync`,
+and writing `ALL=(ALL) NOPASSWD:ALL` here would widen them behind the image's
+back. A guest built from another image, whose account has no sudo, fails at
+`become` with a message that names it, and the form's help says the account and
+its rights are the image's.
+
+The key is public, so committing it is fine: the inventory already holds
+nothing more sensitive than addresses. What it authorises is the private half,
+which never leaves `/etc/seapath/webui`. It carries the comment
+`seapath-webui@<node>`, the one `/trust/public-key` hands over, and deliberately
+never the `seapath-webui:` prefix revocation matches on: revocation removes
+lines from the one file this service writes, and a line inside a guest is out of
+its reach. Removing it is recreating the guest without it, or an edit inside the
+guest.
+
+What stays manual is the guest's host key. A guest recreated from its image
+generates a new one, and accepting it is the same act as for a machine, under
+Reaching the other machines. Pre-seeding host keys through cloud-init would
+remove that step, and would put a private host key into a git repository, which
+is the trade this service does not make.
+
 ### What the guest's entry may hold that this service does not write
 
 `cloud_init` carries whatever cloud-config keys a site puts in it, and the form

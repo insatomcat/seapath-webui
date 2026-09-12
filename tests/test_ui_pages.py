@@ -1417,6 +1417,11 @@ def test_adding_a_vm_asks_for_the_network_it_will_come_up_on(
         assert f'id="{field}"' in body
     assert 'id="add-dhcp"' in body
     assert 'id="add-hostname"' in body
+    # The trust into the guest, offered checked, and saying what it leaves to
+    # the image: the account and its sudo rights, and the host key to accept.
+    assert 'id="add-trust" checked' in body
+    assert "sudo rights" in body
+    assert "host key" in body
     # The two things an operator cannot guess: what the MAC is for, and that
     # cloud-init is read once, when the guest is created.
     assert "ansible_host" in body
