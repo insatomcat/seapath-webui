@@ -38,7 +38,7 @@ carries its MAC in that file, and the form asks for it rather than guessing.
 
 Nothing here writes to a machine, and nothing here builds the seed. This
 produces inventory variables, the same ones a site writes by hand, and
-[D47](../../docs/decisions.md) records why the seed itself is the role's to
+[D48](../../docs/decisions.md) records why the seed itself is the role's to
 build.
 """
 

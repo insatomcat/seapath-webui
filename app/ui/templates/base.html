@@ -59,6 +59,12 @@ SPDX-License-Identifier: Apache-2.0
           stored("seapath-autorefresh") === "on" ? "on" : "off";
       })();
     </script>
+    {# The tab's mark. Shipped because a browser asks for /favicon.ico on every
+       page of an origin that has none, and an operator keeping one tab per node
+       open through several ssh tunnels pays that round trip on every visit and
+       gets a blank square for it. Stamped like every other asset, so it is
+       fetched once per build. #}
+    <link rel="icon" href="static/favicon.svg?v={{ favicon_stamp() }}" type="image/svg+xml">
     {# Which release drew this page. `kept.js` keys what a browser remembers of
        a panel on it, because a payload kept by one version and drawn by another
        is a render dying on a field that moved. #}

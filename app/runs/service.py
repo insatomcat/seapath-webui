@@ -136,7 +136,14 @@ class RunService:
             self._paths.collections_path, self.collection_version()
         )
 
-    def playbooks(self) -> list[PlaybookAvailability]:
+    def playbooks(self, ids: set[str] | None = None) -> list[PlaybookAvailability]:
+        """The catalogue, with why each entry is or is not offered right now.
+
+        `ids` narrows it to the entries a caller names. The Real time page needs
+        three of them to draw its launch panels and was handed the whole
+        catalogue, which is thirty three kilobytes over an ssh tunnel and a
+        scoping plan computed per entry for the forty it ignores.
+        """
         unmet_by_condition = self._unmet_preconditions()
         missing = self._missing_playbooks()
         # Parsed once for the whole catalogue: every entry asks the same file
@@ -144,6 +151,8 @@ class RunService:
         table = scoping.table(self._document())
         rows = []
         for entry in self.entries():
+            if ids is not None and entry.id not in ids:
+                continue
             blocking = self._blocking(entry, unmet_by_condition, missing)
             plan = scoping.plan(entry.targets, table)
             rows.append(

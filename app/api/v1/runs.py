@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from datetime import datetime
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -64,9 +65,22 @@ class LaunchResponse(BaseModel):
 
 
 @router.get("/playbooks")
-def playbooks(request: Request, user: User = viewer) -> list[PlaybookAvailability]:
+def playbooks(
+    request: Request,
+    id: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "Narrow the answer to the entries named, repeated once per "
+                "entry. A page that draws one launch panel asks for one entry "
+                "rather than the whole catalogue."
+            ),
+        ),
+    ] = None,
+    user: User = viewer,
+) -> list[PlaybookAvailability]:
     """The catalogue, with why each entry is or is not offered right now."""
-    return _service(request).playbooks()
+    return _service(request).playbooks(set(id) if id else None)
 
 
 @router.get("/playbooks/scopes")
@@ -99,13 +113,42 @@ def launch(
     )
 
 
+class RunSummary(BaseModel):
+    """A run as a list answers it: what it was, when, and how it ended.
+
+    What a run *did* stays on `GET /runs/{id}`: the tasks it ran and how long
+    each took, the hosts it reached, the command, the variables it was launched
+    with and the files it was given. A record carries a duration per task, so
+    fifty of them in a list was a hundred and forty kilobytes for a page that
+    draws five fields per row, fetched over an ssh tunnel to a substation. See
+    D47.
+    """
+
+    id: str
+    playbook: str
+    playbook_id: str
+    state: str
+    check: bool = False
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    launched_by: str
+    inventory_commit: str | None = None
+    collection_version: str = "unknown"
+    return_code: int | None = None
+    guest: str | None = None
+    message: str | None = None
+
+
 @router.get("/runs")
 def runs(
     request: Request,
     limit: int = Query(default=50, ge=1, le=500),
     user: User = viewer,
-) -> list[RunRecord]:
-    return _service(request).list(limit)
+) -> list[RunSummary]:
+    return [
+        RunSummary.model_validate(record.model_dump())
+        for record in _service(request).list(limit)
+    ]
 
 
 @router.get("/runs/{run_id}")

@@ -573,13 +573,37 @@ operator who knows what the pages should say.
 
 Not yet run.
 
+## The Runs page
+
+What D47 fixed was found in an operator's own network panel, on a node reached
+through an ssh tunnel, and the numbers below were then reproduced against the
+fakes. What is left to check is the half a fake history cannot have: a run that
+is still going while the page is open.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Opening the Runs page on a node with a real history draws it at once and asks for the history once, checked in the network panel | The count is the whole of the fix, and it is read where the defect was found | Pending |
+| 2 | A run launched from another page, watched to its end in the window over that page, shows its final state in the Runs list without the page being loaded again | The list is read again exactly when a run ends under the page | Pending |
+| 3 | Opening the Runs page while a run is going shows the stream live, and the row's badge turns to its final state when it ends | The one case where reading the record and the list again is right | Pending |
+| 4 | The log of a commissioning run is still complete on `GET /runs/{id}` and in the download, with every task duration | The list carries less now, and the run's own record must carry everything it did | Pending |
+| 5 | An automation client that lists runs gets what it needs from the summary, or says which field it lost | A surface change, checked against whatever a site actually scripts | Pending |
+| 6 | The tab shows the mark rather than a blank square, and `/favicon.ico` is no longer requested | A browser's own behaviour, and a proxy in front of the service answered that request with eighty kilobytes | Pending |
+| 7 | On a node with a long history, the Runs and Real time pages answer as quickly as on a fresh one | `limit` bounds the reading now, and only a real year of commissioning says whether anything else grows with it | Pending |
+| 8 | The Node page no longer reads itself on its own, and its control and the switch in the bar do read it | It used to poll every five seconds, which is what an operator on a slow link notices first | Pending |
+
+### Result
+
+Not yet run.
+
 ## A guest seeded with cloud-init
 
 The precondition is exercised against fakes on both of its sides, and so is the
 sentence each one prints. What no fake answers is whether the seed this
 container builds is a disk a guest boots from: `cloud-localds` writing a
 filesystem, libvirt attaching it, and cloud-init inside the guest finding it by
-its label and applying it. See [D47](decisions.md#d47).
+its label and applying it. See [D48](decisions.md#d48).
 
 ### Checklist
 

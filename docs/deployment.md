@@ -50,7 +50,7 @@ Contents:
   the control machine to build the seed of a guest whose entry carries a
   `cloud_init` mapping. A control machine driving the same playbook from a
   checkout needs it too, which is why a run that cannot find it is refused with
-  the package named. See [D47](decisions.md#d47).
+  the package named. See [D48](decisions.md#d48).
 
 Each layer arrives with the milestone that uses it, so that the image never
 carries the dependency tree, or the CVEs, of something no code calls yet. M0
@@ -449,7 +449,7 @@ here is the same thing by hand, and it is short on purpose:
 # The exact tag the quadlet pins, which is this service's own version. The
 # quadlet never says `latest`: a machine has to be able to say which code is
 # answering on it.
-podman pull docker.io/insatomcat/seapath-webui:0.3.85
+podman pull docker.io/insatomcat/seapath-webui:0.3.87
 install -m 0644 seapath-webui.container /etc/containers/systemd/
 systemctl daemon-reload
 systemctl start seapath-webui

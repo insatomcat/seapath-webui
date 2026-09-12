@@ -370,7 +370,7 @@ build one: `cloud-localds` missing, which kills the run on the task that calls
 it, or the role missing from the installed collection, which is worse, since the
 run then ends green having created the guest with no seed at all. The refusal
 names the guests and, for the first case, the package. See
-[D47](decisions.md#d47).
+[D48](decisions.md#d48).
 
 ### Not reviewed, and offered as such
 

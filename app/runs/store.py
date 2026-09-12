@@ -130,17 +130,32 @@ class RunStore:
             return None
 
     def list(self, limit: int = 50) -> list[RunRecord]:
+        """The newest runs, most recent first.
+
+        The directory names are the run ids, which are timestamps, so the newest
+        are known before anything is opened: `limit` bounds the work rather than
+        only the answer. It used to read and parse every run on the node and
+        throw away all but the first few, which on a machine with a year of
+        commissioning behind it is megabytes of JSON per request, three times
+        over on the Real time page alone. See D47.
+        """
         if not self._root.is_dir():
             return []
+        newest = sorted(
+            (entry.name for entry in self._root.iterdir() if entry.is_dir()),
+            reverse=True,
+        )
         records = []
-        for entry in self._root.iterdir():
-            if not entry.is_dir():
-                continue
-            record = self.load(entry.name)
+        for name in newest:
+            record = self.load(name)
+            # A directory that holds no readable record is skipped rather than
+            # counted, so a run whose write was interrupted does not cost the
+            # caller one of the records it asked for.
             if record is not None:
                 records.append(record)
-        records.sort(key=lambda record: record.id, reverse=True)
-        return records[:limit]
+            if len(records) >= limit:
+                break
+        return records
 
     def inventory_of(self, run_id: str) -> str:
         directory = self.directory(run_id)

@@ -633,7 +633,7 @@ Three consequences worth knowing while editing the file by hand:
   node's key; the rest is written here, and this service reads it back and
   writes it out untouched.
 
-See [D47](decisions.md#d47).
+See [D48](decisions.md#d48).
 
 ### 4bis. The vocabulary, so the editor knows what a variable is
 
