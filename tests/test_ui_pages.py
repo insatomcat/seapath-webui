@@ -1405,6 +1405,24 @@ def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(
     assert "Add and deploy" in body
 
 
+def test_adding_a_vm_asks_for_the_network_it_will_come_up_on(
+    signed_in: TestClient,
+) -> None:
+    # The section that takes the address out of the qcow2: one image, one entry
+    # per guest. It writes an interface, a cloud-init seed and the address a
+    # later run reaches the guest at, and the help text says so.
+    body = signed_in.get("/vms").text
+
+    for field in ("add-bridge", "add-mac", "add-address", "add-gateway", "add-dns"):
+        assert f'id="{field}"' in body
+    assert 'id="add-dhcp"' in body
+    assert 'id="add-hostname"' in body
+    # The two things an operator cannot guess: what the MAC is for, and that
+    # cloud-init is read once, when the guest is created.
+    assert "ansible_host" in body
+    assert "read once, when the guest is created" in body
+
+
 def test_adding_a_vm_says_what_it_will_do_before_it_does_it(
     signed_in: TestClient,
 ) -> None:

@@ -22,6 +22,7 @@ import difflib
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
@@ -250,6 +251,96 @@ def test_a_guest_with_no_variables_is_a_name_and_nothing_else() -> None:
     # sits there too and its host is two levels in.
     assert "    ABB15:\n" in edited
     assert "{}" not in edited
+
+
+def test_the_network_of_a_guest_is_read_as_the_roles_read_it() -> None:
+    # Three variables with three readers, and the model carries all three: the
+    # address a play reaches the guest at, the interface the domain gets, and
+    # the mapping the seed is built from.
+    document = """
+VMs:
+  hosts:
+    vm1:
+      ansible_host: 10.0.0.42
+      bridges:
+        - name: br0
+          mac_address: "52:54:00:11:22:33"
+      cloud_init:
+        hostname: vm1
+all:
+  hosts:
+    node1:
+      ansible_host: 10.0.0.1
+"""
+    guest = parse(document).guests["vm1"]
+
+    assert guest.ansible_host == "10.0.0.42"
+    assert guest.bridges == [{"name": "br0", "mac_address": "52:54:00:11:22:33"}]
+    assert guest.cloud_init == {"hostname": "vm1"}
+    # Read into the model rather than left in `extra`, which is where only what
+    # this service does not model belongs.
+    assert guest.extra == {}
+
+
+def test_a_network_variable_of_the_wrong_shape_is_kept_and_not_read() -> None:
+    # A file a site wrote by hand. Refusing to read the inventory over it would
+    # take every page of this service down, so the value is carried through
+    # untouched and `validation` is what says it is wrong.
+    document = """
+VMs:
+  hosts:
+    vm1:
+      cloud_init: true
+      bridges: br0
+all:
+  hosts:
+    node1:
+      ansible_host: 10.0.0.1
+"""
+    guest = parse(document).guests["vm1"]
+
+    assert guest.cloud_init is None
+    assert guest.bridges == []
+    assert guest.extra == {"cloud_init": True, "bridges": "br0"}
+
+
+def test_a_mac_is_written_so_that_ansible_reads_it_as_a_mac() -> None:
+    """The bug this holds shut: a MAC that became a number on the way out.
+
+    ruamel writes YAML 1.2 and Ansible reads YAML 1.1, where a string of colon
+    separated digits is a sexagesimal integer. An unquoted 52:54:00:11:22:33
+    therefore reached `guest.xml.j2` as 41135080953, and the domain it rendered
+    carried a MAC nobody typed.
+    """
+    edited = add_guest(
+        OURS.read_text(),
+        "vm1",
+        {"bridges": [{"name": "br0", "mac_address": "52:54:00:11:22:33"}]},
+    )
+
+    assert 'mac_address: "52:54:00:11:22:33"' in edited
+    written = yaml.safe_load(edited)["VMs"]["hosts"]["vm1"]
+    assert written["bridges"][0]["mac_address"] == "52:54:00:11:22:33"
+
+
+def test_a_value_ansible_reads_as_itself_is_written_bare() -> None:
+    # The quoting is for what would change meaning and nothing else: an entry
+    # where every string is quoted stops reading like a file somebody wrote.
+    edited = add_guest(
+        OURS.read_text(),
+        "vm1",
+        {
+            "vm_disk": "../files/vm1.qcow2",
+            "ansible_host": "10.0.0.42",
+            # Hexadecimal digits in it, so YAML 1.1 reads this one as a string
+            # already.
+            "bridges": [{"name": "br0", "mac_address": "52:54:00:e4:ff:02"}],
+        },
+    )
+
+    assert "vm_disk: ../files/vm1.qcow2" in edited
+    assert "ansible_host: 10.0.0.42" in edited
+    assert "mac_address: 52:54:00:e4:ff:02" in edited
 
 
 def test_a_name_the_inventory_already_carries_is_refused() -> None:

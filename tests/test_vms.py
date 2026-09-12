@@ -866,6 +866,208 @@ def test_the_libvirt_autostart_flag_is_standalone_only(
     assert response.status_code == 400
 
 
+# 6bis. The network one form section gives a guest, which is what takes the
+# address out of the image it is created from.
+
+
+NETWORK = {
+    "bridge": "br0",
+    "mac_address": "52:54:00:e4:ff:02",
+    "address": "10.0.0.42/24",
+    "gateway": "10.0.0.1",
+    "dns": ["9.9.9.9"],
+}
+
+
+def test_a_guest_is_given_an_interface_a_seed_and_an_address(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # One section, three variables, three readers: `guest.xml.j2` renders the
+    # interface, `cloud_init_seed` builds the seed from the mapping, and
+    # Ansible reads the address when a later run has to reach inside.
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "vm_disk": "../files/newvm.qcow2", "network": NETWORK},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["mac_address"] == "52:54:00:e4:ff:02"
+
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    entry = yaml.safe_load(written)["VMs"]["hosts"]["newvm"]
+    assert entry["ansible_host"] == "10.0.0.42"
+    assert entry["bridges"] == [{"name": "br0", "mac_address": "52:54:00:e4:ff:02"}]
+    assert entry["cloud_init"] == {
+        "network": {
+            "ethernets": {
+                "primary": {
+                    "match": {"macaddress": "52:54:00:e4:ff:02"},
+                    "addresses": ["10.0.0.42/24"],
+                    "routes": [{"to": "default", "via": "10.0.0.1"}],
+                    "nameservers": {"addresses": ["9.9.9.9"]},
+                }
+            }
+        }
+    }
+    # And the network sits directly under the files in the entry, because
+    # where the disk is and where the guest is are what an operator looks for.
+    block = written[written.index("newvm:") :]
+    assert block.index("vm_disk") < block.index("ansible_host")
+    assert block.index("ansible_host") < block.index("bridges")
+    assert block.index("bridges") < block.index("cloud_init")
+
+
+def test_the_mac_is_generated_where_a_bridge_is_named_without_one(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # `guest.xml.j2` requires a MAC on every bridge it renders, and the seed
+    # matches the interface on it, so a guest cannot be declared without one.
+    # The answer carries it because it is the guest's identity on that bridge.
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": {"bridge": "br0", "dhcp": True}},
+    )
+
+    assert response.status_code == 201, response.text
+    generated = response.json()["mac_address"]
+    assert generated.startswith("52:54:00:")
+
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert entry["bridges"][0]["mac_address"] == generated
+    # DHCP, so nothing here claims to know the address it will be given.
+    assert "ansible_host" not in entry
+    assert entry["cloud_init"]["network"]["ethernets"]["primary"]["dhcp4"] is True
+
+
+def test_a_guest_with_no_network_section_is_declared_as_before(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The guest whose image carries its own configuration. Nothing is written,
+    # rather than an empty interface and an empty seed.
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "vm_disk": "../files/newvm.qcow2"}
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["mac_address"] is None
+
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert "cloud_init" not in entry
+    assert "bridges" not in entry
+    assert "ansible_host" not in entry
+
+
+def test_an_address_a_machine_already_answers_on_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # The seed inventory gives this node 192.168.200.125. A guest on the same
+    # address is a network where neither is reliably reachable.
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "network": {"bridge": "br0", "address": "192.168.200.125/24"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_guest"
+    assert "seapath-machine" in response.json()["error"]["message"]
+
+
+def test_an_address_another_guest_already_has_is_refused(
+    signed_in: TestClient,
+) -> None:
+    first = signed_in.post(
+        "/api/v1/vms", json={"name": "first", "network": dict(NETWORK)}
+    )
+    assert first.status_code == 201, first.text
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "second",
+            "network": {"bridge": "br0", "address": "10.0.0.42/24"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "first" in response.json()["error"]["message"]
+
+
+def test_a_mac_another_guest_already_carries_is_refused(
+    signed_in: TestClient,
+) -> None:
+    first = signed_in.post(
+        "/api/v1/vms", json={"name": "first", "network": dict(NETWORK)}
+    )
+    assert first.status_code == 201, first.text
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "second",
+            "network": {"bridge": "br0", "mac_address": NETWORK["mac_address"]},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "first" in response.json()["error"]["message"]
+
+
+def test_a_network_that_could_not_work_is_refused_before_it_is_written(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    before = (settings.inventory_dir / "inventory.yaml").read_text()
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "network": {
+                "bridge": "br0",
+                "address": "10.0.0.42/24",
+                "gateway": "10.9.9.1",
+            },
+        },
+    )
+
+    assert response.status_code == 400
+    assert "outside" in response.json()["error"]["message"]
+    # Nothing was committed, which is what a refusal has to mean here: the
+    # file is the audit trail and the guest is declared once.
+    assert (settings.inventory_dir / "inventory.yaml").read_text() == before
+
+
+def test_a_declaration_replaced_keeps_its_own_address(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # A second attempt at the same guest, which is what `replace` is for. Its
+    # own address is not a collision with itself.
+    first = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "network": dict(NETWORK)}
+    )
+    assert first.status_code == 201, first.text
+
+    again = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": dict(NETWORK), "replace": True},
+    )
+
+    assert again.status_code == 201, again.text
+    # The entry already said exactly this, so there is no second commit: an
+    # empty one in the audit trail would say a change happened.
+    assert again.json()["commit"] is None
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert entry["ansible_host"] == "10.0.0.42"
+
+
 # 7. A file that says which deployment each guest belongs to.
 
 

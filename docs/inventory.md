@@ -570,6 +570,62 @@ consequences worth knowing while editing the file by hand:
 
 See [D33](decisions.md#d33).
 
+### The three variables a guest's network is
+
+A guest declared through the VMs page carries its files and, where the form's
+network section was filled in, three more variables. They are ordinary entries
+a site also writes by hand:
+
+```yaml
+VMs:
+  hosts:
+    myvm:
+      vm_disk: '../files/myvm.qcow2'
+      vm_template: '../templates/vm/guest.xml.j2'
+      # Where a play reaches inside the guest, once its key is installed there.
+      ansible_host: 10.0.0.42
+      # The interface `guest.xml.j2` renders. Quote the MAC: Ansible reads this
+      # file as YAML 1.1, where 52:54:00:11:22:33 unquoted is a number.
+      bridges:
+        - name: br0
+          mac_address: "52:54:00:e4:ff:02"
+      # What `cloud_init_seed` builds the guest's NoCloud seed from.
+      cloud_init:
+        network:
+          ethernets:
+            primary:
+              match:
+                macaddress: "52:54:00:e4:ff:02"
+              addresses:
+                - 10.0.0.42/24
+              routes:
+                - to: default
+                  via: 10.0.0.1
+```
+
+The address appears twice on purpose: once to give it to the guest, once to say
+where to find the guest. The netplan document under `cloud_init.network` is a
+v2 document without its `version: 2` header, which the role adds, and the
+interface is selected by its MAC because what the guest calls that interface is
+the guest's own business.
+
+Three consequences worth knowing while editing the file by hand:
+
+- **`cloud_init` is read when the guest is created and never again.** Both
+  deployment roles skip a guest the hypervisor already has, seed included, so
+  an edit here reaches an existing guest only through `force`, which destroys
+  it and recreates it from its image.
+- **The image has to carry cloud-init**, which is `build_qcow2.sh --cloud-init`
+  in `build_debian_iso`. Without it the seed is attached and the guest ignores
+  it.
+- **Everything else cloud-config accepts belongs here too**: `users`,
+  `packages`, `runcmd`, `write_files`, or a `user_data_file` naming a complete
+  document in this folder. The form writes the network and the hostname; the
+  rest is written here, and this service reads it back and writes it out
+  untouched.
+
+See [D47](decisions.md#d47).
+
 ### 4bis. The vocabulary, so the editor knows what a variable is
 
 An inventory is a YAML file with no schema. A name typed wrong is a name the

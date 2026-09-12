@@ -631,7 +631,7 @@ domain and the resource.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/vms` | Every guest the inventory declares, with the paths it names and whether a run would find each one, and Pacemaker's resource for it. `domain` is what libvirt says about it, read from libvirt-exporter on the machine running it, which is the only reading a guest with no Pacemaker resource has, its `state` being one word in the vocabulary the Pacemaker resource uses so that both read the same, with libvirt's own sentence kept in `description`; `undeclared` lists the guests the cluster runs and the inventory does not describe, and `undeclared_domains` the same for the machines Pacemaker does not answer for; `machines` are the cluster members that run libvirt, which is where a guest may be placed, and `placement_nodes` narrows that to the ones the cluster currently reports online and out of standby, which is where a move may send one; each guest carries `preferred_host` and `pinned_host` from its entry beside the `constraints` Pacemaker holds for it, so the page can tell a declared placement from an operator's override, which the CIB cannot ([D34](decisions.md#d34)); each guest carries the `deployment` it belongs to, whether the file `declared` it and the `playbook` that creates it; `deployments` names the kinds of machine this inventory has, and `split` says whether the file assigns its guests; `playbook` names the entry that deploys the group in this mode; `disabled` is true on a cluster guest Ceph holds and Pacemaker does not, which is what `disable` leaves and what `cluster_vm status` calls Disabled, read from `rbd group list` only when such a row exists and the cluster answered; `runtime_note` says where the state column came from, or why it is empty; `warnings` carries what one `VMs` group cannot say |
-| POST | `/vms` | Declare one guest, one commit, `If-Match` on the commit hash. `deployment` picks the group it goes into, `cluster` or `standalone`; absent leaves it in `VMs` itself. Answers with the commit and the playbook that creates it. A name the file already declares as a guest answers `409 guest_exists`, and `replace: true` writes the entry over it instead. `admin` |
+| POST | `/vms` | Declare one guest, one commit, `If-Match` on the commit hash. `deployment` picks the group it goes into, `cluster` or `standalone`; absent leaves it in `VMs` itself. `network` gives the guest an interface, a cloud-init seed and an address, and the answer carries the `mac_address` the entry ended up with. Answers with the commit and the playbook that creates it, and with no commit at all where the entry already said exactly this. A name the file already declares as a guest answers `409 guest_exists`, and `replace: true` writes the entry over it instead. `admin` |
 | POST | `/vms/{name}/start` | Start one guest. Answers `202` with the run that carries it out. `operator` |
 | POST | `/vms/{name}/stop` | Stop one guest. Answers `202` with the run. `operator` |
 | POST | `/vms/{name}/disable` | Take one guest out of the cluster: `cluster_vm disable`, which stops it and removes its Pacemaker resource and keeps its RBD group, image and metadata. `202` with the run; `409 not_in_cluster` for a standalone guest. `operator` |
@@ -661,6 +661,63 @@ changed. It replaces the declaration and nothing else: a guest the hypervisor
 already has is still skipped by the role, unless the entry carries `force`.
 A machine of the same name is refused with `409 refused_write` either way, and
 so is a replacement that would move the guest to the other deployment group.
+
+### The network a guest is given
+
+`network` is one object and it writes three variables, because a guest needs
+three different things said about it and each has its own reader:
+
+| Written | Read by | What it is |
+|---|---|---|
+| `bridges` | `guest.xml.j2` | The interface the domain gets, and the MAC on it |
+| `cloud_init` | `cloud_init_seed` | The NoCloud seed the guest applies on its first boot |
+| `ansible_host` | Ansible itself | Where a later run reaches inside the guest |
+
+The fields are `bridge`, `mac_address`, `address` with its prefix, `gateway`,
+`dns`, `dhcp` and `hostname`. Each piece is written only where the request gave
+it something to say, so a `network` naming a bridge alone declares an interface
+and configures nothing, which is the entry for an image that carries its own
+address. Sending no `network` at all writes none of the three, exactly as
+before.
+
+What that buys is one image for every guest of a site. A VM image built with
+the `SEAPATH_CLOUD_INIT` class of `build_debian_iso` carries cloud-init and no
+address, so the hostname and the address move out of the qcow2 and into the
+entry, versioned with the rest of the inventory. See [D47](decisions.md#d47).
+
+Three things about it are decisions rather than plumbing.
+
+**The address is typed once and written twice.** Into the seed, which is what
+gives the guest the address, and as `ansible_host`, which is what says where to
+find it. They are two statements about the same address, and writing both from
+one field is what keeps them equal. It also makes the guest measurable:
+`ansible_host` is what the `guest_addressable` precondition of the latency
+measurement looks for. With `dhcp` neither is written, since nothing here knows
+what a lease will give.
+
+**The seed matches the interface by its MAC, never by a name.** What a guest
+calls its first interface is the guest's own business, `enp1s0` under systemd
+naming and `eth0` where that is disabled, and none of it is readable from here.
+The MAC is in the entry because the entry is what puts it in the domain. Where
+a bridge is named and `mac_address` is left out, this service generates one in
+the QEMU range and the answer reports it: it is the guest's identity on that
+bridge, which a DHCP reservation or a switch's port security is written
+against. Where no bridge is named, the interface belongs to the operator's own
+XML, and an address with no MAC is refused rather than matched against a guess.
+
+**A network that could not work is refused before it is written.** An address
+without its prefix, a gateway outside the network the address puts the guest
+on, a resolver that fails to parse as an address, a multicast MAC, a bridge
+name no interface could carry, DHCP beside an address the lease decides, and an
+address or a MAC another host of this inventory already holds. The last two are
+the ones that matter most on a substation network: a duplicate address is a
+guest that half works, and a duplicate MAC on one bridge is a guest receiving
+somebody else's frames.
+
+An entry is read once when the guest is created and never again. Both roles
+skip the creation of a guest the hypervisor already has, seed included, so
+changing `cloud_init` afterwards reaches a guest only through `force`, which
+destroys it and recreates it from its image.
 
 `POST /vms` also takes what `cluster_vm create` is given, and that is where it
 belongs: every one of `preferred_host`, `pinned_host`, `priority`,

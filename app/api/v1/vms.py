@@ -21,6 +21,7 @@ from app.api.v1 import reads
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
+from app.inventory import cloudinit
 from app.inventory.model import Mode
 from app.inventory.service import GuestExists, ImportRefused, RefusedWrite
 from app.runs.actions import Action
@@ -78,6 +79,17 @@ class GuestDeclaration(BaseModel):
     xml_path: str | None = Field(
         default=None, description="A libvirt XML taken as it is"
     )
+    network: cloudinit.GuestNetwork | None = Field(
+        default=None,
+        description=(
+            "The guest's network, which becomes three variables on the entry: "
+            "the interface `guest.xml.j2` renders, the cloud-init seed the "
+            "guest applies on its first boot, and the address a play reaches "
+            "it at. A guest whose image carries its own configuration needs "
+            "none of it. More than one interface is written on the Inventory "
+            "page, where a site's own variables live"
+        ),
+    )
     force: bool = False
     replace: bool = Field(
         default=False,
@@ -128,10 +140,27 @@ class GuestDeclaration(BaseModel):
 
 class DeclarationResponse(BaseModel):
     name: str
-    commit: str
-    message: str
+    commit: str | None = Field(
+        default=None,
+        description=(
+            "The commit that declared the guest. Absent where the entry "
+            "already said exactly this, which is what a second attempt "
+            "produces after a declaration that went through and a deployment "
+            "that did not: the file is unchanged, so there is nothing to record"
+        ),
+    )
+    message: str | None = None
     playbook: str = Field(
         description="The catalogue entry that deploys the group in this mode"
+    )
+    mac_address: str | None = Field(
+        default=None,
+        description=(
+            "The MAC of the interface the entry declares, reported because "
+            "this service generates it when a bridge is named and the "
+            "declaration leaves it out. It is what the guest's domain will "
+            "carry and what its seed matches on"
+        ),
     )
 
 
@@ -164,7 +193,11 @@ def declare(
     a machine. See [D30](decisions.md#d30).
     """
     service = _service(request)
-    definition = _definition(payload)
+    # The MAC this service supplies where a bridge is named and the
+    # declaration leaves it out, resolved once so that the entry, the check
+    # and the answer all carry the same one.
+    network = payload.network.completed() if payload.network else None
+    definition = _definition(payload, network)
     try:
         deployment = Mode(payload.deployment) if payload.deployment else None
     except ValueError as error:
@@ -184,6 +217,7 @@ def declare(
             if_match,
             deployment,
             replace=payload.replace,
+            network=network,
         )
     except InvalidGuest as error:
         raise ApiError("invalid_guest", str(error), 400) from error
@@ -208,9 +242,10 @@ def declare(
 
     return DeclarationResponse(
         name=payload.name,
-        commit=commit.hash,
-        message=commit.message,
+        commit=commit.hash if commit else None,
+        message=commit.message if commit else None,
         playbook=service.deploy_playbook(payload.name),
+        mac_address=network.mac_address if network else None,
     )
 
 
@@ -302,17 +337,23 @@ def enable(request: Request, name: str, user: User = operator) -> ActionResponse
     return _act(request, name, Action.ENABLE, user)
 
 
-def _definition(payload: GuestDeclaration) -> dict[str, Any]:
+def _definition(
+    payload: GuestDeclaration, network: cloudinit.GuestNetwork | None = None
+) -> dict[str, Any]:
     """The entry to write, in the order it reads well in the file.
 
     Only what departs from the roles' own defaults. An entry spelling out
     `force: false` and `enable: true` on every guest says nothing and reads as
     if it did, and the file is somebody's audit trail.
+
+    The network sits directly under the files, because what an operator looks
+    for in a guest's entry is where its disk is and where the guest is.
     """
     definition: dict[str, Any] = {
         "vm_disk": payload.vm_disk,
         "vm_template": payload.vm_template,
         "xml_path": payload.xml_path,
+        **(cloudinit.variables(payload.name, network) if network else {}),
         "preferred_host": payload.preferred_host,
         "pinned_host": payload.pinned_host,
         "priority": payload.priority,

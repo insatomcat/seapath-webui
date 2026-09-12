@@ -326,7 +326,9 @@ class RunService:
 
         seeded = _seeded_guests(state.inventory) if state.inventory else []
         if seeded:
-            refused = self._seed_refusal(seeded)
+            refused = self._seed_refusal(
+                seeded, _malformed_seeds(state.inventory) if state.inventory else []
+            )
             if refused:
                 unmet[Precondition.SEED_BUILDABLE] = refused
 
@@ -352,13 +354,22 @@ class RunService:
 
         return unmet
 
-    def _seed_refusal(self, seeded: list[str]) -> str | None:
+    def _seed_refusal(self, seeded: list[str], malformed: list[str]) -> str | None:
         """Why a guest asking for a cloud-init seed cannot be deployed yet.
 
-        The role is asked about first. Where it is missing nothing would call
-        the tool, so whether the tool is there says nothing about the run.
+        The mapping is asked about first, then the role, then the tool: a
+        mapping the role cannot read fails whatever is installed, and where the
+        role is missing nothing would call the tool at all.
         """
         guests = ", ".join(seeded)
+        if malformed:
+            return (
+                f"The `cloud_init` of {', '.join(malformed)} is not a mapping "
+                "of cloud-config keys. The role reads `hostname` and the rest "
+                "off it, so the deployment would stop on the guest rather than "
+                "skip it. The Inventory page says the same thing about the "
+                "file."
+            )
         if not catalogue.role_present(
             self._paths.collections_path, catalogue.SEED_ROLE
         ):
@@ -997,27 +1008,41 @@ class RunService:
 def _addressable_guests(inventory: Inventory) -> list[str]:
     """The guests whose entry carries an address a run could connect to.
 
-    `ansible_host` is not a field of `Guest` and this service never writes one:
-    the VM roles read the group to create domains, and creating a domain needs
-    no route to the guest. An address is there because an operator put it there
-    so that a play could reach inside, which is why it is read out of `extra`,
-    where every variable this service does not model is kept.
+    Most guests carry none: the VM roles read the group to create domains, and
+    creating a domain needs no route to the guest. An address is there because
+    somebody put it there so that a play could reach inside, which is either an
+    operator writing it or the network section of the VMs page writing it
+    beside the address it gives the guest.
     """
     return [
         name
         for name, guest in inventory.guests.items()
-        if str(guest.extra.get("ansible_host") or "").strip()
+        if (guest.ansible_host or "").strip()
     ]
 
 
 def _seeded_guests(inventory: Inventory) -> list[str]:
     """The guests whose entry asks the deployment to build a cloud-init seed.
 
-    Read out of `extra` for the reason `ansible_host` is: the mapping is the
-    operator's and `cloud_init_seed` is what reads it, so modelling it here
-    would be this service inventing an interface over a role that documents
-    one. Presence of the key rather than its shape, because presence is
-    exactly what the deployment roles test before they build a seed.
+    Presence rather than shape, because presence is exactly what the roles
+    test: `hostvars[item].cloud_init is defined`. A mapping the parser could
+    not read stays in `extra` and is still a guest the deployment will try to
+    seed, so it counts here too, and `validation` is what says the mapping is
+    wrong.
+    """
+    return [
+        name
+        for name, guest in inventory.guests.items()
+        if guest.cloud_init is not None or "cloud_init" in guest.extra
+    ]
+
+
+def _malformed_seeds(inventory: Inventory) -> list[str]:
+    """The seeded guests whose mapping is not one the role could read.
+
+    `extra` is where the parser keeps a modelled name whose value has the wrong
+    shape, so a `cloud_init` found there is one that reached the file as
+    something other than a mapping.
     """
     return [
         name for name, guest in inventory.guests.items() if "cloud_init" in guest.extra

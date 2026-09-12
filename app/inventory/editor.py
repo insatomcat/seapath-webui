@@ -32,8 +32,9 @@ import io
 from dataclasses import dataclass
 from typing import Any
 
+import yaml as pyyaml
 from ruamel.yaml import YAML
-from ruamel.yaml.scalarstring import LiteralScalarString
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
 
 from app.inventory.model import GUEST_GROUP
 from app.inventory.resolve import ROOT, groups, resolve
@@ -284,7 +285,7 @@ def _emit(variable: str, value: Any, column: int) -> list[str]:
     # holds several `crm` lines, and dumped as an ordinary scalar it comes back
     # as one folded quoted string that nobody can read in a diff, which is the
     # thing this module exists to avoid.
-    written = LiteralScalarString(value) if _multiline(value) else value
+    written = LiteralScalarString(value) if _multiline(value) else _as_ansible(value)
     _yaml().dump({variable: written}, buffer)
     pad = " " * column
     return [
@@ -295,8 +296,40 @@ def _emit(variable: str, value: Any, column: int) -> list[str]:
 
 def _scalar(value: Any) -> str:
     buffer = io.StringIO()
-    _yaml().dump({"v": value}, buffer)
+    _yaml().dump({"v": _as_ansible(value)}, buffer)
     return buffer.getvalue().rstrip("\n").split(":", 1)[1].strip()
+
+
+def _as_ansible(value: Any) -> Any:
+    """The value with every string Ansible would read as something else quoted.
+
+    This file is written by ruamel, which resolves YAML 1.2, and read by
+    Ansible, whose loader is PyYAML and resolves YAML 1.1. The two disagree,
+    and a MAC address is where it hurts: 1.1 reads `52:54:00:e4:ff:02` as a
+    sexagesimal integer, so a bridge written unquoted here reaches
+    `guest.xml.j2` as 41135080953 and the domain it renders has a MAC nobody
+    typed. `yes`, `no`, `on` and `off` go the same way, as booleans. The
+    reference inventories quote their MACs, and this is the reason.
+
+    Asked of PyYAML rather than answered from a list of patterns: the authority
+    on how Ansible will read a line is the parser Ansible uses. A string that
+    comes back as itself is left exactly as it was, so the ordinary value is
+    still written bare and the diff still reads like a file somebody wrote.
+    """
+    if isinstance(value, str):
+        return value if _reread(value) == value else DoubleQuotedScalarString(value)
+    if isinstance(value, list):
+        return [_as_ansible(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _as_ansible(item) for key, item in value.items()}
+    return value
+
+
+def _reread(text: str) -> Any:
+    try:
+        return pyyaml.safe_load(text)
+    except pyyaml.YAMLError:
+        return None
 
 
 def _trailing_comment(rest: str) -> str:

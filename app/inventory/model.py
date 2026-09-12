@@ -159,6 +159,30 @@ class Guest(BaseModel):
     force: bool = False
     """Destroy and recreate the guest, rather than leave an existing one alone."""
     enable: bool = True
+    ansible_host: str | None = None
+    """Where a play reaches the guest, which most guests do not declare.
+
+    The group is what `deploy_vms_*` loops over to create domains, and creating
+    a domain needs no route to the guest. An address is here because somebody
+    put it here, so that a run could reach inside: the latency measurement of
+    [D41](../../docs/decisions.md) is the one that does.
+    """
+    bridges: list[dict[str, Any]] = Field(default_factory=list)
+    """The interfaces `guest.xml.j2` gives the domain, each with its MAC.
+
+    Carried as it was read rather than typed: the template takes a VLAN tag, a
+    virtualport type and a queue size on the same entry, and a site writing one
+    of those must not lose it to a model that never heard of it.
+    """
+    cloud_init: dict[str, Any] | None = None
+    """What cloud-init configures in the guest on its first boot.
+
+    Read by `cloud_init_seed` when the guest is created, and never again. The
+    shape is the role's, `hostname`, `network`, `users` and the rest of the
+    cloud-config keys, so it is carried rather than modelled: what this service
+    writes into it is one interface and a hostname, and what a site writes by
+    hand beside that has to survive being read and written back.
+    """
     deployment: Mode | None = None
     """Which playbook creates this guest, when the file says.
 

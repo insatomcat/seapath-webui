@@ -1014,6 +1014,23 @@ def test_a_collection_without_the_seed_role_refuses_a_seeded_guest(
     assert by_id["seapath_setup_main"].available is True
 
 
+def test_a_cloud_init_that_is_not_a_mapping_refuses_the_deployment(
+    store, inventory, trust, tmp_path
+) -> None:
+    # The role reads `hostname` and the rest off the mapping, so a value that
+    # is not one fails the task rather than being skipped. Refused with the
+    # tool and the role both installed, because neither of them is what is
+    # wrong here.
+    inventory.declare_guest("seededvm", {"cloud_init": True}, author="alice")
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+    by_id = {item.entry.id: item for item in service.playbooks()}
+
+    assert by_id["deploy_vms_standalone"].available is False
+    refusal = by_id["deploy_vms_standalone"].unmet[0]
+    assert "seededvm" in refusal
+    assert "not a mapping" in refusal
+
+
 def test_the_time_each_task_took_is_kept(store, inventory, trust, tmp_path) -> None:
     # ansible-runner reports a duration on every host result, so answering
     # "which step took the four minutes" costs nothing and needs no callback

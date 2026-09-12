@@ -36,6 +36,7 @@ from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
 from app.cluster.rbd import RbdClient, RbdUnavailable
+from app.inventory import cloudinit
 from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
@@ -291,6 +292,32 @@ def _warnings(inventory: Inventory) -> list[str]:
     ]
 
 
+def _taken(inventory: Inventory | None) -> tuple[dict[str, str], dict[str, str]]:
+    """The addresses and the MACs this inventory already hands out.
+
+    Both keyed by the value and holding the host that has it, because what the
+    refusal has to say is which host an operator is about to collide with.
+    Machines carry an address and no MAC that this service knows of: a
+    hypervisor's interfaces are the machine's own hardware, and nothing in an
+    inventory names their MACs.
+    """
+    addresses: dict[str, str] = {}
+    macs: dict[str, str] = {}
+    if inventory is None:
+        return addresses, macs
+    for host, node in inventory.hosts.items():
+        if node.ansible_host:
+            addresses.setdefault(node.ansible_host, host)
+    for guest, entry in inventory.guests.items():
+        if entry.ansible_host:
+            addresses.setdefault(entry.ansible_host, guest)
+        for bridge in entry.bridges:
+            mac = str(bridge.get("mac_address") or "").strip().lower()
+            if mac:
+                macs.setdefault(mac, guest)
+    return addresses, macs
+
+
 def _group_for(deployment: Mode | None) -> str:
     """The inventory group a declaration goes into.
 
@@ -389,7 +416,8 @@ class VmService:
         expected_head: str | None = None,
         deployment: Mode | None = None,
         replace: bool = False,
-    ) -> Commit:
+        network: cloudinit.GuestNetwork | None = None,
+    ) -> Commit | None:
         """Write one guest into the `VMs` group, as a commit.
 
         The page calls this "add a VM" and the operator never sees the group,
@@ -399,6 +427,16 @@ class VmService:
 
         `replace` writes over a guest of that name the file already declares,
         which is how a second attempt at adding it goes through.
+
+        None where the file already said exactly this, which `replace` can
+        produce: a declaration that went through and a deployment that did not
+        is retried with the same form, and an empty commit in the audit trail
+        would say a change happened.
+
+        `network` is the guest's network as one form section describes it. The
+        variables it produces are already in `definition`, put where they read
+        well in the entry; this is the same thing typed, which is what the
+        rules are written against. See `app.inventory.cloudinit`.
         """
         if not _NAME.match(name):
             raise InvalidGuest(
@@ -411,7 +449,7 @@ class VmService:
             for key, value in definition.items()
             if value not in (None, "", [])
         }
-        self._check_definition(name, variables, deployment)
+        self._check_definition(name, variables, deployment, network)
         commit, _ = self._inventory.declare_guest(
             name,
             variables,
@@ -423,7 +461,11 @@ class VmService:
         return commit
 
     def _check_definition(
-        self, name: str, variables: dict[str, Any], deployment: Mode | None = None
+        self,
+        name: str,
+        variables: dict[str, Any],
+        deployment: Mode | None = None,
+        network: cloudinit.GuestNetwork | None = None,
     ) -> None:
         """What the entry says, held against what this inventory declares.
 
@@ -479,6 +521,15 @@ class VmService:
                 f"{', '.join(unknown)} is not a guest of this inventory, so "
                 "there is nothing to keep this one beside."
             )
+
+        if network is not None and network.asked_for:
+            # The address, the MAC and the bridge, held against what this file
+            # already hands out. A duplicate here is a guest that half works on
+            # somebody else's network, and the entry is written once.
+            addresses, macs = _taken(state.inventory)
+            wrong = cloudinit.refusal(name, network, addresses, macs)
+            if wrong:
+                raise InvalidGuest(wrong)
 
         bus = variables.get("disk_bus")
         if bus and bus not in DISK_BUSES:

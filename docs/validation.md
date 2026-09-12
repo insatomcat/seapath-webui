@@ -591,6 +591,10 @@ its label and applying it. See [D47](decisions.md#d47).
 | 4 | An image whose collection has no `cloud_init_seed` role refuses the deployment with the sentence that says the guest would be created unseeded | A collection built from a branch without the upstream support | Pending |
 | 5 | The seed's files left under `/tmp` in the container, and the run's artefacts on the node, are read afterwards to see what of the mapping they kept | Never log a secret, held against a real run rather than against a fake's events | Pending |
 | 6 | The same inventory, exported and run from a control machine carrying `cloud-image-utils`, creates the same guest and reports no change | Point 5 of the definition of done, on the one thing this container builds | Pending |
+| 7 | A guest added with a bridge, an address and a gateway comes up on that address, reachable from this node over SSH once its key is in the guest | The three variables one form section writes, against a real bridge and a real image | Pending |
+| 8 | The MAC the form reports is the MAC `virsh dumpxml` shows on the domain, and the one the guest's own interface carries | The YAML 1.1 trap, end to end: a number here would show as a MAC nobody typed | Pending |
+| 9 | A guest added with DHCP gets a lease, and its entry carries no `ansible_host` | The one case where the address is not knowable when the entry is written | Pending |
+| 10 | Two guests created from one uploaded image answer on two addresses with two hostnames | The claim the whole feature exists for | Pending |
 
 ### Result
 

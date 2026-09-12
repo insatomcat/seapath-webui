@@ -1079,6 +1079,42 @@
     });
   }
 
+  // The guest's network, as the one section of this form that writes three
+  // variables at once. Null where the section was left empty, which is the
+  // guest whose image carries its own configuration: the API then writes no
+  // interface, no seed and no address, rather than writing empty ones.
+  function network() {
+    const text = (id) => element(id).value.trim();
+    const asked = {
+      bridge: text("add-bridge"),
+      mac_address: text("add-mac"),
+      address: text("add-address"),
+      gateway: text("add-gateway"),
+      hostname: text("add-hostname"),
+      dns: text("add-dns")
+        .split(",")
+        .map((server) => server.trim())
+        .filter((server) => server !== ""),
+      dhcp: element("add-dhcp").checked,
+    };
+    const empty =
+      !asked.bridge &&
+      !asked.mac_address &&
+      !asked.address &&
+      !asked.gateway &&
+      !asked.hostname &&
+      !asked.dns.length &&
+      !asked.dhcp;
+    return empty ? null : asked;
+  }
+
+  // A lease carries the address, the route and the resolvers, so the fields
+  // for those three go away rather than sitting there being ignored. The API
+  // refuses the pair as well, because a page is not where a rule lives.
+  element("add-dhcp").addEventListener("change", () => {
+    element("add-static").hidden = element("add-dhcp").checked;
+  });
+
   // The role reads a `.j2` as a template and renders it per guest, and takes
   // anything else as the XML itself. The extension is the only thing that
   // says which, so the page reads it rather than asking the operator to.
@@ -1185,7 +1221,12 @@
 
       progress.at(2, "doing");
       const entry = Object.assign(
-        { name, vm_disk: "../" + diskPath, deployment: chosenDeployment() },
+        {
+          name,
+          vm_disk: "../" + diskPath,
+          deployment: chosenDeployment(),
+          network: network(),
+        },
         declaration()
       );
       entry[xmlVariable(xml.name)] = "../" + xmlPath;
@@ -1193,7 +1234,17 @@
         entry.replace = true;
       }
       const declared = await API.post("/vms", entry);
-      progress.at(2, "done");
+      // The step says the MAC the entry ended up with, which this service
+      // generates when a bridge was named and the field was left empty. It is
+      // now the guest's identity on that bridge, and a DHCP reservation or a
+      // switch's port security is written against it.
+      progress.at(
+        2,
+        "done",
+        declared.mac_address
+          ? "Declared " + name + ", on " + declared.mac_address
+          : ""
+      );
 
       progress.at(3, "doing");
       const started = await API.post("/runs", { playbook: declared.playbook });
@@ -1207,9 +1258,17 @@
       // reopened as they were are what declares the same image twice. The
       // shape below them is left alone, because the next guest of a site is
       // usually the same shape.
+      //
+      // The address, the MAC and the hostname go with the name, and for a
+      // harder reason than convenience: they are the three values no two
+      // guests may share, and a form that kept them would offer the next
+      // guest a collision the API then refuses.
       element("add-name").value = "";
       element("add-disk").value = "";
       element("add-xml").value = "";
+      element("add-address").value = "";
+      element("add-mac").value = "";
+      element("add-hostname").value = "";
       sent = null;
       showAdd(false);
       RunWatch.open(started.run_id);

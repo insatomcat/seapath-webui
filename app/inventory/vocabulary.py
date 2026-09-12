@@ -536,6 +536,11 @@ _OVS: tuple[Term, ...] = (
         "The bridges this guest is attached to, and the MAC address on each.",
         role="deploy_vms",
         example="- name: br0",
+        written=Written.FORM,
+        caution=(
+            "Quote the MAC. Ansible reads this file as YAML 1.1, where "
+            "52:54:00:e4:ff:02 unquoted is a number."
+        ),
     ),
 )
 
@@ -680,6 +685,7 @@ _GUEST_DEPLOYMENT: tuple[Term, ...] = (
         "What cloud-init configures in the guest on its first boot: its "
         "hostname, its network, the keys authorised in it.",
         role="cloud_init_seed",
+        written=Written.FORM,
         caution=(
             "Read when the guest is created and never again. Changing it "
             "reaches a guest that exists only through `force`, which destroys "

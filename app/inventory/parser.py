@@ -66,6 +66,9 @@ _MODELLED_GUEST = frozenset(
         "xml_path",
         "force",
         "enable",
+        "ansible_host",
+        "bridges",
+        "cloud_init",
     }
 )
 
@@ -196,6 +199,21 @@ def _guest(variables: dict[str, Any], deployment: Mode | None) -> Guest:
     `ansible_user` on the group and a site keeps far more than that, and a
     guest read from its own lines alone would lose it on the way back out.
     """
+    bridges = _bridges(variables.get("bridges"))
+    cloud_init = variables.get("cloud_init")
+    if not isinstance(cloud_init, dict):
+        cloud_init = None
+
+    # A modelled name whose value is not the shape the roles read stays in
+    # `extra` instead, so the file loses nothing and `validation` can say what
+    # is wrong with it out loud. Refusing to read the inventory over it would
+    # take every page of this service down with it, and the shape is a site's
+    # to write: this is the same arrangement `nics_affinity` has on a machine.
+    modelled = set(_MODELLED_GUEST)
+    for name, read in (("bridges", bridges), ("cloud_init", cloud_init)):
+        if read is None and name in variables:
+            modelled.discard(name)
+
     return Guest(
         deployment=deployment,
         vm_disk=_optional_str(variables.get("vm_disk")),
@@ -203,12 +221,22 @@ def _guest(variables: dict[str, Any], deployment: Mode | None) -> Guest:
         xml_path=_optional_str(variables.get("xml_path")),
         force=bool(variables.get("force", False)),
         enable=bool(variables.get("enable", True)),
+        ansible_host=_optional_str(variables.get("ansible_host")),
+        bridges=bridges or [],
+        cloud_init=cloud_init,
         extra={
-            name: value
-            for name, value in variables.items()
-            if name not in _MODELLED_GUEST
+            name: value for name, value in variables.items() if name not in modelled
         },
     )
+
+
+def _bridges(value: Any) -> list[dict[str, Any]] | None:
+    """The interface list `guest.xml.j2` reads, or None where it is not one."""
+    if not isinstance(value, list) or not all(
+        isinstance(entry, dict) for entry in value
+    ):
+        return None
+    return [dict(entry) for entry in value]
 
 
 def _group_hosts(group: Any) -> dict[str, Any]:

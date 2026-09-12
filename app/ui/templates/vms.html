@@ -181,6 +181,67 @@ image and losing its disk. D31 records the bounds.
       is.
     </p>
 
+    {# The network, which is two things at once and has to say so: the
+       interface the domain is given, and what cloud-init tells the guest about
+       it on its first boot. A VM image built with the SEAPATH_CLOUD_INIT class
+       carries no address of its own, which is what lets one image serve every
+       guest of a site. Empty is a valid answer, for an image that carries its
+       own configuration. #}
+    <h3>Network</h3>
+
+    <label for="add-bridge">Bridge on the hypervisor</label>
+    <input type="text" id="add-bridge" autocomplete="off" spellcheck="false"
+      placeholder="br0">
+    <p class="help">
+      The interface the guest is given, written as <code>bridges</code> on its
+      entry. Leave it empty where the XML above declares the interface itself,
+      and give that interface's MAC below.
+    </p>
+
+    <label for="add-mac">MAC address</label>
+    <input type="text" id="add-mac" autocomplete="off" spellcheck="false"
+      placeholder="generated when a bridge is named">
+    <p class="help">
+      What the domain carries, and what the guest's own configuration matches
+      on to find the interface. A guest's interface names are the guest's
+      business, and its MAC is written here.
+    </p>
+
+    <label class="switch">
+      <input type="checkbox" id="add-dhcp">
+      Take the address from a DHCP lease
+    </label>
+
+    <div id="add-static">
+      <label for="add-address">Address</label>
+      <input type="text" id="add-address" autocomplete="off" spellcheck="false"
+        placeholder="10.0.0.42/24">
+      <p class="help">
+        With its prefix length. It is written into the guest's cloud-init
+        configuration and, without the prefix, as <code>ansible_host</code>,
+        which is where a later run reaches inside this guest.
+      </p>
+
+      <label for="add-gateway">Gateway</label>
+      <input type="text" id="add-gateway" autocomplete="off" spellcheck="false"
+        placeholder="10.0.0.1">
+
+      <label for="add-dns">Resolvers</label>
+      <input type="text" id="add-dns" autocomplete="off" spellcheck="false"
+        placeholder="9.9.9.9, 1.1.1.1">
+    </div>
+
+    <label for="add-hostname">Hostname inside the guest</label>
+    <input type="text" id="add-hostname" autocomplete="off" spellcheck="false"
+      placeholder="the name above">
+
+    <p class="help">
+      All of this is read once, when the guest is created, and never again. The
+      image has to carry cloud-init, which is what
+      <code>build_qcow2.sh --cloud-init</code> builds; without it the entry is
+      written, the seed is attached and the guest ignores it.
+    </p>
+
     {# In a cluster, everything below is passed to `cluster_vm create` and
        written once into the metadata of the guest's image, so this is where it
        is cheap to get right. Folded away because the ordinary guest wants none

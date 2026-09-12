@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 
 from app.inventory.grub import hash_password, verify
-from app.inventory.model import Inventory, Mode, NodeConfig, Role
+from app.inventory.model import Guest, Inventory, Mode, NodeConfig, Role
 from app.inventory.validation import Level, validate
 
 
@@ -220,3 +220,49 @@ def test_an_address_the_machine_does_not_have_yet_is_accepted() -> None:
     # on: seapath_setup_network.yaml is what makes it true. Refusing on
     # reachability would make the commissioning flow impossible.
     assert validate(inventory(ansible_host="192.168.200.200")).valid
+
+
+# The guests, which are hosts of the same file and not machines.
+
+
+def test_a_guest_on_a_machines_address_is_refused() -> None:
+    # Two hosts on one address is a network where neither is reliably
+    # reachable, and it makes no difference that the second one is a VM.
+    candidate = inventory()
+    candidate.guests["vm1"] = Guest(ansible_host="192.168.200.125")
+
+    result = validate(candidate)
+
+    assert not result.valid
+    assert "addresses_are_unique" in rules(result)
+    assert [finding.host for finding in result.errors()] == ["vm1"]
+
+
+def test_a_guest_on_an_address_of_its_own_is_accepted() -> None:
+    candidate = inventory()
+    candidate.guests["vm1"] = Guest(ansible_host="192.168.200.200")
+
+    assert validate(candidate).valid
+
+
+def test_a_guest_network_variable_of_the_wrong_shape_is_a_warning() -> None:
+    # A warning rather than an error: an error refuses the commit, and the
+    # commit it would refuse includes the edit that fixes the guest. The run
+    # that would fail on it is refused by the seed precondition instead.
+    candidate = inventory()
+    candidate.guests["vm1"] = Guest(extra={"cloud_init": True})
+
+    result = validate(candidate)
+
+    assert result.valid
+    assert "malformed_guest_network" in rules(result, Level.WARNING)
+    finding = next(f for f in result.findings if f.rule == "malformed_guest_network")
+    assert finding.host == "vm1"
+    assert finding.field == "cloud_init"
+
+
+def test_a_guest_network_variable_of_the_right_shape_says_nothing() -> None:
+    candidate = inventory()
+    candidate.guests["vm1"] = Guest(cloud_init={"hostname": "vm1"}, bridges=[])
+
+    assert "malformed_guest_network" not in rules(validate(candidate), Level.WARNING)

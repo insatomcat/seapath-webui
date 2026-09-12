@@ -92,6 +92,7 @@ def validate(inventory: Inventory) -> ValidationResult:
 
     findings.extend(_validate_across_hosts(inventory))
     findings.extend(_validate_guests(inventory))
+    findings.extend(_validate_guest_networks(inventory))
     return ValidationResult(findings=findings)
 
 
@@ -132,6 +133,42 @@ def _validate_guests(inventory: Inventory) -> list[Finding]:
             ),
         )
         for name in orphans
+    ]
+
+
+# The two guest variables this service reads as a shape rather than as a
+# scalar. The parser keeps whatever it cannot read in `extra`, which is where
+# this finds it: a value in the model is a value that had the right shape.
+_GUEST_SHAPES = {
+    "cloud_init": "a mapping of cloud-config keys",
+    "bridges": "a list of interfaces, each with a name and a MAC",
+}
+
+
+def _validate_guest_networks(inventory: Inventory) -> list[Finding]:
+    """A guest's network variables, held against the shape the roles read.
+
+    A warning rather than an error, for the same reason
+    `malformed_nics_affinity` is one: an error refuses the commit, and the
+    commit it would refuse includes the edit that fixes the guest. The run
+    that would fail on it is refused where it can be, which is the
+    `seed_buildable` precondition of the two deployment entries.
+    """
+    return [
+        Finding(
+            level=Level.WARNING,
+            rule="malformed_guest_network",
+            host=name,
+            field=variable,
+            message=(
+                f"{variable} on {name} is not {shape}, so the roles that read "
+                "it would fail rather than skip it. A deployment of this guest "
+                "stops there."
+            ),
+        )
+        for name, guest in inventory.guests.items()
+        for variable, shape in _GUEST_SHAPES.items()
+        if variable in guest.extra
     ]
 
 
@@ -424,10 +461,23 @@ def _validate_isolcpus(name: str, node: NodeConfig) -> list[Finding]:
 
 
 def _validate_across_hosts(inventory: Inventory) -> list[Finding]:
+    """One address, one host, guests included.
+
+    A guest's `ansible_host` is where a play reaches inside it, and the VMs
+    page now writes it beside the address it gives the guest. Two hosts on one
+    address is a network where neither is reliably reachable, and it makes no
+    difference whether the second of them is a machine or a VM.
+    """
     findings: list[Finding] = []
     seen: dict[str, str] = {}
-    for name, node in inventory.hosts.items():
-        owner = seen.get(node.ansible_host)
+    addressed = [(name, node.ansible_host) for name, node in inventory.hosts.items()]
+    addressed += [
+        (name, guest.ansible_host)
+        for name, guest in inventory.guests.items()
+        if guest.ansible_host
+    ]
+    for name, address in addressed:
+        owner = seen.get(address)
         if owner is not None:
             findings.append(
                 Finding(
@@ -436,12 +486,12 @@ def _validate_across_hosts(inventory: Inventory) -> list[Finding]:
                     host=name,
                     field="ansible_host",
                     message=(
-                        f"{node.ansible_host} is already the administration "
+                        f"{address} is already the administration "
                         f"address of {owner}."
                     ),
                 )
             )
-        seen[node.ansible_host] = name
+        seen[address] = name
     return findings
 
 

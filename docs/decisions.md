@@ -3208,3 +3208,87 @@ included, so a run whose seeded guests all exist would have gone through and is
 refused anyway. Knowing which guests exist means the exporter fan out of the
 VMs page, on a listing drawn at every visit to the Runs page, and the remedy is
 the same either way: the package, or the collection that reads the mapping.
+
+### One form section, three variables
+
+A guest declared through the form arrives with no network at all, and that is
+worth stating plainly because it was a surprise on the first real deployment:
+`guest.xml.j2` renders an interface only where the entry declares one, so a
+guest whose entry names its files and nothing else is a domain with no NIC.
+Meanwhile the image the form uploads carries no address, which is the point of
+building it with cloud-init. So one section of the form writes three variables,
+each with its own reader:
+
+| Written | Read by | What it is |
+|---|---|---|
+| `bridges` | `guest.xml.j2` | The interface the domain gets, and the MAC on it |
+| `cloud_init` | `cloud_init_seed` | The seed the guest applies on its first boot |
+| `ansible_host` | Ansible itself | Where a later run reaches inside the guest |
+
+**The address is typed once and written twice.** The seed is what gives the
+guest its address; `ansible_host` is what says where to find it afterwards.
+Those are two statements, both true of the same address, and a form that asked
+twice would eventually be told two different things. Writing the second from
+the first is also what makes a guest declared here measurable, since
+`ansible_host` is what [D41](#d41)'s `guest_addressable` looks for. On DHCP
+neither is written: nothing here knows what a lease will give, and a guessed
+`ansible_host` is a run that dies on `unreachable`.
+
+**The seed matches the interface by its MAC.** What a guest calls its first
+interface is the guest's business, `enp1s0` under systemd naming and `eth0`
+where that is disabled, and none of it is readable from this service. The MAC is
+in the entry because the entry is what puts it in the domain, so it is the one
+handle true on both sides. Where a bridge is named and the MAC field is left
+empty, this service generates one in the QEMU range the reference inventory
+uses, and the answer reports it: on that bridge the MAC is the guest's identity,
+and a DHCP reservation or a switch's port security is written against it. Where
+no bridge is named the interface is the operator's own XML's, and an address
+with no MAC beside it is refused rather than matched against a guessed name.
+
+**The refusals are about what the operator cannot see.** An address without its
+prefix, a gateway outside the network the address puts the guest on, a
+multicast MAC, DHCP beside an address a lease decides. And the two that matter
+most on a substation network, checked against the whole inventory rather than
+against the field: an address another host already holds, and a MAC another
+guest already carries. A duplicate address is a guest that half works, a
+duplicate MAC on one bridge is a guest receiving somebody else's frames, and
+both take a packet capture to explain afterwards.
+
+The inventory rule that goes with it is `addresses_are_unique`, which now walks
+the guests as well as the machines. Two hosts of one file on one address is
+wrong whichever of them is a VM.
+
+### The MAC is quoted, because Ansible reads YAML 1.1
+
+Writing the first MAC through the form produced a domain carrying the MAC
+41135080953. This file is written by ruamel, which resolves YAML 1.2, and read
+by Ansible, whose loader is PyYAML and resolves YAML 1.1. In 1.1 a string of
+colon separated digits is a sexagesimal integer, so `52:54:00:11:22:33` written
+bare comes back as a number, reaches `guest.xml.j2` as a number, and renders a
+MAC nobody typed. The reference inventories quote their MACs, and this is the
+reason.
+
+So the editor asks PyYAML how Ansible will read each string it is about to
+write, and quotes the ones that would come back as something else. Asked of the
+parser Ansible uses rather than answered from a list of patterns: the same trap
+catches `yes`, `no`, `on` and `off` as booleans, and a list of patterns is a
+list somebody has to keep. A string that comes back as itself is written bare,
+so `52:54:00:e4:ff:02`, which has hexadecimal digits in it and is a string in
+both versions, stays unquoted and the file still reads like one somebody wrote.
+
+### What the guest's entry may hold that this service does not write
+
+`cloud_init` carries whatever cloud-config keys a site puts in it, and the form
+writes two of them. The rest, `users`, `packages`, `runcmd`, `write_files`, a
+`user_data_file` naming a complete document in the inventory folder, are
+written on the Inventory page like any other variable, and this service reads
+them back and writes them out untouched.
+
+Two shapes are the exception. A `cloud_init` that is not a mapping, or a
+`bridges` that is not a list of mappings, is kept in the model's `extra` rather
+than read, the way `nics_affinity` is on a machine, and
+`malformed_guest_network` says so as a warning on the Inventory page. A warning
+rather than an error, because an error refuses the commit and the commit it
+would refuse includes the edit that fixes the guest. The run that would fail on
+it is refused where the consequence is, which is the `seed_buildable`
+precondition of the two deployment entries.
