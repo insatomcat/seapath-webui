@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.78 - 2026-09-12
+
+- fix: an unreachable host says what SSH answered, and a guest key can be accepted
+
 ## 0.3.77 - 2026-09-12
 
 - fix: the interrupt row asks where the process bus interrupts are
