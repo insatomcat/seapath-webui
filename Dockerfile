@@ -112,6 +112,22 @@ RUN set -eu; \
     cp /src/roles/deploy_cockpit_plugins/files/*.tar.gz "${target}/"; \
     ls -l "${target}"
 
+# Restore the guest templates. `build_ignore` lists `templates`, so the
+# installed collection has no `templates/vm/guest.xml.j2`, which is the template
+# the reference VM inventory names as `../templates/vm/guest.xml.j2`. A run here
+# resolves that path against the collection it mirrors, so without this every
+# inventory written after the upstream example fails at the task that renders
+# the domain. The VMs page offers the same file, since it takes the name, the
+# disk and the MAC from each guest's entry and so serves every guest of a site.
+#
+# Same kind of restore as the one above, for the same reason, and it goes away
+# with the same change to galaxy.yml.
+RUN set -eu; \
+    target=/opt/ansible/collections/ansible_collections/seapath/ansible/templates; \
+    mkdir -p "${target}"; \
+    cp -a /src/templates/vm "${target}/"; \
+    ls -l "${target}/vm"
+
 RUN ansible-galaxy collection list --collections-path=/opt/ansible/collections
 
 

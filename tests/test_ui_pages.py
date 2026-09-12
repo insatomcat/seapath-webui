@@ -1441,6 +1441,10 @@ def test_adding_a_vm_can_reuse_the_image_and_the_xml_this_node_holds(
     assert 'id="add-xml-source"' in body
     assert "Upload an image" in body
     assert 'API.get("/inventory/folder")' in script
+    # SEAPATH's template offered from the collection, and a plain XML said to
+    # serve one standalone guest where it is chosen.
+    assert "lastView.collection_template" in script
+    assert 'id="add-xml-single"' in body
     # The address the entry gives each guest, as a column of the guest table.
     assert "<th>Address</th>" in body
     assert "function addressCell(guest)" in script

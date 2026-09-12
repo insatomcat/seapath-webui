@@ -65,6 +65,12 @@ _HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 # An interface name on the hypervisor, so the kernel's limit rather than a
 # hostname's: 15 characters, and no slash or space in any of them.
 _BRIDGE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,14}$", re.IGNORECASE)
+_MATCH_NAME = re.compile(r"^[a-z0-9._*?-]{1,15}$", re.IGNORECASE)
+
+# The name pattern a seed selects an interface by when no MAC can: every
+# Ethernet naming a guest is likely to use, predictable (`enp1s0`, `ens3`) or
+# not (`eth0`). Used for one interface only, where it cannot pick the wrong one.
+ANY_ETHERNET = "e*"
 
 
 class GuestNetwork(BaseModel):
@@ -105,6 +111,15 @@ class GuestNetwork(BaseModel):
             "it will be given"
         ),
     )
+    match_name: str | None = Field(
+        default=None,
+        description=(
+            "A netplan name pattern selecting the interface where no MAC can. "
+            "Set by this service for an XML with one interface and no <mac>, "
+            "whose MAC libvirt draws at every definition. Refused beside a MAC, "
+            "which is the better handle wherever there is one"
+        ),
+    )
     hostname: str | None = Field(
         default=None,
         description=(
@@ -129,6 +144,7 @@ class GuestNetwork(BaseModel):
         return bool(
             self.bridge
             or self.mac_address
+            or self.match_name
             or self.address
             or self.dhcp
             or self.dns
@@ -191,45 +207,61 @@ def against_brought_xml(
     domain. The guest would come up with a seed configuring a device it does
     not have, which is a guest with no network at all.
 
-    So the MAC comes from the file. `declared` is what its interfaces carry and
-    `interfaces` how many it has, since an interface with no `<mac>` gets a
-    random one from libvirt at every definition, which no seed can match.
+    So the interface is selected from what the file says. `declared` is the
+    MACs its interfaces carry and `interfaces` how many it has.
+
+    One interface is unambiguous whatever it carries. With a MAC the seed
+    matches on it, which survives a change of PCI slot or of naming in the
+    image. Without one, libvirt draws a MAC at every definition, which is what
+    makes such an XML reusable for several guests and what no seed can name, so
+    the seed matches the interface by name instead, `e*`, which covers
+    `enp1s0`, `ens3` and `eth0` alike. Several interfaces are ambiguous: a name
+    pattern would give every one of them the address, so the MAC of the one
+    the address belongs to has to be given, and has to be in the file.
     """
     if network.bridge:
         raise BroughtXmlRefused(
             f"{xml} declares the guest's interfaces itself, so a bridge named "
             "here would be written and read by nothing. Leave the bridge empty: "
-            "the MAC the seed matches on is read from the XML."
+            "the interface is read from the XML."
         )
     if not (network.address or network.dhcp):
         return network
 
     if network.mac_address:
-        if declared and network.mac_address.lower() not in declared:
+        if network.mac_address.lower() not in declared:
+            carried = (
+                f"which are {', '.join(declared)}"
+                if declared
+                else "which carry no MAC at all"
+            )
             raise BroughtXmlRefused(
                 f"{network.mac_address} is not the MAC of any interface {xml} "
-                f"declares, which are {', '.join(declared)}. The seed would "
-                "configure a device the domain does not have."
+                f"declares, {carried}. The seed would configure a device the "
+                "domain does not have."
             )
         return network
 
-    if interfaces > len(declared):
-        raise BroughtXmlRefused(
-            f"{xml} has an interface with no <mac address=.../>, so libvirt "
-            "picks a random MAC each time it defines the domain and no seed "
-            "can name that interface. Write the MAC into the XML."
-        )
-    if not declared:
+    if interfaces == 0:
         raise BroughtXmlRefused(
             f"{xml} declares no network interface, so there is nothing for an "
             "address to be given to."
         )
-    if len(declared) > 1:
+    if interfaces == 1:
+        if declared:
+            return network.model_copy(update={"mac_address": declared[0]})
+        return network.model_copy(update={"match_name": ANY_ETHERNET})
+    if len(declared) < interfaces:
         raise BroughtXmlRefused(
-            f"{xml} declares {len(declared)} interfaces, {', '.join(declared)}. "
-            "Give the MAC of the one this address belongs to."
+            f"{xml} declares {interfaces} interfaces and not all of them carry "
+            "a <mac address=.../>. The seed has to name the one this address "
+            "belongs to, and libvirt draws a new MAC for the others at every "
+            "definition: write the MACs into the XML, then give the right one."
         )
-    return network.model_copy(update={"mac_address": declared[0]})
+    raise BroughtXmlRefused(
+        f"{xml} declares {interfaces} interfaces, {', '.join(declared)}. Give "
+        "the MAC of the one this address belongs to."
+    )
 
 
 def generate_mac() -> str:
@@ -319,9 +351,15 @@ def _seed(guest: str, network: GuestNetwork) -> dict[str, Any]:
 
 def _interface(network: GuestNetwork) -> dict[str, Any]:
     """One netplan v2 `ethernets` entry, without the version the role adds."""
-    if not network.mac_address or not (network.address or network.dhcp):
+    if not (network.address or network.dhcp):
         return {}
-    interface: dict[str, Any] = {"match": {"macaddress": network.mac_address}}
+    if network.mac_address:
+        selector = {"macaddress": network.mac_address}
+    elif network.match_name:
+        selector = {"name": network.match_name}
+    else:
+        return {}
+    interface: dict[str, Any] = {"match": selector}
     if network.dhcp:
         interface["dhcp4"] = True
         return interface
@@ -374,7 +412,22 @@ def refusal(
                 "decides."
             )
 
-    if (network.address or network.dhcp) and not network.mac_address:
+    if network.match_name:
+        if network.mac_address:
+            return (
+                "An interface is selected by its MAC or by a name pattern, and "
+                "not both. The MAC is the better handle wherever there is one."
+            )
+        if not _MATCH_NAME.match(network.match_name):
+            return (
+                f"{network.match_name!r} cannot be an interface name pattern. "
+                "Letters, digits, dots, dashes, underscores and the wildcards "
+                "* and ?, fifteen characters at most."
+            )
+
+    if (network.address or network.dhcp) and not (
+        network.mac_address or network.match_name
+    ):
         return (
             "An address reaches an interface, and the seed names that "
             "interface by its MAC. Name the bridge the template attaches the "

@@ -405,11 +405,55 @@ def test_several_interfaces_ask_which_one_the_address_belongs_to() -> None:
         )
 
 
-def test_an_interface_libvirt_would_give_a_random_mac_is_refused() -> None:
-    with pytest.raises(cloudinit.BroughtXmlRefused, match="random MAC"):
+def test_one_interface_without_a_mac_is_selected_by_name() -> None:
+    # libvirt draws its MAC at every definition, which is what lets such an XML
+    # serve several guests and what no seed can name. With one interface a
+    # name pattern cannot pick the wrong one.
+    completed = cloudinit.against_brought_xml(
+        GuestNetwork(address="10.0.0.42/24"), [], 1, "guest.xml"
+    )
+
+    assert completed.mac_address is None
+    assert completed.match_name == "e*"
+    assert cloudinit.refusal("vm1", completed) is None
+    primary = cloudinit.variables("vm1", completed)["cloud_init"]["network"][
+        "ethernets"
+    ]["primary"]
+    assert primary["match"] == {"name": "e*"}
+    assert primary["addresses"] == ["10.0.0.42/24"]
+
+
+def test_several_interfaces_some_without_a_mac_are_refused() -> None:
+    # A name pattern would give every one of them the address.
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="not all of them"):
         cloudinit.against_brought_xml(
-            GuestNetwork(address="10.0.0.42/24"), [], 1, "guest.xml"
+            GuestNetwork(address="10.0.0.42/24"), ["52:54:00:aa:bb:01"], 2, "g.xml"
         )
+
+
+def test_a_mac_given_for_an_xml_that_carries_none_is_refused() -> None:
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="carry no MAC"):
+        cloudinit.against_brought_xml(
+            GuestNetwork(address="10.0.0.42/24", mac_address=MAC), [], 1, "g.xml"
+        )
+
+
+def test_a_name_pattern_beside_a_mac_is_refused() -> None:
+    network = GuestNetwork(address="10.0.0.42/24", mac_address=MAC, match_name="e*")
+
+    refusal = cloudinit.refusal("vm1", network)
+
+    assert refusal is not None
+    assert "not both" in refusal
+
+
+def test_a_name_pattern_no_interface_could_carry_is_refused() -> None:
+    network = GuestNetwork(address="10.0.0.42/24", match_name="en p1s0; rm")
+
+    refusal = cloudinit.refusal("vm1", network)
+
+    assert refusal is not None
+    assert "name pattern" in refusal
 
 
 def test_a_brought_xml_with_no_interface_is_refused_an_address() -> None:

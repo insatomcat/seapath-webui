@@ -192,8 +192,14 @@ image and losing its disk. D31 records the bounds.
     <p class="help">
       Committed with the inventory. A file ending in <code>.j2</code> is taken
       as a Jinja2 template and rendered per guest, anything else is used as it
-      is. A template already in the folder serves every guest it is named by;
-      a plain XML names one domain, so reuse it for one guest only.
+      is. A template serves every guest it is named by, SEAPATH's
+      <code>guest.xml.j2</code> first among them: it takes the name, the disk
+      and the MAC from each guest's entry.
+    </p>
+    <p class="warning" id="add-xml-single" hidden>
+      This XML is not a template, so on this standalone machine it defines one
+      domain under the name written in it. It serves this guest only: a second
+      guest from the same file is refused.
     </p>
 
     {# The network, which is two things at once and has to say so: the

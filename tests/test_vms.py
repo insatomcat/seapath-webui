@@ -1232,6 +1232,73 @@ def test_a_brought_xml_the_folder_lacks_is_named(signed_in: TestClient) -> None:
     assert "../files/absent.xml" in response.json()["error"]["message"]
 
 
+def test_two_cluster_guests_on_the_mac_of_one_xml_are_refused(
+    signed_in: TestClient,
+) -> None:
+    # A brought XML has no `bridges`, so its MAC is in the inventory only as the
+    # seed's `match`, and that is where a second guest from the same file
+    # collides with the first.
+    _declare_cluster(signed_in)
+    signed_in.put("/api/v1/inventory/files/files/shared.xml", content=BROUGHT_XML)
+    # No `deployment`: the file is a cluster one with a flat `VMs` group, and
+    # naming a group would leave its other guests in neither.
+    declaration = {"xml_path": "../files/shared.xml"}
+
+    first = signed_in.post(
+        "/api/v1/vms",
+        json={**declaration, "name": "first", "network": {"address": "10.0.0.41/24"}},
+    )
+    assert first.status_code == 201, first.text
+    second = signed_in.post(
+        "/api/v1/vms",
+        json={**declaration, "name": "second", "network": {"address": "10.0.0.42/24"}},
+    )
+
+    assert second.status_code == 400
+    assert "first" in second.json()["error"]["message"]
+
+
+def test_a_plain_xml_serves_one_standalone_guest(signed_in: TestClient) -> None:
+    # libvirt takes the domain's name from the file on a standalone machine, so
+    # a second guest from it would redefine the first one's domain.
+    signed_in.put("/api/v1/inventory/files/files/shared.xml", content=BROUGHT_XML)
+
+    first = signed_in.post(
+        "/api/v1/vms", json={"name": "first", "vm_template": "../files/shared.xml"}
+    )
+    assert first.status_code == 201, first.text
+    second = signed_in.post(
+        "/api/v1/vms", json={"name": "second", "vm_template": "../files/shared.xml"}
+    )
+
+    assert second.status_code == 400
+    message = second.json()["error"]["message"]
+    assert "already defines first" in message
+    assert "guest.xml.j2" in message
+
+
+def test_a_template_serves_several_standalone_guests(signed_in: TestClient) -> None:
+    for name in ("first", "second"):
+        response = signed_in.post(
+            "/api/v1/vms",
+            json={"name": name, "vm_template": "../templates/vm/guest.xml.j2"},
+        )
+        assert response.status_code == 201, response.text
+
+
+def test_the_collection_template_is_offered_where_the_collection_ships_it(
+    signed_in: TestClient, collections_path: Path
+) -> None:
+    assert signed_in.get("/api/v1/vms").json()["collection_template"] is None
+
+    shipped = collections_path / "ansible_collections/seapath/ansible/templates/vm"
+    shipped.mkdir(parents=True)
+    (shipped / "guest.xml.j2").write_text("<domain/>\n")
+
+    view = signed_in.get("/api/v1/vms").json()
+    assert view["collection_template"] == "../templates/vm/guest.xml.j2"
+
+
 def test_xml_path_on_a_standalone_guest_is_refused(signed_in: TestClient) -> None:
     # `deploy_vms_standalone` renders `vm_template` and reads nothing else, so
     # this entry would fail at the first task that looks the template up.

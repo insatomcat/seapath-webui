@@ -64,6 +64,10 @@ DEPLOY_PLAYBOOK = {
     Mode.STANDALONE: "deploy_vms_standalone",
 }
 
+# The guest template `seapath-ansible` ships, as the reference VM inventory
+# names it. Relative to the playbooks, like every path an entry carries.
+COLLECTION_TEMPLATE = "../templates/vm/guest.xml.j2"
+
 # The name is the host key, the libvirt domain name and the Pacemaker resource
 # id at once, so it has to survive all three. The same shape a machine's key
 # has, for the same reason.
@@ -220,6 +224,14 @@ class GuestsView(BaseModel):
     """What this page could not answer cleanly, in the operator's terms."""
     playbook: str = ""
     """The catalogue entry that deploys the group in this mode."""
+    collection_template: str | None = None
+    """SEAPATH's own guest template as an entry names it, where the collection has it.
+
+    `../templates/vm/guest.xml.j2`, the template the reference VM inventory
+    names. It takes the name, the disk, the bridges and the MAC from each
+    guest's entry, so one file serves every guest of a site, and a guest
+    declared with it needs no XML uploaded at all.
+    """
     runtime_note: str = ""
     """Why the runtime column says what it says."""
     note: str = ""
@@ -331,11 +343,33 @@ def _taken(inventory: Inventory | None) -> tuple[dict[str, str], dict[str, str]]
     for guest, entry in inventory.guests.items():
         if entry.ansible_host:
             addresses.setdefault(entry.ansible_host, guest)
-        for bridge in entry.bridges:
-            mac = str(bridge.get("mac_address") or "").strip().lower()
+        for mac in [
+            *(bridge.get("mac_address") for bridge in entry.bridges),
+            *_seed_macs(entry.cloud_init),
+        ]:
+            mac = str(mac or "").strip().lower()
             if mac:
                 macs.setdefault(mac, guest)
     return addresses, macs
+
+
+def _seed_macs(cloud_init: dict[str, Any] | None) -> list[str]:
+    """The MACs a guest's seed selects its interfaces by.
+
+    Read beside `bridges` because a guest built from an XML the operator
+    brought has no `bridges`: its MAC is in that XML, and the seed's `match` is
+    the one place the inventory repeats it. Two guests declared from one such
+    XML carry the same MAC there, and that is the collision worth catching.
+    """
+    network = (cloud_init or {}).get("network")
+    ethernets = network.get("ethernets") if isinstance(network, dict) else None
+    if not isinstance(ethernets, dict):
+        return []
+    return [
+        str(interface["match"].get("macaddress") or "")
+        for interface in ethernets.values()
+        if isinstance(interface, dict) and isinstance(interface.get("match"), dict)
+    ]
 
 
 def _group_for(deployment: Mode | None) -> str:
@@ -555,6 +589,32 @@ class VmService:
                 "would say the guest got something nothing does."
             )
 
+        template = str(variables.get("vm_template") or "")
+        if not cluster and template and not template.endswith(".j2"):
+            # `community.libvirt.virt define` takes the domain's name from the
+            # XML, so a second standalone guest defined from the same plain
+            # file redefines the first guest's domain, disk path and MAC
+            # included. `vm_manager` rewrites the name in a cluster, which is
+            # why this is a standalone rule.
+            sharing = sorted(
+                other
+                for other, entry in (
+                    state.inventory.guests.items() if state.inventory else []
+                )
+                if other != name
+                and entry.vm_template == template
+                and state.inventory.deployment_of(other) is Mode.STANDALONE
+            )
+            if sharing:
+                raise InvalidGuest(
+                    f"{template} already defines {', '.join(sharing)}. A plain "
+                    "XML names one domain, and on a standalone machine a second "
+                    "guest defined from it replaces the first one's definition. "
+                    "Bring a .j2 template, SEAPATH's guest.xml.j2 among them, "
+                    "which takes the name, the disk and the MAC from each "
+                    "guest's entry."
+                )
+
         if "pinned_host" in variables and "preferred_host" in variables:
             raise InvalidGuest(
                 "A guest is pinned or preferred, and not both. `cluster_vm` "
@@ -627,6 +687,11 @@ class VmService:
             machines=state.inventory.placement_hosts(),
             warnings=_warnings(state.inventory),
             playbook=DEPLOY_PLAYBOOK[mode],
+            collection_template=(
+                COLLECTION_TEMPLATE
+                if self._inventory.collection_holds(COLLECTION_TEMPLATE)
+                else None
+            ),
             inventory_commit=state.commit,
         )
 

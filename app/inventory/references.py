@@ -222,6 +222,11 @@ def _candidates(value: str) -> Iterator[PurePosixPath]:
     yield PurePosixPath(os.path.normpath(f"{_PLAYBOOKS}/{value}"))
 
 
+def in_collection(collection: Path, value: str) -> bool:
+    """Whether a run would find this path in the collection it runs."""
+    return _first_existing(collection, value) is not None
+
+
 def in_folder(value: str) -> str | None:
     """Where a path an entry names is stored in the inventory folder.
 

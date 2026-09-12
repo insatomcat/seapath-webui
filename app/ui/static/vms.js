@@ -1030,18 +1030,31 @@
       (folder.artefacts || []).map((item) => item.path),
       IMAGE_SUFFIXES
     );
-    fillHeld(
-      "add-xml-source",
-      "Upload an XML",
-      (folder.files || []).map((item) => item.path),
-      XML_SUFFIXES
-    );
+    const xmlFiles = (folder.files || [])
+      .map((item) => item.path)
+      .filter((path) => XML_SUFFIXES.some((suffix) => path.endsWith(suffix)));
+    // SEAPATH's own template, where the collection ships it. Offered first and
+    // chosen when the folder holds no XML, because it is the file that serves
+    // every guest: it takes the name, the disk and the MAC from each entry.
+    // Stored without the leading `../`, which the declaration adds to every
+    // held path alike.
+    const shipped = lastView && lastView.collection_template;
+    const collection = shipped
+      ? [{ value: shipped.replace(/^\.\.\//, ""), label: "SEAPATH guest.xml.j2 (collection)" }]
+      : [];
+    fillHeld("add-xml-source", "Upload an XML", xmlFiles, XML_SUFFIXES, collection);
+    if (!element("add-xml-source").value && collection.length && !xmlFiles.length) {
+      element("add-xml-source").value = collection[0].value;
+      showUploadFor("add-xml-source");
+    }
+    noteSingleUse();
   }
 
-  function fillHeld(id, uploadLabel, paths, suffixes) {
+  function fillHeld(id, uploadLabel, paths, suffixes, first = []) {
     const select = element(id);
     const chosen = select.value;
     select.replaceChildren(new Option(uploadLabel, ""));
+    first.forEach((item) => select.append(new Option(item.label, item.value)));
     paths
       .filter((path) => suffixes.some((suffix) => path.endsWith(suffix)))
       .sort()
@@ -1061,9 +1074,25 @@
     element(input).hidden = Boolean(element(id).value);
   }
 
+  // A plain XML names one domain, and on a standalone machine libvirt takes
+  // that name from the file, so the XML serves one guest. Said beside the
+  // choice rather than only when the declaration refuses a second guest.
+  function noteSingleUse() {
+    const held = element("add-xml-source").value;
+    const uploaded = element("add-xml").files[0];
+    const name = held || (uploaded ? uploaded.name : "");
+    element("add-xml-single").hidden =
+      !name || name.endsWith(".j2") || chosenDeployment() === "cluster";
+  }
+
   ["add-disk-source", "add-xml-source"].forEach((id) => {
-    element(id).addEventListener("change", () => showUploadFor(id));
+    element(id).addEventListener("change", () => {
+      showUploadFor(id);
+      noteSingleUse();
+    });
   });
+  element("add-xml").addEventListener("change", noteSingleUse);
+  element("add-deployment").addEventListener("change", noteSingleUse);
 
   // The machines a guest may be placed on and the guests it may be kept
   // beside, both filled from the reading the page already has.

@@ -623,6 +623,8 @@ its label and applying it. See [D48](decisions.md#d48).
 | 12 | The latency measurement runs inside that guest with nothing pasted by hand, and no `debian` account exists in it | The loop D41 left open, closed on a real guest | Pending |
 | 13 | A second guest added by picking the image and the template already on the node transfers nothing, and deploys from the same bytes as the first | The lists read from a real folder, and a deployment that copies a held artefact rather than an upload | Pending |
 | 14 | A guest added with a plain `.xml` and an address, no bridge and no MAC, is declared with the MAC its XML carries, and on a standalone machine its entry names the file as `vm_template` and deploys | The case first refused on a real machine, then the standalone role actually defining a domain from a template with no `{{ }}` | Pending |
+| 15 | A guest from an XML whose one interface has no `<mac>` comes up on its address, the seed having matched `e*` | netplan inside a real image, and whatever the image names its interface | Pending |
+| 16 | The image lists `templates/vm/guest.xml.j2` in the installed collection, the VMs page offers it, and two guests declared with it and one bridge get two MACs and two addresses | The restore in the `Dockerfile`, and the template rendered by the real role | Pending |
 
 ### Result
 

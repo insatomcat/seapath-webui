@@ -3383,9 +3383,46 @@ not carry. A guest with no network, from a form that accepted it.
 So the file decides. A declaration naming an XML that is not a `.j2` template
 reads the committed file and takes the MAC of its one interface, or checks the
 one given against its interfaces when there are several. A bridge beside it is
-refused, and so is an interface with no `<mac>`, which libvirt gives a random
-MAC at every definition and no seed can name. A `.j2` keeps the rules above,
-since a template renders `bridges` and its MAC is this entry's to give.
+refused. A `.j2` keeps the rules above, since a template renders `bridges` and
+its MAC is this entry's to give.
+
+**The seed does not need a MAC, and the first version of this said it did.** A
+netplan `ethernets` entry selects its device by name, by name pattern, by driver
+or by MAC. The MAC is the handle this service prefers wherever there is one: it
+is written in the entry or in the XML, it survives a change of PCI slot or of
+interface naming inside the image, and among several interfaces it is the one
+thing that says which gets the address. An XML whose one interface carries no
+`<mac>` was refused on the grounds that libvirt draws a MAC at every definition.
+That grounds a refusal of a MAC match and nothing more. So such an interface is
+selected by name, `match: {name: "e*"}`, which covers `enp1s0`, `ens3` and
+`eth0`, and cannot pick the wrong device where there is one. Several interfaces
+still need the MAC, and it has to be in the file: a pattern would give every
+one of them the address.
+
+**A MAC written in a plain XML is a MAC every guest from that XML shares.** An
+operator pointed it out at once: the MAC has to be unique, so a plain XML with
+one in it is an XML edited for every guest. What else such a file fixes depends
+on the role. `vm_manager` rewrites `<name>` and generates `<uuid>` when there is
+none, so in a cluster a plain XML with no `<uuid>` and no `<mac>` does serve
+several guests, now that its interface is matched by name. `community.libvirt`
+takes the XML as it is, so on a standalone machine the second guest defined from
+it redefines the first one's domain. That case is refused at declaration, naming
+the guest that already uses the file.
+
+The answer for a site is a template, and SEAPATH has one:
+`templates/vm/guest.xml.j2`, the file the reference VM inventory names. It takes
+the name, the disk, the bridges and the MAC from each guest's entry, so the form
+generates a unique MAC per guest and one file serves them all. The installed
+collection did not carry it, because `galaxy.yml` lists `templates` in
+`build_ignore`, which also means every inventory written after the upstream
+example failed here at the task that renders the domain. The image restores
+`templates/vm` into the collection, the way it restores the Cockpit archives,
+and the page offers the template first among the XML files, chosen by default
+when the folder holds none.
+
+And the collision check was blind to this path. It read the MACs of `bridges`,
+and a guest built from a brought XML has none: its MAC is in the inventory only
+as the seed's `match`. It now reads both.
 
 The same machine showed the older gap under it. `deploy_vms_standalone` renders
 `vm_template` and reads nothing else, while the page had named every plain XML

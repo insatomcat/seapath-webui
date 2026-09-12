@@ -451,6 +451,11 @@ class InventoryService:
             ),
         )
 
+    def collection_holds(self, value: str) -> bool:
+        """Whether a path an entry names resolves in the installed collection."""
+        root = self._collection_root()
+        return root is not None and references.in_collection(root, value)
+
     def _collection_root(self) -> Path | None:
         root = self._collections_path
         if callable(root):

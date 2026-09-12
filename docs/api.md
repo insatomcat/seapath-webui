@@ -713,16 +713,30 @@ against.
 
 An XML that is not a `.j2` template declares its interfaces itself, whichever
 variable names it, and nothing renders `bridges` into it. So a bridge beside one
-is refused, and the MAC is read off the committed file: its one interface's MAC,
-or the one `mac_address` names among several. An XML whose interface has no
-`<mac>` is refused, because libvirt picks a random one at every definition and
-no seed can name it. So is a path the folder does not hold. A `.j2` template
-with no bridge named, which renders its interfaces its own way, still needs the
-MAC given.
+is refused, and the interface is read off the committed file. One interface
+with a MAC: the seed matches that MAC. One interface without: libvirt draws its
+MAC at every definition, so the seed matches the interface by name, `e*`, which
+covers `enp1s0`, `ens3` and `eth0`, and `match_name` carries that pattern.
+Several interfaces: `mac_address` names the one the address belongs to, and it
+has to be in the file, since a name pattern would give all of them the address.
+A path the folder does not hold is refused. A `.j2` template with no bridge
+named, which renders its interfaces its own way, still needs the MAC given.
 
 `xml_path` is refused on a standalone guest: `deploy_vms_standalone` renders
 `vm_template` and reads nothing else. A plain XML is a template with no `{{ }}`
-in it, which is how the page names one there.
+in it, which is how the page names one there. It also names one domain: libvirt
+takes the name from the file on a standalone machine, so a second standalone
+guest naming the same plain XML is refused. A template serves any number.
+
+A MAC is checked for collisions wherever the inventory carries one, `bridges`
+and the `match` of every guest's seed alike, so two guests declared from one XML
+carrying a MAC collide at the second declaration.
+
+`GET /vms` carries `collection_template`, `../templates/vm/guest.xml.j2`, where
+the installed collection has it. The image restores it into the collection,
+since `galaxy.yml` leaves `templates` out of the build, and the page offers it
+first among the XML files: it takes the name, the disk and the MAC from each
+guest's entry, so one file serves every guest of a site.
 
 **A network that could not work is refused before it is written.** An address
 without its prefix, a gateway outside the network the address puts the guest
