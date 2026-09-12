@@ -403,6 +403,24 @@
       .filter(Boolean);
   }
 
+  // The guests an Ansible run can reach, which is a different list and a
+  // different question. A convergence never connects to a guest, so an
+  // unaccepted guest key holds nothing back and is kept out of the state line
+  // below. The one run that does reach inside one, measuring the latency, dies
+  // on `Host key verification failed` without it: every run this service
+  // launches checks host keys against this node's own known_hosts, and until
+  // now nothing here could put a guest's key in it.
+  //
+  // The address is read from `extra`: `ansible_host` is not a field of a guest
+  // entry and this service never writes one. It is there because an operator
+  // put it there so that a play could reach inside.
+  function guestPeers() {
+    const guests = state.inventory ? state.inventory.guests : {};
+    return Object.values(guests || {})
+      .map((guest) => (guest.extra || {}).ansible_host)
+      .filter(Boolean);
+  }
+
   // The one line the panel is worth once it holds. Same two facts the
   // `peer_reachable` precondition is computed from, said as a state rather
   // than as a form: a key would be offered, and the host keys are known.
@@ -568,7 +586,11 @@
     const error = element("host-keys-error");
     error.hidden = true;
     try {
-      mergeHostKeys(await API.post("/trust/host-keys/scan", { addresses: peers() }));
+      mergeHostKeys(
+        await API.post("/trust/host-keys/scan", {
+          addresses: peers().concat(guestPeers()),
+        })
+      );
       renderHostKeys();
     } catch (failure) {
       error.textContent = failure.message;

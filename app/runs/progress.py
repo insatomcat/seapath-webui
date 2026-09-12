@@ -49,6 +49,11 @@ def apply_event(progress: RunProgress, event: dict[str, Any]) -> RunProgress:
             if outcome == "ignored":
                 state.ignored += 1
             state.last_task = data.get("task") or progress.task
+            if outcome == "unreachable" and not state.unreachable_message:
+                # What SSH answered, kept on the first one. It is the whole of
+                # why the run stopped, and without it the page can only send an
+                # operator to download the log.
+                state.unreachable_message = _failure_message(data) or ""
 
         task = _qualified(data)
         seconds = data.get("duration")
@@ -126,10 +131,14 @@ def summarise(event: dict[str, Any]) -> dict[str, Any] | None:
             "task": _qualified(data),
             "outcome": outcome,
             "seconds": data.get("duration"),
-            # The operator needs to know why a task failed, and nothing else
-            # from the result payload.
+            # The operator needs to know why a task failed, or why no
+            # connection to the host was ever opened, and nothing else from the
+            # result payload. An unreachable row without it is a red word with
+            # no reason beside it, and the reason was in the event all along.
             "message": (
-                _failure_message(data) if outcome in ("failed", "ignored") else None
+                _failure_message(data)
+                if outcome in ("failed", "ignored", "unreachable")
+                else None
             ),
             "output": _debug_output(data),
         }

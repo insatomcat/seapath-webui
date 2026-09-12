@@ -110,8 +110,9 @@
       empty:
         "No guest has been measured from this node yet. cyclictest runs " +
         "inside the guest, over the SSH path to it, so the guest needs an " +
-        "address in the inventory, this node's key in the account Ansible " +
-        "connects as, and rt-tests installed.",
+        "address in the inventory, its host key accepted on this node, this " +
+        "node's key in the account Ansible connects as, and rt-tests " +
+        "installed.",
       note:
         "What the application inside the guest waits for: the hypervisor's " +
         "scheduler, plus the scheduling of the vCPU threads, the VM exits and " +
@@ -960,10 +961,11 @@
   async function loadGuests() {
     element("guest-requirements").textContent =
       "The measurement runs inside the guest, as an Ansible run over SSH. It " +
-      "needs an address on the guest's inventory entry, this node's public key " +
-      "in the account it connects as, with sudo, and rt-tests installed in the " +
-      "guest. Nothing here installs any of the three: a measurement changes " +
-      "nothing on what it measures.";
+      "needs an address on the guest's inventory entry, the guest's host key " +
+      "accepted on this node, under Reaching the other machines on the " +
+      "Deployment page, this node's public key in the account it connects as, " +
+      "with sudo, and rt-tests installed in the guest. Nothing here installs " +
+      "any of them: a measurement changes nothing on what it measures.";
     await loadPublicKey();
     renderAffinity(GUEST_AFFINITY);
     let choices = { addressable_guests: [] };

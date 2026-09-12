@@ -417,6 +417,16 @@ def test_a_failure_keeps_the_reason() -> None:
     assert failure["host"] == "seapath-machine"
 
 
+def test_a_host_that_was_never_reached_keeps_what_ssh_answered() -> None:
+    # The reason was in the event and reached neither the stream nor the page,
+    # so an unreachable row was a red word with nothing beside it and the only
+    # way to the cause was downloading the log.
+    summaries = [summarise(event) for event in fake.unreachable_run()]
+    result = next(s for s in summaries if s and s.get("outcome") == "unreachable")
+
+    assert result["message"] == "Failed to connect to the host via ssh"
+
+
 def test_the_stream_is_a_reduction_not_a_passthrough() -> None:
     # The raw stream carries the full result of every task on every host, which
     # is megabytes nobody reads and a place for a secret to leak into a browser.
@@ -520,6 +530,9 @@ def test_a_host_nothing_could_reach_is_not_reported_as_a_task_failure(
     assert "seapath-machine could not be reached" in record.message
     assert "nothing was changed" in record.message
     assert "any_errors_fatal" not in record.message
+    # And what SSH answered, so the cause is on the page rather than in a file
+    # the operator has to download to read one line.
+    assert "Failed to connect to the host via ssh" in record.message
 
 
 def test_a_guest_nothing_could_reach_is_told_what_a_guest_needs(

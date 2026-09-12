@@ -891,6 +891,17 @@ class RunService:
                 f"{', '.join(failed)} failed a task and {names} could not be "
                 "reached at all. "
             )
+        # What SSH answered, which is the sentence that names the cause. It is
+        # in the event stream and was only ever in the log, so an operator read
+        # this service's advice and downloaded a file to find out which half of
+        # it applied.
+        said = [
+            f"{name}: {hosts[name].unreachable_message}"
+            for name in unreachable
+            if hosts[name].unreachable_message
+        ]
+        if said:
+            opening += " ".join(said) + " "
         return opening + self._connection_advice(unreachable)
 
     def _connection_advice(self, unreachable: list[str]) -> str:

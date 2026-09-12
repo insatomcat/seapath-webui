@@ -50,6 +50,13 @@ class HostProgress(BaseModel):
     # host table has no answer for the red line the stream just printed.
     ignored: int = 0
     last_task: str | None = None
+    unreachable_message: str = ""
+    """What SSH answered when no connection to this host was ever opened.
+
+    Kept because it is the whole of why such a run stopped: the recap counts
+    the host as dark and says nothing else, and the alternative is an operator
+    downloading the log to read one line.
+    """
 
     @property
     def reached(self) -> bool:

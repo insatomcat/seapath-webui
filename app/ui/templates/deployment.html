@@ -108,16 +108,23 @@ SPDX-License-Identifier: Apache-2.0
           the machine itself before accepting it. Nothing is written until
           you do.
         </p>
+        <p class="help">
+          The guests carrying an <code>ansible_host</code> are scanned too. A
+          convergence never connects to one, so a guest key nobody accepted
+          holds nothing back; the measurement that runs inside a guest is the
+          one run that needs it, and without it that run ends on
+          <code>Host key verification failed</code>.
+        </p>
         <p class="error" id="host-keys-error" hidden></p>
         <div class="actions">
-          <button type="button" id="host-keys-scan">Scan the machines in the inventory</button>
+          <button type="button" id="host-keys-scan">Scan the machines and the addressable guests</button>
           <button type="button" id="host-keys-accept-all" class="secondary" hidden></button>
         </div>
         <div class="table-scroll">
           <table id="host-keys-table">
             <thead>
               <tr>
-                <th>Machine</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
+                <th>Address</th><th>Type</th><th>Fingerprint</th><th>Status</th><th></th>
               </tr>
             </thead>
             <tbody></tbody>

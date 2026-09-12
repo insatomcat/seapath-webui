@@ -310,6 +310,28 @@ def test_the_deployment_page_carries_the_credentials_and_the_button(
     assert 'id="tree"' not in body
 
 
+def test_the_host_key_scan_reaches_the_guests_that_carry_an_address(
+    signed_in: TestClient,
+) -> None:
+    """Every run checks host keys against this node's own known_hosts.
+
+    A convergence never connects to a guest, so a guest key nobody accepted
+    holds nothing back. The measurement that runs inside a guest is the one run
+    that needs it, and while the scan named only the machines that run could
+    not succeed at all: it ended on `Host key verification failed`, counted as
+    unreachable.
+    """
+    body = signed_in.get("/deployment").text
+    script = signed_in.get("/static/deployment.js").text
+
+    assert "function guestPeers()" in script
+    assert "peers().concat(guestPeers())" in script
+    # The address is read from `extra`: `ansible_host` is not a field of a
+    # guest entry and this service never writes one.
+    assert "(guest.extra || {}).ansible_host" in script
+    assert "Host key verification failed" in body
+
+
 def test_the_deployment_page_says_which_collection_this_node_runs(
     signed_in: TestClient,
 ) -> None:
