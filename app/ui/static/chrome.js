@@ -80,6 +80,10 @@ const Chrome = (function () {
   // window is opened from a click rather than from a page's own start and it
   // has a control only an admin may press: it saw nothing at all until the
   // first reading of the page under it had resolved.
+  //
+  // `Chrome.current()` is what the pages read, and they read it without waiting:
+  // every one of them used to open with `await Chrome.load()`, which was two
+  // requests standing in front of the page's own.
   const signedIn = (function () {
     const bar = document.querySelector(".topbar");
     if (!bar) {
@@ -87,12 +91,6 @@ const Chrome = (function () {
     }
     return { username: bar.dataset.username, role: bar.dataset.role };
   })();
-
-  // The shape the pages ask for, and they still await it: the answer is simply
-  // in hand before the question.
-  async function load() {
-    return { me: signedIn };
-  }
 
   // The node's name and its mode, from a page that has just read them. Both
   // change when a machine is renamed or joins a cluster, which is a run, and
@@ -113,9 +111,16 @@ const Chrome = (function () {
     try {
       await API.post("/auth/logout");
     } finally {
+      // What the panels of this tab were showing goes with the session. The next
+      // person to sign in on this browser starts from the machines.
+      try {
+        sessionStorage.clear();
+      } catch (error) {
+        /* Nothing was stored either. */
+      }
       window.location.assign("login");
     }
   });
 
-  return { load, saw, isAdmin, current: () => signedIn };
+  return { saw, isAdmin, current: () => signedIn };
 })();

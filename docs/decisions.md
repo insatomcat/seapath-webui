@@ -3005,3 +3005,103 @@ time it takes an operator to move between two tabs and come back with a question
 `scrape_window_seconds: 0` turns the window off and restores the behaviour this
 service had, at one scrape per panel. There is no setting for the other three,
 because there is nothing to turn off: the same input gives the same answer.
+
+## D46 - Settled: a panel is drawn from what this browser last read, and says so
+
+[D44](#d44) took the assets out of a navigation and [D45](#d45) took the cost of
+answering it. The wait was still there, because neither of them touches what a
+navigation actually is over an ssh tunnel to a substation: one round trip for the
+document, and a second for the answers the panels are drawn from. On a page that
+asked for those answers in stages it was three or four.
+
+Measured in a headless browser with 80 ms of added latency per request, which is
+what a tunnel to a substation costs, coming back to a page already visited:
+
+| | before | after |
+|---|---|---|
+| Cluster | 188 ms | 109 ms |
+| VMs | 186 ms | 105 ms |
+| Containers | 181 ms | 106 ms |
+| Real time | 460 ms | 107 ms |
+| Deployment | 378 ms | 175 ms |
+| Inventory | 353 ms | 190 ms |
+
+The service answers those in four to seven milliseconds, so what is left is the
+network. A first load still pays it: the numbers above are the second visit, and
+the first is 270 to 400 ms because nothing has been read yet. That is the price
+of arriving somewhere, and it is worth paying once.
+
+### The three changes
+
+**A page asks for everything it needs at once.** The Real time page waited for
+the inventory, then for the guests, then for the rest; the Deployment page waited
+for the inventory, then for five answers, then for the catalogue; the Inventory
+page waited for the folder, then the history, then the replicas. None of those
+answers depends on another. What does depend on order is the rendering, and that
+order is unchanged: the inventory names the machines a run plays and which of
+them is this one, and the measurement panels filter to that name, so a panel
+drawn while it was in flight showed every machine on a page about one.
+`API.started` is a request sent now and awaited later, and it is the whole of the
+mechanism.
+
+**One answer is deliberately left out of the wait.** The Inventory page's
+replicas panel asks every other machine whether it holds this commit, which is an
+ssh to each of them: on a three node cluster with one node down it is the slowest
+thing this service does, and it stood in front of the folder, the editor and the
+history. It fills in when the peers answer.
+
+**A panel is drawn from what this browser last read, before anything is asked.**
+`static/kept.js`, and the pages that carry a reading of the machines use it. The
+reading that follows redraws the panel, which is the same render from the same
+code, so what a kept answer can show is exactly what a fresh one showed a moment
+earlier.
+
+### What makes it honest
+
+Three rules, and they are the design rather than a caveat on it.
+
+**A panel showing a kept answer says so, with its age**, in the line the spinner
+was in: "What this browser last read, 20 seconds ago. Reading again." The reading
+hides it. Nothing on screen is presented as current when it is not.
+
+**Nothing can be acted on from a kept answer.** The controls of the panel are
+held until the reading lands. Every act of this service names a machine and most
+of them restart something under a running VM, and the row an operator aimed at
+may have moved since: migrating a guest off a node that has already failed over
+is exactly the accident this would otherwise introduce. The reread control is
+left alive, because asking for the reading is the one thing an operator may do to
+a panel in that state. A reading that fails gives the controls back, because a
+panel nobody can act on is worse than an old one, and the banner says what
+failed.
+
+**It is this browser's memory of what it drew, and never a cache in front of the
+service.** Every reading still reaches the API, `fresh=1` still reaches the
+machines, and nothing in the browser answers a question on the service's behalf.
+It is kept in `sessionStorage`, which is this tab: a page opened in a new tab is a
+first load, closing the tab forgets it, and signing out clears it so the next
+person to sign in is not shown what the last one was reading. It is keyed per
+node, because two nodes reached through two ssh tunnels are one origin to the
+browser, and per release, because a payload kept by one version and drawn by
+another is a render dying on a field that moved.
+
+The editor on the Inventory page is left out of all of this. It holds text an
+operator is about to commit, and drawing a kept copy of it is how somebody saves
+over a change they never saw. The file is fetched, as it always was.
+
+### The stamp now carries the build
+
+D44 made a stamped asset immutable for a year, keyed on the release alone. That
+is a trap the moment two builds of one version exist, or a file is edited under a
+running service: one URL, different bytes, held for a year, and a page from one
+build running a script from another. It was found here the ordinary way, by a
+change that did not take effect. The stamp carries the release and the file's own
+timestamp, so any edit is a new URL, and the test says so.
+
+### What is not done
+
+A navigation still fetches a document and rebuilds a page. Keeping the shell and
+replacing only the content, with the History API, would make a tab change local
+and take the last round trip out too. It would also mean every page script
+becoming mountable and unmountable, which is a different shape for this UI than
+the one file per screen it has now. The numbers above say what it would buy: the
+hundred milliseconds that are left.

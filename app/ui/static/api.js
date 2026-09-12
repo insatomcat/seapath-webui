@@ -37,12 +37,17 @@ const API = (function () {
     }
     Object.assign(headers, extra || {});
 
-    const response = await fetch("api/v1" + path, {
-      method,
-      headers,
-      credentials: "same-origin",
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let response;
+    try {
+      response = await fetch("api/v1" + path, {
+        method,
+        headers,
+        credentials: "same-origin",
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (error) {
+      throw unreachable(error);
+    }
 
     return unwrap(response);
   }
@@ -51,19 +56,24 @@ const API = (function () {
   // would mean a copy of a twenty gigabyte VM image for the sake of a name the
   // URL already carries.
   async function upload(path, file, extra) {
-    const response = await fetch("api/v1" + path, {
-      method: "PUT",
-      headers: Object.assign(
-        {
-          Accept: "application/json",
-          "Content-Type": "application/octet-stream",
-          "X-CSRF-Token": csrfToken(),
-        },
-        extra || {}
-      ),
-      credentials: "same-origin",
-      body: file,
-    });
+    let response;
+    try {
+      response = await fetch("api/v1" + path, {
+        method: "PUT",
+        headers: Object.assign(
+          {
+            Accept: "application/json",
+            "Content-Type": "application/octet-stream",
+            "X-CSRF-Token": csrfToken(),
+          },
+          extra || {}
+        ),
+        credentials: "same-origin",
+        body: file,
+      });
+    } catch (error) {
+      throw unreachable(error);
+    }
     return unwrap(response);
   }
 
@@ -106,6 +116,23 @@ const API = (function () {
     return payload;
   }
 
+  // The request never reached the service. A browser says "Failed to fetch" and
+  // nothing else, which on a panel of this UI reads as a fault of the cluster the
+  // page is about; the node is usually reached through an ssh tunnel, and a
+  // tunnel that went down is the ordinary cause. A panel showing a kept answer
+  // says the rest: it is still showing what this browser last read.
+  function unreachable(error) {
+    const failure = new Error(
+      "This node did not answer. The connection to it is down: check the ssh " +
+        "tunnel or the network to the administration address, and the page will " +
+        "read again."
+    );
+    failure.code = "unreachable";
+    failure.status = 0;
+    failure.detail = { cause: String((error && error.message) || error) };
+    return failure;
+  }
+
   // A refusal without the envelope was written by something in front of the
   // service, a reverse proxy most of the time, and its status text alone sends
   // the operator looking in the wrong place.
@@ -137,8 +164,24 @@ const API = (function () {
     return path + (path.includes("?") ? "&" : "?") + "fresh=1";
   }
 
+  // A reading started now and awaited later, which is how a page asks for
+  // everything it needs in one go. A page that awaited one answer before asking
+  // for the next paid a round trip per stage, and over an ssh tunnel to a
+  // substation that is most of the wait: the Real time page had four stages and
+  // the Deployment page three, for answers that depend on nothing.
+  //
+  // The rejection is taken here so that a page whose first await throws does
+  // not leave the others reported as unhandled. Awaiting the promise still
+  // throws, which is what every caller relies on.
+  function started(path) {
+    const pending = request("GET", path);
+    pending.catch(() => {});
+    return pending;
+  }
+
   return {
     get: (path) => request("GET", path),
+    started,
     reading,
     post: (path, body) => request("POST", path, body),
     put: (path, body, extra) => request("PUT", path, body, extra),

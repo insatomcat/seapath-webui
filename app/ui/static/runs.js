@@ -354,8 +354,7 @@
   });
 
   async function start() {
-    const chrome = await Chrome.load();
-    state.me = chrome.me;
+    state.me = Chrome.current();
     const runs = await loadList();
     const requested = new URLSearchParams(window.location.search).get("run");
     const target = requested || (runs.length ? runs[0].id : null);

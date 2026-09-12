@@ -5,13 +5,17 @@
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+import app.ui.routes
 from app import __version__
 from app.hosts.fake import FakeHostReader
+from app.ui.routes import stamp
 
 
 @pytest.mark.parametrize(
@@ -80,16 +84,22 @@ def test_every_script_a_page_loads_names_the_version_that_served_it(
     from another version of this service is reported as current. The two then
     disagree about the elements they name, the page script dies on the first
     one that is missing, and the whole page renders and does nothing. That cost
-    an afternoon on a node once. The version in the URL makes the halves two
-    different resources, and that is also what lets the stamped one be held for
-    the life of the release instead of revalidated on every hop.
+    an afternoon on a node once. The stamp in the URL makes the halves two
+    different resources, and that is also what lets the stamped one be held
+    without revalidating on every hop.
+
+    The release is in the stamp, and so is the file's own timestamp: a stamped
+    URL is served immutable, so two builds of one version would otherwise be one
+    URL with different bytes, held for a year.
     """
     body = signed_in.get(path).text
     sources = re.findall(r'<script src="([^"]+)"', body)
 
     assert sources
     for source in sources:
-        assert source.endswith(f"?v={__version__}"), source
+        name, _, query = source.partition("?")
+        assert query.startswith(f"v={__version__}-"), source
+        assert query == "v=" + stamp(name.removeprefix("static/")), source
 
 
 @pytest.mark.parametrize(
@@ -655,7 +665,10 @@ def test_a_page_is_styled_from_a_stylesheet_the_browser_already_holds(
     # seven kilobytes leave every document with it.
     head = body.split("</head>")[0]
     assert '<meta name="color-scheme" content="light dark">' in head
-    assert f'<link rel="stylesheet" href="static/style.css?v={__version__}">' in head
+    assert (
+        f'<link rel="stylesheet" href="static/style.css?v={stamp("style.css")}">'
+        in head
+    )
     assert ".card.wide" not in head
     assert css not in head
     assert "html {\n  font-size: 80%;\n  background: var(--bg);\n}" in css
@@ -856,10 +869,39 @@ def test_an_asset_stamped_with_this_release_is_held_without_asking_again(
     # names one release, so it can only ever answer with one release's bytes.
     # Every navigation used to revalidate the stylesheet and all seven scripts,
     # which is seven round trips to paint a page whose assets had not moved.
-    response = signed_in.get(f"/static/runs.js?v={__version__}")
+    response = signed_in.get(f"/static/runs.js?v={stamp('runs.js')}")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_a_file_edited_under_a_running_service_is_a_different_url(
+    signed_in: TestClient,
+) -> None:
+    """Two builds of one version must never be one URL with different bytes.
+
+    A stamped URL is served immutable, so the release alone would have a browser
+    hold the first copy it saw for a year: an image rebuilt without a version
+    change, or a file edited on a node, would serve a page from one build and a
+    script from another. That is the failure the stamp exists to prevent.
+    """
+    before = stamp("runs.js")
+    asset = Path(app.ui.routes.__file__).parent / "static" / "runs.js"
+    was = asset.stat().st_mtime
+
+    try:
+        os.utime(asset, (was + 10, was + 10))
+        after = stamp("runs.js")
+        assert after != before
+        # And this release's own pages name the new one, so a browser holding the
+        # old copy is asked for the file again.
+        assert f"runs.js?v={after}" in signed_in.get("/runs").text
+        # The old stamp is revalidated rather than held, which is what a browser
+        # that kept it needs.
+        kept = signed_in.get(f"/static/runs.js?v={before}")
+        assert kept.headers["cache-control"] == "no-cache"
+    finally:
+        os.utime(asset, (was, was))
 
 
 def test_the_node_page_carries_the_terminal_and_says_what_it_is(
@@ -871,8 +913,8 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     # substation hypervisor has no route to a CDN. Both are stamped with the
     # version that serves them, like the rest of the assets of this service, so
     # a browser fetches them once per release.
-    assert f'src="static/vendor/xterm.js?v={__version__}"' in body
-    assert f'href="static/vendor/xterm.css?v={__version__}"' in body
+    assert f'src="static/vendor/xterm.js?v={stamp("vendor/xterm.js")}"' in body
+    assert f'href="static/vendor/xterm.css?v={stamp("vendor/xterm.css")}"' in body
     assert "static/console.js" in body
     assert ".xterm {" in signed_in.get("/static/vendor/xterm.css").text
     assert signed_in.get("/static/vendor/xterm.js").status_code == 200
@@ -1491,6 +1533,160 @@ def test_a_panel_that_ages_can_be_read_again_where_it_is(
     assert body.count('aria-label="Read ') == len(controls)
 
 
+@pytest.mark.parametrize(
+    ("path", "script"),
+    [
+        ("/cluster", "cluster.js"),
+        ("/vms", "vms.js"),
+        ("/containers", "containers.js"),
+        ("/realtime", "realtime.js"),
+        ("/deployment", "deployment.js"),
+    ],
+)
+def test_a_page_paints_what_this_browser_last_read_before_it_asks(
+    signed_in: TestClient, path: str, script: str
+) -> None:
+    """The wait that made this UI unpleasant to move around in.
+
+    A navigation is one round trip for the document and another for the answers
+    its panels are drawn from, and on a machine reached through an ssh tunnel an
+    operator paid both on every hop, for panels they were reading a moment ago.
+    The page draws what this browser last read first, and the reading redraws it.
+    See D46.
+    """
+    body = signed_in.get(path).text
+    page = signed_in.get(f"/static/{script}").text
+
+    assert "kept.js" in body
+    # The request leaves before anything is painted, so the reading is in flight
+    # while the kept answer is drawn.
+    assert "API.started(" in page
+    assert "Kept.paint(" in page or "Kept.held(" in page
+    assert "Kept.keep(" in page
+
+
+@pytest.mark.parametrize(
+    ("path", "script"),
+    [
+        ("/cluster", "cluster.js"),
+        ("/vms", "vms.js"),
+        ("/containers", "containers.js"),
+        ("/realtime", "realtime.js"),
+        ("/deployment", "deployment.js"),
+    ],
+)
+def test_a_panel_showing_a_kept_answer_says_so_and_cannot_be_acted_on(
+    signed_in: TestClient, path: str, script: str
+) -> None:
+    """The two rules that make it honest.
+
+    What is on screen is never presented as current, and nothing can be launched
+    from it: a resource may have moved, and an operator must not migrate a guest
+    off a node that has already failed over. The controls come back when the
+    reading lands, and also when it fails, because a panel nobody can act on is
+    worse than an old one.
+    """
+    page = signed_in.get(f"/static/{script}").text
+    kept = signed_in.get("/static/kept.js").text
+
+    assert "Kept.rereading(" in page
+    assert "Kept.hold(" in page
+    assert "Kept.release()" in page
+    # The sentence itself, and the age in it.
+    assert "What this browser last read, " in kept
+    assert "Reading again." in kept
+    # The reread control is the one thing left alive: asking for the reading is
+    # what an operator may do to a panel in this state.
+    assert 'control.classList.contains("reread")' in kept
+
+
+def test_what_a_browser_kept_is_scoped_to_this_node_and_this_release(
+    signed_in: TestClient,
+) -> None:
+    """Two traps, both of which have already been paid for once in this UI.
+
+    A browser reaching two nodes through two ssh tunnels sees one origin, so a
+    single key would draw one cluster's table over the other's. And a payload
+    kept by one release and drawn by another is a render dying on a field that
+    moved, which leaves a page that renders and then does nothing.
+    """
+    body = signed_in.get("/cluster").text
+    kept = signed_in.get("/static/kept.js").text
+
+    assert f'<meta name="version" content="{__version__}">' in body
+    assert 'meta[name="csrf-cookie"]' in kept
+    assert 'meta[name="version"]' in kept
+    assert "held.release !== RELEASE" in kept
+    # This tab, so a page opened in a new one is a first load, and closing the
+    # tab forgets everything.
+    assert "sessionStorage" in kept
+    assert "localStorage" not in kept
+    # And signing out forgets it, because the next person to sign in on this
+    # browser must not be shown what the last one was reading.
+    assert "sessionStorage.clear()" in signed_in.get("/static/chrome.js").text
+
+
+def test_a_page_asks_for_everything_it_needs_at_once(
+    signed_in: TestClient,
+) -> None:
+    """A round trip per stage is what an ssh tunnel charges for.
+
+    The Real time page waited for the inventory, then for the guests, then for
+    the rest; the Deployment page waited for the inventory, then for five
+    answers, then for the catalogue. None of those answers depends on another,
+    and the order that does matter is the order of the renders, which is kept.
+    """
+    for script, expected in (
+        ("realtime.js", 6),
+        ("deployment.js", 7),
+        ("inventory.js", 4),
+    ):
+        page = signed_in.get(f"/static/{script}").text
+        assert page.count("API.started(") >= expected, script
+
+    # The inventory page leaves one answer out of the wait: the replicas panel
+    # asks every other machine whether it holds this commit, which is an ssh to
+    # each of them, and it stood in front of the folder and the editor.
+    inventory = signed_in.get("/static/inventory.js").text
+    order = inventory.split("async function refresh()")[1].split("async function")[0]
+    assert order.index("loadReplicas(pending.replicas)") < order.index("render()")
+    assert "await loadReplicas" not in order
+
+
+def test_the_top_bar_costs_a_page_nothing_before_its_own_reading(
+    signed_in: TestClient,
+) -> None:
+    """Every page opened with two requests for three strings it was given.
+
+    The document carries the bar, so the pages read the role from it rather than
+    awaiting an answer that had already arrived.
+    """
+    chrome = signed_in.get("/static/chrome.js").text
+
+    # The function is gone, and only the comment saying what it cost remains.
+    assert "function load(" not in chrome
+    assert "API.get(" not in chrome
+    for script in ("cluster.js", "vms.js", "containers.js", "runs.js"):
+        assert "Chrome.load()" not in signed_in.get(f"/static/{script}").text, script
+
+
+def test_a_request_that_never_reached_the_node_says_which_link_is_down(
+    signed_in: TestClient,
+) -> None:
+    """ "Failed to fetch" is the browser's word, and it reads as a cluster fault.
+
+    The node is usually reached through an ssh tunnel, and a tunnel that went
+    down is the ordinary cause of it. The panel under the banner is still showing
+    what this browser last read, which the sentence leaves standing.
+    """
+    api = signed_in.get("/static/api.js").text
+
+    assert "This node did not answer" in api
+    assert "ssh" in api
+    # Both ways out of this file, because an upload fails the same way.
+    assert api.count("throw unreachable(error)") == 2
+
+
 def test_reading_a_panel_again_never_empties_it_first(signed_in: TestClient) -> None:
     """The swap is one pass, and a failed reading changes nothing on screen.
 
@@ -1523,8 +1719,9 @@ def test_reading_the_cluster_again_asks_the_machines_once(
     script = signed_in.get("/static/cluster.js").text
 
     wiring = script.split("function wireReread()")[1].split("async function start")[0]
-    assert wiring.count("loadCluster") == 2
-    assert wiring.count("loadStorage") == 1
+    assert wiring.count('attach("members-reread", loadCluster)') == 1
+    assert wiring.count('attach("resources-reread", loadCluster)') == 1
+    assert wiring.count('attach("storage-reread", loadStorage)') == 1
 
 
 def test_the_cluster_page_tells_a_reading_from_a_pacemaker_refresh(

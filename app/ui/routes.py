@@ -38,6 +38,28 @@ _STATIC = _UI_DIR / "static"
 templates = Jinja2Templates(directory=str(_UI_DIR / "templates"))
 
 
+def stamp(name: str) -> str:
+    """What an asset's URL carries so that a browser can hold it for good.
+
+    The release, and the file's own timestamp. The release alone is what keeps a
+    browser from pairing a script from one version with a page from another, and
+    it was enough while the assets were revalidated on every hop. Now that a
+    stamped URL is served immutable, the release alone is a trap: two builds of
+    one version, or a file edited under a service that is already running, are
+    the same URL with different bytes, and a browser holds the first for a year.
+    That is an afternoon lost to a page that renders and does nothing, which is
+    the failure the stamp exists to prevent.
+
+    A missing file falls back to the release, so a URL is always produced and the
+    404 is reported by the fetch rather than by the page builder.
+    """
+    try:
+        mtime = int(_STATIC.joinpath(name).stat().st_mtime)
+    except OSError:
+        return __version__
+    return f"{__version__}-{mtime}"
+
+
 def styles(name: str = "style.css") -> Markup:
     """A stylesheet of this service, for the head of a page.
 
@@ -55,7 +77,7 @@ def styles(name: str = "style.css") -> Markup:
     page of a release, a navigation fetches the document and nothing else.
     """
     return Markup('<link rel="stylesheet" href="static/{}?v={}">').format(
-        name, __version__
+        name, stamp(name)
     )
 
 
@@ -77,7 +99,7 @@ def script(name: str) -> Markup:
     halves two resources, so a browser has to fetch the one the page it is
     looking at was written against.
     """
-    return Markup('<script src="static/{}?v={}"></script>').format(name, __version__)
+    return Markup('<script src="static/{}?v={}"></script>').format(name, stamp(name))
 
 
 templates.env.globals["styles"] = styles
@@ -97,8 +119,8 @@ def csp_nonce(request: Request) -> str:
 class _StampedStatics(StaticFiles):
     """Static assets, kept by the browser for as long as their URL names one release.
 
-    `script()` and `styles()` stamp every URL they emit with the version that
-    served the page, so a release's copy of a file is a resource of its own.
+    `script()` and `styles()` stamp every URL they emit with the release and the
+    file's own timestamp, so a build's copy of a file is a resource of its own.
     That is what keeps a browser from pairing a script from one version with a
     page from another, and it also makes the file one a browser never has to
     ask about twice: a stamped request is answered immutable, and a navigation
@@ -115,15 +137,13 @@ class _StampedStatics(StaticFiles):
     which is an hour nobody gets back.
     """
 
-    def __init__(self, *args, version: str, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-        # The whole query string, and not a substring of it: the only URLs this
-        # promise is made about are the ones this service emits.
-        self._stamp = f"v={version}".encode()
-
     async def get_response(self, path: str, scope: Scope):
         response = await super().get_response(path, scope)
-        stamped = scope.get("query_string") == self._stamp
+        # The whole query string, and not a substring of it: the only URLs this
+        # promise is made about are the ones this service emits, built by
+        # `stamp` from the same file this is about to serve.
+        expected = f"v={stamp(path)}".encode()
+        stamped = scope.get("query_string") == expected
         if stamped and response.status_code < 400:
             # A year is the longest a cache is ever asked to keep anything, and
             # `immutable` is what spares even the conditional request. These
@@ -176,7 +196,7 @@ def _topbar(request: Request, session: Session) -> dict[str, str]:
 def install(app: FastAPI) -> None:
     app.mount(
         "/static",
-        _StampedStatics(directory=str(_STATIC), version=__version__),
+        _StampedStatics(directory=str(_STATIC)),
         name="static",
     )
 

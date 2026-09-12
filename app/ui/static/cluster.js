@@ -946,15 +946,32 @@
     tab.addEventListener("click", () => showView(tab.dataset.view));
   });
 
-  async function loadCluster(fresh) {
-    const cluster = await API.get(API.reading("/cluster", fresh));
+  // Kept under these two names, which is what the page is drawn from on the way
+  // back to it. The membership and the resources come out of one answer, so one
+  // name holds both.
+  const CLUSTER = "cluster";
+  const STORAGE = "storage";
+
+  function drawCluster(cluster) {
     reading = cluster;
     renderMembers(cluster);
     renderResources(cluster);
   }
 
-  async function loadStorage(fresh) {
-    renderStorage(await API.get(API.reading("/storage", fresh)));
+  async function loadCluster(fresh, pending) {
+    const cluster = await (pending ||
+      API.get(API.reading("/cluster", fresh)));
+    drawCluster(cluster);
+    Kept.keep(CLUSTER, cluster);
+    Kept.release();
+  }
+
+  async function loadStorage(fresh, pending) {
+    const storage = await (pending ||
+      API.get(API.reading("/storage", fresh)));
+    renderStorage(storage);
+    Kept.keep(STORAGE, storage);
+    Kept.release();
   }
 
   // Reading one panel again, without the navigation that refetches both. The
@@ -974,21 +991,48 @@
     const failed = (failure) => showBanner(failure.message);
     const attach = (id, load) =>
       Reread.attach(element(id), (fresh) => again(load, fresh), failed);
+    // `loadCluster` and `loadStorage` take the flag as their first argument, so
+    // the control and its timer reach the machines. See D45.
     attach("members-reread", loadCluster);
     attach("resources-reread", loadCluster);
     attach("storage-reread", loadStorage);
   }
 
   async function start() {
-    const chrome = await Chrome.load();
-    canAct = chrome.me.role === "operator" || Chrome.isAdmin(chrome.me);
+    const me = Chrome.current();
+    canAct = me.role === "operator" || Chrome.isAdmin(me);
     showView("members");
     wireReread();
+    // Both requests leave before anything is drawn, so the two readings are in
+    // flight while this browser paints what it last saw.
+    const pending = {
+      cluster: API.started("/cluster"),
+      storage: API.started("/storage"),
+    };
+    // What this browser last read of each panel, drawn now. Both say their age
+    // and hold their controls until the reading above lands: a resource may have
+    // moved, and an operator must not migrate a guest off a node that has
+    // already failed over. See D46.
+    const ages = [
+      [Kept.paint(CLUSTER, drawCluster), ["members-loading", "resources-loading"],
+        ["card-members", "card-resources"]],
+      [Kept.paint(STORAGE, renderStorage), ["storage-loading"], ["card-storage"]],
+    ];
+    ages.forEach(([age, lines, panels]) => {
+      if (age === null) {
+        return;
+      }
+      Kept.rereading(lines, age);
+      Kept.hold(panels);
+    });
     // Both readings are fetched before either panel is looked at, so switching
     // views is a show and a hide. They are independent requests because they
     // fail independently: a cluster with no Ceph must not cost the membership
     // panel its answer, and a manager that is slow must not hold it up.
-    const results = await Promise.allSettled([loadCluster(), loadStorage()]);
+    const results = await Promise.allSettled([
+      loadCluster(false, pending.cluster),
+      loadStorage(false, pending.storage),
+    ]);
     const failures = results
       .filter((item) => item.status === "rejected")
       .map((item) => item.reason.message);
@@ -999,6 +1043,11 @@
           element(id).hidden = true;
         }
       );
+      // A reading that did not arrive leaves whatever is on screen, which is the
+      // honest thing to show, and gives the controls back: an operator looking at
+      // a cluster this node cannot reach still has to be able to act on it from
+      // the row they are reading, and the confirmation says what it will disturb.
+      Kept.release();
     }
   }
 
@@ -1007,5 +1056,6 @@
     ["members-loading", "resources-loading", "storage-loading"].forEach((id) => {
       element(id).hidden = true;
     });
+    Kept.release();
   });
 })();

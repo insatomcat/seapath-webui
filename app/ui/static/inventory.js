@@ -111,12 +111,14 @@
 
   // The folder, as one list
 
-  async function loadFolder() {
-    const [inventory, folder, references] = await Promise.all([
-      API.get("/inventory"),
-      API.get("/inventory/folder"),
-      API.get("/inventory/references"),
-    ]);
+  async function loadFolder(pending) {
+    const [inventory, folder, references] = await Promise.all(
+      pending || [
+        API.get("/inventory"),
+        API.get("/inventory/folder"),
+        API.get("/inventory/references"),
+      ]
+    );
 
     state.commit = inventory.commit;
     state.maxFileBytes = folder.max_file_bytes || state.maxFileBytes;
@@ -1104,8 +1106,8 @@
 
   // The history
 
-  async function loadHistory() {
-    const history = await API.get("/inventory/history?limit=20");
+  async function loadHistory(pending) {
+    const history = await (pending || API.get("/inventory/history?limit=20"));
     // What the shut line says. The last commit is the answer to "did my save
     // land", which is why the history is looked at at all.
     const last = history[0];
@@ -1272,9 +1274,9 @@
     return commit ? commit.slice(0, 12) : "no commit";
   }
 
-  async function loadReplicas() {
+  async function loadReplicas(pending) {
     try {
-      renderReplicas(await API.get("/inventory/replicas"));
+      renderReplicas(await (pending || API.get("/inventory/replicas")));
     } catch (failure) {
       showError("replicas-error", failure.message);
     }
@@ -1320,16 +1322,35 @@
     }
   });
 
+  // Everything this page needs, asked for at once, with one of them deliberately
+  // left out of the wait.
+  //
+  // The replicas panel asks every other machine of the inventory whether it
+  // holds this commit, which is an ssh to each of them: on a three node cluster
+  // with one node down it is the slowest thing this service does, and it stood
+  // in front of the folder, the editor and the history. It fills in when the
+  // peers answer, and says so in its own line until then.
   async function refresh() {
-    await loadFolder();
-    await loadHistory();
-    await loadReplicas();
+    const pending = {
+      folder: [
+        API.started("/inventory"),
+        API.started("/inventory/folder"),
+        API.started("/inventory/references"),
+      ],
+      history: API.started("/inventory/history?limit=20"),
+      replicas: API.started("/inventory/replicas"),
+    };
+    const replicas = loadReplicas(pending.replicas);
+    await loadFolder(pending.folder);
+    await loadHistory(pending.history);
     render();
+    // Awaited after the page is drawn, so a peer that never answers costs the
+    // panel its line and nothing else.
+    replicas.then(() => {}, () => {});
   }
 
   async function start() {
-    const chrome = await Chrome.load();
-    state.me = chrome.me;
+    state.me = Chrome.current();
     if (!admin()) {
       ["add-file", "new-file"].forEach((id) => {
         element(id).disabled = true;

@@ -59,6 +59,10 @@ SPDX-License-Identifier: Apache-2.0
           stored("seapath-autorefresh") === "on" ? "on" : "off";
       })();
     </script>
+    {# Which release drew this page. `kept.js` keys what a browser remembers of
+       a panel on it, because a payload kept by one version and drawn by another
+       is a render dying on a field that moved. #}
+    <meta name="version" content="{{ version }}">
     {# The name of this node's CSRF cookie, which the front end reads the token
        from. It carries a per node suffix, because a browser reaching two nodes
        through two ssh tunnels sees one host, localhost, and keeps one cookie
@@ -277,6 +281,7 @@ SPDX-License-Identifier: Apache-2.0
     {% if nav %}{{ script("theme.js") }}
     {{ script("api.js") }}
     {{ script("chrome.js") }}
+    {{ script("kept.js") }}
     {{ script("reread.js") }}
     {{ script("runstream.js") }}
     {{ script("runwatch.js") }}{% endif %}

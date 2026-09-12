@@ -1252,16 +1252,24 @@
   // divide it up. Called again by the control in the heading, which is why it
   // stands on its own: a guest started from here, or by somebody else on
   // another node, shows up without the page being loaded again.
-  async function refresh(fresh) {
-    const view = await API.get(API.reading("/vms", fresh));
+  const KEPT = "vms";
+
+  function draw(view) {
     lastView = view;
     renderGuests(view);
     renderUndeclared(view);
     fillChoices(view);
   }
 
+  async function refresh(fresh, pending) {
+    const view = await (pending || API.get(API.reading("/vms", fresh)));
+    draw(view);
+    Kept.keep(KEPT, view);
+    Kept.release();
+  }
+
   async function start() {
-    const { me } = await Chrome.load();
+    const me = Chrome.current();
     // Starting a guest changes no desired state, so it is the operator's act
     // rather than the administrator's, the way cancelling a run is.
     canAct = me.role === "operator" || Chrome.isAdmin(me);
@@ -1278,7 +1286,18 @@
       },
       (failure) => showBanner(failure.message)
     );
-    await refresh();
+    // The request leaves first, so the reading is in flight while this browser
+    // paints the table it last drew. Every control in that table is held until
+    // the answer lands: a guest may have moved to another node since, and
+    // starting or migrating one from a row that old is an act on a live
+    // substation hypervisor aimed at the wrong machine. See D46.
+    const pending = API.started("/vms");
+    const age = Kept.paint(KEPT, draw);
+    if (age !== null) {
+      Kept.rereading(["loading"], age);
+      Kept.hold(["card-guests", "undeclared-card"]);
+    }
+    await refresh(false, pending);
     // Adding a VM commits the inventory and launches a run, which is an
     // administrator's act like every other write in this service.
     element("add").hidden = !Chrome.isAdmin(me);
@@ -1287,5 +1306,6 @@
   start().catch((failure) => {
     showBanner(failure.message);
     element("loading").hidden = true;
+    Kept.release();
   });
 })();

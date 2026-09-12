@@ -30,7 +30,9 @@ not.
 <main class="page single containers">
   <p class="banner" id="banner" hidden></p>
 
-  <section class="card">
+  {# Named so that `kept.js` can hold what is in it while the table shows what
+     this browser last read: a unit may have stopped since. #}
+  <section class="card" id="card-containers">
     <div class="card-head">
       <h2>Containers</h2>
       <div class="card-acts">

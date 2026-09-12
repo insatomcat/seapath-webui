@@ -208,8 +208,8 @@
 
   // Conformance
 
-  async function loadChecks() {
-    const report = await API.get("/realtime");
+  async function loadChecks(pending) {
+    const report = await (pending || API.get("/realtime"));
     element("checks-loading").hidden = true;
     element("checks").hidden = false;
 
@@ -505,8 +505,16 @@
   // panel that leaves the local machine, and it is the only way the question
   // can be answered: occupancy is the affinity of every QEMU thread in /proc,
   // which this container's PID namespace hides.
-  async function loadPool(fresh) {
-    const pool = await API.get(API.reading("/realtime/pool", fresh));
+  const KEPT_POOL = "realtime-pool";
+
+  async function loadPool(fresh, pending) {
+    const pool = await (pending || API.get(API.reading("/realtime/pool", fresh)));
+    drawPool(pool);
+    Kept.keep(KEPT_POOL, pool);
+    Kept.release();
+  }
+
+  function drawPool(pool) {
     element("map-loading").hidden = true;
 
     // The same reading answers both panels, so the cluster is asked once. Each
@@ -900,10 +908,10 @@
 
   // Measurement
 
-  async function loadCatalogue() {
+  async function loadCatalogue(pending) {
     let playbooks = [];
     try {
-      playbooks = await API.get("/playbooks");
+      playbooks = await (pending || API.get("/playbooks"));
     } finally {
       // Even when the catalogue could not be read. A launch panel that stays
       // blank says nothing, and the operator is left looking for a button that
@@ -957,7 +965,7 @@
   // Deployment page narrows a run with. A guest is in the `VMs` group so that a
   // deployment creates it, and creating a domain needs no route to it: only the
   // entries carrying an address can be logged into.
-  async function loadGuests() {
+  async function loadGuests(pending) {
     element("guest-requirements").textContent =
       "The measurement runs inside the guest, as an Ansible run over SSH. It " +
       "needs an address on the guest's inventory entry, the guest's host key " +
@@ -965,11 +973,13 @@
       "Deployment page, this node's public key in the account it connects as, " +
       "with sudo, and rt-tests installed in the guest. Nothing here installs " +
       "any of them: a measurement changes nothing on what it measures.";
-    await loadPublicKey();
+    await loadPublicKey(pending && pending.key);
     renderAffinity(GUEST_AFFINITY);
     let choices = { addressable_guests: [] };
     try {
-      choices = await API.get("/playbooks/scopes");
+      choices = await (pending && pending.scopes
+        ? pending.scopes
+        : API.get("/playbooks/scopes"));
     } catch (failure) {
       showBanner([failure.message]);
     }
@@ -990,10 +1000,10 @@
   // Where the guest is created with cloud-init, the same line belongs in the
   // `ssh_authorized_keys` of its `cloud_init` mapping, and the deployment
   // installs it.
-  async function loadPublicKey() {
+  async function loadPublicKey(pending) {
     let key = null;
     try {
-      key = await API.get("/trust/public-key");
+      key = await (pending || API.get("/trust/public-key"));
     } catch (failure) {
       // Not a banner. The panel works without it: an operator who has already
       // installed the key needs nothing from this line.
@@ -1017,9 +1027,10 @@
     };
   }
 
-  async function loadMeasurements(kind) {
+  async function loadMeasurements(kind, pending) {
     const spec = MEASUREMENTS[kind];
-    const items = await API.get("/realtime/measurements?limit=10&kind=" + kind);
+    const items = await (pending ||
+      API.get("/realtime/measurements?limit=10&kind=" + kind));
     state.measurements[kind] = items;
     element(spec.loading).hidden = true;
     element(spec.panel).hidden = false;
@@ -1781,8 +1792,8 @@
   // results to the local machine, and doing that in parallel with the fetch
   // that names it is a race the panels lost, so every machine of the run was
   // rendered on a page about one.
-  async function loadMachines() {
-    const payload = await API.get("/inventory");
+  async function loadMachines(pending) {
+    const payload = await (pending || API.get("/inventory"));
     state.machines = payload.inventory ? Object.keys(payload.inventory.hosts) : [];
     state.thisHost = payload.this_host;
   }
@@ -1799,33 +1810,60 @@
     showBanner([failure.message])
   );
 
+  // Every answer this page needs, asked for at once, and rendered in the order
+  // the panels depend on each other. It used to wait for the inventory, then for
+  // the guests, then for the rest, which is four round trips to a machine an
+  // operator reaches through an ssh tunnel, for answers that depend on nothing.
+  //
+  // The order of the renders is unchanged, and it is the order that matters: the
+  // inventory names the machines a run plays and which of them is this one, and
+  // the measurement panels filter to that name, so a panel drawn while it was in
+  // flight showed every machine of the run on a page about one. The guest launch
+  // panel is drawn from its catalogue entry and the list of guests together, so
+  // drawing it early offered a form with an empty chooser.
   async function start() {
-    const { me } = await Chrome.load();
     // A measurement loads every machine of the inventory at real time
     // priority for as long as the operator asked, on a live substation. That
     // is a run like any other, and POST /runs asks for the admin role.
-    state.canLaunch = Chrome.isAdmin(me);
+    state.canLaunch = Chrome.isAdmin(Chrome.current());
+    // The pool of every machine, as this browser last drew it, painted before
+    // anything is asked. It is the panel of this page that leaves the machine,
+    // so it is the one worth keeping: the conformance beside it is read from
+    // files this container already sees. Its control is held until the reading
+    // lands, because launching a measurement from it loads every machine of the
+    // inventory at real time priority. See D46.
+    const keptPool = Kept.paint(KEPT_POOL, drawPool);
     // Conformance first. It is the question the page exists to answer, and the
     // only panel that says something on a machine where nothing has been
     // deployed yet.
     showView("checks");
-    // The inventory first, on its own. It names the machines a run plays and
-    // which of them is this one, and the measurement panels filter to that
-    // name: fetching it beside them is a race the panels lost, so every
-    // machine of the run was rendered on a page about one.
-    await loadMachines();
-    // Before the catalogue, for the same reason the inventory is: the launch
-    // panel of the guest measurement is drawn from the entry and from the list
-    // of guests at once, and rendering it while the list is in flight offers a
-    // form with an empty chooser.
-    await loadGuests();
+    const pending = {
+      machines: API.started("/inventory"),
+      key: API.started("/trust/public-key"),
+      scopes: API.started("/playbooks/scopes"),
+      checks: API.started("/realtime"),
+      pool: API.started("/realtime/pool"),
+      catalogue: API.started("/playbooks"),
+      measurements: Object.fromEntries(
+        Object.keys(MEASUREMENTS).map((kind) => [
+          kind,
+          API.started("/realtime/measurements?limit=10&kind=" + kind),
+        ])
+      ),
+    };
+    if (keptPool !== null) {
+      Kept.rereading(["map-loading"], keptPool);
+      Kept.hold(["card-map"]);
+    }
+    await loadMachines(pending.machines);
+    await loadGuests(pending);
     await Promise.all([
-      loadChecks(),
-      loadPool(),
-      loadCatalogue(),
-      loadMeasurements("cyclictest"),
-      loadMeasurements("hwlatdetect"),
-      loadMeasurements("guest_cyclictest"),
+      loadChecks(pending.checks),
+      loadPool(false, pending.pool),
+      loadCatalogue(pending.catalogue),
+      ...Object.keys(MEASUREMENTS).map((kind) =>
+        loadMeasurements(kind, pending.measurements[kind])
+      ),
     ]);
   }
 
@@ -1842,6 +1880,7 @@
   });
 
   start().catch((failure) => {
+    Kept.release();
     showBanner([failure.message]);
     // Every spinner, so a page that failed halfway does not sit there looking
     // like a page still loading.

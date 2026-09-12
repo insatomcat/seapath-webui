@@ -37,7 +37,9 @@ image and losing its disk. D31 records the bounds.
   <p class="banner" id="banner" hidden></p>
 
   <div class="column">
-    <section class="card">
+    {# Named so that `kept.js` can hold what is in it while the table shows what
+       this browser last read: a guest may have moved since. #}
+    <section class="card" id="card-guests">
       <div class="card-head">
         <h2>Guests</h2>
         <div class="card-acts">

@@ -472,12 +472,20 @@
     }
   }
 
-  async function refresh(fresh) {
-    view = await API.get(API.reading("/containers", fresh));
-    mode = view.mode;
-    renderContainers(view);
-    renderUndeclared(view);
-    fillScopes(view);
+  const KEPT = "containers";
+
+  function draw(answer) {
+    view = answer;
+    mode = answer.mode;
+    renderContainers(answer);
+    renderUndeclared(answer);
+    fillScopes(answer);
+  }
+
+  async function refresh(fresh, pending) {
+    draw(await (pending || API.get(API.reading("/containers", fresh))));
+    Kept.keep(KEPT, view);
+    Kept.release();
   }
 
   element("add").addEventListener("click", () => showAdd(true));
@@ -488,7 +496,7 @@
   });
 
   async function start() {
-    const { me } = await Chrome.load();
+    const me = Chrome.current();
     // Starting a container changes no desired state, so it is the operator's
     // act, the way starting a guest is.
     canAct = me.role === "operator" || Chrome.isAdmin(me);
@@ -502,13 +510,24 @@
       },
       (failure) => showBanner(failure.message)
     );
-    await refresh();
+    // The request leaves first, so the reading is in flight while this browser
+    // paints the table it last drew. The controls in it are held until the
+    // answer lands: a unit may have stopped since, and starting or stopping one
+    // from a row that old is an act aimed at the wrong state. See D46.
+    const pending = API.started("/containers");
+    const age = Kept.paint(KEPT, draw);
+    if (age !== null) {
+      Kept.rereading(["loading"], age);
+      Kept.hold(["card-containers", "undeclared-card"]);
+    }
+    await refresh(false, pending);
     // Declaring one is a commit, which is an administrator's act like every
     // other write in this service.
     element("add").hidden = !Chrome.isAdmin(me);
   }
 
   start().catch((failure) => {
+    Kept.release();
     showBanner(failure.message);
     element("loading").hidden = true;
   });

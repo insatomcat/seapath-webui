@@ -545,3 +545,28 @@ answering over the administration network, and one of them switched off.
 ### Result
 
 Not yet run.
+
+## Moving between the tabs
+
+The numbers in D46 were measured in a headless browser against the fakes, with
+80 ms of added latency standing in for an ssh tunnel. What a real deployment adds
+is a service answering over a real network, machines that take their time, and an
+operator who knows what the pages should say.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Moving between the tabs on a real node shows each page's table straight away after the first visit, with the line saying what it is and how old | The wait this change exists to remove, over the link the operator actually uses | Pending |
+| 2 | The line disappears within a second or two on a healthy cluster, and the table it leaves is the current one | The reading behind the kept answer, against machines that really answer | Pending |
+| 3 | With one node switched off, a page still draws at once from what was kept, and the reading that follows names the machine that did not answer | The timeout is what makes the kept answer worth having, and only a machine that is really off produces it | Pending |
+| 4 | While the line is up, the row controls are dead: starting a guest, migrating a resource, applying a playbook cannot be clicked until the reading lands | The rule the whole design rests on, checked with a pointer rather than by reading the code | Pending |
+| 5 | A guest migrated from another machine shows on the next visit to the VMs page, rather than the position it was in when this browser last looked | What the kept answer must never hide: the reading behind it is what is finally on screen | Pending |
+| 6 | Signing out and back in as another operator shows nothing of what the first was reading | `sessionStorage` is cleared on the way out | Pending |
+| 7 | Two nodes open in two tabs through two ssh tunnels never show each other's tables | One origin, two nodes, which is the case the per node key exists for | Pending |
+| 8 | After applying a new version of this service, the first page of the new release draws correctly, and no panel is drawn from what the previous release kept | The per release key, over a real upgrade in place | Pending |
+| 9 | The Inventory page opens the file for editing as it always did, with no kept copy of the text | An editor drawn from a kept copy is how somebody saves over a change they never saw | Pending |
+
+### Result
+
+Not yet run.

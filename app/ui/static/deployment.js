@@ -62,8 +62,8 @@
   // Reaching the other machines. Two acts, both explicit, both reversible:
   // holding the site key, and accepting the host keys of the machines this
   // node is about to drive.
-  async function loadSiteKey() {
-    const key = await API.get("/trust/site-key");
+  async function loadSiteKey(pending) {
+    const key = await (pending || API.get("/trust/site-key"));
     state.siteKey = key;
     const summary = element("site-key-summary");
     summary.replaceChildren();
@@ -84,8 +84,8 @@
 
   // The collection every run executes. Two states: the one the image ships,
   // and one installed on this node, which wins.
-  async function loadCollection() {
-    const collection = await API.get("/collection");
+  async function loadCollection(pending) {
+    const collection = await (pending || API.get("/collection"));
     state.collection = collection;
     const summary = element("collection-summary-list");
     summary.replaceChildren();
@@ -115,8 +115,8 @@
 
   // This service, next to the collection: the two halves of "which code is
   // this node running", and the two things an update means here.
-  async function loadUpdate() {
-    const update = await API.get("/node/update");
+  async function loadUpdate(pending) {
+    const update = await (pending || API.get("/node/update"));
     state.update = update;
     const summary = element("update-summary");
     summary.replaceChildren();
@@ -326,8 +326,8 @@
   // One list, whose rows change state. Scanning merges what it found into
   // what is already accepted, so an operator checking three fingerprints in
   // one sitting never sees the list replaced under the cursor.
-  async function loadHostKeys() {
-    state.hostKeys = await API.get("/trust/host-keys");
+  async function loadHostKeys(pending) {
+    state.hostKeys = await (pending || API.get("/trust/host-keys"));
     renderHostKeys();
   }
 
@@ -899,10 +899,10 @@
     }
   }
 
-  async function loadPlaybooks() {
+  async function loadPlaybooks(pending) {
     showPlaybooksLoading(true);
     try {
-      state.catalogue = await API.get("/playbooks");
+      state.catalogue = await (pending || API.get("/playbooks"));
     } catch (failure) {
       // The banner carries the message. What matters here is that the cards
       // do not fall back to looking empty, which is what a node with no
@@ -1435,8 +1435,8 @@
     element("confirm").hidden = true;
   });
 
-  async function loadInventoryHosts() {
-    const payload = await API.get("/inventory");
+  async function loadInventoryHosts(pending) {
+    const payload = await (pending || API.get("/inventory"));
     state.inventory = payload.inventory;
     state.thisHost = payload.this_host;
     const lead = element("apply-lead");
@@ -1459,30 +1459,105 @@
   // The groups and the hosts a run may be narrowed to. Read from the file
   // rather than from the typed inventory, so a site whose file carries groups
   // this service never writes can still narrow a run to one of them.
-  async function loadScopes() {
-    state.scopes = await API.get("/playbooks/scopes");
+  async function loadScopes(pending) {
+    state.scopes = await (pending || API.get("/playbooks/scopes"));
+  }
+
+  // Every answer this page needs, asked for at once, and rendered in the order
+  // the panels depend on each other. It used to wait for the inventory before
+  // asking for anything else and for the five before asking for the catalogue,
+  // which is three round trips to a machine an operator reaches through an ssh
+  // tunnel, for answers that depend on nothing.
+  //
+  // The order below is still the order of the renders: the machines the
+  // inventory declares are what the apply panel is measured against and what
+  // its confirmation names, and the catalogue is drawn against the scopes.
+  const KEPT = "deployment";
+
+  // The seven answers this page is made of, in the order the panels depend on
+  // each other. `answers` is a promise per panel, which is how the same code
+  // draws a reading in flight and a reading this browser kept: a kept answer is
+  // handed over already resolved.
+  async function draw(answers) {
+    await loadInventoryHosts(answers.inventory);
+    await Promise.all([
+      loadSiteKey(answers.siteKey),
+      loadHostKeys(answers.hostKeys),
+      loadCollection(answers.collection),
+      loadUpdate(answers.update),
+      loadScopes(answers.scopes),
+    ]);
+    await loadPlaybooks(answers.playbooks);
   }
 
   async function refresh() {
-    // The inventory first: the machines it declares are what the panel at the
-    // bottom is measured against, and what the confirmation names.
-    await loadInventoryHosts();
-    await Promise.all([
-      loadSiteKey(),
-      loadHostKeys(),
-      loadCollection(),
-      loadUpdate(),
-      loadScopes(),
-    ]);
-    await loadPlaybooks();
+    // Every request leaves at once. It used to wait for the inventory before
+    // asking for anything else and for the five before asking for the catalogue,
+    // which is three round trips to a machine an operator reaches through an ssh
+    // tunnel, for answers that depend on nothing.
+    const pending = {
+      inventory: API.started("/inventory"),
+      siteKey: API.started("/trust/site-key"),
+      hostKeys: API.started("/trust/host-keys"),
+      collection: API.started("/collection"),
+      update: API.started("/node/update"),
+      scopes: API.started("/playbooks/scopes"),
+      playbooks: API.started("/playbooks"),
+    };
+    const answers = {};
+    await draw(
+      Object.fromEntries(
+        Object.entries(pending).map(([name, request]) => [
+          name,
+          request.then((payload) => {
+            answers[name] = payload;
+            return payload;
+          }),
+        ])
+      )
+    );
+    Kept.keep(KEPT, answers);
+    Kept.release();
+  }
+
+  // This page as this browser last drew it, painted before anything is asked.
+  // Every control is held until the readings land: what the buttons here launch
+  // is a convergence over live substation hypervisors, and the confirmation
+  // names the machines from the inventory panel above them. See D46.
+  async function paintKept() {
+    const kept = Kept.held(KEPT);
+    if (!kept) {
+      return;
+    }
+    try {
+      await draw(
+        Object.fromEntries(
+          Object.entries(kept.payload).map(([name, payload]) => [
+            name,
+            Promise.resolve(payload),
+          ])
+        )
+      );
+    } catch (failure) {
+      // A payload this release cannot draw. The reading that follows draws the
+      // page properly, and this browser stops keeping what it cannot use.
+      Kept.forget(KEPT);
+      return;
+    }
+    Kept.rereading(["main-loading", "other-loading"], Date.now() - kept.at);
+    // Both cards, and the two panels that open the rest. What is behind those
+    // panels is the trust material and the collection this node runs, and both
+    // of them launch runs of their own.
+    Kept.hold(["main-card", "other-card", "reach-open", "collection-open"]);
   }
 
   async function start() {
     try {
-      const chrome = await Chrome.load();
-      state.me = chrome.me;
+      state.me = Chrome.current();
+      await paintKept();
       await refresh();
     } catch (failure) {
+      Kept.release();
       // Every card on this page is built from an API answer, so one call that
       // fails leaves empty boxes and no explanation, which reads as a service
       // with nothing to run. Say what failed, above them.
