@@ -118,6 +118,14 @@ place, and lets a test replay recorded output.
   mapping from Ansible events to the progress model, including a run that is
   interrupted without a final status.
 
+## Screenshots
+
+The README images under `img/` are shot against a live deployment. When a UI
+change makes one stale, redo it with the recipe in
+[docs/screenshots.md](docs/screenshots.md): the frame every image shares, the
+per-view capture the Real time page needs, and the file numbering. The
+credentials are supplied out of band and never committed.
+
 ## Definition of done for a milestone
 
 1. Endpoints implemented and documented in `docs/api.md`, visible in OpenAPI.
