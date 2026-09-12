@@ -19,6 +19,13 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.88 - 2026-09-12
+
+- feat: a guest asking for a cloud-init seed can be seeded from here
+- feat: a VM is given its network on the page that declares it
+- feat: a guest declared here can be logged into by runs from its first boot
+- feat: guests are declared from one image, and the table says where each is
+
 ## 0.3.87 - 2026-09-12
 
 - fix: the same defect, looked for and found in three more places
