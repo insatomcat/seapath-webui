@@ -25,7 +25,7 @@ from app.inventory.repository import InventoryRepository
 from app.inventory.service import InventoryService
 from app.runs import catalogue, fake
 from app.runs.adapter import RunRequest, build_command, prepare, runner_arguments
-from app.runs.models import RunProgress, RunState
+from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.progress import apply_event, summarise
 from app.runs.scope import RunScope
 from app.runs.service import RunPaths, RunService
@@ -695,8 +695,6 @@ def test_the_lock_is_released_when_a_run_ends(
 
 
 def test_a_restart_closes_out_a_run_that_was_going(store) -> None:
-    from app.runs.models import RunRecord
-
     store.create(
         RunRecord(
             id="20260811T090000",
@@ -1014,3 +1012,56 @@ def test_two_branches_of_the_collection_are_told_apart(tmp_path: Path) -> None:
 
 def test_a_collection_that_is_not_there_has_no_identity(tmp_path: Path) -> None:
     assert catalogue.identity(tmp_path / "nowhere") is None
+
+
+def test_the_history_reads_only_the_runs_it_returns(store: RunStore) -> None:
+    """`limit` bounds the work, rather than only the answer.
+
+    The ids are timestamps and the directory names are the ids, so the newest
+    are known before anything is opened. Reading and parsing every run on the
+    node to hand back the first fifty is megabytes of JSON on a machine with a
+    year of commissioning behind it, and the Real time page asked for it three
+    times over. See D47.
+    """
+    for hour in range(40):
+        store.create(
+            RunRecord(
+                id=f"20260101T{hour:02d}0000.000000",
+                playbook="seapath_setup_main.yaml",
+                playbook_id="seapath_setup_main",
+                launched_by="alice",
+            )
+        )
+
+    opened = []
+    original = store.load
+    store.load = lambda run_id: (opened.append(run_id), original(run_id))[1]  # type: ignore[method-assign]
+
+    newest = store.list(limit=5)
+
+    assert [record.id for record in newest] == [
+        f"20260101T{hour:02d}0000.000000" for hour in (39, 38, 37, 36, 35)
+    ]
+    assert len(opened) == 5
+
+
+def test_a_run_whose_record_cannot_be_read_costs_nobody_a_row(
+    store: RunStore,
+) -> None:
+    """A directory left behind by an interrupted write is skipped, not counted.
+
+    Asking for ten runs and being handed nine because one of them is a
+    half-written file is a history with a hole in it.
+    """
+    for hour in range(6):
+        store.create(
+            RunRecord(
+                id=f"20260101T{hour:02d}0000.000000",
+                playbook="seapath_setup_main.yaml",
+                playbook_id="seapath_setup_main",
+                launched_by="alice",
+            )
+        )
+    (store.directory("20260101T050000.000000") / "run.json").write_text("{oops")
+
+    assert len(store.list(limit=5)) == 5

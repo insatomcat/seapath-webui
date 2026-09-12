@@ -590,6 +590,8 @@ is still going while the page is open.
 | 4 | The log of a commissioning run is still complete on `GET /runs/{id}` and in the download, with every task duration | The list carries less now, and the run's own record must carry everything it did | Pending |
 | 5 | An automation client that lists runs gets what it needs from the summary, or says which field it lost | A surface change, checked against whatever a site actually scripts | Pending |
 | 6 | The tab shows the mark rather than a blank square, and `/favicon.ico` is no longer requested | A browser's own behaviour, and a proxy in front of the service answered that request with eighty kilobytes | Pending |
+| 7 | On a node with a long history, the Runs and Real time pages answer as quickly as on a fresh one | `limit` bounds the reading now, and only a real year of commissioning says whether anything else grows with it | Pending |
+| 8 | The Node page no longer reads itself on its own, and its control and the switch in the bar do read it | It used to poll every five seconds, which is what an operator on a slow link notices first | Pending |
 
 ### Result
 

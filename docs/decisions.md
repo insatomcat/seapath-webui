@@ -3180,6 +3180,34 @@ the third reading. The run the page opens on arrival is asked for beside the
 list rather than after it, and the list itself is painted from what this browser
 last read, under D46's rules.
 
+### The same defect, looked for everywhere else
+
+The question this raised is the one worth asking after any finding: where else.
+Driving a browser over every page of the UI and counting what each one asks the
+node for turned up three more, all of the same family, and nothing else.
+
+**The history was read whole to answer for a few.** `RunStore.list` opened and
+parsed every run directory on the node, sorted them, and returned the first
+`limit`. The ids are timestamps and the directory names are the ids, so the
+newest are known before anything is opened: `limit` now bounds the work. On four
+hundred runs, `list(limit=50)` goes from 36 ms to 6 ms, and the Real time page
+asks for two hundred records three times over to find its measurements.
+
+**The Real time page downloaded the whole catalogue for three entries.** It
+draws one launch panel per measurement, and forty entries with their variables is
+thirty three kilobytes, plus a scoping plan computed per entry for the ones it
+ignores. `GET /playbooks?id=...` narrows it, and that page asks for the three it
+draws: 33 KB becomes 4.5 KB and 13 ms becomes 5 ms. The Deployment page still
+asks for all of it, because it lists all of it.
+
+**The Node page polled itself every five seconds.** Four requests to the node,
+forever, whether anybody was looking or not, over a link an operator reaches it
+through. [D37](#d37) settled that an automatic reading is the switch in the top
+bar and a control on the panel, and the reasoning applies here exactly: a page
+that refetches by itself spends a substation hypervisor's cycles on nobody's
+behalf. That page predates the decision; it now carries the control and obeys the
+switch like every other.
+
 ### The tab carries a mark
 
 A browser asks for `/favicon.ico` on every page of an origin that has none. An

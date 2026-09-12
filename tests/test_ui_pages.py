@@ -1603,6 +1603,24 @@ def test_a_panel_showing_a_kept_answer_says_so_and_cannot_be_acted_on(
     assert 'control.classList.contains("reread")' in kept
 
 
+def test_the_node_page_reads_again_when_an_operator_asks(
+    signed_in: TestClient,
+) -> None:
+    """It polled itself every five seconds, whatever anybody was doing.
+
+    Four requests to the node, forever, on nobody's behalf, over a link an
+    operator reaches it through. D37 settled that an automatic reading is the
+    switch in the bar and a control on the panel; this page predates it.
+    """
+    body = signed_in.get("/").text
+    page = signed_in.get("/static/node.js").text
+
+    assert 'aria-label="Read this machine again"' in body
+    assert "Reread.attach(" in page
+    assert "setInterval" not in page
+    assert "REFRESH_MS" not in page
+
+
 def test_the_node_page_says_the_age_of_what_it_shows_and_holds_nothing(
     signed_in: TestClient,
 ) -> None:

@@ -908,10 +908,19 @@
 
   // Measurement
 
+  // The three entries whose launch panels this page draws, and no more. The
+  // whole catalogue is forty entries with their variables, thirty three
+  // kilobytes over an ssh tunnel, for three the page reads.
+  const CATALOGUE =
+    "/playbooks?" +
+    Object.values(MEASUREMENTS)
+      .map((spec) => "id=" + encodeURIComponent(spec.playbook))
+      .join("&");
+
   async function loadCatalogue(pending) {
     let playbooks = [];
     try {
-      playbooks = await (pending || API.get("/playbooks"));
+      playbooks = await (pending || API.get(CATALOGUE));
     } finally {
       // Even when the catalogue could not be read. A launch panel that stays
       // blank says nothing, and the operator is left looking for a button that
@@ -1843,7 +1852,7 @@
       scopes: API.started("/playbooks/scopes"),
       checks: API.started("/realtime"),
       pool: API.started("/realtime/pool"),
-      catalogue: API.started("/playbooks"),
+      catalogue: API.started(CATALOGUE),
       measurements: Object.fromEntries(
         Object.keys(MEASUREMENTS).map((kind) => [
           kind,

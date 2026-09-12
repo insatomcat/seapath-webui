@@ -488,3 +488,39 @@ def test_an_unreadable_os_release_blocks_no_prerequisites(
 
     for distro in ("debian", "centos", "oraclelinux", "sles", "yocto"):
         assert catalogue[f"seapath_setup_prerequisites{distro}"]["available"] is True
+
+
+def test_the_catalogue_can_be_narrowed_to_the_entries_a_page_draws(
+    signed_in: TestClient,
+) -> None:
+    """Forty entries with their variables, for the three a page reads.
+
+    The Real time page draws one launch panel per measurement and was handed the
+    whole catalogue, which is thirty three kilobytes over an ssh tunnel and a
+    scoping plan computed per entry for the ones it ignores. See D47.
+    """
+    whole = signed_in.get("/api/v1/playbooks").json()
+    named = [item["entry"]["id"] for item in whole][:2]
+
+    narrowed = signed_in.get("/api/v1/playbooks", params={"id": named}).json()
+
+    assert [item["entry"]["id"] for item in narrowed] == named
+    assert len(whole) > len(narrowed)
+    # The answer is the same answer, availability and reasons included.
+    assert narrowed[0] == next(
+        item for item in whole if item["entry"]["id"] == named[0]
+    )
+
+
+def test_an_entry_this_collection_does_not_hold_narrows_to_nothing(
+    signed_in: TestClient,
+) -> None:
+    """A name nobody knows is an empty list rather than a refusal.
+
+    The catalogue and the collection are released separately, so a page asking
+    for an entry by name is asking a question whose answer may legitimately be
+    "there is no such entry here".
+    """
+    assert (
+        signed_in.get("/api/v1/playbooks", params={"id": "no_such_entry"}).json() == []
+    )

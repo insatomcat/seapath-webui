@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
@@ -65,9 +65,22 @@ class LaunchResponse(BaseModel):
 
 
 @router.get("/playbooks")
-def playbooks(request: Request, user: User = viewer) -> list[PlaybookAvailability]:
+def playbooks(
+    request: Request,
+    id: Annotated[
+        list[str] | None,
+        Query(
+            description=(
+                "Narrow the answer to the entries named, repeated once per "
+                "entry. A page that draws one launch panel asks for one entry "
+                "rather than the whole catalogue."
+            ),
+        ),
+    ] = None,
+    user: User = viewer,
+) -> list[PlaybookAvailability]:
     """The catalogue, with why each entry is or is not offered right now."""
-    return _service(request).playbooks()
+    return _service(request).playbooks(set(id) if id else None)
 
 
 @router.get("/playbooks/scopes")

@@ -11,6 +11,8 @@ SPDX-License-Identifier: Apache-2.0
 {{ styles("vendor/xterm.css") }}
 {% endblock %}
 
+{% from "_controls.html" import reread %}
+
 {% block body %}
 <main class="page node">
   <p class="banner" id="banner" hidden></p>
@@ -21,7 +23,16 @@ SPDX-License-Identifier: Apache-2.0
   <p class="loading" id="reading" hidden></p>
 
   <section class="card" id="card-summary">
-    <h2>Machine</h2>
+    {# One control for the whole page: the four cards are one reading of this
+       machine in four requests, and an operator who wants a fresh uptime wants a
+       fresh CPU map with it. It used to read itself every five seconds whatever
+       anybody was doing, which is four requests to the node forever, on nobody's
+       behalf, and on a browser reaching it through an ssh tunnel. The switch in
+       the bar governs it now, like every other page. See D37. #}
+    <div class="card-head">
+      <h2>Machine</h2>
+      {{ reread("reread", "this machine") }}
+    </div>
     <dl id="summary"></dl>
     <div class="card-actions">
       <button id="console-open" type="button" hidden>Open a console</button>

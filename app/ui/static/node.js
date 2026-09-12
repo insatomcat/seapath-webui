@@ -8,7 +8,6 @@
 // it is *doing* is in Grafana, off the node exporter every node runs.
 
 (function () {
-  const REFRESH_MS = 5000;
   // The warnings of the poll in progress, and only of that one. This used to
   // be a set that lived as long as the page, so a mount that was repaired an
   // hour and three service restarts ago went on being reported until somebody
@@ -277,6 +276,18 @@
     }
   }
 
+  // Read again from the control in the card head, and on the timer behind the
+  // switch in the bar when an operator asks for one. This page used to poll
+  // itself every five seconds whatever anybody was doing: four requests to the
+  // node, forever, on nobody's behalf, which is the thing D37 exists to stop.
+  Reread.attach(
+    document.getElementById("reread"),
+    refresh,
+    (failure) => {
+      warnings.add(failure.message);
+      collectWarnings({});
+    }
+  );
+
   refresh();
-  window.setInterval(refresh, REFRESH_MS);
 })();
