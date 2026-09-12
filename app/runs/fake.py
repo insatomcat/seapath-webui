@@ -80,6 +80,7 @@ def stats(
     changed: int = 1,
     failures: int = 0,
     ignored_count: int = 0,
+    dark: int = 0,
 ) -> dict:
     # A recap mapping carries only the hosts with a non-zero count, which is
     # the shape that makes the recap the authority: a host missing from
@@ -90,7 +91,7 @@ def stats(
             "ok": {host: ok_count},
             "changed": {host: changed},
             "failures": {host: failures} if failures else {},
-            "dark": {},
+            "dark": {host: dark} if dark else {},
             "skipped": {},
             "rescued": {},
             "ignored": {host: ignored_count} if ignored_count else {},
@@ -116,6 +117,20 @@ def failed_run(host: str = "seapath-machine") -> list[dict]:
         task_start("Apply the network configuration"),
         failed(host, "Apply the network configuration", "eno1 does not exist"),
         stats(host, ok_count=0, changed=0, failures=1),
+    ]
+
+
+def unreachable_run(host: str = "seapath-machine") -> list[dict]:
+    """A run that opened no connection at all.
+
+    Nothing failed and nothing ran: the recap counts the host as dark, which is
+    a different event from a task that failed and has a different answer.
+    """
+    return [
+        play_start(),
+        task_start("Create temporary test directory"),
+        unreachable(host, "Create temporary test directory"),
+        stats(host, ok_count=0, changed=0, dark=1),
     ]
 
 

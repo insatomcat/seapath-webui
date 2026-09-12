@@ -861,11 +861,65 @@ class RunService:
                 "on it."
             )
         if record.state is RunState.FAILED:
+            return self._why_it_stopped(record)
+        return None
+
+    def _why_it_stopped(self, record: RunRecord) -> str:
+        """What ended the run, from the per host counters Ansible recapped.
+
+        A host that could not be reached and a task that failed are two
+        different events with two different answers, and saying "a host failed
+        and any_errors_fatal stopped everything" over an unreachable host sends
+        an operator reading a role for a fault that is in the SSH path. The
+        recap already separates them, so this reads it rather than assuming.
+        """
+        hosts = record.progress.hosts
+        unreachable = sorted(name for name, state in hosts.items() if state.unreachable)
+        failed = sorted(name for name, state in hosts.items() if state.failed)
+        if not unreachable:
             return (
                 "A host failed and any_errors_fatal stopped everything. The "
                 "per host results below name which ones were reached."
             )
-        return None
+        names = ", ".join(unreachable)
+        opening = (
+            f"{names} could not be reached, so nothing ran there and nothing "
+            "was changed on it. "
+        )
+        if failed:
+            opening = (
+                f"{', '.join(failed)} failed a task and {names} could not be "
+                "reached at all. "
+            )
+        return opening + self._connection_advice(unreachable)
+
+    def _connection_advice(self, unreachable: list[str]) -> str:
+        """Where to look for a connection that never opened.
+
+        A guest is worth its own sentence. The machines carry the trust this
+        service provisions and their reachability is a precondition it checks
+        before the run; a guest is reached over SSH like any other host and
+        this service installs nothing in it, so an operator who has never had
+        to think about that is exactly the one measuring the latency inside one
+        for the first time.
+        """
+        state = self._inventory.state()
+        declared = state.inventory.guests if state.inventory else {}
+        guests = [name for name in unreachable if name in declared]
+        if guests and len(guests) == len(unreachable):
+            return (
+                "A guest is reached over SSH like any other host, and this "
+                "service installs nothing inside one: its inventory entry "
+                "needs an ansible_host this node can route to, and an account "
+                "this node holds a key for, with sudo. The log below carries "
+                "what SSH answered."
+            )
+        return (
+            "Unreachable is the connection failing rather than a task: the "
+            "address in the inventory, the host key, the key of the ansible "
+            "account, or a machine that is down. The log below carries what "
+            "SSH answered."
+        )
 
     def _first_error(self, run_id: str) -> str:
         """The line in the log that names the cause, colours stripped."""

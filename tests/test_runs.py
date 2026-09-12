@@ -27,6 +27,7 @@ from app.runs import catalogue, fake
 from app.runs.adapter import RunRequest, build_command, prepare, runner_arguments
 from app.runs.models import RunProgress, RunState
 from app.runs.progress import apply_event, summarise
+from app.runs.scope import RunScope
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunLocked, RunStore
 from app.trust.service import TrustService
@@ -496,6 +497,65 @@ def test_a_failing_host_fails_the_run(store, inventory, trust, tmp_path) -> None
 
     assert record.state is RunState.FAILED
     assert "any_errors_fatal" in record.message
+
+
+def test_a_host_nothing_could_reach_is_not_reported_as_a_task_failure(
+    store, inventory, trust, tmp_path
+) -> None:
+    # Unreachable is the connection failing, and it has a different answer from
+    # a role that refused: saying "a host failed and any_errors_fatal stopped
+    # everything" over it sends an operator reading a playbook for a fault that
+    # is in the SSH path.
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(events=fake.unreachable_run(), return_code=4),
+        tmp_path,
+    )
+
+    record = wait_for(service, service.launch("seapath_setup_main", "alice").id)
+
+    assert record.state is RunState.FAILED
+    assert "seapath-machine could not be reached" in record.message
+    assert "nothing was changed" in record.message
+    assert "any_errors_fatal" not in record.message
+
+
+def test_a_guest_nothing_could_reach_is_told_what_a_guest_needs(
+    store, inventory, trust, tmp_path
+) -> None:
+    # The run that reaches into a guest is the latency measurement, and a guest
+    # is reached over SSH like any other host while this service installs
+    # nothing inside one. The operator measuring a guest for the first time is
+    # the one who has never had to think about that.
+    inventory.declare_guest("rtvm", {"ansible_host": "192.168.200.140"}, author="alice")
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(events=fake.unreachable_run("rtvm"), return_code=4),
+        tmp_path,
+    )
+
+    record = wait_for(
+        service,
+        service.launch(
+            "test_run_cyclictest_vms",
+            "alice",
+            variables={
+                "cyclictest_duration": 20,
+                "cyclictest_priority": 90,
+                "cyclictest_affinity": "smp",
+            },
+            scope=RunScope(hosts=["rtvm"]),
+        ).id,
+    )
+
+    assert record.state is RunState.FAILED
+    assert "rtvm could not be reached" in record.message
+    assert "ansible_host" in record.message
+    assert "sudo" in record.message
 
 
 def test_a_run_without_a_final_status_is_interrupted_not_failed(
