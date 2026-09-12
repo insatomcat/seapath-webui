@@ -14,6 +14,11 @@ SPDX-License-Identifier: Apache-2.0
 {% block body %}
 <main class="page node">
   <p class="banner" id="banner" hidden></p>
+  {# Where the page says it is showing what this browser last read, and how old
+     that is, until the reading lands. The cards here are filled from four
+     readings of this machine and carry no spinner of their own, because they are
+     read from files this container already sees and used to arrive at once. #}
+  <p class="loading" id="reading" hidden></p>
 
   <section class="card" id="card-summary">
     <h2>Machine</h2>

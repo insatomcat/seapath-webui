@@ -94,8 +94,8 @@
     banner.hidden = false;
   }
 
-  async function loadSummary() {
-    const node = await API.get("/node");
+  async function loadSummary(pending) {
+    const node = await (pending || API.get("/node"));
     collectWarnings(node);
     // The bar arrived with the document, and this page is where a rename or a
     // cluster join is watched landing: the reading it takes on its own timer is
@@ -113,8 +113,8 @@
     ]);
   }
 
-  async function loadCpu() {
-    const cpu = await API.get("/node/cpu");
+  async function loadCpu(pending) {
+    const cpu = await (pending || API.get("/node/cpu"));
     collectWarnings(cpu);
     fillList(document.getElementById("cpu-summary"), [
       ["Model", text(cpu.model)],
@@ -150,8 +150,8 @@
     });
   }
 
-  async function loadNetwork() {
-    const network = await API.get("/node/network");
+  async function loadNetwork(pending) {
+    const network = await (pending || API.get("/node/network"));
     collectWarnings(network);
     const body = document.querySelector("#network-table tbody");
     body.replaceChildren();
@@ -179,8 +179,8 @@
     });
   }
 
-  async function loadDisks() {
-    const disks = await API.get("/node/disks");
+  async function loadDisks(pending) {
+    const disks = await (pending || API.get("/node/disks"));
     collectWarnings(disks);
     const body = document.querySelector("#disks-table tbody");
     body.replaceChildren();
@@ -201,13 +201,46 @@
     });
   }
 
+  const KEPT = "node";
+
+  // The four readings this page is made of. `answers` is a promise per card,
+  // which is how the same code draws a reading in flight and one this browser
+  // kept: a kept answer is handed over already resolved.
+  async function draw(answers) {
+    await Promise.all([
+      loadSummary(answers.node),
+      loadCpu(answers.cpu),
+      loadNetwork(answers.network),
+      loadDisks(answers.disks),
+    ]);
+  }
+
   async function refresh() {
     // Before the requests, not after: the readings come back one by one and
     // each renders the banner as it lands, so the cycle they belong to has to
     // be open when the first one arrives.
     warnings = new Set();
+    const pending = {
+      node: API.started("/node"),
+      cpu: API.started("/node/cpu"),
+      network: API.started("/node/network"),
+      disks: API.started("/node/disks"),
+    };
     try {
-      await Promise.all([loadSummary(), loadCpu(), loadNetwork(), loadDisks()]);
+      const answers = {};
+      await draw(
+        Object.fromEntries(
+          Object.entries(pending).map(([name, request]) => [
+            name,
+            request.then((payload) => {
+              answers[name] = payload;
+              return payload;
+            }),
+          ])
+        )
+      );
+      document.getElementById("reading").hidden = true;
+      Kept.keep(KEPT, answers);
       // After the readings, with the role the document arrived carrying: what
       // the console button offers depends on who is looking at it.
       await Console.describe(Chrome.current());
@@ -216,8 +249,31 @@
         window.location.assign("login");
         return;
       }
+      document.getElementById("reading").hidden = true;
       warnings.add(failure.message);
       collectWarnings({});
+    }
+  }
+
+  // This machine as this browser last read it, drawn before anything is asked.
+  // Nothing is held: the one control on this page opens a shell on this node,
+  // which is not an act aimed at any row of a reading. What is on screen says
+  // its age until the reading lands, and the reading is five seconds away at
+  // most, because this page reads itself on a timer.
+  const kept = Kept.held(KEPT);
+  if (kept) {
+    try {
+      draw(
+        Object.fromEntries(
+          Object.entries(kept.payload).map(([name, payload]) => [
+            name,
+            Promise.resolve(payload),
+          ])
+        )
+      );
+      Kept.rereading(["reading"], Date.now() - kept.at);
+    } catch (failure) {
+      Kept.forget(KEPT);
     }
   }
 

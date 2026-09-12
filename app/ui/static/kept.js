@@ -142,6 +142,8 @@ const Kept = (function () {
   // itself while their own request is in flight.
   let holding = [];
 
+  const CONTROLS = "button, input, select, textarea, a.button-link";
+
   function hold(targets) {
     targets.forEach((target) => {
       const panel =
@@ -149,14 +151,22 @@ const Kept = (function () {
       if (!panel) {
         return;
       }
-      panel.querySelectorAll("button, input, select, textarea, a.button-link")
-        .forEach((control) => {
-          if (control.classList.contains("reread") || control.disabled) {
-            return;
-          }
-          control.disabled = true;
-          holding.push(control);
-        });
+      // The panel's own controls, and the panel itself when it is one: a page
+      // whose acts are single buttons rather than rows names the buttons, and
+      // one that draws rows names the card around them. Asking for the
+      // descendants of a button finds nothing, which is how the writes on the
+      // Inventory page were left live by the first version of this.
+      const controls = [...panel.querySelectorAll(CONTROLS)];
+      if (panel.matches(CONTROLS)) {
+        controls.push(panel);
+      }
+      controls.forEach((control) => {
+        if (control.classList.contains("reread") || control.disabled) {
+          return;
+        }
+        control.disabled = true;
+        holding.push(control);
+      });
     });
   }
 

@@ -8,6 +8,10 @@ SPDX-License-Identifier: Apache-2.0
 {% block body %}
 <main class="page split">
   <p class="banner" id="banner" hidden></p>
+  {# Where the page says it is showing the folder this browser last read, and how
+     old that is, until the reading lands. The editor below is never drawn from a
+     kept copy: it holds text an operator is about to commit. #}
+  <p class="loading" id="reading" hidden></p>
 
   <section class="card" id="folder-card">
     <h2>The folder</h2>

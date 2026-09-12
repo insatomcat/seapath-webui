@@ -3019,17 +3019,20 @@ what a tunnel to a substation costs, coming back to a page already visited:
 
 | | before | after |
 |---|---|---|
-| Cluster | 188 ms | 109 ms |
-| VMs | 186 ms | 105 ms |
+| Node | 305 ms | 107 ms |
+| Cluster | 188 ms | 105 ms |
+| VMs | 186 ms | 104 ms |
 | Containers | 181 ms | 106 ms |
-| Real time | 460 ms | 107 ms |
-| Deployment | 378 ms | 175 ms |
-| Inventory | 353 ms | 190 ms |
+| Real time | 460 ms | 106 ms |
+| Deployment | 378 ms | 177 ms |
+| Inventory | 353 ms | 108 ms |
 
 The service answers those in four to seven milliseconds, so what is left is the
-network. A first load still pays it: the numbers above are the second visit, and
-the first is 270 to 400 ms because nothing has been read yet. That is the price
-of arriving somewhere, and it is worth paying once.
+network: 105 ms is the one round trip that fetches the document, and it is the
+floor until a navigation stops fetching one. A first load still pays the rest of
+it: the numbers above are the second visit, and the first is 270 to 540 ms
+because nothing has been read yet. That is the price of arriving somewhere, and
+it is worth paying once.
 
 ### The three changes
 
@@ -3084,9 +3087,29 @@ node, because two nodes reached through two ssh tunnels are one origin to the
 browser, and per release, because a payload kept by one version and drawn by
 another is a render dying on a field that moved.
 
-The editor on the Inventory page is left out of all of this. It holds text an
-operator is about to commit, and drawing a kept copy of it is how somebody saves
-over a change they never saw. The file is fetched, as it always was.
+Two things are left out. The editor on the Inventory page holds text an operator
+is about to commit, and drawing a kept copy of it is how somebody saves over a
+change they never saw: the file is fetched, as it always was, and the request for
+it now leaves with the folder's rather than a round trip behind it. The replicas
+panel of that page is left out too, because a kept answer there would claim the
+other machines hold a commit nobody has asked them about.
+
+The Node page holds nothing, because it carries no act aimed at what it reads:
+its one control opens a shell on this machine. It says the age of what is on
+screen like every other page, and its own timer replaces it within five seconds.
+
+### What the browser found that the tests could not
+
+Two defects in this, both found by driving a headless Chrome over the DevTools
+protocol with 80 and 400 ms of added latency, and both invisible to a test that
+reads the scripts as text.
+
+The asset stamp is the first, below. The second: `Kept.hold` took the id of a
+panel and disabled the controls inside it, which is right for a card full of
+rows and wrong for a page whose acts are single buttons. On the Inventory page it
+found nothing inside `add-file`, `new-file` and `commit`, and left every write
+live under a kept answer. It now holds the element itself when the element is a
+control, and the test names that.
 
 ### The stamp now carries the build
 

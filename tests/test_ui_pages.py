@@ -1536,11 +1536,13 @@ def test_a_panel_that_ages_can_be_read_again_where_it_is(
 @pytest.mark.parametrize(
     ("path", "script"),
     [
+        ("/", "node.js"),
         ("/cluster", "cluster.js"),
         ("/vms", "vms.js"),
         ("/containers", "containers.js"),
         ("/realtime", "realtime.js"),
         ("/deployment", "deployment.js"),
+        ("/inventory", "inventory.js"),
     ],
 )
 def test_a_page_paints_what_this_browser_last_read_before_it_asks(
@@ -1573,6 +1575,7 @@ def test_a_page_paints_what_this_browser_last_read_before_it_asks(
         ("/containers", "containers.js"),
         ("/realtime", "realtime.js"),
         ("/deployment", "deployment.js"),
+        ("/inventory", "inventory.js"),
     ],
 )
 def test_a_panel_showing_a_kept_answer_says_so_and_cannot_be_acted_on(
@@ -1598,6 +1601,52 @@ def test_a_panel_showing_a_kept_answer_says_so_and_cannot_be_acted_on(
     # The reread control is the one thing left alive: asking for the reading is
     # what an operator may do to a panel in this state.
     assert 'control.classList.contains("reread")' in kept
+
+
+def test_the_node_page_says_the_age_of_what_it_shows_and_holds_nothing(
+    signed_in: TestClient,
+) -> None:
+    """Four readings of this machine, and no act aimed at any of them.
+
+    The one control on that page opens a shell on this node, which does not
+    depend on a row of a reading, so there is nothing to hold. The line that says
+    what is on screen and how old it is still has to be there.
+    """
+    body = signed_in.get("/").text
+    page = signed_in.get("/static/node.js").text
+
+    assert '<p class="loading" id="reading" hidden></p>' in body
+    assert 'Kept.rereading(["reading"]' in page
+    assert "Kept.hold(" not in page
+
+
+def test_the_inventory_editor_is_never_drawn_from_a_kept_copy(
+    signed_in: TestClient,
+) -> None:
+    """The one place where stale would mean lost work.
+
+    The tree, the references and the history are drawn from what this browser
+    last read. The text in the editor is fetched, every time, because an operator
+    is about to commit it and a kept copy is how somebody saves over a change
+    they never saw. The commit the page saves against comes from the reading, so
+    a save made while the kept folder is on screen is refused by the service
+    rather than allowed through, and the writes are held until then anyway.
+    """
+    page = signed_in.get("/static/inventory.js").text
+
+    kept = page.split("function paintKept()")[1].split("async function")[0]
+    assert "folder" in kept
+    assert "history" in kept
+    assert "inventory/raw" not in kept
+    assert 'Kept.hold(["add-file", "new-file", "save", "commit"])' in page
+    # The controls named there are the buttons themselves rather than a card
+    # around rows, and asking for the descendants of a button finds nothing: the
+    # first version of this left every write on that page live.
+    kept_js = signed_in.get("/static/kept.js").text
+    assert "panel.matches(CONTROLS)" in kept_js
+    # The replicas panel too: it is the answer of the other machines, and a kept
+    # one would claim they hold a commit nobody asked them about.
+    assert "replicas" not in kept
 
 
 def test_what_a_browser_kept_is_scoped_to_this_node_and_this_release(
@@ -1649,8 +1698,14 @@ def test_a_page_asks_for_everything_it_needs_at_once(
     # each of them, and it stood in front of the folder and the editor.
     inventory = signed_in.get("/static/inventory.js").text
     order = inventory.split("async function refresh()")[1].split("async function")[0]
-    assert order.index("loadReplicas(pending.replicas)") < order.index("render()")
-    assert "await loadReplicas" not in order
+    assert order.index("loadReplicas(pending.replicas)") < order.index("await draw(")
+    assert "await loadReplicas" not in inventory
+    # And the file it opens by itself is fetched beside the folder rather than
+    # after it, which was a second round trip before the editor held anything.
+    opening = inventory.split("async function start()")[1]
+    assert opening.index('fetch("api/v1/inventory/raw"') < opening.index(
+        "await refresh()"
+    )
 
 
 def test_the_top_bar_costs_a_page_nothing_before_its_own_reading(

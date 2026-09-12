@@ -342,7 +342,11 @@
 
   // The editor
 
-  async function open(entry) {
+  // `pending` is the text, already being fetched. The inventory file is the one
+  // this page opens by itself on every visit, and its URL is fixed, so the
+  // request leaves with the folder's rather than waiting for it to land: that was
+  // a second round trip to the node before the editor had anything in it.
+  async function open(entry, pending) {
     const store = entry.store === "missing" ? "files" : entry.store;
     const key = keyOf(store, entry.path);
     showError("editor-error", "");
@@ -353,9 +357,10 @@
     if (!state.buffers.has(key)) {
       let text = "";
       if (entry.store === "inventory") {
-        text = await fetch("api/v1/inventory/raw", {
-          credentials: "same-origin",
-        }).then((response) => response.text());
+        text = await (pending ||
+          fetch("api/v1/inventory/raw", {
+            credentials: "same-origin",
+          }).then((response) => response.text()));
       } else if (entry.store !== "missing" && entry.editable) {
         text = await fetch("api/v1" + route(store, entry.path), {
           credentials: "same-origin",
@@ -1322,6 +1327,17 @@
     }
   });
 
+  const KEPT = "inventory";
+
+  // The folder and the history, in the order the page draws them. `answers` is a
+  // promise per reading, which is how the same code draws a reading in flight and
+  // one this browser kept: a kept answer is handed over already resolved.
+  async function draw(answers) {
+    await loadFolder(answers.folder);
+    await loadHistory(answers.history);
+    render();
+  }
+
   // Everything this page needs, asked for at once, with one of them deliberately
   // left out of the wait.
   //
@@ -1341,12 +1357,54 @@
       replicas: API.started("/inventory/replicas"),
     };
     const replicas = loadReplicas(pending.replicas);
-    await loadFolder(pending.folder);
-    await loadHistory(pending.history);
-    render();
+    const answers = { folder: [] };
+    await draw({
+      folder: pending.folder.map((request, at) =>
+        request.then((payload) => {
+          answers.folder[at] = payload;
+          return payload;
+        })
+      ),
+      history: pending.history.then((payload) => {
+        answers.history = payload;
+        return payload;
+      }),
+    });
+    element("reading").hidden = true;
+    // The folder and the history, which is what the tree, the references and the
+    // history line are drawn from. The replicas panel is left out: it is the
+    // answer of the other machines, and a kept one would claim they hold a commit
+    // nobody asked them about. The editor is left out for a stronger reason: it
+    // holds text an operator is about to commit.
+    Kept.keep(KEPT, answers);
+    Kept.release();
     // Awaited after the page is drawn, so a peer that never answers costs the
     // panel its line and nothing else.
     replicas.then(() => {}, () => {});
+  }
+
+  // The folder as this browser last read it, drawn before anything is asked.
+  // What writes is held until the reading lands: the commit this page saves
+  // against is the one the reading carries, and a save made against the kept one
+  // is refused by the service rather than allowed to overwrite a change nobody
+  // saw. Opening a file is left alive, because that is a read and the text of it
+  // is always fetched.
+  async function paintKept() {
+    const kept = Kept.held(KEPT);
+    if (!kept || !kept.payload.folder) {
+      return;
+    }
+    try {
+      await draw({
+        folder: kept.payload.folder.map((payload) => Promise.resolve(payload)),
+        history: Promise.resolve(kept.payload.history),
+      });
+    } catch (failure) {
+      Kept.forget(KEPT);
+      return;
+    }
+    Kept.rereading(["reading"], Date.now() - kept.at);
+    Kept.hold(["add-file", "new-file", "save", "commit"]);
   }
 
   async function start() {
@@ -1356,6 +1414,12 @@
         element(id).disabled = true;
       });
     }
+    // The file this page opens by itself, asked for now so the editor is not a
+    // round trip behind the folder.
+    const text = fetch("api/v1/inventory/raw", { credentials: "same-origin" })
+      .then((response) => response.text())
+      .catch(() => null);
+    await paintKept();
     await refresh();
     // Alongside the folder rather than before it: the vocabulary is what the
     // completion needs, and nothing on the page waits for it.
@@ -1364,7 +1428,8 @@
     // visit, and it is the one file on this page that is always there.
     const inventory = state.entries.find((entry) => entry.store === "inventory");
     if (inventory) {
-      await open(inventory);
+      const fetched = await text;
+      await open(inventory, fetched === null ? undefined : Promise.resolve(fetched));
     }
   }
 

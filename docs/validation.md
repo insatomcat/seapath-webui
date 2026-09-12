@@ -566,6 +566,8 @@ operator who knows what the pages should say.
 | 7 | Two nodes open in two tabs through two ssh tunnels never show each other's tables | One origin, two nodes, which is the case the per node key exists for | Pending |
 | 8 | After applying a new version of this service, the first page of the new release draws correctly, and no panel is drawn from what the previous release kept | The per release key, over a real upgrade in place | Pending |
 | 9 | The Inventory page opens the file for editing as it always did, with no kept copy of the text | An editor drawn from a kept copy is how somebody saves over a change they never saw | Pending |
+| 10 | While the Inventory page shows a kept folder, Add files, New file and Commit cannot be clicked, and the tree can still be browsed | The rule and its exception on the one page whose acts are buttons rather than rows | Pending |
+| 11 | The Node page says the age of what it shows and replaces it within five seconds, and the console still opens while the line is up | Its one control is a shell on this machine, which depends on no reading | Pending |
 
 ### Result
 
