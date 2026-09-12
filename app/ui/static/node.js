@@ -95,9 +95,12 @@
   }
 
   async function loadSummary() {
-    // The top bar is Chrome's, so this only fills the card.
     const node = await API.get("/node");
     collectWarnings(node);
+    // The bar arrived with the document, and this page is where a rename or a
+    // cluster join is watched landing: the reading it takes on its own timer is
+    // what keeps the two strings up there true, at no cost.
+    Chrome.saw(node);
 
     fillList(document.getElementById("summary"), [
       ["Hostname", text(node.hostname)],
@@ -204,16 +207,10 @@
     // be open when the first one arrives.
     warnings = new Set();
     try {
-      const [chrome] = await Promise.all([
-        Chrome.load(),
-        loadSummary(),
-        loadCpu(),
-        loadNetwork(),
-        loadDisks(),
-      ]);
-      // After the readings, and with the role the top bar just resolved: what
+      await Promise.all([loadSummary(), loadCpu(), loadNetwork(), loadDisks()]);
+      // After the readings, with the role the document arrived carrying: what
       // the console button offers depends on who is looking at it.
-      await Console.describe(chrome.me);
+      await Console.describe(Chrome.current());
     } catch (failure) {
       if (failure.status === 401) {
         window.location.assign("login");

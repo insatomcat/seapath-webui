@@ -87,6 +87,20 @@ const API = (function () {
       // The envelope's detail carries the failing rules, which is the whole
       // value of a refusal: what to fix, rather than that something is wrong.
       failure.detail = detail.detail || {};
+      // A session that ended under the page. Every signed in page is served
+      // behind the session, so this can only happen after the document
+      // arrived: the session expired while the page was open, or somebody
+      // signed out in another tab. The way back is the sign in page, and a
+      // banner instead leaves an operator reading a refusal they can do
+      // nothing about. It used to be the top bar's reading that noticed, which
+      // is one request this no longer makes.
+      //
+      // The sign in page is the one place this must not fire, since a wrong
+      // password is a 401 too. Its own bar says which page this is: it has
+      // none, and so no way out to send anybody to.
+      if (response.status === 401 && document.getElementById("logout")) {
+        window.location.assign("login");
+      }
       throw failure;
     }
     return payload;

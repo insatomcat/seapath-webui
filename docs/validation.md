@@ -499,3 +499,25 @@ that lasts minutes rather than milliseconds. See [D43](decisions.md#d43).
 ### Result
 
 Not yet run.
+
+## A navigation inside a release
+
+Every assertion here is about what a browser does with a header, a cached file
+and a first paint, and the suite can only check what the service sends. See
+[D44](decisions.md#d44).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | With the network panel open, clicking through the eight tabs after the first page shows one request per navigation, the document, and none for the stylesheet or any script | Only a browser decides to honour `immutable`, and only it shows what a navigation really asked for | Pending |
+| 2 | Neither switch in the bar moves when tabs are changed, with the automatic reading on and the palette set against what the system says | The flicker is a paint, and a paint is the one thing a test client has none of | Pending |
+| 3 | The name, the mode and the identity are on screen in the first paint of every page, with no placeholder passing through | Same reason: what the operator sees before the scripts run | Pending |
+| 4 | A forced reload, Ctrl+Shift+R, still fetches the current release's stylesheet and scripts | A cache override is a browser gesture | Pending |
+| 5 | After pinning and applying a new version of this service, the first page of the new release loads the new assets, and no page is half from one version and half from the other | The case the stamp exists for, over a real upgrade in place, and the one that cost an afternoon once | Pending |
+| 6 | A rename or a cluster join applied from this node shows in the bar of the Node page without a navigation | A run that really changes the machine's identity | Pending |
+| 7 | A session left to expire with a page open sends the next reading to the sign in page rather than a banner | A session TTL passing in a real browser, with the cookie it was given | Pending |
+
+### Result
+
+Not yet run.

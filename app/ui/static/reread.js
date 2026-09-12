@@ -234,15 +234,23 @@ const Reread = (function () {
       const next = !on();
       button.setAttribute("aria-checked", String(next));
       remember(next);
+      // Where the switch stands, on the root element, which is where the
+      // document's head put it before the first paint and where the script
+      // under the bar read it from to draw this control. Kept true here so the
+      // attribute does not become a lie the moment it is pressed.
+      document.documentElement.dataset.autorefresh = next ? "on" : "off";
       if (next) {
         readNow();
       } else {
         stop();
       }
     });
-    // The position the operator left it in, on this browser. The timer waits
-    // for the first control to register, which is what says this page has a
-    // panel to read again.
+    // The position the operator left it in, on this browser. The document drew
+    // it there before the first paint, from the same key: this says it again
+    // rather than leaving the control's state to a script in the document, and
+    // sets the same value, so nothing moves. The timer waits for the first
+    // control to register, which is what says this page has a panel to read
+    // again.
     button.setAttribute("aria-checked", String(stored()));
   }
 

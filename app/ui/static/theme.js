@@ -62,6 +62,11 @@ const Theme = (function () {
     const theme = resolve(choice);
     const changed = theme !== current();
     document.documentElement.dataset.theme = theme;
+    // The choice as well as the palette it resolved to. The document's own
+    // head writes both before the first paint and the script under the bar
+    // marks the switch from the choice; keeping it true here is what stops the
+    // attribute becoming a lie as soon as an operator presses a glyph.
+    document.documentElement.dataset.themeChoice = choice;
     markSwitch(choice);
     if (changed) {
       window.dispatchEvent(new CustomEvent(EVENT, { detail: { theme } }));

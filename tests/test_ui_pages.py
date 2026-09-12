@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import __version__
+from app.hosts.fake import FakeHostReader
 
 
 @pytest.mark.parametrize(
@@ -74,13 +75,14 @@ def test_every_script_a_page_loads_names_the_version_that_served_it(
 ) -> None:
     """A browser must never pair a script from one version with a page from another.
 
-    Both halves are served `no-cache`, and that check compares the copy a
+    An unstamped URL is served `no-cache`, and that check compares the copy a
     browser holds against the file the same service has on disk, so a copy kept
     from another version of this service is reported as current. The two then
     disagree about the elements they name, the page script dies on the first
     one that is missing, and the whole page renders and does nothing. That cost
     an afternoon on a node once. The version in the URL makes the halves two
-    different resources.
+    different resources, and that is also what lets the stamped one be held for
+    the life of the release instead of revalidated on every hop.
     """
     body = signed_in.get(path).text
     sources = re.findall(r'<script src="([^"]+)"', body)
@@ -155,29 +157,26 @@ def test_the_two_inventory_lines_stay_inside_their_column(
     assert "min-width: 0;" in block
 
 
-def test_the_header_paints_the_node_this_browser_already_saw(
+def test_the_header_arrives_with_the_document_that_carries_it(
     signed_in: TestClient,
+    reader: FakeHostReader,
 ) -> None:
     body = signed_in.get("/inventory").text
     script = signed_in.get("/static/chrome.js").text
 
-    # The name and the mode are the same two strings on every page between two
-    # runs, and asking for them again on each navigation blinked the header
-    # through its placeholders. The document reads what the last page stored,
-    # `chrome.js` writes it back from the API and corrects both.
-    assert "seapath-chrome-" in body
-    assert "sessionStorage.getItem" in body
-    assert "seapath-chrome-" in script
-    assert "sessionStorage.setItem" in script
-    # Who is signed in is the same string on every page too, and it blinked the
-    # same way. It is stored rendered, so the name and the role are formed in
-    # one place, and cleared on the way out: a name left behind would be
-    # painted over the next person to sign in on this browser.
-    assert "seen.identity" in body
-    assert "sessionStorage.removeItem" in script
-    # Keyed per node: two nodes reached through two ssh tunnels are one origin
-    # to the browser, and one key would show one node's name over the other's.
-    assert 'name="csrf-cookie"' in script
+    # The name, the mode and who is signed in are the same three strings on
+    # every page between two runs. Asking for them put two requests in front of
+    # every screen and blinked the header through its placeholders on the way
+    # back to the values it had a second ago. The service holds all three.
+    assert f'id="node-name" class="node-name">{reader.hostname}<' in body
+    assert f'class="badge badge-{reader.mode.value}">{reader.mode.value}<' in body
+    assert 'id="identity">admin (admin)<' in body
+    # The two halves apart as well as rendered, because a page that gates an
+    # action on the role compares it.
+    assert 'data-username="admin" data-role="admin"' in body
+    # And the requests are gone rather than merely covered up.
+    assert 'API.get("/auth/me")' not in script
+    assert 'API.get("/node")' not in script
 
 
 def test_the_inventory_page_says_what_saving_does_and_does_not_do(
@@ -641,23 +640,24 @@ def test_a_hidden_element_is_hidden_whatever_its_display_rule(
 
 
 @pytest.mark.parametrize("path", ["/", "/inventory", "/deployment", "/runs", "/login"])
-def test_a_page_is_styled_without_fetching_anything(
+def test_a_page_is_styled_from_a_stylesheet_the_browser_already_holds(
     signed_in: TestClient, path: str
 ) -> None:
     body = signed_in.get(path).text
     css = signed_in.get("/static/style.css").text
 
-    # A linked stylesheet is a round trip between the navigation and the first
-    # paint, and these assets are served `no-cache`, so every hop between the
-    # tabs painted the page unstyled while the conditional request was in
-    # flight. The head carries the styles themselves, and the schemes the
-    # browser paints its own surfaces in.
+    # The whole stylesheet was carried in every document, because a linked one
+    # is a round trip between the navigation and the first paint and these
+    # assets answered `no-cache`: every hop between the tabs painted the page
+    # unstyled while the conditional request was in flight. The stamp is what
+    # replaced it, since a URL naming one release is served immutable, so the
+    # first page of a release pays the round trip and no other page does. Sixty
+    # seven kilobytes leave every document with it.
     head = body.split("</head>")[0]
     assert '<meta name="color-scheme" content="light dark">' in head
-    assert '<link rel="stylesheet"' not in body
-    assert css in head
-    # Read whole, so a selector with a `>` in it survives the templating.
-    assert ".card.wide" in head
+    assert f'<link rel="stylesheet" href="static/style.css?v={__version__}">' in head
+    assert ".card.wide" not in head
+    assert css not in head
     assert "html {\n  font-size: 80%;\n  background: var(--bg);\n}" in css
 
 
@@ -667,16 +667,44 @@ def test_the_palette_is_chosen_before_the_page_is_painted(
 ) -> None:
     head = signed_in.get(path).text.split("</head>")[0]
 
-    # Inline and in the head, for the same reason the stylesheet is: an
-    # operator whose system is light and who chose dark would see a white page
-    # flash by on every navigation, and this UI is navigated all day. A fetched
-    # script cannot promise to run before the first paint.
+    # Inline and in the head: an operator whose system is light and who chose
+    # dark would see a white page flash by on every navigation, and this UI is
+    # navigated all day. A fetched script cannot promise to run before the
+    # first paint.
     assert 'src="static/theme.js"' not in head
-    assert 'localStorage.getItem("seapath-theme")' in head
-    assert "document.documentElement.dataset.theme = choice" in head
+    assert 'stored("seapath-theme")' in head
+    assert "root.dataset.theme = theme" in head
     # The login page is reached before there is a session, and it is styled by
     # the same head, so it is themed too.
     assert "(prefers-color-scheme: light)" in head
+
+
+def test_the_two_switches_of_the_bar_are_drawn_in_the_first_paint(
+    signed_in: TestClient,
+) -> None:
+    """The palette and the automatic reading, in the paint that draws the bar.
+
+    Both are settings of this browser, so the document cannot render them the
+    way it renders the name beside them. It can say what they resolved to
+    before anything appears, which is what the head does, and mark the two
+    controls from it under the bar. They used to be drawn off and corrected by
+    the scripts at the end of the document, which read as the setting turning
+    itself on at every hop.
+    """
+    body = signed_in.get("/cluster").text
+    head = body.split("</head>")[0]
+
+    assert 'stored("seapath-autorefresh")' in head
+    assert "root.dataset.autorefresh" in head
+    # Under the bar, because these are the elements the head cannot reach.
+    marking = body.split("</header>")[1].split("</script>")[0]
+    assert 'getElementById("autorefresh")' in marking
+    assert "aria-checked" in marking
+    assert "dataset.themeChoice" in marking
+    # And the two scripts that take the controls over say the same thing, so
+    # nothing moves when they arrive and the attributes stay true afterwards.
+    assert "dataset.themeChoice = choice" in signed_in.get("/static/theme.js").text
+    assert "dataset.autorefresh" in signed_in.get("/static/reread.js").text
 
 
 def test_the_two_palettes_are_the_only_place_a_colour_is_written(
@@ -716,7 +744,7 @@ def test_the_sign_in_page_is_themed_without_carrying_the_switch(
     # The palette still applies, because it is decided in the head every page
     # shares rather than by the script that draws the switch.
     assert "data-theme-choice" not in body
-    assert 'localStorage.getItem("seapath-theme")' in body
+    assert 'stored("seapath-theme")' in body
 
 
 def test_the_console_keeps_its_own_ground_in_both_palettes(
@@ -799,23 +827,39 @@ def test_the_run_view_shows_the_skipped_column(signed_in: TestClient) -> None:
     assert "recapLine" in signed_in.get("/static/runstream.js").text
 
 
-def test_a_static_asset_is_revalidated_rather_than_held(
-    signed_in: TestClient,
+@pytest.mark.parametrize(
+    "url", ["/static/runs.js", "/static/runs.js?v=0.0.1", "/static/runs.js?x=1"]
+)
+def test_an_asset_this_release_did_not_stamp_is_revalidated(
+    signed_in: TestClient, url: str
 ) -> None:
     # A node upgraded in place serves new HTML and, without this, an old
     # script: the page is then half from each version, and the symptom looks
     # like a bug in the new code. `no-cache` costs one conditional request and
-    # answers 304 while the file is unchanged.
-    response = signed_in.get("/static/runs.js")
+    # answers 304 while the file is unchanged. It covers every URL this release
+    # did not stamp itself, including a stamp from another version, which is
+    # exactly the copy a browser upgraded under would be holding.
+    response = signed_in.get(url)
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-cache"
     assert response.headers.get("etag")
 
-    unchanged = signed_in.get(
-        "/static/runs.js", headers={"If-None-Match": response.headers["etag"]}
-    )
+    unchanged = signed_in.get(url, headers={"If-None-Match": response.headers["etag"]})
     assert unchanged.status_code == 304
+
+
+def test_an_asset_stamped_with_this_release_is_held_without_asking_again(
+    signed_in: TestClient,
+) -> None:
+    # The URL every page emits, and the only one this promise is made about: it
+    # names one release, so it can only ever answer with one release's bytes.
+    # Every navigation used to revalidate the stylesheet and all seven scripts,
+    # which is seven round trips to paint a page whose assets had not moved.
+    response = signed_in.get(f"/static/runs.js?v={__version__}")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
 def test_the_node_page_carries_the_terminal_and_says_what_it_is(
@@ -824,14 +868,14 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     body = signed_in.get("/").text
 
     # The emulator and its stylesheet are served from this node, because a
-    # substation hypervisor has no route to a CDN. The stylesheet is in the
-    # document, like the rest of the styles of this service, so the first paint
-    # of this page waits on no fetch.
-    assert "static/vendor/xterm.js" in body
-    assert ".xterm {" in body
+    # substation hypervisor has no route to a CDN. Both are stamped with the
+    # version that serves them, like the rest of the assets of this service, so
+    # a browser fetches them once per release.
+    assert f'src="static/vendor/xterm.js?v={__version__}"' in body
+    assert f'href="static/vendor/xterm.css?v={__version__}"' in body
     assert "static/console.js" in body
+    assert ".xterm {" in signed_in.get("/static/vendor/xterm.css").text
     assert signed_in.get("/static/vendor/xterm.js").status_code == 200
-    assert signed_in.get("/static/vendor/xterm.css").status_code == 200
 
     # A shell is the one place in this UI where what an operator does is
     # neither recorded nor part of the desired state, and the panel says so
@@ -1352,7 +1396,7 @@ def test_a_metadata_value_is_edited_in_a_window_wide_enough_for_it(
 
     assert '<div class="modal-body wide tall">' in body
     assert "<textarea" in body
-    assert ".modal-body.tall textarea" in body
+    assert ".modal-body.tall textarea" in signed_in.get("/static/style.css").text
 
 
 def test_applying_a_metadata_change_is_offered_as_the_outage_it_is(

@@ -14,28 +14,49 @@ SPDX-License-Identifier: Apache-2.0
        while the document is still arriving. #}
     <meta name="color-scheme" content="light dark">
 
-    {# Which of the two palettes, decided before the first paint. An operator
-       whose system is light and who chose dark would otherwise see a white
-       page flash by on every navigation, and this UI is navigated all day.
+    {# Which of the two palettes, and where the two switches beside them stand,
+       decided before the first paint. An operator whose system is light and
+       who chose dark would otherwise see a white page flash by on every
+       navigation, and this UI is navigated all day. The switches themselves
+       were drawn off and then corrected by the scripts at the end of the
+       document, which read as the setting turning itself on at every hop.
 
        Small, inline and ahead of the styles on purpose: it has to run before
-       anything is painted, and a fetch cannot promise that. The stored value
-       is `light`, `dark`, or absent, and absent means follow the system.
-       `static/theme.js` writes that key and reads it back for the switch. #}
+       anything is painted, and a fetch cannot promise that. This is the one
+       place in the document that reads this browser's two settings. The root
+       element carries what they resolved to, the script under the header marks
+       the controls from it, and `static/theme.js` and `static/reread.js` keep
+       both attributes true as an operator changes them.
+
+       The stored palette is `light`, `dark`, or absent, and absent means
+       follow the system. The automatic reading is `on`, or absent for off. #}
     <script nonce="{{ csp_nonce }}">
       (function () {
-        var choice = null;
-        try {
-          choice = localStorage.getItem("seapath-theme");
-        } catch (error) {
-          /* A browser refusing storage still has a system preference. */
+        var root = document.documentElement;
+        function stored(key) {
+          try {
+            return localStorage.getItem(key);
+          } catch (error) {
+            /* A browser refusing storage still has a system preference, and
+               the automatic reading is then in the position a fresh one
+               starts in. */
+            return null;
+          }
         }
+        var choice = stored("seapath-theme");
         if (choice !== "light" && choice !== "dark") {
-          choice = window.matchMedia("(prefers-color-scheme: light)").matches
+          choice = "system";
+        }
+        var theme = choice;
+        if (choice === "system") {
+          theme = window.matchMedia("(prefers-color-scheme: light)").matches
             ? "light"
             : "dark";
         }
-        document.documentElement.dataset.theme = choice;
+        root.dataset.themeChoice = choice;
+        root.dataset.theme = theme;
+        root.dataset.autorefresh =
+          stored("seapath-autorefresh") === "on" ? "on" : "off";
       })();
     </script>
     {# The name of this node's CSRF cookie, which the front end reads the token
@@ -43,15 +64,18 @@ SPDX-License-Identifier: Apache-2.0
        through two ssh tunnels sees one host, localhost, and keeps one cookie
        jar for both. #}
     <meta name="csrf-cookie" content="{{ csrf_cookie }}">
-    {# The styles themselves, in the document rather than a fetch away. A
-       linked stylesheet is a round trip between the navigation and the first
-       paint, and every hop from one page to the next rendered unstyled until
-       it answered. #}
-    <style>{{ stylesheet() }}</style>
+    {# The styles, stamped with this version and therefore held by the browser
+       for the life of it. They were carried in the document instead, because
+       the assets answered `no-cache` and a linked stylesheet then stood a
+       round trip between the navigation and the first paint, every hop
+       rendering unstyled until it answered. A stamped URL names one release,
+       so it is served immutable and a navigation asks for nothing but the
+       document. #}
+    {{ styles() }}
 
     {# Every screen here is built by one script, and a script that dies before
-       its first statement has nothing to report: the page renders, the top bar
-       keeps its placeholders, and no failure appears anywhere on it. That was
+       its first statement has nothing to report: the page renders, its panels
+       keep their spinners, and no failure appears anywhere on it. That was
        read once as a service with nothing to run, and the cause was a browser
        holding a script from another version. The version query below makes
        that pairing impossible; this says so out loud when a page script dies
@@ -85,11 +109,19 @@ SPDX-License-Identifier: Apache-2.0
   </head>
   <body>
     {% if nav %}
-    <header class="topbar">
+    {# Who is signed in, on the element the scripts read it from. The bar shows
+       it rendered beside the way out, and a page that gates an action on the
+       role needs the two halves apart. Both are the session's own, which is
+       what `/auth/me` answers with. #}
+    <header class="topbar" data-username="{{ username }}" data-role="{{ role }}">
       <div class="topbar-left">
         <span class="brand">SEAPATH</span>
-        <span id="node-name" class="node-name">...</span>
-        <span id="node-mode" class="badge">...</span>
+        {# The node and its mode, as this service reads them at the moment it
+           renders the page. They change when a machine is renamed or joins a
+           cluster, which is a run: the Node page reads them again on its own
+           timer and hands them back to the bar. #}
+        <span id="node-name" class="node-name">{{ node_name }}</span>
+        <span id="node-mode" class="badge badge-{{ node_mode }}">{{ node_mode }}</span>
         {# Relative, like every URL this service emits, so a reverse proxy
            can mount the application under a prefix without the application
            knowing its own address. It holds because every page sits exactly
@@ -155,43 +187,38 @@ SPDX-License-Identifier: Apache-2.0
             <path d="M8 4.4V8l2.5 1.6"></path>
           </svg>
         </button>
-        <span id="identity"></span>
+        <span id="identity">{{ identity }}</span>
         <button id="logout" type="button">Sign out</button>
       </div>
     </header>
-    {#
-    The node's name, its mode and who is signed in, as this browser last saw
-    them. The first two change when a machine is renamed or joins a cluster,
-    which is a run; the third changes when somebody signs in. Between those,
-    they are the same three strings on every page of this service. Read here,
-    inline and right under the bar, so a navigation paints them once instead of
-    blinking the header through its placeholders on the way back to the values
-    it had a second ago. `chrome.js` asks the API as it always did and corrects
-    all three, writes the key back, and clears it on the way out: a name left
-    behind would be painted over the next person to sign in on this browser.
+    {# Where the two switches of the bar stand, marked in the paint that draws
+       the bar itself. They are settings of this browser rather than of the
+       service, so the document cannot render them: what it can do is say what
+       the head already resolved, before anything appears. `theme.js` and
+       `reread.js` take the controls over as they load and set these very
+       values, so nothing moves when they do.
 
-    Keyed on the name of this node's CSRF cookie, which carries a per node
-    suffix: a browser reaching two nodes through two ssh tunnels sees one
-    origin, localhost, and one key would show one node's name over the other's.
-    #}
+       Under the header rather than in it, because these are the elements the
+       head could not reach. #}
     <script nonce="{{ csp_nonce }}">
       (function () {
-        var seen = null;
-        try {
-          seen = JSON.parse(
-            sessionStorage.getItem("seapath-chrome-{{ csrf_cookie }}") || "null"
+        var root = document.documentElement;
+        // A radio group holds one tab stop, and it is the checked option:
+        // without this every glyph is a stop of its own on the way to the sign
+        // out button, for as long as it takes `theme.js` to arrive.
+        var buttons = document.querySelectorAll("#theme [data-theme-choice]");
+        Array.prototype.forEach.call(buttons, function (button) {
+          var checked =
+            button.dataset.themeChoice === root.dataset.themeChoice;
+          button.setAttribute("aria-checked", String(checked));
+          button.tabIndex = checked ? 0 : -1;
+        });
+        document
+          .getElementById("autorefresh")
+          .setAttribute(
+            "aria-checked",
+            String(root.dataset.autorefresh === "on")
           );
-        } catch (error) {
-          /* A browser refusing storage keeps the placeholders. */
-        }
-        if (!seen) {
-          return;
-        }
-        document.getElementById("node-name").textContent = seen.hostname;
-        var mode = document.getElementById("node-mode");
-        mode.textContent = seen.mode;
-        mode.className = "badge badge-" + seen.mode;
-        document.getElementById("identity").textContent = seen.identity || "";
       })();
     </script>
     {% endif %}

@@ -3,6 +3,10 @@
 
 // The top bar, shared by every signed in page: who is here, which node this
 // is, the way out, and the two gestures that shut a window.
+//
+// Nothing here is fetched. The three strings of the bar are rendered into the
+// document by the service that served it, and this file reads them back for
+// the pages that gate an action on the role.
 
 const Chrome = (function () {
   // A window is dismissed by clicking the control it names in `data-dismiss`
@@ -63,65 +67,42 @@ const Chrome = (function () {
     }
   });
 
-  // Who is signed in, as the last reading of this page saw them. The run
-  // window is opened from a click rather than from a page's own start, and it
-  // has a control only an admin may press: it reads the answer this already
-  // has instead of every page handing it over.
-  let signedIn = null;
+  // Who is signed in, said by the document that carries the bar. It is the
+  // session's own user and role, which is exactly what `/auth/me` answers
+  // with, and this page was rendered by the service that holds the session.
+  //
+  // Asked over the API until it was rendered here, which put two requests in
+  // front of every screen for three strings that had not changed since the
+  // last page, and sent the header through its placeholders on the way back to
+  // them. The browser used to keep them to cover the gap. Now there is no gap.
+  //
+  // Read as this file loads rather than when a page asks, because the run
+  // window is opened from a click rather than from a page's own start and it
+  // has a control only an admin may press: it saw nothing at all until the
+  // first reading of the page under it had resolved.
+  const signedIn = (function () {
+    const bar = document.querySelector(".topbar");
+    if (!bar) {
+      return null;
+    }
+    return { username: bar.dataset.username, role: bar.dataset.role };
+  })();
 
+  // The shape the pages ask for, and they still await it: the answer is simply
+  // in hand before the question.
   async function load() {
-    try {
-      const [me, node] = await Promise.all([
-        API.get("/auth/me"),
-        API.get("/node"),
-      ]);
-      const identity = me.username + " (" + me.role + ")";
-      document.getElementById("identity").textContent = identity;
-      document.getElementById("node-name").textContent = node.hostname;
-      const mode = document.getElementById("node-mode");
-      mode.textContent = node.mode;
-      mode.className = "badge badge-" + node.mode;
-      // What the next page of this visit paints its header with, before it
-      // asks. The document's own script reads it back; the key it uses is
-      // built there, from the same cookie name.
-      //
-      // The identity is stored rendered rather than as a pair, so the string
-      // is formed here and nowhere else: two places building it is two places
-      // to change when the role stops being a parenthesis.
-      remember({ hostname: node.hostname, mode: node.mode, identity });
-      signedIn = me;
-      return { me, node };
-    } catch (failure) {
-      if (failure.status === 401) {
-        forget();
-        window.location.assign("login");
-      }
-      throw failure;
-    }
+    return { me: signedIn };
   }
 
-  function key() {
-    const name = document.querySelector('meta[name="csrf-cookie"]').content;
-    return "seapath-chrome-" + name;
-  }
-
-  function remember(seen) {
-    try {
-      sessionStorage.setItem(key(), JSON.stringify(seen));
-    } catch (error) {
-      /* A browser refusing storage asks on every page, as it always did. */
-    }
-  }
-
-  // Signing out, and being signed out. Both end this visit, and the header of
-  // the next one belongs to whoever signs in then: a name left behind here
-  // would be painted over their first page until the API answered.
-  function forget() {
-    try {
-      sessionStorage.removeItem(key());
-    } catch (error) {
-      /* Nothing was stored either. */
-    }
+  // The node's name and its mode, from a page that has just read them. Both
+  // change when a machine is renamed or joins a cluster, which is a run, and
+  // the Node page is where an operator watches one land: it reads `/node` on
+  // its own timer, so the bar follows it without a request of its own.
+  function saw(node) {
+    document.getElementById("node-name").textContent = node.hostname;
+    const mode = document.getElementById("node-mode");
+    mode.textContent = node.mode;
+    mode.className = "badge badge-" + node.mode;
   }
 
   function isAdmin(me) {
@@ -132,10 +113,9 @@ const Chrome = (function () {
     try {
       await API.post("/auth/logout");
     } finally {
-      forget();
       window.location.assign("login");
     }
   });
 
-  return { load, isAdmin, current: () => signedIn };
+  return { load, saw, isAdmin, current: () => signedIn };
 })();

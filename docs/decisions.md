@@ -2177,8 +2177,8 @@ therefore costs more than it does almost anywhere else, which is what makes a
 content policy worth its weight on a service of this size.
 
 **Every response carries a `Content-Security-Policy` allowing this origin and
-nothing else, with a per response nonce for the two inline scripts that have to
-be inline. `Strict-Transport-Security` is deliberately absent.**
+nothing else, with a per response nonce for the three inline scripts that have
+to be inline. `Strict-Transport-Security` is deliberately absent.**
 
 ### The policy
 
@@ -2189,20 +2189,22 @@ under `app/ui/static/vendor/`.
 
 Three directives are the interesting ones.
 
-`script-src 'self' 'nonce-...'`. Two scripts in `base.html` cannot be moved
-into a file: the theme has to be chosen before the first paint, and the
-listener that reports a script which never loaded has to be registered ahead of
-the scripts it watches. A hash would break on every edit to either one, so the
-middleware generates a nonce per response, the template stamps it on both, and
-`tests/test_headers.py` asserts the header and the document agree on every
-page. Anything else that ends up in the document has nowhere to run.
+`script-src 'self' 'nonce-...'`. Three scripts in `base.html` cannot be moved
+into a file: the palette and the position of the two switches beside it have to
+be settled before the first paint, the controls have to be marked from that in
+the paint that draws the bar, and the listener that reports a script which never
+loaded has to be registered ahead of the scripts it watches. A hash would break
+on every edit to any of them, so the middleware generates a nonce per response,
+the template stamps it on all three, and `tests/test_headers.py` asserts the
+header and the document agree on every page. Anything else that ends up in the
+document has nowhere to run.
 
-`style-src 'self' 'unsafe-inline'`. The stylesheet is carried in the document
-rather than fetched, which is a first paint decision `stylesheet()` in
-`app/ui/routes.py` explains, and xterm builds a style element of its own at run
-time. Neither can be given a
-nonce, and a nonce in that directive would turn `'unsafe-inline'` off for both.
-Styles are not the path to a console.
+`style-src 'self' 'unsafe-inline'`. The stylesheets are the node's own files,
+which `'self'` covers; they are linked and stamped with the version that serves
+them, which `styles()` in `app/ui/routes.py` explains. `'unsafe-inline'` is
+there for xterm, which builds a style element of its own at run time: it cannot
+be given a nonce, and a nonce in that directive would turn `'unsafe-inline'`
+off. Styles are not the path to a console.
 
 `connect-src 'self' wss://<this host>`. The terminal opens a WebSocket on the
 page's own origin. `'self'` covers that from CSP level 3, and the origin is
@@ -2806,3 +2808,108 @@ of that click have to land on the scrim, because a selection that starts on a
 value inside the window and ends past its edge is released outside it, and an
 operator who loses a form that way stops selecting text in these windows
 altogether.
+
+## D44 - Settled: a navigation inside a release fetches the document and nothing else
+
+Moving between the tabs of this UI was slow for reasons that had nothing to do
+with the machines it reads. A click on Cluster cost, in order: the document,
+with the whole stylesheet inside it, sixty seven kilobytes no browser was
+allowed to keep; a conditional request for each of the seven scripts a signed in
+page loads, every one of them answering 304; two API requests ahead of the
+page's own, for the three strings of the top bar; and then the readings the page
+is actually there for. On a laptop reaching a node through an ssh tunnel, half a
+second went by before the first exporter was asked anything.
+
+The bar was the visible part. The palette was already settled before the first
+paint, and the two switches beside it were not: the document drew them in their
+off position and the scripts at the end of it corrected them, so the automatic
+reading looked like it was turning itself on at every hop. The node's name and
+the identity blinked through their placeholders on the way back to the values
+they had a second ago, and a `sessionStorage` key had been added to paper over
+that.
+
+**Four changes. None of them puts anything on screen that is older than the
+document which carried it.**
+
+### The stamp is also what makes an asset cacheable
+
+Every asset URL this service emits carries the version that served the page, so
+that a browser can never pair a script from one version with a page from
+another. The same stamp answers a second question: a URL naming one release can
+only ever answer with one release's bytes, so `_StampedStatics` hands it over as
+`public, max-age=31536000, immutable` and is never asked about it again. A
+navigation inside a release therefore fetches the document alone.
+
+Everything else keeps `no-cache`, which is what an unstamped URL, and a stamp
+from another version, need from a service that may have been upgraded under the
+browser holding them. That is the case the revalidation was there for, and it
+still costs one conditional request and answers 304.
+
+### The stylesheet is linked again
+
+It was carried inside every document precisely because the assets answered
+`no-cache`: a linked stylesheet then stood a conditional request between the
+navigation and the first paint, and every hop rendered unstyled while it was in
+flight. The stamp removes that reason. The first page of a release fetches the
+stylesheet once, every page after it is drawn from the browser's own copy, and
+sixty seven kilobytes leave every document. The vendored xterm stylesheet on the
+Node page is linked the same way.
+
+### The top bar is rendered by the service that serves the page
+
+Who is signed in, this node's name and its mode are the same three strings on
+every page between two runs, and the service holds all three: the session for
+the first, and for the other two the same local reading `/node` answers with.
+They are in the document now. `chrome.js` reads the user and the role back for
+the pages that gate an action on the role, the `sessionStorage` key is gone with
+the gap it covered, and two requests leave the front of every screen. The
+reading is guarded, because no screen of this service may fail to render because
+a file under /proc could not be read.
+
+The Node page hands its own reading of `/node` to the bar, which is where an
+operator watches a rename or a cluster join land.
+
+A session that ended under an open page was noticed by that same reading. It is
+`api.js`'s job now: a 401 on any page that has a bar sends the operator to the
+sign in page, where they used to be left reading a refusal they could do nothing
+about.
+
+### The switches are drawn once
+
+The head of every page resolves the palette and the position of the automatic
+reading from this browser's storage and stamps both on the root element, and the
+script under the bar marks the two controls from it, in the paint that draws the
+bar. `theme.js` and `reread.js` take the controls over as they load and set the
+same two values, so nothing moves when they arrive, and both keep the root
+attributes true afterwards.
+
+### What it does not change
+
+No reading of a machine is cached anywhere by this. Every panel on screen was
+read while the page was being drawn, a confirmation that names a machine is
+still built from a fresh reading, and [D37](#d37)'s control and its timer are
+still the only things that replace an answer on screen. What went away is the
+cost of asking for the same furniture again.
+
+### What is left, and why it is not settled here
+
+Two costs on the same path are real and untouched:
+
+- **The same inventory, parsed once per request.** `InventoryService.state()`
+  reads git, parses, validates and scans for the files the inventory names, on
+  every call, and one page makes between two and eight of them. Memoised on the
+  commit and the working tree's timestamp, it would be invisible to every
+  caller.
+- **The same fan out, once per endpoint.** The Cluster page asks every machine
+  of the inventory for Pacemaker, then asks every machine again for Ceph; Real
+  time makes seven requests of its own. A short lived answer, shared by the
+  endpoints and bypassed by D37's control and its timer, would make one page
+  load one fan out per port.
+
+Both are readings of machines, so both are decisions about how old an answer on
+screen may be, and they belong with the third: a cache in the browser that
+paints the last answer while the fresh one is in flight, which can only be done
+by a panel that says on screen how old what it is showing is. That is the
+property to keep hold of, because a Pacemaker view that looks live and is three
+minutes old is an operator moving a guest off a node that has already failed
+over.

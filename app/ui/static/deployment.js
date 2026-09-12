@@ -1481,7 +1481,6 @@
     try {
       const chrome = await Chrome.load();
       state.me = chrome.me;
-      state.node = chrome.node;
       await refresh();
     } catch (failure) {
       // Every card on this page is built from an API answer, so one call that

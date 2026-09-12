@@ -49,11 +49,13 @@ _FIXED_HEADERS = {
 def _content_security_policy(request: Request, nonce: str) -> str:
     """The policy for one response, which is where the nonce comes from.
 
-    A nonce rather than a hash because two of the inline scripts have to be
-    inline: the theme is chosen before the first paint, and the listener that
-    reports a script which never loaded has to be registered ahead of the
-    scripts it watches. Both are in `base.html`, both carry this nonce, and
-    anything else that ends up in the document has nowhere to run.
+    A nonce rather than a hash because three of the inline scripts have to be
+    inline: the palette and the two switches of the bar are resolved before the
+    first paint, the controls are marked from that as the bar itself is drawn,
+    and the listener that reports a script which never loaded has to be
+    registered ahead of the scripts it watches. All three are in `base.html`,
+    all three carry this nonce, and anything else that ends up in the document
+    has nowhere to run.
     """
     # The console's terminal opens a WebSocket on this same origin. From CSP
     # level 3 `'self'` covers a ws: or wss: URL of the page's own origin, and
@@ -65,10 +67,11 @@ def _content_security_policy(request: Request, nonce: str) -> str:
         [
             "default-src 'self'",
             f"script-src 'self' 'nonce-{nonce}'",
-            # The stylesheet is carried in the document rather than fetched,
-            # and xterm builds a style element of its own at run time. Neither
-            # can be given a nonce, and a nonce in this directive would turn
-            # `'unsafe-inline'` off for both. Styles are not where the risk is.
+            # The stylesheets are this node's own, which `'self'` covers.
+            # `'unsafe-inline'` is for xterm, which builds a style element of
+            # its own at run time: it cannot be given a nonce, and a nonce in
+            # this directive would turn `'unsafe-inline'` off. Styles are not
+            # where the risk is.
             "style-src 'self' 'unsafe-inline'",
             "img-src 'self'",
             f"connect-src 'self' {socket}",
