@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.81 - 2026-09-12
+
+- docs: refresh Real time screenshots, add the guest latency view
+- docs: reshoot conformance on 0.3.80, document the screenshot recipe
+
 ## 0.3.80 - 2026-09-12
 
 - fix: a check that shows a measurement compares its answer
