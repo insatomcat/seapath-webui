@@ -1725,6 +1725,70 @@ def test_the_top_bar_costs_a_page_nothing_before_its_own_reading(
         assert "Chrome.load()" not in signed_in.get(f"/static/{script}").text, script
 
 
+def test_opening_a_run_does_not_read_the_whole_history_again(
+    signed_in: TestClient,
+) -> None:
+    """Three readings of fifty runs to draw one page.
+
+    The page read the list, opened the newest run and read the list again to
+    move the highlight, and the run's own stream then ended, which read the
+    record and the list a third time. On a node reached through an ssh tunnel
+    that was four seconds and nearly two megabytes on every click. See D47.
+    """
+    page = signed_in.get("/static/runs.js").text
+
+    opening = page.split("async function show(")[1].split("function confirmRelaunch")[0]
+    # Opening a run marks its row from the list already on screen.
+    assert "markCurrent()" in opening
+    assert "loadList()" not in opening.split("onEnd")[0]
+    # The list is read again when a run ends under the page, because the badge of
+    # its row has just changed, and only then: a run that was already finished
+    # replays its events and ends the moment it is opened.
+    assert "if (!wasFinished)" in opening
+    # And the run this page opens on arrival is asked for beside the list.
+    start = page.split("async function start()")[1]
+    assert start.index('API.started("/runs?limit=50")') < start.index("await loadList(")
+    assert 'API.started("/runs/"' in start
+
+
+def test_the_run_list_answers_what_a_list_needs(signed_in: TestClient) -> None:
+    """A record carries a duration per task, and a list carried fifty of them.
+
+    On a commissioned node that is six hundred kilobytes for a page that draws
+    five fields per row. What a run did stays on the run's own record.
+    """
+    schema = signed_in.get("/api/v1/openapi.json").json()
+    listed = schema["paths"]["/api/v1/runs"]["get"]["responses"]["200"]["content"][
+        "application/json"
+    ]["schema"]
+    summary = schema["components"]["schemas"]["RunSummary"]["properties"]
+
+    assert listed["items"]["$ref"].endswith("RunSummary")
+    # What situates a run: what it was, when, who launched it, how it ended.
+    for field in ("id", "playbook_id", "state", "started_at", "launched_by"):
+        assert field in summary
+    # What it did, which belongs to the run's own record.
+    for field in ("progress", "command", "variables", "files", "machines"):
+        assert field not in summary
+
+
+def test_the_tab_carries_a_mark_this_service_ships(signed_in: TestClient) -> None:
+    """A browser asks for /favicon.ico on every page of an origin that has none.
+
+    An operator keeps one tab per node open through several ssh tunnels, so that
+    is a round trip and a 404 per visit, for a blank square.
+    """
+    body = signed_in.get("/cluster").text
+    icon = signed_in.get(f"/static/favicon.svg?v={stamp('favicon.svg')}")
+
+    assert f'href="static/favicon.svg?v={stamp("favicon.svg")}"' in body
+    assert icon.status_code == 200
+    assert icon.headers["content-type"].startswith("image/svg+xml")
+    assert icon.headers["cache-control"] == "public, max-age=31536000, immutable"
+    # Drawn for both palettes, because a favicon sits in the tab strip.
+    assert "prefers-color-scheme: dark" in icon.text
+
+
 def test_a_request_that_never_reached_the_node_says_which_link_is_down(
     signed_in: TestClient,
 ) -> None:

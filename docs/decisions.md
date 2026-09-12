@@ -3128,3 +3128,64 @@ and take the last round trip out too. It would also mean every page script
 becoming mountable and unmountable, which is a different shape for this UI than
 the one file per screen it has now. The numbers above say what it would buy: the
 hundred milliseconds that are left.
+
+## D47 - Settled: a list of runs answers what a list needs, and a page reads each thing once
+
+The Runs page took four seconds on every click, on a node reached through an ssh
+tunnel, long after [D44](#d44), [D45](#d45) and [D46](#d46) had made the other
+pages arrive in a tenth of that. The waterfall said why, and none of it was
+caching.
+
+Opening the page read the history, opened the newest run, read the history again
+to move one highlight, and then the run's own event stream ended, which read the
+record and the history a third time. Five readings in series for one page, each
+of them the whole history. On a commissioned node the history is six hundred
+kilobytes, because a run record carries a duration per task and a list carried
+fifty records: one and eight tenths of a megabyte to draw fifty rows of five
+fields.
+
+Measured in a headless browser with 80 ms of added latency, against fifty runs of
+a commissioning playbook:
+
+| | before | after |
+|---|---|---|
+| API calls | 6 | 3 |
+| `GET /runs?limit=50` | 3 times | once |
+| `GET /runs/{id}` | twice | once |
+| transferred, coming back | 1776 KB | 43 KB |
+| history readable | 1.9 s | 110 ms |
+
+### A list answers what a list needs
+
+`GET /runs` answers a `RunSummary`: the id, the playbook, the state, whether it
+was a preview, when it started and finished, who launched it, the inventory
+commit and collection version it ran with, the return code, the guest a generated
+play acted on, and the message. What a run *did* stays on `GET /runs/{id}`: the
+tasks and their durations, the hosts it reached, the command, the variables it
+was launched with, the files it was given.
+
+That is a change to the surface an automation client reads, and it is the right
+way round: a client watching a run polls that run, and one listing the history
+was being handed every task of every run to draw a table of five columns. The
+service itself keeps reading full records internally, which is what the
+measurement list on the Real time page is filtered from.
+
+### A page reads each thing once
+
+Opening a run marks its row in the list already on screen rather than reading the
+history again. The list is read again when a run *ends under the page*, because
+the badge of its row has just changed, and only then: a run that was already
+finished replays its events and ends the moment it is opened, which is what made
+the third reading. The run the page opens on arrival is asked for beside the
+list rather than after it, and the list itself is painted from what this browser
+last read, under D46's rules.
+
+### The tab carries a mark
+
+A browser asks for `/favicon.ico` on every page of an origin that has none. An
+operator keeps one tab per node open through several ssh tunnels, so that was a
+round trip and a 404 per visit, for a blank square; on the deployment this was
+measured on, something in front of the service answered it with eighty
+kilobytes of HTML. The icon is `static/favicon.svg`, drawn for both palettes
+because it sits in the tab strip, stamped like every other asset and therefore
+fetched once per build.

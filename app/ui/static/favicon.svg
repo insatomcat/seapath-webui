@@ -1,0 +1,33 @@
+<!--
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: Apache-2.0
+
+The tab's mark. An operator runs one of these per machine and keeps several
+tabs open through several ssh tunnels, so the tabs need to be told apart from
+everything else in the bar at a glance.
+
+Three nodes over a rail: what this service is about. Drawn rather than fetched
+from anywhere, and shipped because a browser asks for /favicon.ico on every
+page of an origin that has none, which is a round trip and a 404 per visit.
+
+Both palettes, decided by the browser the same way the pages are. A favicon is
+drawn against the tab strip, which is dark or light with the system.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <style>
+    .ground { fill: #0b62c4; }
+    .mark { fill: #ffffff; }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #4a9eff; }
+      .mark { fill: #07101c; }
+    }
+  </style>
+  <rect class="ground" width="32" height="32" rx="7"></rect>
+  <g class="mark">
+    <circle cx="9" cy="11" r="3.1"></circle>
+    <circle cx="16" cy="11" r="3.1"></circle>
+    <circle cx="23" cy="11" r="3.1"></circle>
+    <rect x="6" y="18.5" width="20" height="3.2" rx="1.6"></rect>
+    <rect x="10.6" y="24" width="10.8" height="2.6" rx="1.3"></rect>
+  </g>
+</svg>

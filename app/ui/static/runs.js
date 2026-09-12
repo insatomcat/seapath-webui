@@ -7,7 +7,19 @@
 // idempotent and converging again is the recovery.
 
 (function () {
-  const state = { me: null, current: null, source: null, seen: 0 };
+  const state = {
+    me: null,
+    current: null,
+    source: null,
+    seen: 0,
+    // The list as it was last drawn, so opening a run marks its row rather than
+    // asking the node for the whole history again.
+    runs: [],
+  };
+
+  // A run nothing more will happen to. Its stream replays what it recorded and
+  // ends at once, which is what tells it from one this page is watching.
+  const FINISHED = ["success", "failed", "cancelled", "interrupted"];
 
   function element(id) {
     return document.getElementById(id);
@@ -24,8 +36,17 @@
     });
   }
 
-  async function loadList() {
-    const runs = await API.get("/runs?limit=50");
+  const KEPT = "runs";
+
+  async function loadList(pending) {
+    const runs = await (pending || API.get("/runs?limit=50"));
+    Kept.keep(KEPT, runs);
+    drawList(runs);
+    return runs;
+  }
+
+  function drawList(runs) {
+    state.runs = runs;
     const list = element("run-list");
     list.replaceChildren();
 
@@ -35,7 +56,7 @@
       empty.textContent =
         "No run yet. Apply a playbook from the configuration page.";
       list.append(empty);
-      return runs;
+      return;
     }
 
     runs.forEach((record) => {
@@ -60,7 +81,18 @@
       item.addEventListener("click", () => show(record.id));
       list.append(item);
     });
-    return runs;
+  }
+
+  // Which row is open, marked without reading the list again. Opening a run used
+  // to refetch every run of the history to move one highlight, which is fifty
+  // records over an ssh tunnel for a class attribute.
+  function markCurrent() {
+    element("run-list")
+      .querySelectorAll("li.run")
+      .forEach((item, at) => {
+        const record = state.runs[at];
+        item.classList.toggle("current", !!record && record.id === state.current);
+      });
   }
 
   // Ansible prints this only when profile_tasks is enabled. The numbers are in
@@ -221,9 +253,7 @@
     element("run-play").textContent = record.progress.play || "";
     element("run-task").textContent = record.progress.task || "";
 
-    const finished = ["success", "failed", "cancelled", "interrupted"].includes(
-      record.state
-    );
+    const finished = FINISHED.includes(record.state);
     // An interrupted run is offered as a relaunch. It is the ordinary outcome
     // of a playbook that reboots the machine it runs from.
     element("relaunch").hidden = !(
@@ -236,7 +266,9 @@
     return record;
   }
 
-  async function show(runId) {
+  // `pending` is the record, already being fetched: the page opens a run on
+  // arrival and the request for it leaves with the list's rather than after it.
+  async function show(runId, pending) {
     if (state.source) {
       state.source.close();
       state.source = null;
@@ -248,8 +280,8 @@
     // clean run inherited the unfolded table of the failure read before it.
     element("hosts-card").open = false;
 
-    const record = renderRecord(await API.get("/runs/" + runId));
-    await loadList();
+    const record = renderRecord(await (pending || API.get("/runs/" + runId)));
+    markCurrent();
 
     element("relaunch").onclick = () => confirmRelaunch(record);
     element("cancel").onclick = async () => {
@@ -263,6 +295,8 @@
       }
     };
 
+    const wasFinished = FINISHED.includes(record.state);
+
     // The same lines the window over an action draws, from the same stream.
     state.source = RunStream.follow(runId, {
       onEvent: (payload) => {
@@ -273,8 +307,15 @@
         state.source = null;
         renderHosts(final.hosts);
         renderTimings(final.durations);
-        renderRecord(await API.get("/runs/" + runId));
-        await loadList();
+        // The record again, for the state and the timings the stream does not
+        // carry, and the list with it, because the row's badge has just changed.
+        // Only for a run that was still going: a finished run replays its events
+        // and ends the moment it is opened, and reading both again then is what
+        // made opening this page three readings of the whole history.
+        if (!wasFinished) {
+          renderRecord(await API.get("/runs/" + runId));
+          await loadList();
+        }
       },
       onLost: () => {
         state.source = null;
@@ -355,11 +396,28 @@
 
   async function start() {
     state.me = Chrome.current();
-    const runs = await loadList();
     const requested = new URLSearchParams(window.location.search).get("run");
+    // The history as this browser last drew it, painted before anything is
+    // asked. Nothing is held: every act on this page belongs to the run that is
+    // open, which is read from the node in the same breath, and the list is a
+    // set of links to readings. See D46.
+    const kept = Kept.paint(KEPT, drawList);
+    const list = API.started("/runs?limit=50");
+    // The run this page opens on arrival, asked for beside the list rather than
+    // after it. The one named in the URL is known before either answer; without
+    // one it is the newest run, which is the first row of the list this browser
+    // kept, and a guess that turns out wrong costs one reading nobody waits on.
+    const guess = requested || (kept !== null && state.runs.length ? state.runs[0].id : null);
+    const opening = guess ? API.started("/runs/" + guess) : null;
+    if (kept !== null) {
+      Kept.rereading(["run-list-reading"], kept);
+    }
+
+    const runs = await loadList(list);
+    element("run-list-reading").hidden = true;
     const target = requested || (runs.length ? runs[0].id : null);
     if (target) {
-      await show(target);
+      await show(target, target === guess ? opening : null);
     }
   }
 
