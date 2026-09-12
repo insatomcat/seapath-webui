@@ -469,6 +469,16 @@ opened.
 A reading that failed is `unknown`, never a pass and never a failure: on a
 substation hypervisor "unreadable" and "correct" must never look alike.
 
+A check whose `observed` carries a measurement also carries `compare`, the
+categorical answer behind it, and the cluster matrix marks a row where the
+machines disagree on that rather than on `observed`. The clock is where it
+shows: an admin machine on network NTP is synchronised within milliseconds
+where a hypervisor whose chrony follows the PTP hardware clock measures none,
+and both are synchronised. Without it the row would report a disagreement on
+every refresh, since no two machines measure the same number. `compare` is
+absent on a check whose `observed` is itself categorical, which is nearly all
+of them.
+
 There are three measurements, complementary rather than alternatives, which is
 why they are one history with a `kind` discriminator rather than three
 endpoints:

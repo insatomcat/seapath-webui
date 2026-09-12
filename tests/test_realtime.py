@@ -615,6 +615,19 @@ def test_a_clock_chrony_holds_and_a_global_grandmaster_both_pass() -> None:
     assert "100 ns" in found["ptp"].detail
 
 
+def test_two_clocks_synchronised_from_different_sources_do_not_disagree() -> None:
+    # The matrix marks a row where the machines answered differently, and an
+    # admin machine on network NTP measures milliseconds where a hypervisor
+    # chrony disciplines from the PHC measures none. Both are synchronised,
+    # which is what the row compares.
+    ptp_node = _clock()
+    ntp_node = _clock(estimated_error_seconds=0.0024, max_error_seconds=0.0297)
+
+    assert ptp_node["clock_sync"].observed != ntp_node["clock_sync"].observed
+    assert ntp_node["clock_sync"].observed == "synchronised, within 2.4 ms"
+    assert ptp_node["clock_sync"].compare == ntp_node["clock_sync"].compare
+
+
 def test_a_grandmaster_with_no_global_reference_is_level_one_and_a_finding() -> None:
     found = _clock(
         ptp=PtpReading(

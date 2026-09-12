@@ -72,6 +72,15 @@ class Check(BaseModel):
     kind: Kind
     status: Status
     observed: str
+    compare: str | None = None
+    """What to compare between machines, when `observed` carries a measurement.
+
+    The matrix marks a row where the machines answered differently, which is
+    the one finding a matrix carries that a list could not. A measurement never
+    repeats from one machine to the next, so a check that shows one in
+    `observed` says here what the categorical answer was, and the row is marked
+    on that instead. None means `observed` is itself categorical.
+    """
     declared: str | None = None
     """What the inventory asks for, on a conformance check that has an answer."""
     detail: str = ""
@@ -730,6 +739,11 @@ def _clock_sync(reading: ClockReading, declared: NodeConfig | None) -> Check:
         **base,
         status=Status.OK,
         observed="synchronised" + (f", within {_duration(error)}" if error else ""),
+        # The bound is worth a glance in the cell: a machine on network NTP
+        # sits three orders of magnitude above one chrony disciplines from the
+        # PHC, and that is the shape of a correct cluster rather than a
+        # disagreement between its machines.
+        compare="synchronised",
         detail=(
             "chrony holds the kernel clock"
             + (f", {', '.join(bounds)}" if bounds else "")
@@ -786,6 +800,7 @@ def _ptp(reading: ClockReading, declared: NodeConfig | None) -> Check:
             kind=kind,
             status=Status.UNKNOWN,
             observed=f"stale, {int(ptp.age_seconds)}s old",
+            compare="stale",
             detail=(
                 "ptpstatus rewrites this every few seconds, so a reading this "
                 "old is a ptpstatus that stopped"

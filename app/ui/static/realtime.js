@@ -371,15 +371,14 @@
 
     // The one thing a matrix says that a list could not: the machines
     // disagree. Two nodes converged from the same inventory answering
-    // differently is the finding, whatever the answers are.
-    if (
-      answers.filter((answer) => answer.check).length > 1 &&
-      new Set(
-        answers
-          .filter((answer) => answer.check)
-          .map((answer) => answer.check.observed)
-      ).size > 1
-    ) {
+    // differently is the finding, whatever the answers are. A check that shows
+    // a measurement carries the categorical answer in `compare`, because two
+    // machines never measure the same number and a row marked on that would
+    // report a disagreement on every refresh.
+    const compared = answers
+      .filter((answer) => answer.check)
+      .map((answer) => answer.check.compare || answer.check.observed);
+    if (compared.length > 1 && new Set(compared).size > 1) {
       row.classList.add("uneven");
     }
 
