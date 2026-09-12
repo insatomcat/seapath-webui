@@ -709,8 +709,20 @@ The MAC is in the entry because the entry is what puts it in the domain. Where
 a bridge is named and `mac_address` is left out, this service generates one in
 the QEMU range and the answer reports it: it is the guest's identity on that
 bridge, which a DHCP reservation or a switch's port security is written
-against. Where no bridge is named, the interface belongs to the operator's own
-XML, and an address with no MAC is refused rather than matched against a guess.
+against.
+
+An XML that is not a `.j2` template declares its interfaces itself, whichever
+variable names it, and nothing renders `bridges` into it. So a bridge beside one
+is refused, and the MAC is read off the committed file: its one interface's MAC,
+or the one `mac_address` names among several. An XML whose interface has no
+`<mac>` is refused, because libvirt picks a random one at every definition and
+no seed can name it. So is a path the folder does not hold. A `.j2` template
+with no bridge named, which renders its interfaces its own way, still needs the
+MAC given.
+
+`xml_path` is refused on a standalone guest: `deploy_vms_standalone` renders
+`vm_template` and reads nothing else. A plain XML is a template with no `{{ }}`
+in it, which is how the page names one there.
 
 **A network that could not work is refused before it is written.** An address
 without its prefix, a gateway outside the network the address puts the guest

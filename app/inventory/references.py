@@ -222,6 +222,17 @@ def _candidates(value: str) -> Iterator[PurePosixPath]:
     yield PurePosixPath(os.path.normpath(f"{_PLAYBOOKS}/{value}"))
 
 
+def in_folder(value: str) -> str | None:
+    """Where a path an entry names is stored in the inventory folder.
+
+    `../files/guest.xml` is `files/guest.xml`, because the folder is mounted
+    where a checkout of `seapath-ansible` would be. None for a path that
+    escapes that root, which is a path the folder cannot hold.
+    """
+    candidate = _within_site_root(value)
+    return candidate.as_posix() if candidate is not None else None
+
+
 def _within_site_root(value: str) -> PurePosixPath | None:
     """The name to store the file under, or None when it escapes the root."""
     candidate = PurePosixPath(os.path.normpath(f"{_PLAYBOOKS}/{value}"))

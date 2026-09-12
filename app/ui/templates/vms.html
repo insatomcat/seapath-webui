@@ -209,17 +209,17 @@ image and losing its disk. D31 records the bounds.
       placeholder="br0">
     <p class="help">
       The interface the guest is given, written as <code>bridges</code> on its
-      entry. Leave it empty where the XML above declares the interface itself,
-      and give that interface's MAC below.
+      entry and rendered by a <code>.j2</code> template. Leave it empty for an
+      XML that is not a template: that file declares its interfaces itself.
     </p>
 
     <label for="add-mac">MAC address</label>
     <input type="text" id="add-mac" autocomplete="off" spellcheck="false"
-      placeholder="generated when a bridge is named">
+      placeholder="generated, or read from the XML">
     <p class="help">
       What the domain carries, and what the guest's own configuration matches
-      on to find the interface. A guest's interface names are the guest's
-      business, and its MAC is written here.
+      on to find the interface. Generated when a bridge is named, and read from
+      an XML that declares one interface. Give it only to choose between several.
     </p>
 
     <label class="switch">

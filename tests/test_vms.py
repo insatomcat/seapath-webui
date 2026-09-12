@@ -1155,6 +1155,95 @@ def test_two_guests_are_declared_from_one_image_and_one_template(
     assert hosts["first"]["ansible_host"] != hosts["second"]["ansible_host"]
 
 
+BROUGHT_XML = b"""<domain type="kvm">
+  <name>debian13c1</name>
+  <devices>
+    <interface type="bridge">
+      <source bridge="br0"/>
+      <mac address="52:54:00:aa:bb:01"/>
+    </interface>
+  </devices>
+</domain>
+"""
+
+
+def test_an_address_on_a_brought_xml_takes_the_mac_the_xml_declares(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    """What an operator met on a real machine: refused for a MAC the file had.
+
+    The page uploaded a plain `.xml`, then declared the guest with an address
+    and no bridge. The refusal asked for the MAC of the interface the XML
+    declares, which the service can read from the XML it had just committed.
+    """
+    stored = signed_in.put(
+        "/api/v1/inventory/files/files/debian13c1.xml", content=BROUGHT_XML
+    )
+    assert stored.status_code in (200, 201), stored.text
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "debian13c1",
+            "vm_disk": "../files/debian13c1.qcow2",
+            # Standalone, so the page names a plain XML as `vm_template`.
+            "vm_template": "../files/debian13c1.xml",
+            "network": {"address": "10.0.0.42/24", "gateway": "10.0.0.1"},
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["mac_address"] == "52:54:00:aa:bb:01"
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["debian13c1"]
+    assert "bridges" not in entry
+    primary = entry["cloud_init"]["network"]["ethernets"]["primary"]
+    assert primary["match"] == {"macaddress": "52:54:00:aa:bb:01"}
+
+
+def test_a_bridge_on_a_brought_xml_is_refused(signed_in: TestClient) -> None:
+    signed_in.put("/api/v1/inventory/files/files/debian13c1.xml", content=BROUGHT_XML)
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "debian13c1",
+            "vm_template": "../files/debian13c1.xml",
+            "network": {"bridge": "br0", "address": "10.0.0.42/24"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "read by nothing" in response.json()["error"]["message"]
+
+
+def test_a_brought_xml_the_folder_lacks_is_named(signed_in: TestClient) -> None:
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "debian13c1",
+            "vm_template": "../files/absent.xml",
+            "network": {"address": "10.0.0.42/24"},
+        },
+    )
+
+    assert response.status_code == 400
+    assert "../files/absent.xml" in response.json()["error"]["message"]
+
+
+def test_xml_path_on_a_standalone_guest_is_refused(signed_in: TestClient) -> None:
+    # `deploy_vms_standalone` renders `vm_template` and reads nothing else, so
+    # this entry would fail at the first task that looks the template up.
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "xml_path": "../files/newvm.xml"},
+    )
+
+    assert response.status_code == 400
+    assert "xml_path" in response.json()["error"]["message"]
+
+
 def test_a_declaration_replaced_keeps_its_own_address(
     signed_in: TestClient, settings: Settings
 ) -> None:

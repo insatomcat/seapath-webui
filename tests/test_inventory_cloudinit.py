@@ -317,3 +317,108 @@ def test_the_trust_alone_is_a_section_that_says_something() -> None:
             "users": [{"name": "ansible", "ssh_authorized_keys": [KEY_LINE]}]
         },
     }
+
+
+# An XML the operator brought, which declares the domain's interfaces itself.
+
+BROUGHT = b"""<domain type="kvm">
+  <name>debian13c1</name>
+  <devices>
+    <disk type="file" device="disk"><target dev="vda" bus="virtio"/></disk>
+    <interface type="bridge">
+      <source bridge="br0"/>
+      <mac address="52:54:00:AA:BB:01"/>
+    </interface>
+  </devices>
+</domain>
+"""
+
+
+def test_the_macs_of_a_brought_xml_are_read_off_its_interfaces() -> None:
+    assert cloudinit.brought_macs(BROUGHT) == (["52:54:00:aa:bb:01"], 1)
+
+
+def test_an_interface_without_a_mac_is_counted() -> None:
+    document = b"<domain><devices><interface type='network'/></devices></domain>"
+
+    assert cloudinit.brought_macs(document) == ([], 1)
+
+
+def test_a_file_that_is_not_xml_is_refused() -> None:
+    with pytest.raises(cloudinit.BroughtXmlRefused):
+        cloudinit.brought_macs(b"<domain>")
+
+
+def test_the_one_interface_of_a_brought_xml_gives_the_seed_its_mac() -> None:
+    # The case that was refused: an address, no bridge, no MAC typed, and an
+    # XML that already says which MAC the domain carries.
+    network = GuestNetwork(address="10.0.0.42/24")
+
+    completed = cloudinit.against_brought_xml(
+        network, ["52:54:00:aa:bb:01"], 1, "../files/debian13c1.xml"
+    )
+
+    assert completed.mac_address == "52:54:00:aa:bb:01"
+    assert cloudinit.refusal("debian13c1", completed) is None
+    assert "bridges" not in cloudinit.variables("debian13c1", completed)
+
+
+def test_a_bridge_beside_a_brought_xml_is_refused() -> None:
+    # Nothing renders a brought XML, so `bridges` would be read by nothing and
+    # a generated MAC would match no interface of the domain.
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="read by nothing"):
+        cloudinit.against_brought_xml(
+            GuestNetwork(bridge="br0", address="10.0.0.42/24"),
+            ["52:54:00:aa:bb:01"],
+            1,
+            "guest.xml",
+        )
+
+
+def test_a_mac_the_brought_xml_does_not_declare_is_refused() -> None:
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="52:54:00:aa:bb:01"):
+        cloudinit.against_brought_xml(
+            GuestNetwork(address="10.0.0.42/24", mac_address=MAC),
+            ["52:54:00:aa:bb:01"],
+            1,
+            "guest.xml",
+        )
+
+
+def test_a_mac_the_brought_xml_declares_is_accepted_whatever_its_case() -> None:
+    network = GuestNetwork(address="10.0.0.42/24", mac_address="52:54:00:AA:BB:02")
+
+    completed = cloudinit.against_brought_xml(
+        network, ["52:54:00:aa:bb:01", "52:54:00:aa:bb:02"], 2, "guest.xml"
+    )
+
+    assert completed.mac_address == "52:54:00:AA:BB:02"
+
+
+def test_several_interfaces_ask_which_one_the_address_belongs_to() -> None:
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="2 interfaces"):
+        cloudinit.against_brought_xml(
+            GuestNetwork(address="10.0.0.42/24"),
+            ["52:54:00:aa:bb:01", "52:54:00:aa:bb:02"],
+            2,
+            "guest.xml",
+        )
+
+
+def test_an_interface_libvirt_would_give_a_random_mac_is_refused() -> None:
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="random MAC"):
+        cloudinit.against_brought_xml(
+            GuestNetwork(address="10.0.0.42/24"), [], 1, "guest.xml"
+        )
+
+
+def test_a_brought_xml_with_no_interface_is_refused_an_address() -> None:
+    with pytest.raises(cloudinit.BroughtXmlRefused, match="no network interface"):
+        cloudinit.against_brought_xml(GuestNetwork(dhcp=True), [], 0, "guest.xml")
+
+
+def test_a_brought_xml_asks_nothing_of_a_section_without_an_address() -> None:
+    # The hostname and the trust alone need no interface.
+    network = GuestNetwork(hostname="hmi", trust_this_node=True)
+
+    assert cloudinit.against_brought_xml(network, [], 0, "guest.xml") == network

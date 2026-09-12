@@ -1205,11 +1205,17 @@
     element("add-static").hidden = element("add-dhcp").checked;
   });
 
-  // The role reads a `.j2` as a template and renders it per guest, and takes
-  // anything else as the XML itself. The extension is the only thing that
-  // says which, so the page reads it rather than asking the operator to.
+  // Which variable names the XML, which the two roles answer differently. The
+  // cluster role takes a `.j2` as a template and anything else as the XML
+  // itself, through `xml_path`. The standalone role reads `vm_template` and
+  // nothing else, and a plain XML is a template with no `{{ }}` in it, so there
+  // every file is written as `vm_template`: `xml_path` on a standalone guest
+  // fails at the first task that looks the template up.
   function xmlVariable(filename) {
-    return filename.endsWith(".j2") ? "vm_template" : "xml_path";
+    if (filename.endsWith(".j2") || chosenDeployment() !== "cluster") {
+      return "vm_template";
+    }
+    return "xml_path";
   }
 
   // The name under which a file is stored, which is also the path the entry

@@ -202,10 +202,19 @@ def declare(
     a machine. See [D30](decisions.md#d30).
     """
     service = _service(request)
-    # The MAC this service supplies where a bridge is named and the
-    # declaration leaves it out, resolved once so that the entry, the check
-    # and the answer all carry the same one.
-    network = payload.network.completed() if payload.network else None
+    # The MAC, resolved once so that the entry, the check and the answer all
+    # carry the same one: generated where a bridge is named for a template to
+    # render, read off the XML where the operator brought one.
+    try:
+        network = (
+            service.complete_network(
+                payload.network, payload.xml_path, payload.vm_template
+            )
+            if payload.network
+            else None
+        )
+    except InvalidGuest as error:
+        raise ApiError("invalid_guest", str(error), 400) from error
     trust = _trust(request, network)
     definition = _definition(payload, network, trust)
     try:

@@ -622,6 +622,7 @@ its label and applying it. See [D48](decisions.md#d48).
 | 11 | A guest added with the log in option accepts `ssh ansible@<address>` from this container with this node's key, once its host key is accepted, and the account's sudo rights are still the image's | cloud-init applying `users` to an account the image already created, which no fake runs | Pending |
 | 12 | The latency measurement runs inside that guest with nothing pasted by hand, and no `debian` account exists in it | The loop D41 left open, closed on a real guest | Pending |
 | 13 | A second guest added by picking the image and the template already on the node transfers nothing, and deploys from the same bytes as the first | The lists read from a real folder, and a deployment that copies a held artefact rather than an upload | Pending |
+| 14 | A guest added with a plain `.xml` and an address, no bridge and no MAC, is declared with the MAC its XML carries, and on a standalone machine its entry names the file as `vm_template` and deploys | The case first refused on a real machine, then the standalone role actually defining a domain from a template with no `{{ }}` | Pending |
 
 ### Result
 

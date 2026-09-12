@@ -48,6 +48,7 @@ import ipaddress
 import re
 import secrets
 from typing import Any
+from xml.etree import ElementTree
 
 from pydantic import BaseModel, Field
 
@@ -147,6 +148,88 @@ class GuestNetwork(BaseModel):
         if self.bridge and not self.mac_address:
             return self.model_copy(update={"mac_address": generate_mac()})
         return self
+
+
+class BroughtXmlRefused(ValueError):
+    """The network cannot be matched against the XML the operator brought."""
+
+
+def brought_macs(document: bytes) -> tuple[list[str], int]:
+    """The MACs the interfaces of a libvirt domain declare, and how many it has.
+
+    The MACs in document order and lower cased, because they are compared
+    against the ones the inventory already hands out and libvirt writes
+    whichever case it was given. The count is every `<interface>`, with or
+    without a `<mac>`. Raises `BroughtXmlRefused` for a file libvirt could not
+    read either.
+    """
+    try:
+        root = ElementTree.fromstring(document)
+    except ElementTree.ParseError as error:
+        raise BroughtXmlRefused(
+            f"The libvirt XML is not XML libvirt could read: {error}."
+        ) from error
+    interfaces = root.findall("./devices/interface")
+    macs = [
+        str(mac.get("address", "")).strip().lower()
+        for interface in interfaces
+        for mac in interface.findall("mac")
+        if str(mac.get("address", "")).strip()
+    ]
+    return macs, len(interfaces)
+
+
+def against_brought_xml(
+    network: GuestNetwork, declared: list[str], interfaces: int, xml: str
+) -> GuestNetwork:
+    """The network, with the MAC read off an XML the operator brought.
+
+    A brought XML declares the domain's interfaces itself. Nothing renders it:
+    the cluster role reads it with `lookup('file')` and the standalone one
+    renders a template with no `{{ }}` in it, so `bridges` would be written
+    and read by nothing, and a generated MAC would match no interface of the
+    domain. The guest would come up with a seed configuring a device it does
+    not have, which is a guest with no network at all.
+
+    So the MAC comes from the file. `declared` is what its interfaces carry and
+    `interfaces` how many it has, since an interface with no `<mac>` gets a
+    random one from libvirt at every definition, which no seed can match.
+    """
+    if network.bridge:
+        raise BroughtXmlRefused(
+            f"{xml} declares the guest's interfaces itself, so a bridge named "
+            "here would be written and read by nothing. Leave the bridge empty: "
+            "the MAC the seed matches on is read from the XML."
+        )
+    if not (network.address or network.dhcp):
+        return network
+
+    if network.mac_address:
+        if declared and network.mac_address.lower() not in declared:
+            raise BroughtXmlRefused(
+                f"{network.mac_address} is not the MAC of any interface {xml} "
+                f"declares, which are {', '.join(declared)}. The seed would "
+                "configure a device the domain does not have."
+            )
+        return network
+
+    if interfaces > len(declared):
+        raise BroughtXmlRefused(
+            f"{xml} has an interface with no <mac address=.../>, so libvirt "
+            "picks a random MAC each time it defines the domain and no seed "
+            "can name that interface. Write the MAC into the XML."
+        )
+    if not declared:
+        raise BroughtXmlRefused(
+            f"{xml} declares no network interface, so there is nothing for an "
+            "address to be given to."
+        )
+    if len(declared) > 1:
+        raise BroughtXmlRefused(
+            f"{xml} declares {len(declared)} interfaces, {', '.join(declared)}. "
+            "Give the MAC of the one this address belongs to."
+        )
+    return network.model_copy(update={"mac_address": declared[0]})
 
 
 def generate_mac() -> str:
@@ -294,8 +377,8 @@ def refusal(
     if (network.address or network.dhcp) and not network.mac_address:
         return (
             "An address reaches an interface, and the seed names that "
-            "interface by its MAC. Name the bridge to attach one, or give the "
-            "MAC of the interface the XML you brought declares."
+            "interface by its MAC. Name the bridge the template attaches the "
+            "guest to, or give the MAC of the interface the template declares."
         )
 
     if network.address:

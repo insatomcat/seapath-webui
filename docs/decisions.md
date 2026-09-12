@@ -3365,6 +3365,35 @@ list somebody has to keep. A string that comes back as itself is written bare,
 so `52:54:00:e4:ff:02`, which has hexadecimal digits in it and is a string in
 both versions, stays unquoted and the file still reads like one somebody wrote.
 
+### A brought XML already says which MAC the guest carries
+
+The first guest declared on a real machine with an address came with a plain
+`.xml`, and was refused for want of a MAC: name a bridge, or give the MAC of the
+interface the XML declares. The XML was in the folder, committed one step
+earlier, and it said the MAC. The refusal asked the operator to copy a value
+this service could read.
+
+It also hid a worse case. A bridge named beside that XML would have gone
+through: `bridges` written, a MAC generated, a seed matching it. Nothing renders
+a brought XML, since the cluster role reads it with `lookup('file')` and the
+standalone one renders a template with no `{{ }}` in it, so `bridges` would have
+been read by nothing, and the seed would have configured a MAC the domain does
+not carry. A guest with no network, from a form that accepted it.
+
+So the file decides. A declaration naming an XML that is not a `.j2` template
+reads the committed file and takes the MAC of its one interface, or checks the
+one given against its interfaces when there are several. A bridge beside it is
+refused, and so is an interface with no `<mac>`, which libvirt gives a random
+MAC at every definition and no seed can name. A `.j2` keeps the rules above,
+since a template renders `bridges` and its MAC is this entry's to give.
+
+The same machine showed the older gap under it. `deploy_vms_standalone` renders
+`vm_template` and reads nothing else, while the page had named every plain XML
+`xml_path` since [D30](#d30): on a standalone machine that is a guest failing at
+the first task that looks the template up. The page now writes every XML as
+`vm_template` there, and `xml_path` joined the variables refused on a guest the
+standalone role creates.
+
 ### One image for a site, and where the address is read
 
 The form used to upload a disk image and an XML for every guest, stored as

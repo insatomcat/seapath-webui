@@ -37,6 +37,7 @@ from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
 from app.cluster.rbd import RbdClient, RbdUnavailable
 from app.inventory import cloudinit
+from app.inventory.files import UnsafePath
 from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
@@ -44,7 +45,7 @@ from app.inventory.model import (
     Inventory,
     Mode,
 )
-from app.inventory.references import Reference
+from app.inventory.references import Reference, in_folder
 from app.inventory.repository import Commit
 from app.inventory.service import InventoryService, InventoryState
 from app.services.cluster import ClusterService
@@ -244,6 +245,11 @@ CLUSTER_ONLY = (
     "nostart",
     "colocated_vms",
     "strong_colocation",
+    # `deploy_vms_standalone` renders `vm_template` and reads nothing else, so
+    # a standalone guest naming only `xml_path` fails at the first task that
+    # looks the template up. A plain XML is a template with no `{{ }}` in it,
+    # and that is how a standalone entry names one.
+    "xml_path",
 )
 STANDALONE_ONLY = ("autostart", "disk_extract")
 
@@ -421,6 +427,44 @@ class VmService:
         if state.inventory is None:
             return Mode.STANDALONE
         return state.inventory.deployment_of(guest)
+
+    def complete_network(
+        self,
+        network: cloudinit.GuestNetwork,
+        xml_path: str | None,
+        vm_template: str | None,
+    ) -> cloudinit.GuestNetwork:
+        """The network with its MAC, from wherever the domain's interface is.
+
+        A `.j2` template renders `bridges`, so the interface is this entry's to
+        declare and a missing MAC is generated. Any other XML declares its
+        interfaces itself, whichever variable names it, and the MAC is read off
+        the committed file.
+        """
+        brought = xml_path or (
+            vm_template if vm_template and not vm_template.endswith(".j2") else None
+        )
+        if brought is None:
+            return network.completed()
+
+        stored = in_folder(brought)
+        try:
+            document = self._inventory.read_file(stored) if stored else None
+        except (OSError, UnsafePath):
+            document = None
+        if document is None:
+            if network.bridge or network.address or network.dhcp:
+                raise InvalidGuest(
+                    f"{brought} is not in the inventory folder, and its "
+                    "interfaces are where the guest's MAC is read from. Commit "
+                    "the XML first."
+                )
+            return network
+        try:
+            macs, interfaces = cloudinit.brought_macs(document)
+            return cloudinit.against_brought_xml(network, macs, interfaces, brought)
+        except cloudinit.BroughtXmlRefused as error:
+            raise InvalidGuest(str(error)) from error
 
     def declare(
         self,
