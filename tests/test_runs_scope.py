@@ -72,6 +72,17 @@ def test_a_playbook_that_names_the_guests_is_limited_away_from_them() -> None:
     assert plan.excluded == ["guest1", "guest2"]
 
 
+def test_a_playbook_aimed_at_the_guests_and_nothing_else_keeps_them() -> None:
+    # `test_run_cyclictest_vms` measures inside a guest, so the group is what it
+    # plays on purpose. Subtracting it would leave the run nothing to play, and
+    # it would end green having measured nothing.
+    plan = scoping.plan(["VMs"], table(CLUSTER))
+
+    assert plan.limit is None
+    assert plan.hosts == ["guest1", "guest2"]
+    assert plan.excluded == []
+
+
 def test_a_playbook_that_names_no_guest_carries_no_limit() -> None:
     plan = scoping.plan(["cluster_machines"], table(CLUSTER))
 

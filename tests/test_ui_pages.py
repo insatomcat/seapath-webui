@@ -880,6 +880,23 @@ def test_the_real_time_page_shows_one_panel_at_a_time(
     assert body.count('class="card pane" id="card-measure" hidden') == 1
 
 
+def test_the_guest_latency_panel_says_what_a_guest_needs_to_be_measurable(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/realtime").text
+
+    # One guest at a time, chosen before the run: the playbook plays the whole
+    # group, and measuring every guest at once measures the contention between
+    # the measurements.
+    assert 'id="panel-guest_cyclictest"' in body
+    assert 'id="guest-choice"' in body
+    # And the key this node connects with, offered to be pasted into the guest.
+    # Installing it would be this service writing inside a VM, which it never
+    # does, so the panel carries the line and the button that copies it.
+    assert 'id="guest-key-line"' in body
+    assert 'id="guest-key-copy"' in body
+
+
 def test_the_real_time_view_bar_carries_each_panel_s_answer(
     signed_in: TestClient,
 ) -> None:
@@ -890,10 +907,16 @@ def test_the_real_time_view_bar_carries_each_panel_s_answer(
     # would lead with, and the page still answers at a glance without an
     # operator opening the three panels that are hidden.
     bar = body.split('<nav class="views"')[1].split("</nav>")[0]
-    for view in ["checks", "pool", "cyclictest", "hwlatdetect"]:
+    for view in [
+        "checks",
+        "pool",
+        "cyclictest",
+        "guest_cyclictest",
+        "hwlatdetect",
+    ]:
         assert f'data-view="{view}"' in bar
-    assert bar.count('class="view-answer"') == 4
-    assert bar.count('<span class="dot ') == 4
+    assert bar.count('class="view-answer"') == 5
+    assert bar.count('<span class="dot ') == 5
 
 
 # The property a reverse proxy depends on: nothing this service serves names a

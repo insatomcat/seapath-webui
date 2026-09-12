@@ -252,9 +252,9 @@ Asking the exporter is the opposite of holding a second source of truth for it.
 
 ![The Real time page, CPU pool: one column per physical core and one cell per thread, on every machine the inventory declares](img/11-2-realtime-cpu-pool.png)
 
-It is the one page laid out as an application rather than as a document. Four
-views, Conformance, CPU pool, Latency and Firmware, and a bar of tabs that
-carries what each of them found: its worst status as a dot, and the one line
+It is the one page laid out as an application rather than as a document. Five
+views, Conformance, CPU pool, Latency, Guest latency and Firmware, and a bar of
+tabs that carries what each of them found: its worst status as a dot, and the one line
 its panel would lead with. The glance costs no click, and the view behind the
 tab has the whole screen, which is what ten checks across four machines of
 forty-eight threads need. Every reading is fetched before the first tab is
@@ -277,6 +277,20 @@ the form holds and the machines that will be played, the run lands in the
 history beside the convergences, and each view keeps the earlier ones, so a
 figure is read beside the inventory commit the machines were carrying when it
 was taken.
+
+A fifth view measures inside a guest. The figure above is the hypervisor's
+scheduler; the application in the guest waits for that plus the scheduling of
+its vCPU threads, the VM exits and the virtualised timer, and the difference
+between the two, taken under the same inventory commit, is what virtualisation
+costs on that machine. The guest measured is the operator's own, in place: the
+panel offers the guests whose inventory entry carries an address, one is chosen,
+and the run is narrowed to it, because loading every guest at real time priority
+at once measures the contention between the measurements. What a guest needs to
+be measurable is said on the panel, with this node's public key beside it to
+copy: an address, that key in the account Ansible connects as with sudo, and
+`rt-tests` installed. This service installs none of the three, because writing
+inside a VM would be configuring a machine behind Ansible's back. See D41 in
+[docs/decisions.md](docs/decisions.md).
 
 ![The Runs page: the history on the left, one run and its task stream on the right](img/12-runs.png)
 

@@ -383,3 +383,141 @@ def test_every_node_carries_its_conformance_beside_its_pool(
     # The raw values the checks were formed from, for an automation client
     # asking the same question of a machine it cannot log into.
     assert node["reading"]["tuned_profile"]
+
+
+# Measuring inside a guest. The same role over a different SSH path, and the
+# three things that make it a different act: a guest with an address, a run
+# narrowed to it, and a history of its own.
+
+GUESTS = """
+all:
+  hosts:
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+      admin_user: admin
+  children:
+    standalone_machine:
+      hosts:
+        seapath-machine:
+    hypervisors:
+      hosts:
+        seapath-machine:
+    VMs:
+      hosts:
+        rtvm:
+          ansible_host: 192.168.200.31
+        appliance:
+"""
+
+# The same file with no address anywhere in the group, which is what every
+# inventory written before anyone wanted to reach into a guest looks like.
+NO_ADDRESS = GUESTS.replace("          ansible_host: 192.168.200.31\n", "")
+
+
+def test_a_guest_is_measured_by_a_run_narrowed_to_it(
+    signed_in: TestClient, run_adapter, settings
+) -> None:
+    signed_in.post("/api/v1/inventory/import", json={"document": GUESTS})
+
+    run_id = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "test_run_cyclictest_vms",
+            "scope": {"groups": [], "hosts": ["rtvm"]},
+            "variables": {"cyclictest_duration": 60, "cyclictest_affinity": "2-3"},
+        },
+    ).json()["run_id"]
+    wait_for(signed_in, run_id)
+
+    request = run_adapter.requests[0]
+    assert request.playbook == "seapath.ansible.test_run_cyclictest_vms"
+    # The playbook plays the whole `VMs` group, and this is the one guest the
+    # operator chose. The other guest of the file is never logged into.
+    assert request.limit == "rtvm"
+    assert request.extra_vars["cyclictest_result_folder"] == str(
+        settings.runs_dir / run_id / "results"
+    )
+    assert request.extra_vars["cyclictest_duration"] == 60
+    assert signed_in.get(f"/api/v1/runs/{run_id}").json()["machines"] == ["rtvm"]
+
+
+def test_a_guest_measurement_that_names_no_guest_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # `hosts: VMs` would load every guest of the inventory at real time
+    # priority at once, which measures the contention between the measurements
+    # rather than the latency of any one guest.
+    signed_in.post("/api/v1/inventory/import", json={"document": GUESTS})
+
+    response = signed_in.post(
+        "/api/v1/runs", json={"playbook": "test_run_cyclictest_vms"}
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "scope_required"
+
+
+def test_a_guest_with_no_address_cannot_be_measured_and_the_page_says_why(
+    signed_in: TestClient,
+) -> None:
+    signed_in.post("/api/v1/inventory/import", json={"document": NO_ADDRESS})
+
+    entry = next(
+        item
+        for item in signed_in.get("/api/v1/playbooks").json()
+        if item["entry"]["id"] == "test_run_cyclictest_vms"
+    )
+
+    assert entry["available"] is False
+    assert entry["unmet_codes"] == ["guest_addressable"]
+    assert "ansible_host" in entry["unmet"][0]
+
+
+def test_the_guests_a_measurement_may_be_aimed_at_are_the_addressable_ones(
+    signed_in: TestClient,
+) -> None:
+    signed_in.post("/api/v1/inventory/import", json={"document": GUESTS})
+
+    choices = signed_in.get("/api/v1/playbooks/scopes").json()
+
+    # Both are in the group, because both are deployed from it. Only one of them
+    # can be logged into, and the form offers that one.
+    assert choices["guests"] == ["appliance", "rtvm"]
+    assert choices["addressable_guests"] == ["rtvm"]
+
+
+def test_a_guest_measurement_is_a_history_of_its_own(
+    signed_in: TestClient, settings
+) -> None:
+    """Told apart from the machine figure, because it answers for something else.
+
+    The number carries the vCPU scheduling, the VM exits and the virtualised
+    timer on top of what the hypervisor's scheduler delivered. Listing the two
+    under one heading would hide the difference the pair exists to show.
+    """
+    signed_in.post("/api/v1/inventory/import", json={"document": GUESTS})
+    run_id = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "test_run_cyclictest_vms",
+            "scope": {"groups": [], "hosts": ["rtvm"]},
+        },
+    ).json()["run_id"]
+    wait_for(signed_in, run_id)
+    # The role names the file it fetches after the inventory host it ran on, so
+    # inside a guest that name is the guest's.
+    (settings.runs_dir / run_id / "results" / "cyclictest_rtvm.txt").write_text(SMP)
+
+    inside = signed_in.get("/api/v1/realtime/measurements?kind=guest_cyclictest").json()
+
+    assert [item["run_id"] for item in inside] == [run_id]
+    assert inside[0]["latency"][0]["host"] == "rtvm"
+    assert [thread["max_us"] for thread in inside[0]["latency"][0]["threads"]] == [
+        15,
+        12,
+        9,
+        11,
+    ]
+    # And it is not one of the machine measurements.
+    assert signed_in.get("/api/v1/realtime/measurements?kind=cyclictest").json() == []

@@ -76,6 +76,17 @@ class Precondition(str, Enum):
     produces a run that dies on `unreachable` after the operator has confirmed
     a disruptive convergence, which is a late and expensive way to learn it.
     """
+    GUEST_ADDRESSABLE = "guest_addressable"
+    """At least one guest of the inventory can be reached over SSH.
+
+    Only the guest measurement asks. A guest is measured from inside, which
+    means Ansible logs into it the way it logs into a machine, and an entry of
+    the `VMs` group carries no address unless someone wrote one: the group is
+    the list `deploy_vms_*` loops over to create domains, and creating a domain
+    needs no route to it. So an inventory whose guests are all unaddressable
+    gets the sentence that says which variable is missing, rather than a run
+    that dies on `unreachable` after the operator confirmed a measurement.
+    """
     STANDALONE = "standalone"
     CLUSTER = "cluster"
     PLAYBOOK_PRESENT = "playbook_present"
@@ -215,6 +226,16 @@ class PlaybookEntry(BaseModel):
     container, not an operator's decision, so it is absent from `variables` and
     the API refuses it there like any other undeclared name.
     """
+    scope_required: bool = False
+    """This entry refuses to run against everything its playbook plays.
+
+    One entry carries it: measuring inside the guests. `hosts: VMs` plays every
+    guest of the inventory, and loading all of them at real time priority at
+    once measures the contention between the measurements rather than the
+    latency of any one guest. The choice of guest is therefore part of the
+    request, and a launch with no scope is refused with that sentence instead
+    of being run as the widest possible version of itself.
+    """
     measures: bool = False
     """This run measures the machines rather than converging them.
 
@@ -252,6 +273,12 @@ _SKIP_REBOOT_SETUP = _skip_reboot("skip_reboot_setup")
 _SKIP_REBOOT_NETWORK = _skip_reboot("skip_reboot_setup_network")
 
 _MACHINE_TARGETS = ["cluster_machines", "standalone_machine"]
+
+# What a playbook that reaches into the guests plays, copied from its own
+# `hosts:` line. One entry uses it, and `app.runs.scope` keeps the guests for a
+# playbook that names nothing else: subtracting them would leave it nothing to
+# play.
+_GUEST_TARGETS = ["VMs"]
 
 # The prerequisites, one playbook per distribution. `seapath_setup_main` picks
 # between them after `detect_seapath_distro`, and that choice is the only thing
@@ -819,6 +846,90 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "temporary directory, runs cyclictest, fetches the histogram and "
             "leaves. The histogram is parsed and charted on the real time "
             "page, and kept with the run."
+        ),
+    ),
+    PlaybookEntry(
+        id="test_run_cyclictest_vms",
+        playbook=f"{COLLECTION}.test_run_cyclictest_vms",
+        title="Measure the latency inside a guest (cyclictest)",
+        targets=list(_GUEST_TARGETS),
+        # The same role as the machine measurement, so the same reasoning about
+        # check mode: one `command` and a `fetch` of what it wrote.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        measures=True,
+        # A guest at a time. The playbook plays the whole group, and this is
+        # what keeps a measurement of one guest from being a measurement of the
+        # contention between all of them.
+        scope_required=True,
+        results_variable="cyclictest_result_folder",
+        disruption=(
+            "Runs cyclictest inside the guest, at real time priority, on the "
+            "vCPUs named. Those vCPUs are threads of a QEMU process on a "
+            "hypervisor that is carrying other guests, so the application this "
+            "guest exists to run shares them with the measuring threads for "
+            "the whole duration, and what it delivers while the measurement "
+            "runs is not what it delivers otherwise."
+        ),
+        # No `SELF_TRUST` and no `PEER_REACHABLE`: this run reaches a guest and
+        # neither this node nor another machine. What it needs instead is a
+        # guest with an address, which is the precondition below, and a key the
+        # operator installed in it, which nothing here can check.
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.GUEST_ADDRESSABLE,
+            Precondition.PLAYBOOK_PRESENT,
+        ],
+        variables=[
+            VariableSpec(
+                name="cyclictest_duration",
+                type=VariableType.SECONDS,
+                description=(
+                    "How long to measure, in seconds. Twenty is the upstream "
+                    "default and enough to catch a gross misconfiguration. A "
+                    "figure worth quoting takes hours, and inside a guest that "
+                    "is hours of the application sharing its vCPUs with the "
+                    "measurement."
+                ),
+            ),
+            VariableSpec(
+                name="cyclictest_priority",
+                type=VariableType.PRIORITY,
+                description=(
+                    "The SCHED_FIFO priority of the measuring threads, inside "
+                    "the guest. It is compared with the priorities of the "
+                    "guest's own real time threads rather than with the "
+                    "hypervisor's: above them it measures the guest's "
+                    "scheduler, below them it measures what is left once the "
+                    "application has been served."
+                ),
+            ),
+            VariableSpec(
+                name="cyclictest_affinity",
+                type=VariableType.CPU_LIST,
+                description=(
+                    "Which vCPUs to measure, in the guest's own numbering. "
+                    "`smp` runs one thread per online vCPU, which is the "
+                    "upstream default. The isolated set is not offered by name "
+                    "here as it is for a machine: a guest publishes no "
+                    "exporter, so what is isolated inside it is not read from "
+                    "this service."
+                ),
+            ),
+        ],
+        notes=(
+            "The measurement the hypervisor figure cannot give. cyclictest on "
+            "the host reports the scheduler a guest waits behind; this reports "
+            "what the application inside the guest actually waits for, which "
+            "is that plus the vCPU scheduling, the VM exits and the "
+            "virtualised timer. Read the two side by side and the difference "
+            "is what virtualisation costs on this machine.\n\n"
+            "The guest is reached over SSH, so its inventory entry needs an "
+            "`ansible_host` and an account this node holds a key for, with "
+            "sudo. `rt-tests` must already be installed in it: the role "
+            "refuses to install anything, which is what makes a measurement "
+            "change nothing on what it measures. A guest missing either says "
+            "so at the first task, naming the package or the connection."
         ),
     ),
     PlaybookEntry(

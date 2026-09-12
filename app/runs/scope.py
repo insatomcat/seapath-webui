@@ -22,6 +22,13 @@ seeing all of them. What the subtraction removes is the plays that reach *into*
 a guest: `detect_seapath_distro`, the prerequisites, the hardening, and the
 `wait_for_connection` of `deploy_vms_standalone`.
 
+The exception is a playbook whose `hosts:` line names the guests and nothing
+else. Subtracting them there leaves nothing to play, so the run would end green
+having done nothing at all, which is the outcome this module refuses everywhere
+else. `test_run_cyclictest_vms` is the case: it measures inside a guest, and it
+is aimed at the group on purpose. Such an entry carries `scope_required`, so the
+guest is chosen by the operator rather than defaulted to every guest at once.
+
 **A run can be narrowed, to any set of groups and machines.** [D8](decisions.md#d8)
 refuses a tag selector and that stands: tags were never a public interface, and
 a combination nobody has run is not a smaller version of a playbook. A host
@@ -134,6 +141,14 @@ class ScopeChoices(BaseModel):
     run narrowed to the machines that answer is not. The chooser is where an
     operator acts on that, so it is where the list belongs.
     """
+    addressable_guests: list[str] = Field(default_factory=list)
+    """The guests an Ansible run can reach, which is a smaller list than `guests`.
+
+    A guest is in the group so that `deploy_vms_*` creates it, and creating a
+    domain needs no route to it: an entry carries an address only when someone
+    wrote `ansible_host` on it. The one run that reaches into a guest, measuring
+    the latency inside it, is offered these and no others.
+    """
 
 
 def table(document: str | dict[str, Any]) -> dict[str, Group]:
@@ -146,7 +161,11 @@ def table(document: str | dict[str, Any]) -> dict[str, Group]:
     return groups(document)
 
 
-def choices(table: dict[str, Group], unreachable: Sequence[str] = ()) -> ScopeChoices:
+def choices(
+    table: dict[str, Group],
+    unreachable: Sequence[str] = (),
+    addressable_guests: Sequence[str] = (),
+) -> ScopeChoices:
     """Every group and every host a scope may name.
 
     Read from the file rather than from the typed model, because an adopted
@@ -163,6 +182,7 @@ def choices(table: dict[str, Group], unreachable: Sequence[str] = ()) -> ScopeCh
         hosts=sorted(members(table, ROOT)),
         guests=sorted(members(table, GUEST_GROUP)),
         unreachable=sorted(unreachable),
+        addressable_guests=sorted(addressable_guests),
     )
 
 
@@ -214,6 +234,11 @@ def _default(
     guests: set[str],
     asked: RunScope,
 ) -> Scope:
+    if played is not None and played and played <= guests:
+        # A playbook aimed at the guests and at nothing else. The subtraction
+        # would empty it, so the guests stay and the entry asks for a guest to
+        # be named instead. See the module docstring.
+        return Scope(limit=None, hosts=sorted(played), excluded=[], requested=asked)
     if played is None:
         # An unreadable `hosts:` line. The group is subtracted whenever the
         # playbook names it, which is all this can honestly say.

@@ -2208,6 +2208,30 @@ button.secondary {
   width: auto;
 }
 
+/* The public key to paste into a guest, on one line with the button that copies
+   it. The line is long and monospaced, so it is the part allowed to shrink. */
+.measure-key {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  margin-bottom: 0.5rem;
+}
+
+.measure-key code {
+  overflow-x: auto;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 20rem;
+  padding: 0.2rem 0.35rem;
+}
+
+.measure-key button {
+  width: auto;
+  flex: 0 0 auto;
+}
+
 .measure-body {
   display: flex;
   flex-direction: column;

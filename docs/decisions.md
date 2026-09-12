@@ -2608,3 +2608,67 @@ What was accepted: a node running a collection older than that change reports
 and names `ptp_status_vsock` as what adds it. The NTP side stops at chrony's
 own flag and bounds: which source chrony selected is `chronyc tracking`, which
 nothing publishes yet.
+
+## D41 - Settled: a guest is measured from inside, over the trust the operator installed
+
+`cyclictest` on a hypervisor measures the scheduler a guest waits behind
+([D24](#d24)). The application inside the guest waits for that plus the
+virtualisation: the scheduling of its vCPU threads, the VM exits, the
+virtualised timer. Neither figure can be derived from the other, and the pair is
+the interesting object, since the difference between two measurements taken
+under the same inventory commit is what virtualisation costs on that machine.
+
+**The first design was a probe VM, and it was dropped.** The service would build
+a preconfigured guest, deploy it, measure inside it and dispose of it. What that
+costs is a guest image carrying `rt-tests` and cloud-init, `cloud-localds` in
+this container to build the seed, an RBD image and a Pacemaker resource on a
+cluster, placement that does not move mid measurement, two inventory commits and
+three runs per measurement. What it buys is the latency of a guest nobody runs.
+Meanwhile the guest whose number actually matters is already on the machine: the
+one carrying the application, configured by the site, pinned by
+`seapath-alloc`. So the feature is a verification of the operator's own guest,
+which is what this service is for.
+
+**It is one guest at a time.** The upstream playbook plays `VMs`, and left alone
+that loads every guest of the inventory at real time priority at once, so each
+guest would report the contention between the measurements rather than its own
+latency. The entry carries `scope_required`, the only one that does, and a
+launch naming no guest is refused with that sentence. `app.runs.scope` also had
+to stop subtracting the guests for a playbook whose `hosts:` line names nothing
+else, since [D39](#d39)'s subtraction would leave this one nothing to play and
+the run would end green having measured nothing.
+
+**The trust into the guest is the operator's to install.** This service writes
+the `authorized_keys` of the `ansible` account on the machines, and that bound is
+load bearing: appending to a file inside a VM would be the service configuring a
+machine outside Ansible. So the Real time page shows this node's public key with
+its fingerprint and copies it on request, and says the three things a guest needs
+to be measurable: an `ansible_host` on its entry, that key in the account Ansible
+connects as with sudo, and `rt-tests` installed. Where the guest is created with
+cloud-init, the same line belongs in the `ssh_authorized_keys` of its
+`cloud_init` mapping, and the deployment installs it. A password prompt that
+pushed the key with `ssh-copy-id` was considered and refused for the same
+reason, and it would have meant holding a credential for a machine this service
+otherwise never authenticates to.
+
+**What it costs the guest is said before it runs.** The measuring threads share
+the vCPUs with the application, in the same scheduler, for the whole duration:
+this is more intrusive than the machine measurement, where the guests at least
+keep their own priorities. The confirmation names the guest and says so, and the
+`guest_addressable` precondition names the missing variable while no guest
+carries an address.
+
+**The numbers are in the guest's terms.** The priority is compared with the
+priorities of the guest's own real time threads, and the CPU list is the guest's
+own numbering. The isolated set is not offered by name as it is for a machine: a
+guest publishes no exporter, so what is isolated inside it is not read from
+here.
+
+Two things were left out deliberately. `hwlatdetect` inside a guest is not
+offered: the tracer holds interrupts off to catch the firmware taking the CPU,
+and inside a guest it cannot tell that from the hypervisor preempting the vCPU,
+which is the one distinction it exists to make. And the placement the guest had
+at the moment of the measurement is not recorded on the run: the CPU pool view
+reads it live from each node's exporter, and the run already carries the
+inventory commit, so what is missing is only the history of a placement
+`seapath-alloc` chooses at every start.

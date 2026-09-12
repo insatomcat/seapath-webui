@@ -320,6 +320,32 @@ def test_the_trust_view_shows_the_relation_a_run_depends_on(
     assert relations[0]["fingerprint"].startswith("SHA256:")
 
 
+def test_this_node_hands_over_its_public_key_for_an_account_it_cannot_write(
+    signed_in: TestClient, signed_in_viewer: TestClient
+) -> None:
+    """What makes a guest measurable, since this service installs it nowhere.
+
+    The `authorized_keys` this service writes is the `ansible` account's on the
+    machines. Reaching inside a guest needs the same key in an account of the
+    guest, and putting it there is the operator's act, so the line is handed
+    over to be pasted or to be written into a `cloud_init` mapping.
+    """
+    key = signed_in.get("/api/v1/trust/public-key").json()
+
+    assert key["public_key"].startswith("ssh-ed25519 ")
+    assert key["fingerprint"].startswith("SHA256:")
+    # The comment says which node and which service the line authorises, in an
+    # account that will hold several.
+    assert key["comment"] == "seapath-webui@seapath-machine"
+    # The same key the self relation was provisioned with, rather than a second
+    # pair nothing installed anywhere.
+    relation = signed_in.get("/api/v1/trust/relations").json()[0]
+    assert relation["fingerprint"] == key["fingerprint"]
+    # Public by nature: what it authorises is the private half, which never
+    # leaves this node.
+    assert signed_in_viewer.get("/api/v1/trust/public-key").status_code == 200
+
+
 def test_a_machine_with_no_ansible_account_is_told_so_by_the_catalogue(
     signed_in: TestClient, host_tree: Path
 ) -> None:

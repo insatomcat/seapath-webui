@@ -448,3 +448,28 @@ loop over `groups['VMs']` still see every guest. See [D39](decisions.md#d39).
 ### Result
 
 Not yet run.
+
+## The latency inside a guest
+
+Every part of this runs against fakes here: the catalogue entry, the refusal of
+a launch that names no guest, the `--limit`, and the parsing of a histogram whose
+host name is a guest's. What no fake answers is whether the measurement happens
+at all, which is an SSH connection into a VM, `sudo`, `rt-tests` and a real
+`cyclictest` inside a guest whose vCPUs are pinned by `seapath-alloc`. See
+[D41](decisions.md#d41).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | A guest carrying an `ansible_host`, this node's key in its own account and `rt-tests` installed is offered on the Guest latency panel, and a guest carrying none of it is not | The reading of a real inventory against a real guest an operator prepared | Pending |
+| 2 | The run reaches the guest, `cyclictest` runs inside it and the histogram comes back named after the guest | The SSH path into a VM, `become` in the guest, and the role's `fetch` from it | Pending |
+| 3 | The guest figure is worse than the machine figure taken under the same inventory commit, and the difference is stable across two runs | The number itself, which is the whole point and which no fake produces | Pending |
+| 4 | The application in the guest is visibly disturbed while the measurement runs, as the confirmation says | What the measuring threads do to the guest's own real time threads | Pending |
+| 5 | A guest with no `rt-tests` fails at the role's own check, naming the package, rather than with a traceback | The upstream role's guard, on a guest that really lacks the package | Pending |
+| 6 | The public key the panel copies, pasted into the guest's `authorized_keys`, is enough for the run: nothing else was needed | The trust into a guest, which this service deliberately does not install | Pending |
+| 7 | The same playbook run from a control machine with the same `--limit` measures the same guest and reports the same shape of result | Point 5 of the definition of done, on the one entry that reaches into a guest | Pending |
+
+### Result
+
+Not yet run.

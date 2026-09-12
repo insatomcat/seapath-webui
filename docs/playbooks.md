@@ -222,9 +222,10 @@ no preview button at all rather than a button that lies.
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
 | `test_run_cyclictest.yaml` | `cluster_machines`, `standalone_machine` | none | no | The `cyclictest` role on its own. Copies a script to a temporary directory, runs `cyclictest`, fetches the histogram, leaves. Changes nothing on the machines. Launched from the Real time page, where its parameters and its chart are. |
+| `test_run_cyclictest_vms.yaml` | `VMs` | none | no | The same `cyclictest` role, played inside one guest rather than on the machines. Launched against one guest at a time: a request that names none is refused with `scope_required`. The guest needs an `ansible_host`, this node's key in the account Ansible connects as, and `rt-tests` installed. |
 | `test_run_hwlatdetect.yaml` | `cluster_machines`, `standalone_machine` | none | no | The `hwlatdetect` role on its own. Measures the interruptions the kernel never sees. Records the absence of the `hwlat` tracer in the fetched result rather than failing, so one kernel that cannot answer does not take down a run that has already loaded the other machines. |
 
-The two entries in the catalogue that measure rather than converge, and the
+The three entries in the catalogue that measure rather than converge, and the
 distinction earns a flag on the entry (`measures`) because the confirmation has
 to say a different sentence. A convergence is dangerous through what it
 *writes*. This is dangerous through what it *runs*: a thread per measured CPU
@@ -262,6 +263,44 @@ from the `cyclictest` figures alike. A machine that passes every check and
 still misses its deadline is either a firmware problem or a configuration one,
 and this is what separates them. Nothing in an inventory reaches it, and the
 page says so: the fix is in the BIOS.
+
+**Measuring inside a guest is a third entry.** `cyclictest` on a hypervisor
+measures the scheduler a guest waits behind. An application inside a guest waits
+for that plus the virtualisation: the scheduling of its vCPU threads, the VM
+exits, the virtualised timer. Neither number can be derived from the other, and
+the pair is the interesting object: taken under the same inventory commit, the
+difference between them is what virtualisation costs on that machine.
+
+Three things make it a different act from the machine measurement, and each one
+shows up in the entry.
+
+- **It is aimed at one guest.** The playbook plays `VMs`, so left alone it would
+  load every guest of the inventory at real time priority at once, and each
+  guest would then be reporting the contention between the measurements rather
+  than its own latency. The entry carries `scope_required`, the only one that
+  does: a launch naming no guest is refused with that sentence instead of being
+  run as the widest possible version of itself. `app.runs.scope` also keeps the
+  guests for a playbook whose `hosts:` line names nothing else, since the
+  ordinary subtraction would leave this one nothing to play. See
+  [D39](decisions.md#d39) and [D41](decisions.md#d41).
+- **The trust is the operator's to install.** The guest needs an `ansible_host`
+  on its entry, `rt-tests` installed, and this node's public key in the account
+  Ansible connects as, with sudo. This service installs none of the three. It
+  writes the `authorized_keys` of the `ansible` account on the machines, and a
+  guest sits outside that bound: growing the exception to reach inside a VM is
+  what [AGENTS.md](../AGENTS.md) forbids. So the Real time page names the three
+  requirements and offers the public key to copy, and the `guest_addressable`
+  precondition says which variable is missing while none of the guests carries
+  an address.
+- **The numbers mean something else.** The priority is compared with the
+  priorities of the guest's own real time threads rather than with the
+  hypervisor's, and the CPU list is in the guest's own numbering. The isolated
+  set is not offered by name as it is for a machine: a guest publishes no
+  exporter, so what is isolated inside it is not read from here.
+
+The result is parsed by the same code, because it is the same file: the role
+fetches `cyclictest_<inventory_hostname>.txt`, and inside a guest that name is
+the guest's.
 
 **This is a `test_*` playbook, and section 4 says those are refused.** The rule
 stands and this is its one exception, which is narrow by construction: the rule

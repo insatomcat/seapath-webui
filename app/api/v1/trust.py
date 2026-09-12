@@ -60,6 +60,40 @@ def relations(request: Request, user: User = viewer) -> list[TrustRelation]:
         raise _no_account(error) from error
 
 
+class PublicKey(BaseModel):
+    """This node's own public key, as a line to paste into an account."""
+
+    public_key: str
+    fingerprint: str
+    comment: str = Field(
+        description="What the line is for, written as its trailing comment"
+    )
+
+
+@router.get("/public-key")
+def public_key(request: Request, user: User = viewer) -> PublicKey:
+    """The key this node offers when it connects, for an account it cannot write.
+
+    The `authorized_keys` this service writes is the `ansible` account's on the
+    machines, and that is the whole of it. Reaching inside a guest to measure
+    the latency there needs the same key in an account of the guest, and
+    installing it is the operator's act: appending to a file on a VM would be
+    this service configuring a machine outside Ansible, which is the one thing
+    it never does. So the key is handed over to be pasted, or to be put in the
+    guest's `cloud_init` mapping, where the deployment installs it.
+
+    Public by nature, and a viewer may read it: what it authorises is the
+    private half, which never leaves `/etc/seapath/webui`.
+    """
+    key = _service(request).self_key()
+    hostname = request.app.state.node_hostname
+    return PublicKey(
+        public_key=key.public_key,
+        fingerprint=key.fingerprint,
+        comment=f"seapath-webui@{hostname}",
+    )
+
+
 @router.delete("/relations/{comment}", status_code=204, response_class=Response)
 def revoke(request: Request, comment: str, user: User = admin) -> Response:
     """Remove one relation, identified by the comment on its key line.

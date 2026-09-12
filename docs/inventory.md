@@ -171,7 +171,19 @@ this service does with one. `cluster_machines`, `standalone_machine`,
 SSH, scrapes their exporter, and holds them against the rules of section 5.
 `VMs` holds **guests**: `deploy_vms_cluster.yaml` and
 `deploy_vms_standalone.yaml` loop over that group, one include per member, and
-take the host key as the libvirt domain name. Nothing here connects to a guest.
+take the host key as the libvirt domain name. Creating a domain needs no route
+to it, so a guest is described here without being reachable, and a convergence
+of the machines is limited away from the group ([D39](decisions.md#d39)).
+
+One run reaches into a guest: measuring the latency inside it, which is
+[D41](decisions.md#d41). It is aimed at one guest, and the guest is measurable
+only once its entry carries an `ansible_host`, the account Ansible connects as
+holds this node's public key with sudo, and `rt-tests` is installed in it. The
+address is an ordinary variable of the entry, preserved like every other one
+this service does not model, and the Real time page lists the guests that have
+one. None of the three is installed from here: the `authorized_keys` this
+service writes is the `ansible` account's on the machines, and a guest sits
+outside that bound.
 
 So the model keeps them apart. `hosts` in `GET /inventory` are the machines,
 `guests` are the members of `VMs`, and a guest carries the files it names,

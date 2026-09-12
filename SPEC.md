@@ -79,9 +79,11 @@ Proxmox clone:
   declares. Each node publishes its own tuning through the exporter it already
   runs, so the answer costs one HTTP GET per node and no SSH command. See D27
   in [decisions.md](docs/decisions.md).
-- The two measurements that back it. Both are ordinary runs of upstream roles,
-  `cyclictest` and `hwlatdetect`, so they happen on the machines rather than
-  inside this container. See D24 in [decisions.md](docs/decisions.md).
+- The measurements that back it. All are ordinary runs of upstream roles,
+  `cyclictest` and `hwlatdetect` on the machines rather than inside this
+  container, plus `cyclictest` inside one guest the operator has made reachable,
+  which is what the application in that guest actually waits for. See D24 and
+  D41 in [decisions.md](docs/decisions.md).
 - VM runtime operations through `vm_manager`.
 - The containers a site deploys, which are quadlets: `upload_extra_files` puts
   a `.container` file on the machines, podman's generator makes it a systemd

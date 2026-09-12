@@ -77,15 +77,25 @@ class RealtimeConformance(Reading):
 class MeasurementKind(str, Enum):
     """Which question a measurement run asked.
 
-    The two are complementary rather than alternatives, and the page keeps them
-    apart because their answers are of different kinds. `cyclictest` measures
-    what the scheduler delivered, which the tuning can change. `hwlatdetect`
-    measures what the firmware took without telling the kernel, which no
-    variable in the inventory reaches.
+    The three are complementary, and the page keeps them apart because their
+    answers are of different kinds. `cyclictest` measures what the scheduler
+    delivered, which the tuning can change. `hwlatdetect` measures what the
+    firmware took without telling the kernel, which no variable in the
+    inventory reaches.
+
+    `guest_cyclictest` is the same tool run inside a guest rather than on the
+    machine, over the SSH path the operator opened to that guest. It is a
+    history of its own because it answers for a different thing: the number
+    includes the scheduling of the vCPU threads, the VM exits and the
+    virtualised timer, and it belongs to one guest rather than to the machines
+    the inventory declares. Averaging it with the host figures, or listing the
+    two under one heading, would hide exactly the difference the pair exists to
+    show.
     """
 
     CYCLICTEST = "cyclictest"
     HWLATDETECT = "hwlatdetect"
+    GUEST_CYCLICTEST = "guest_cyclictest"
 
 
 # The catalogue entry behind each, and the variable the service fills with the
@@ -94,7 +104,15 @@ class MeasurementKind(str, Enum):
 MEASUREMENT_PLAYBOOKS = {
     "test_run_cyclictest": MeasurementKind.CYCLICTEST,
     "test_run_hwlatdetect": MeasurementKind.HWLATDETECT,
+    "test_run_cyclictest_vms": MeasurementKind.GUEST_CYCLICTEST,
 }
+
+# The kinds whose results are cyclictest histograms, whatever they were measured
+# on. The parser is the same one: the role fetches `cyclictest_<host>.txt` and
+# the host is a guest name here.
+_HISTOGRAM_KINDS = frozenset(
+    {MeasurementKind.CYCLICTEST, MeasurementKind.GUEST_CYCLICTEST}
+)
 _RESULTS_VARIABLES = frozenset(
     {"cyclictest_result_folder", "hwlatdetect_result_folder"}
 )
@@ -118,7 +136,11 @@ class Measurement(BaseModel):
     """
     variables: dict[str, object] = Field(default_factory=dict)
     latency: list[CyclictestResult] = Field(default_factory=list)
-    """Filled on a cyclictest run, one entry per machine."""
+    """Filled on a cyclictest run, one entry per machine the run measured.
+
+    On a guest measurement the entry is the guest, since the role names the file
+    it fetches after the inventory host it ran on.
+    """
     interruptions: list[HwlatdetectResult] = Field(default_factory=list)
     """Filled on a hwlatdetect run, one entry per machine."""
 
@@ -302,7 +324,7 @@ class RealtimeService:
             },
             latency=(
                 self._runs.latency_results(record.id)
-                if kind is MeasurementKind.CYCLICTEST
+                if kind in _HISTOGRAM_KINDS
                 else []
             ),
             interruptions=(

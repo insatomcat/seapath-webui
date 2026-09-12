@@ -216,7 +216,7 @@ starts. `409 no_replicas` where the inventory declares no other machine, and
 | Method | Path | Description |
 |---|---|---|
 | GET | `/playbooks` | Every playbook the installed collection carries: targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them. `reviewed` says whether a human wrote the entry or this service read it off the collection, `derivation` carries what the reading counted (plays, tasks, command driven tasks, roles, imports), and `distribution` names the one SEAPATH distribution an entry configures, set on the five prerequisites entries and on nothing else. `machines` resolves the entry's targets against the current inventory, `excluded` names the guests the default scope leaves out |
-| GET | `/playbooks/scopes` | What a run may be narrowed to: every group of the inventory with its hosts, every host, which of them are guests, and `unreachable`, the machines this node holds no way of reaching. That last list is the one precondition a narrowing lifts, so the chooser can say which boxes will get the run refused |
+| GET | `/playbooks/scopes` | What a run may be narrowed to: every group of the inventory with its hosts, every host, which of them are guests, and `unreachable`, the machines this node holds no way of reaching. That last list is the one precondition a narrowing lifts, so the chooser can say which boxes will get the run refused. `addressable_guests` is the subset of the guests whose entry declares an `ansible_host`, which is what a run reaching *into* a guest may be aimed at |
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode, and the scope |
 | GET | `/runs` | History, most recent first |
 | GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used |
@@ -406,7 +406,7 @@ honest: on a machine up for months the since-boot average says nothing.
 | GET | `/realtime` | The conformance report for **this** machine: one entry per check, with its status, what was observed and, where the inventory declares one, what was declared |
 | GET | `/realtime/pool` | Every machine the inventory declares, read from each node's `prometheus-node-exporter`. Two halves of one exposition: the CPU pool, meaning which core carries which guest, interrupt, container or slot, plus the active fallbacks; and each node's `checks`, the same ten this page runs on the local machine, held against that node's own inventory entry. A node that cannot be reached is reported with its reason beside the ones that answered. See [D26](decisions.md#d26) and [D27](decisions.md#d27) |
 | GET | `/realtime/reading` | The raw values this machine's checks are formed from, for a client that would rather judge them itself. Each node of `/realtime/pool` carries the same under `reading` |
-| GET | `/realtime/measurements` | The measurement runs launched from this node, newest first, each with what it fetched and the inventory commit it was taken under. `kind` narrows to `cyclictest` or `hwlatdetect` |
+| GET | `/realtime/measurements` | The measurement runs launched from this node, newest first, each with what it fetched and the inventory commit it was taken under. `kind` narrows to `cyclictest`, `hwlatdetect` or `guest_cyclictest` |
 
 Open to the `viewer` role. Nothing here writes anything.
 
@@ -468,13 +468,24 @@ opened.
 A reading that failed is `unknown`, never a pass and never a failure: on a
 substation hypervisor "unreadable" and "correct" must never look alike.
 
-There are two measurements, and they are complementary rather than
-alternatives, which is why they are one history with a `kind` discriminator
-rather than two endpoints:
+There are three measurements, complementary rather than alternatives, which is
+why they are one history with a `kind` discriminator rather than three
+endpoints:
 
 - **`cyclictest`** reports what the scheduler delivered, in `latency`. Every
   check on this page can move that number, because the tuning behind it is in
   the inventory.
+- **`guest_cyclictest`** is the same tool run inside one guest rather than on
+  the machines, also in `latency`, where the host name of each result is the
+  guest's. It answers for what the application in that guest waits for: the
+  hypervisor's scheduler plus the scheduling of the vCPU threads, the VM exits
+  and the virtualised timer. Read beside the machine figure taken under the
+  same inventory commit, the difference between the two is what virtualisation
+  costs on that machine. It is launched against one guest at a time, so
+  `POST /runs` refuses it with `scope_required` when the request names none, and
+  the guest must declare an `ansible_host` and hold this node's key in the
+  account Ansible connects as, with `rt-tests` installed. Nothing here installs
+  any of the three.
 - **`hwlatdetect`** reports what the firmware took without telling the kernel,
   in `interruptions`. An SMI carries the CPU into firmware and the operating
   system is never told, so the time is missing from the kernel's own accounting

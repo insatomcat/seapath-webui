@@ -42,6 +42,15 @@ the whole screen.
       <span class="view-name">Latency <span class="view-tool">(cyclictest)</span></span>
       <span class="view-answer">Reading past measurements</span>
     </button>
+    <button type="button" class="view" data-view="guest_cyclictest">
+      <span class="dot status-unknown"></span>
+      {# The same tool, inside a guest. Named as its own view because the
+         number answers for something else: what the application in the guest
+         waits for, rather than what the hypervisor's scheduler delivered. #}
+      <span class="view-name">Guest latency
+        <span class="view-tool">(cyclictest inside a VM)</span></span>
+      <span class="view-answer">Reading past measurements</span>
+    </button>
     <button type="button" class="view" data-view="hwlatdetect">
       <span class="dot status-unknown"></span>
       <span class="view-name">Firmware <span class="view-tool">(hwlatdetect: SMIs and other stalls)</span></span>
@@ -99,10 +108,12 @@ the whole screen.
     </p>
   </section>
 
-  {# A measurement plays every machine of the inventory and brings back a
-     verdict, a histogram and a fold for each. Both measurements live in this
-     one panel and the view bar picks between them, so a result is read on a
-     whole screen rather than in the third of one the old layout could spare. #}
+  {# A measurement brings back a verdict, a histogram and a fold for each host
+     it played: every machine of the inventory for the two that measure the
+     machines, and one guest for the one that measures inside a guest. All
+     three live in this one panel and the view bar picks between them, so a
+     result is read on a whole screen rather than in the third of one the old
+     layout could spare. #}
   <section class="card pane" id="card-measure" hidden>
     <p class="pane-lead" id="measure-note"></p>
 
@@ -136,6 +147,57 @@ the whole screen.
       <div class="measure-body" id="latency" hidden>
         <div class="measure-picker" id="measure-picker"></div>
         <div class="measure-result" id="latency-body"></div>
+      </div>
+    </div>
+
+    {# Measuring inside a guest. One guest at a time, and the guest is part of
+       the request rather than a default: the playbook plays the whole group,
+       and measuring every guest at once measures the contention between the
+       measurements. #}
+    <div class="measure" id="panel-guest_cyclictest" hidden>
+      <div class="measure-form" id="guest-form" hidden>
+        <label class="field">
+          <span>Guest</span>
+          {# Only the guests whose entry carries an address. The others are in
+             the group so that a deployment creates them, which needs no route
+             to them. #}
+          <select id="guest-choice"></select>
+        </label>
+        <label class="field">
+          <span>Duration, in seconds</span>
+          <input type="number" id="guest-duration" min="1" max="86400" value="20">
+        </label>
+        <label class="field">
+          <span>Real time priority</span>
+          <input type="number" id="guest-priority" min="1" max="98" value="90">
+        </label>
+        <label class="field">
+          <span>vCPUs to measure</span>
+          {# A text field rather than the list the machine form offers. The
+             isolated set of a guest is not read from here: a guest publishes
+             no exporter, so `smp` and what the operator knows is all there is. #}
+          <input type="text" id="guest-affinity" value="smp"
+                 placeholder="smp, or 2-3">
+        </label>
+        <div class="field measure-action">
+          <button id="guest-go" type="button">Measure</button>
+        </div>
+      </div>
+      <p class="help" id="guest-requirements"></p>
+      {# The key this node connects with, offered to be pasted into the guest's
+         own account. Nothing here installs it: appending to a file on a VM
+         would be this service configuring a machine outside Ansible, and that
+         is the one thing it never does. #}
+      <div class="measure-key" id="guest-key" hidden>
+        <code id="guest-key-line"></code>
+        <button type="button" class="secondary" id="guest-key-copy">Copy</button>
+        <span class="legend" id="guest-key-note"></span>
+      </div>
+      <p class="warning" id="guest-blocked" hidden></p>
+      <div class="loading" id="guest-loading">Reading past measurements</div>
+      <div class="measure-body" id="guest" hidden>
+        <div class="measure-picker" id="guest-picker"></div>
+        <div class="measure-result" id="guest-body"></div>
       </div>
     </div>
 

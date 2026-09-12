@@ -4,11 +4,12 @@
 // The real time page: what the tuning came out as, and what the latency
 // measured. Two halves of one question, and the page keeps them apart because
 // the answers are of different kinds. The conformance half is a reading of
-// this machine and costs nothing. The measurement half is an Ansible run
-// against every machine of the inventory, and it is confirmed like one.
+// this machine and costs nothing. The measurement half is an Ansible run,
+// against every machine of the inventory or against one guest, and it is
+// confirmed like one.
 //
-// Four views, one on screen at a time, and a bar that says what the other
-// three found. The bar is the page's summary: a tab holds the worst status of
+// Five views, one on screen at a time, and a bar that says what the other
+// four found. The bar is the page's summary: a tab holds the worst status of
 // its panel and the one number an operator reads from it, so the glance the
 // old three panel layout paid for by truncating everything is kept, and the
 // panel behind the tab gets the whole screen.
@@ -18,10 +19,13 @@
 // one confirmation across everything that touches a machine.
 
 (function () {
-  // Two measurements, kept apart because they answer different questions:
+  // Three measurements, kept apart because they answer different questions:
   // cyclictest reports what the scheduler delivered, which the tuning can
-  // change, and hwlatdetect what the firmware took without telling the kernel,
-  // which no inventory variable reaches.
+  // change, hwlatdetect what the firmware took without telling the kernel,
+  // which no inventory variable reaches, and the third is cyclictest again,
+  // inside a guest, which is what the application in that guest actually waits
+  // for. `family` says which renderer reads the results, since the first and
+  // the third bring back the same histogram.
   const MEASUREMENTS = {
     cyclictest: {
       playbook: "test_run_cyclictest",
@@ -33,6 +37,8 @@
       body: "latency-body",
       button: "measure-go",
       results: (item) => item.latency,
+      family: "latency",
+      cpus: "CPU",
       absent:
         "The collection installed on this node has no test_run_cyclictest " +
         "playbook, so the latency cannot be measured from here. Past " +
@@ -61,6 +67,7 @@
       body: "hwlat-body",
       button: "hwlat-go",
       results: (item) => item.interruptions,
+      family: "interruptions",
       absent:
         "The collection installed on this node has no test_run_hwlatdetect " +
         "playbook, so the hardware cannot be measured from here. Past " +
@@ -79,17 +86,56 @@
         hwlatdetect_window: "hwlat-window",
       },
     },
+    // The same variables as the machine measurement, because it is the same
+    // role: what changes is the host it runs on and what the numbers mean.
+    guest_cyclictest: {
+      playbook: "test_run_cyclictest_vms",
+      form: "guest-form",
+      blocked: "guest-blocked",
+      loading: "guest-loading",
+      panel: "guest",
+      picker: "guest-picker",
+      body: "guest-body",
+      button: "guest-go",
+      results: (item) => item.latency,
+      family: "latency",
+      cpus: "vCPU",
+      // The run is narrowed to the guest the form names. The playbook plays the
+      // whole `VMs` group, and the service refuses a launch that named none.
+      guest: "guest-choice",
+      absent:
+        "The collection installed on this node has no " +
+        "test_run_cyclictest_vms playbook, so a guest cannot be measured from " +
+        "here. Past measurements are still listed below.",
+      empty:
+        "No guest has been measured from this node yet. cyclictest runs " +
+        "inside the guest, over the SSH path to it, so the guest needs an " +
+        "address in the inventory, this node's key in the account Ansible " +
+        "connects as, and rt-tests installed.",
+      note:
+        "What the application inside the guest waits for: the hypervisor's " +
+        "scheduler, plus the scheduling of the vCPU threads, the VM exits and " +
+        "the virtualised timer. Read it beside the machine's own figure.",
+      fields: {
+        cyclictest_duration: "guest-duration",
+        cyclictest_priority: "guest-priority",
+        cyclictest_affinity: "guest-affinity",
+      },
+    },
   };
 
   const state = {
     catalogue: {},
-    measurements: { cyclictest: [], hwlatdetect: [] },
-    selected: { cyclictest: null, hwlatdetect: null },
+    measurements: { cyclictest: [], hwlatdetect: [], guest_cyclictest: [] },
+    selected: { cyclictest: null, hwlatdetect: null, guest_cyclictest: null },
     canLaunch: false,
     matrix: null,
     machines: [],
     isolated: [],
     thisHost: null,
+    // The guests a run could reach, which is a shorter list than the group: an
+    // entry carries an address only when someone wrote one on it.
+    guests: [],
   };
 
   // Enough for a machine with more threads than anyone measures at once, and
@@ -868,8 +914,82 @@
       form.hidden = true;
       return;
     }
+    if (spec.guest && !state.guests.length) {
+      // The entry is available, so the inventory does have an addressable
+      // guest, and this list came back empty: the chooser could not be read.
+      // Said rather than left as a select with nothing in it.
+      blocked.textContent =
+        "The guests this node can reach could not be read, so there is " +
+        "nothing to aim a measurement at. Past measurements are still listed " +
+        "below.";
+      blocked.hidden = false;
+      form.hidden = true;
+      return;
+    }
     blocked.hidden = true;
     form.hidden = !state.canLaunch;
+  }
+
+  // Which guests a measurement may be aimed at, read from the same endpoint the
+  // Deployment page narrows a run with. A guest is in the `VMs` group so that a
+  // deployment creates it, and creating a domain needs no route to it: only the
+  // entries carrying an address can be logged into.
+  async function loadGuests() {
+    element("guest-requirements").textContent =
+      "The measurement runs inside the guest, as an Ansible run over SSH. It " +
+      "needs an address on the guest's inventory entry, this node's public key " +
+      "in the account it connects as, with sudo, and rt-tests installed in the " +
+      "guest. Nothing here installs any of the three: a measurement changes " +
+      "nothing on what it measures.";
+    await loadPublicKey();
+    let choices = { addressable_guests: [] };
+    try {
+      choices = await API.get("/playbooks/scopes");
+    } catch (failure) {
+      showBanner([failure.message]);
+    }
+    state.guests = choices.addressable_guests || [];
+    const select = element("guest-choice");
+    select.replaceChildren();
+    state.guests.forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent = name;
+      select.append(option);
+    });
+  }
+
+  // This node's public key, shown so that it can be put in the guest. Copying
+  // it is the whole of what the page does: installing it would mean writing to
+  // a machine outside Ansible, which is the line this service does not cross.
+  // Where the guest is created with cloud-init, the same line belongs in the
+  // `ssh_authorized_keys` of its `cloud_init` mapping, and the deployment
+  // installs it.
+  async function loadPublicKey() {
+    let key = null;
+    try {
+      key = await API.get("/trust/public-key");
+    } catch (failure) {
+      // Not a banner. The panel works without it: an operator who has already
+      // installed the key needs nothing from this line.
+      element("guest-key-note").textContent = failure.message;
+      return;
+    }
+    const line = key.public_key + " " + key.comment;
+    element("guest-key-line").textContent = line;
+    element("guest-key-note").textContent = key.fingerprint;
+    element("guest-key").hidden = false;
+    element("guest-key-copy").onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(line);
+        element("guest-key-note").textContent = "Copied. " + key.fingerprint;
+      } catch (failure) {
+        // A browser that refuses the clipboard leaves the line on screen,
+        // which is what it was there for in the first place.
+        element("guest-key-note").textContent =
+          "This browser did not allow the copy. Select the line instead.";
+      }
+    };
   }
 
   async function loadMeasurements(kind) {
@@ -963,12 +1083,13 @@
     meta.append(anchor);
     body.append(meta);
 
-    // Every machine the run measured, this one first. A run has no --limit, so
-    // a measurement plays the whole inventory and brings back one file each,
-    // and the pool view reads every node too: the page is the cluster's, and
-    // showing one machine of a measurement that took three would be the odd
-    // panel out. Local first, because it is the one the operator is standing
-    // on and the one every other reading here is about.
+    // Every host the run measured, this machine first. A measurement of the
+    // machines plays the whole inventory and brings back one file each, and the
+    // pool view reads every node too: the page is the cluster's, and showing one
+    // machine of a measurement that took three would be the odd panel out.
+    // Local first, because it is the one the operator is standing on and the one
+    // every other reading here is about. A guest measurement brings back one
+    // file, the guest's, and the sort leaves it where it is.
     const results = spec.results(measurement).slice().sort((a, b) => {
       if (a.host === state.thisHost) return -1;
       if (b.host === state.thisHost) return 1;
@@ -976,7 +1097,7 @@
     });
 
     const render =
-      kind === "cyclictest" ? renderLatency : renderInterruptions;
+      spec.family === "latency" ? renderLatency : renderInterruptions;
     results.forEach((result) => {
       body.append(render(result));
     });
@@ -986,7 +1107,7 @@
     // cluster, and the worst machine is the one that decides whether the
     // cluster meets its deadline.
     const [status, answer] =
-      kind === "cyclictest"
+      spec.family === "latency"
         ? latencySummary(results)
         : interruptionSummary(results);
     summarise(kind, status, answer);
@@ -1485,13 +1606,24 @@
     // defaults. A confirmation that named a priority the form no longer holds
     // is a sentence an operator learns to stop reading, and this is the page
     // where that costs the most.
+    // What the run will actually play. A guest measurement is narrowed to the
+    // guest the form names, so the sentence names that guest rather than the
+    // machines of the inventory, which this run does not touch.
+    const scope = spec.guest
+      ? { groups: [], hosts: [element(spec.guest).value] }
+      : null;
+    const played = scope
+      ? scope.hosts.join(", ") || "no guest"
+      : state.machines.join(", ") || "no machine, the inventory is empty";
     element("measure-disruption").textContent =
       state.catalogue[kind].entry.disruption +
       " " +
       settings(kind, variables) +
       " on " +
-      (state.machines.join(", ") || "no machine, the inventory is empty") +
-      ". It changes nothing on them.";
+      played +
+      ". It changes nothing on " +
+      (scope ? "it" : "them") +
+      ".";
 
     go.disabled = false;
     go.onclick = async () => {
@@ -1501,6 +1633,9 @@
           playbook: spec.playbook,
           check: false,
           variables,
+          // Only where the entry is aimed at one host. Everything else runs
+          // against the playbook's own scope, minus the guests.
+          ...(scope ? { scope } : {}),
         });
         window.location.assign(
           "runs?run=" + encodeURIComponent(started.run_id)
@@ -1519,7 +1654,8 @@
   // one, a duration and a sampled fraction for the other, and the fraction is
   // what an operator is really choosing when they set width and window.
   function settings(kind, variables) {
-    if (kind === "cyclictest") {
+    const spec = MEASUREMENTS[kind];
+    if (spec.family === "latency") {
       return (
         "This one runs for " +
         variables.cyclictest_duration +
@@ -1527,8 +1663,8 @@
         variables.cyclictest_priority +
         ", on " +
         (variables.cyclictest_affinity === "smp"
-          ? "every online CPU"
-          : "CPUs " + variables.cyclictest_affinity) +
+          ? "every online " + spec.cpus
+          : spec.cpus + "s " + variables.cyclictest_affinity) +
         " of"
       );
     }
@@ -1548,14 +1684,18 @@
     );
   }
 
-  // The four views and the panel each one shows. Both measurements live in the
-  // same card, which is why two views land on it: they share a form area and a
-  // history picker, and an operator switching between them is comparing two
+  // The five views and the panel each one shows. The three measurements live in
+  // the same card, which is why three views land on it: they share a form area
+  // and a history picker, and an operator switching between them is comparing
   // readings of the same machines rather than opening a different page.
   const VIEWS = {
     checks: { card: "card-checks" },
     pool: { card: "card-map" },
     cyclictest: { card: "card-measure", panel: "panel-cyclictest" },
+    guest_cyclictest: {
+      card: "card-measure",
+      panel: "panel-guest_cyclictest",
+    },
     hwlatdetect: { card: "card-measure", panel: "panel-hwlatdetect" },
   };
 
@@ -1645,12 +1785,18 @@
     // name: fetching it beside them is a race the panels lost, so every
     // machine of the run was rendered on a page about one.
     await loadMachines();
+    // Before the catalogue, for the same reason the inventory is: the launch
+    // panel of the guest measurement is drawn from the entry and from the list
+    // of guests at once, and rendering it while the list is in flight offers a
+    // form with an empty chooser.
+    await loadGuests();
     await Promise.all([
       loadChecks(),
       loadPool(),
       loadCatalogue(),
       loadMeasurements("cyclictest"),
       loadMeasurements("hwlatdetect"),
+      loadMeasurements("guest_cyclictest"),
     ]);
   }
 
@@ -1670,8 +1816,10 @@
     showBanner([failure.message]);
     // Every spinner, so a page that failed halfway does not sit there looking
     // like a page still loading.
-    ["checks-loading", "latency-loading", "hwlat-loading"].forEach((id) => {
-      element(id).hidden = true;
-    });
+    ["checks-loading", "latency-loading", "hwlat-loading", "guest-loading"].forEach(
+      (id) => {
+        element(id).hidden = true;
+      }
+    );
   });
 })();

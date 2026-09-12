@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.hosts.local import parse_cpu_list
-from app.inventory.model import Mode
+from app.inventory.model import Inventory, Mode
 from app.inventory.service import InventoryService, InventoryState
 from app.runs import actions, catalogue, cyclictest, hwlatdetect, progress, staging
 from app.runs import scope as scoping
@@ -217,6 +217,11 @@ class RunService:
             if state.inventory.hosts[name].ansible_host not in known
         ]
 
+    def _addressable_guests(self) -> list[str]:
+        """The guests a run could reach, from the inventory as it stands now."""
+        state = self._inventory.state()
+        return [] if state.inventory is None else _addressable_guests(state.inventory)
+
     def collection_version(self) -> str:
         """What a run records as the code it ran.
 
@@ -289,6 +294,24 @@ class RunService:
                 "on those. Upload the site key, and accept their host keys, in "
                 "Reaching the other machines. Narrowing the run to a group or "
                 "a machine that answers is the other way out."
+            )
+
+        if state.inventory is not None and not _addressable_guests(state.inventory):
+            declared = len(state.inventory.guests)
+            unmet[Precondition.GUEST_ADDRESSABLE] = (
+                (
+                    "No guest of this inventory declares an address, so none "
+                    f"of the {declared} can be reached over SSH. Measuring "
+                    "inside a guest logs into it the way a convergence logs "
+                    "into a machine: add `ansible_host` to the guest's entry, "
+                    "and install this node's public key in the account Ansible "
+                    "connects as."
+                )
+                if declared
+                else (
+                    "This inventory declares no guest, so there is nothing to "
+                    "measure inside. A guest is declared on the VMs page."
+                )
             )
 
         # Which machines the inventory has, rather than which single mode it
@@ -444,6 +467,7 @@ class RunService:
         return scoping.choices(
             scoping.table(self._document()),
             self._unreachable(self._inventory.state()),
+            self._addressable_guests(),
         )
 
     def _document(self) -> str:
@@ -493,6 +517,19 @@ class RunService:
         # about, and a scope naming a group the file does not declare is
         # refused before anything is locked or written.
         plan = self._scope(entry, scope)
+        if entry.scope_required and not plan.requested.narrowed:
+            # Named rather than widened. The one entry that carries this plays
+            # every guest of the inventory, and measuring all of them at once
+            # measures the contention between the measurements.
+            raise ApiError(
+                "scope_required",
+                (
+                    f"{entry.title} is launched against one guest at a time, "
+                    "and this request named none. Choose the guest to measure."
+                ),
+                400,
+                {"guests": plan.hosts or []},
+            )
         blocking = self._blocking(
             entry,
             self._unmet_preconditions(plan.hosts),
@@ -845,6 +882,22 @@ class RunService:
             if line.strip():
                 return line.strip()
         return "The log below has the reason."
+
+
+def _addressable_guests(inventory: Inventory) -> list[str]:
+    """The guests whose entry carries an address a run could connect to.
+
+    `ansible_host` is not a field of `Guest` and this service never writes one:
+    the VM roles read the group to create domains, and creating a domain needs
+    no route to the guest. An address is there because an operator put it there
+    so that a play could reach inside, which is why it is read out of `extra`,
+    where every variable this service does not model is kept.
+    """
+    return [
+        name
+        for name, guest in inventory.guests.items()
+        if str(guest.extra.get("ansible_host") or "").strip()
+    ]
 
 
 def _new_run_id() -> str:
