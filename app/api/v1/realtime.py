@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
 
+from app.api.v1 import reads
 from app.cluster.pool import ClusterPool
 from app.core.auth import Role
 from app.core.security import require_role
@@ -54,7 +55,7 @@ def reading(request: Request) -> RealtimeReading:
     return _service(request).conformance().reading
 
 
-@router.get("/pool", response_model=ClusterPool)
+@router.get("/pool", response_model=ClusterPool, dependencies=[reads.reading])
 def pool(request: Request) -> ClusterPool:
     """The CPU pool of every machine the inventory declares.
 

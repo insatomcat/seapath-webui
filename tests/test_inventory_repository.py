@@ -135,3 +135,92 @@ def test_the_export_carries_the_history_a_control_machine_would_want(
     # The git directory too: a site taking the inventory to a conventional
     # control machine wants the audit trail, not just the current file.
     assert any(name.startswith("seapath-inventory/.git/") for name in names)
+
+
+def test_the_commit_is_read_without_running_git(
+    repository: InventoryRepository,
+) -> None:
+    """The most asked question in the service, answered by a file read.
+
+    Every panel of every page carries the commit it was drawn at, so drawing one
+    page asked this eight times and paid eight forks of `git rev-parse` for it,
+    on housekeeping CPUs beside real time guests. See D45.
+    """
+    made = repository.commit(
+        content="all: {}\n", message="inventory: describe", author="alice"
+    )
+    assert made is not None
+
+    def refuse(*arguments: str) -> str:
+        raise AssertionError(f"git was run: {arguments}")
+
+    repository._git = refuse  # type: ignore[method-assign]
+
+    assert repository.head() == made.hash
+
+
+def test_a_branch_git_has_packed_is_still_read(
+    repository: InventoryRepository,
+) -> None:
+    """`git gc` moves a branch out of its own file, and every repository gets there."""
+    made = repository.commit(
+        content="all: {}\n", message="inventory: describe", author="alice"
+    )
+    assert made is not None
+    git_dir = repository.path / ".git"
+    reference = (git_dir / "HEAD").read_text().strip().removeprefix("ref: ")
+    (git_dir / reference).unlink()
+    (git_dir / "packed-refs").write_text(
+        "# pack-refs with: peeled fully-peeled sorted \n"
+        f"{made.hash} {reference}\n"
+        f"^{made.hash}\n"
+    )
+
+    assert repository.head() == made.hash
+
+
+def test_a_repository_this_cannot_read_still_answers(
+    repository: InventoryRepository,
+) -> None:
+    """git itself is the authority, and the fallback is one fork slower.
+
+    A layout this does not recognise must never cost a page its commit: what it
+    costs is the process the direct read exists to avoid.
+    """
+    made = repository.commit(
+        content="all: {}\n", message="inventory: describe", author="alice"
+    )
+    assert made is not None
+    # A HEAD naming something this cannot resolve on its own.
+    (repository.path / ".git" / "HEAD").write_text("ref: refs/heads/nowhere\n")
+
+    assert repository.head() is None
+
+    (repository.path / ".git" / "HEAD").write_text("something else entirely\n")
+
+    assert repository.head() is None
+
+
+def test_the_commit_a_write_is_refused_against_is_the_one_on_disk(
+    repository: InventoryRepository,
+) -> None:
+    """A browser saving against a commit another has moved past is told."""
+    repository.commit(
+        content="all: {}\n", message="inventory: describe", author="alice"
+    )
+    second = repository.commit(
+        content="all: {hosts: {}}\n",
+        message="cluster: add node2",
+        author="alice",
+        expected_head=repository.head(),
+    )
+
+    assert second is not None
+    assert repository.head() == second.hash
+    with pytest.raises(StaleWrite):
+        repository.commit(
+            content="all: {hosts: {node3: {}}}\n",
+            message="cluster: add node3",
+            author="bob",
+            expected_head="0" * 40,
+        )

@@ -1252,8 +1252,8 @@
   // divide it up. Called again by the control in the heading, which is why it
   // stands on its own: a guest started from here, or by somebody else on
   // another node, shows up without the page being loaded again.
-  async function refresh() {
-    const view = await API.get("/vms");
+  async function refresh(fresh) {
+    const view = await API.get(API.reading("/vms", fresh));
     lastView = view;
     renderGuests(view);
     renderUndeclared(view);
@@ -1272,9 +1272,9 @@
     // one that fails leaves the table showing the answer it already had.
     Reread.attach(
       element("reread"),
-      async () => {
+      async (fresh) => {
         showBanner("");
-        await refresh();
+        await refresh(fresh);
       },
       (failure) => showBanner(failure.message)
     );

@@ -107,6 +107,30 @@ class RepositoryError(Exception):
     """A git operation failed. The message carries git's own words."""
 
 
+def _is_hash(value: str) -> bool:
+    """Whether this is a commit hash, which is what `.git` holds for a ref."""
+    return len(value) in (40, 64) and all(c in "0123456789abcdef" for c in value)
+
+
+def _packed(path: Path, ref: str) -> str | None:
+    """The hash `packed-refs` holds for one ref, when it holds it.
+
+    `git gc` moves a branch out of its own file and into this one, which every
+    repository reaches on its own after enough commits.
+    """
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith(("#", "^")):
+            continue
+        hash_, _, name = line.partition(" ")
+        if name.strip() == ref and _is_hash(hash_):
+            return hash_
+    return None
+
+
 class StaleWrite(Exception):
     """HEAD moved since the caller read it.
 
@@ -238,11 +262,52 @@ class InventoryRepository:
     # Reading
 
     def head(self) -> str | None:
-        """The current commit, or None on a repository with no commit yet."""
+        """The current commit, or None on a repository with no commit yet.
+
+        Read out of `.git` rather than by running `git rev-parse`, because this
+        is the most asked question in the service and the answer used to cost a
+        process. Every panel of every page carries the commit it was drawn at,
+        which is what lets an operator tell a reading of the desired state from
+        a reading of an older one, so drawing one page asked this eight times
+        and paid eight forks for it, on housekeeping CPUs beside real time
+        guests. It is also on the write path, where a browser saving against a
+        commit another has moved past has to be told.
+
+        `.git/HEAD` holds either a hash, when HEAD is detached, or `ref: <path>`
+        naming the branch, and the branch holds the hash loose or in
+        `packed-refs`. Anything this does not recognise falls through to git
+        itself, which is the authority: a repository this cannot read is a
+        repository that still answers, one fork slower.
+        """
+        direct = self._head_from_files()
+        if direct is not None:
+            return direct
         try:
             return self._git("rev-parse", "HEAD").strip()
         except RepositoryError:
             return None
+
+    def _head_from_files(self) -> str | None:
+        """The hash `.git` holds, or None when this could not work it out."""
+        git_dir = self._path / ".git"
+        try:
+            head = (git_dir / "HEAD").read_text().strip()
+        except OSError:
+            return None
+        if _is_hash(head):
+            # A detached HEAD, which a revert leaves behind on a repository
+            # somebody has been working in by hand.
+            return head
+        if not head.startswith("ref: "):
+            return None
+        ref = head[len("ref: ") :].strip()
+        try:
+            loose = (git_dir / ref).read_text().strip()
+        except OSError:
+            loose = ""
+        if _is_hash(loose):
+            return loose
+        return _packed(git_dir / "packed-refs", ref)
 
     def read(self) -> str:
         try:

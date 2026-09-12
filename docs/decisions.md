@@ -2891,25 +2891,117 @@ still built from a fresh reading, and [D37](#d37)'s control and its timer are
 still the only things that replace an answer on screen. What went away is the
 cost of asking for the same furniture again.
 
-### What is left, and why it is not settled here
+### What was left, and where it went
 
-Two costs on the same path are real and untouched:
+Two costs on the same path were named here and left alone: the inventory read,
+parsed and validated once per endpoint, and the exporter fan out repeated once
+per endpoint. [D45](#d45) takes both.
 
-- **The same inventory, parsed once per request.** `InventoryService.state()`
-  reads git, parses, validates and scans for the files the inventory names, on
-  every call, and one page makes between two and eight of them. Memoised on the
-  commit and the working tree's timestamp, it would be invisible to every
-  caller.
-- **The same fan out, once per endpoint.** The Cluster page asks every machine
-  of the inventory for Pacemaker, then asks every machine again for Ceph; Real
-  time makes seven requests of its own. A short lived answer, shared by the
-  endpoints and bypassed by D37's control and its timer, would make one page
-  load one fan out per port.
+The third, a cache in the browser that paints the last answer while the fresh
+one is in flight, is not taken and is the one to be careful with: it can only be
+done by a panel that says on screen how old what it is showing is. A Pacemaker
+view that looks live and is three minutes old is an operator moving a guest off
+a node that has already failed over.
 
-Both are readings of machines, so both are decisions about how old an answer on
-screen may be, and they belong with the third: a cache in the browser that
-paints the last answer while the fresh one is in flight, which can only be done
-by a panel that says on screen how old what it is showing is. That is the
-property to keep hold of, because a Pacemaker view that looks live and is three
-minutes old is an operator moving a guest off a node that has already failed
-over.
+## D45 - Settled: the same question is asked once per page, and an operator's reading asks the machines
+
+[D44](#d44) took the cost of navigating out of the browser: a click now fetches
+the document and nothing else. What was left was the cost of answering it. Every
+panel of a page is its own endpoint, and every one of them asks the same three
+questions again.
+
+Measured on a laptop against the fakes, with one machine in the inventory,
+per API call:
+
+| | before | after |
+|---|---|---|
+| `/inventory` | 19 ms | 6 ms |
+| `/cluster` | 19 ms | 4 ms |
+| `/storage` | 18 ms | 4 ms |
+| `/vms` | 35 ms | 5 ms |
+| `/containers` | 69 ms | 6 ms |
+| `/playbooks` | 77 ms | 7 ms |
+| `/realtime/pool` | 19 ms | 4 ms |
+
+The Cluster page is two of those calls and the Real time page is three, so a
+click that used to spend 40 to 75 ms of a substation hypervisor's housekeeping
+CPUs before anything could be drawn now spends under 15 ms. On a real cluster the
+fan out also stops being one HTTP round trip per panel per machine.
+
+Four changes. Three of them cannot be seen from outside at all, because they give
+the same answer to the same question; the fourth is a window of a few seconds with
+a parameter that closes it.
+
+### The commit hash is read, not forked
+
+Every panel carries the commit it was drawn at, which is what lets an operator
+tell a reading of the desired state from a reading of an older one. It came from
+`git rev-parse HEAD`, a fork and an exec, twelve milliseconds on the machine this
+was measured on, eight times per page. `InventoryRepository.head` now reads
+`.git/HEAD` and the ref it names, loose or in `packed-refs`, which is a file read
+and three hundredths of a millisecond. Anything the reader does not recognise
+falls through to git itself, so a repository it cannot read still answers, one
+fork slower. This is on the write path too, where a browser saving against a
+commit another has moved past is refused, and that refusal is now as cheap as the
+reading.
+
+### The inventory is parsed once per text
+
+`parser.parse` and `resolve.load` are functions of the document, so the answer is
+kept per text and handed out as a copy of its own. The copy costs a hundredth of
+the parse. Drawing the Containers page parsed the same YAML twenty three times,
+because `groups` is asked once for the table, once for the undeclared units and
+once per container to say which group scopes it; on top of that every endpoint
+read and parsed the inventory into the typed model between two and eight times.
+
+A copy is handed out because a caller is free to change what it received: that is
+how a form builds the candidate it is about to commit. Two texts are kept, the
+file as it stands and the candidate being checked against it.
+
+What is not kept is the scan for the files the inventory names, which is the one
+part of a reading that changes without the text changing: uploading a quadlet
+clears the warning that it is missing, and it clears it on the next reading.
+
+### One scrape of an exporter answers the page
+
+The Cluster page reads Pacemaker and then Ceph, the Real time page reads the pool
+and the conformance, the Containers page reads the exposition the pool already
+fetched. Each of those is a fan out to every machine, and the scrape is work for
+the machine being scraped rather than for this service: `node_exporter` answers by
+reading `/proc`, `/sys` and every filesystem it can see, on a hypervisor whose
+CPUs belong to its guests.
+
+`ScrapeCache` keeps each exporter's answer for `scrape_window_seconds`, three by
+default, and `CachingMetricsClient` is what the services are handed. A failure is
+kept like an answer, because that is the expensive case: a machine that is down
+costs the whole timeout, and a page used to pay it once per panel.
+
+The window sits in a decorator around the client that opens a socket, which keeps
+the list of things this service may reach over the network the short readable one
+AGENTS.md asks for. It wraps the injected client as well, so the suite runs
+through the window: a window nothing exercises is a window nobody knows the shape
+of.
+
+### The bound: `fresh=1`
+
+The window must never stand between an operator and a machine. The reread control
+of [D37](#d37) and the timer behind it both send `fresh=1`, which empties the
+window before the reading starts, and the endpoints that fan out declare that
+parameter in OpenAPI so an automation client asking what the cluster is doing
+right now can send it too.
+
+That is the whole freshness story, and it is why the other three changes matter
+more than this one: they are identity transformations, and this one is a few
+seconds bounded by the gesture that means now.
+
+### What it does not change
+
+Nothing about what is on screen. Every panel of a page was still read while that
+page was being drawn, a confirmation that names a machine is still built from a
+reading taken then, and the run record still carries the commit the run
+converged. No answer is kept across a page load: the window is shorter than the
+time it takes an operator to move between two tabs and come back with a question.
+
+`scrape_window_seconds: 0` turns the window off and restores the behaviour this
+service had, at one scrape per panel. There is no setting for the other three,
+because there is nothing to turn off: the same input gives the same answer.

@@ -521,3 +521,27 @@ and a first paint, and the suite can only check what the service sends. See
 ### Result
 
 Not yet run.
+
+## The cost of answering a page
+
+Every number in D45 was measured against the fakes, on a laptop, with one machine
+in the inventory. What a real substation cluster does with it is what is left to
+see, and the parts that matter are the ones a fake cannot have: three machines
+answering over the administration network, and one of them switched off.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | The Cluster, VMs, Containers and Real time pages draw in well under a second on a three node cluster, from a browser on the administration network | The fan out over a real network, and `node_exporter` reading a real `/proc` on a machine whose CPUs belong to its guests | Pending |
+| 2 | With one node switched off, those pages still draw, name the machine that did not answer, and pay its timeout once per page rather than once per panel | The timeout is the expensive case, and only a machine that is really off produces it | Pending |
+| 3 | The reread control on a panel reaches the machines: switch a resource off through `crm` on a member and the panel shows it on the next press | A cluster whose state changes behind the service | Pending |
+| 4 | The automatic reading, on for ten minutes on the Cluster page, shows a failover within one period of it happening | Same, over a real failover | Pending |
+| 5 | `git log` on the inventory repository after an hour of use shows exactly the commits the operator made, and `git fsck` is clean | The commit hash is read out of `.git` now rather than by running git, and a repository on a real node has been gc'd, pushed to and pulled from | Pending |
+| 6 | An inventory whose branch git has packed, and one left on a detached HEAD by hand, both still show their commit on every panel | `git gc` on a repository with real history, and an operator working in it on the node | Pending |
+| 7 | Uploading a file the inventory names clears the warning that it is missing, on the next reading of the Inventory page | The scan is the part of a reading that is deliberately not kept, and this is what it is not kept for | Pending |
+| 8 | `top` during a minute of navigation shows this service staying inside its `CPUQuota` on the housekeeping CPUs, with the real time guests untouched | The whole point of the change, measurable only where the guests are real | Pending |
+
+### Result
+
+Not yet run.

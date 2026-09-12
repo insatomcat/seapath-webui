@@ -28,6 +28,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, Field
 
+from app.api.v1 import reads
 from app.cluster import ha
 from app.cluster.ha import PacemakerCluster
 from app.core.auth import Role, User
@@ -56,7 +57,7 @@ def _runs(request: Request) -> RunService:
     return request.app.state.run_service
 
 
-@router.get("", response_model=PacemakerCluster)
+@router.get("", response_model=PacemakerCluster, dependencies=[reads.reading])
 def cluster(request: Request) -> PacemakerCluster:
     """Members, resources, quorum and failures, read from each node's exporter.
 

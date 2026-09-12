@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 
+from app.api.v1 import reads
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
@@ -134,7 +135,7 @@ class DeclarationResponse(BaseModel):
     )
 
 
-@router.get("", response_model=GuestsView)
+@router.get("", response_model=GuestsView, dependencies=[reads.reading])
 def guests(request: Request) -> GuestsView:
     """Every guest the inventory declares, with its files and its resource.
 

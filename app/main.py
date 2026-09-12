@@ -22,7 +22,12 @@ from fastapi.responses import HTMLResponse
 
 from app import __version__
 from app.api import v1
-from app.cluster.exporters import MetricsClient
+from app.cluster.exporters import (
+    CachingMetricsClient,
+    MetricsClient,
+    ScrapeCache,
+    UrllibMetricsClient,
+)
 from app.cluster.fake import FakeMetricsClient, FakeRbdClient
 from app.cluster.pool import PoolReader
 from app.cluster.rbd import CommandRbdClient, RbdClient
@@ -344,7 +349,19 @@ def create_app(
     # What this service is allowed to reach over the network, in one place.
     # Injected like every other adapter, so the suite reaches no network;
     # `use_fakes` covers the development switch, where nobody passes one in.
-    exporters = metrics_client or (FakeMetricsClient() if settings.use_fakes else None)
+    #
+    # One scrape of an exporter answers every panel of the page that asked for
+    # it. The window is here because every service below shares one client, and
+    # it wraps the injected client too: the suite runs against the fakes, and a
+    # window nothing exercises is a window nobody knows the shape of. A reading
+    # an operator asked for empties it first, which is what `fresh` does on
+    # those endpoints. `scrape_window_seconds: 0` turns it off. See D45.
+    app.state.scrapes = ScrapeCache(settings.scrape_window_seconds)
+    exporters = CachingMetricsClient(
+        metrics_client
+        or (FakeMetricsClient() if settings.use_fakes else UrllibMetricsClient()),
+        app.state.scrapes,
+    )
 
     # The real time page, which reads both halves of the same question: the
     # tuning this machine came out with, and the latency a cyclictest run

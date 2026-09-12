@@ -338,6 +338,21 @@ is where this service answers "who changed what, and when".
 | POST | `/cluster/nodes/{name}/standby` | Empty a machine: `crm node standby <name>` on a cluster member, as a run. `operator`. Pacemaker moves every resource off it and places nothing there until it is brought back online. Quorum is untouched. `404 unknown_node`, `409 already_there`, `409 no_cluster` |
 | POST | `/cluster/nodes/{name}/online` | End the standby: `crm node online <name>`. `operator`. What moves back is Pacemaker's decision |
 
+### `fresh`, on the readings that fan out to the machines
+
+`GET /cluster`, `/storage`, `/vms`, `/containers` and `/realtime/pool` each ask
+every machine of the inventory for an exporter's exposition, and several of them
+ask the same one: drawing a page would scrape a node once per panel. One scrape
+answers all of them for a few seconds, which is what makes moving between the
+tabs cost the machines nothing.
+
+`?fresh=1` scrapes again rather than reusing that answer. It is what the reread
+control on a panel sends, and what the timer behind it sends, so the window
+never stands between an operator and a machine. An automation client asking what
+the cluster is doing right now sends it too. `scrape_window_seconds: 0` turns the
+window off for a site that wants none. See [D45](decisions.md#d45) and
+[D37](decisions.md#d37).
+
 Every reading is open to the `viewer` role, which is the whole point of having
 one. The one write in the table is `POST /node/update`, and what it writes is
 the inventory: it changes no machine, and the run that does is confirmed the

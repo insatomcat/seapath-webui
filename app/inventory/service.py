@@ -151,6 +151,16 @@ class InventoryService:
     # Reading
 
     def state(self) -> InventoryState:
+        """The desired state as this node holds it, parsed and validated.
+
+        Called several times over while one page is drawn, because the panels of
+        a page are separate endpoints and every one of them reads the desired
+        state. All of it is therefore cheap on purpose: the file is a read, the
+        parse is kept per text by `parser.parse`, and the commit is read out of
+        `.git` rather than by running git. What is done on every call is the scan
+        for the files the inventory names, which is the one answer that changes
+        without the text changing.
+        """
         document = self._repository.read()
         if not document.strip():
             return InventoryState(seeded=False)

@@ -472,8 +472,8 @@
     }
   }
 
-  async function refresh() {
-    view = await API.get("/containers");
+  async function refresh(fresh) {
+    view = await API.get(API.reading("/containers", fresh));
     mode = view.mode;
     renderContainers(view);
     renderUndeclared(view);
@@ -496,9 +496,9 @@
     // one that fails leaves the table showing the answer it already had.
     Reread.attach(
       element("reread"),
-      async () => {
+      async (fresh) => {
         showBanner("");
-        await refresh();
+        await refresh(fresh);
       },
       (failure) => showBanner(failure.message)
     );

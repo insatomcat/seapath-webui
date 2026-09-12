@@ -1501,8 +1501,9 @@ def test_reading_a_panel_again_never_empties_it_first(signed_in: TestClient) -> 
     control = signed_in.get("/static/reread.js").text
 
     # The render happens inside the loader, which is called once the whole
-    # reading is in hand.
-    assert "await read();" in control
+    # reading is in hand, and is told to reach the machines rather than take
+    # what the service kept from the page's own load.
+    assert "await read(true);" in control
     # A reading that failed reports itself and leaves the panel alone.
     assert "onFailure(failure);" in control
     # And one reading at a time, so a run of clicks cannot leave two answers

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
+from app.api.v1 import reads
 from app.cluster.ceph import CephCluster
 from app.core.auth import Role
 from app.core.security import require_role
@@ -28,7 +29,7 @@ def _service(request: Request) -> StorageService:
     return request.app.state.storage_service
 
 
-@router.get("", response_model=CephCluster)
+@router.get("", response_model=CephCluster, dependencies=[reads.reading])
 def storage(request: Request) -> CephCluster:
     """Health, capacity, daemons, OSDs, pools and placement groups.
 

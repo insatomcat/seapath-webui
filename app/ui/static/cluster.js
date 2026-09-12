@@ -946,15 +946,15 @@
     tab.addEventListener("click", () => showView(tab.dataset.view));
   });
 
-  async function loadCluster() {
-    const cluster = await API.get("/cluster");
+  async function loadCluster(fresh) {
+    const cluster = await API.get(API.reading("/cluster", fresh));
     reading = cluster;
     renderMembers(cluster);
     renderResources(cluster);
   }
 
-  async function loadStorage() {
-    renderStorage(await API.get("/storage"));
+  async function loadStorage(fresh) {
+    renderStorage(await API.get(API.reading("/storage", fresh)));
   }
 
   // Reading one panel again, without the navigation that refetches both. The
@@ -967,14 +967,16 @@
   // that succeeds says the failure it reported last time is over, and one that
   // fails writes its own message from `showBanner` below.
   function wireReread() {
-    const again = async (load) => {
+    const again = async (load, fresh) => {
       showBanner("");
-      await load();
+      await load(fresh);
     };
     const failed = (failure) => showBanner(failure.message);
-    Reread.attach(element("members-reread"), () => again(loadCluster), failed);
-    Reread.attach(element("resources-reread"), () => again(loadCluster), failed);
-    Reread.attach(element("storage-reread"), () => again(loadStorage), failed);
+    const attach = (id, load) =>
+      Reread.attach(element(id), (fresh) => again(load, fresh), failed);
+    attach("members-reread", loadCluster);
+    attach("resources-reread", loadCluster);
+    attach("storage-reread", loadStorage);
   }
 
   async function start() {

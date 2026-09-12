@@ -21,6 +21,8 @@ to render the machines that did answer beside the reason the others did not.
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -29,6 +31,11 @@ from typing import Protocol
 from app.cluster import metrics
 
 logger = logging.getLogger(__name__)
+
+# How long one exporter's answer serves the panels that ask for it. Long enough
+# that the endpoints drawing one page share a scrape, short enough that the ten
+# second timer behind the reread control never lands inside it. See `ScrapeCache`.
+_SCRAPE_WINDOW_SECONDS = 3.0
 
 
 class MetricsClient(Protocol):
@@ -94,6 +101,75 @@ class Exposition:
         different sentences to put in front of an operator.
         """
         return bool(self.series and name in self.series)
+
+
+class ScrapeCache:
+    """What each exporter last said, for a few seconds.
+
+    Drawing one page asks several endpoints, and several of them ask the same
+    exporter: the Real time page reads the CPU pool, the tuning and the
+    conformance checks, each fanning out to every machine of the inventory on
+    the node exporter's port, and the Containers page reads the same exposition
+    again for its units. A scrape is not free on the machine being scraped
+    either. `node_exporter` answers by reading /proc, /sys and every filesystem
+    it can see, which on a hypervisor whose CPUs belong to its guests takes
+    longer than everything this service then does with the answer.
+
+    So one scrape answers every panel of a page, and coming back to a page an
+    operator has just left costs nothing. A failure is kept like an answer,
+    because that is the expensive case: an exporter that is down costs the whole
+    timeout, and a page used to pay it once per panel.
+
+    This is not a freshness policy. A reading an operator asks for, by the
+    control on the panel or by the timer behind it, means the machine rather
+    than the last answer: it carries `fresh=1`, which empties this before the
+    reading starts. See D37.
+    """
+
+    def __init__(self, window_seconds: float = _SCRAPE_WINDOW_SECONDS) -> None:
+        self._window = window_seconds
+        self._answers: dict[str, tuple[float, tuple[str | None, str]]] = {}
+        # The fan out reads in parallel, so several threads share this.
+        self._lock = threading.Lock()
+
+    def remembered(self, url: str) -> tuple[str | None, str] | None:
+        with self._lock:
+            kept = self._answers.get(url)
+        if kept is None or time.monotonic() - kept[0] >= self._window:
+            return None
+        return kept[1]
+
+    def keep(self, url: str, answer: tuple[str | None, str]) -> None:
+        with self._lock:
+            self._answers[url] = (time.monotonic(), answer)
+
+    def clear(self) -> None:
+        """Forget everything, which is what a reading asked for by hand means."""
+        with self._lock:
+            self._answers.clear()
+
+
+class CachingMetricsClient:
+    """One scrape of an exporter, handed to every panel that asks inside the window.
+
+    A decorator rather than a branch inside the client that reaches the network,
+    so the thing that opens a socket stays the short readable list AGENTS.md
+    asks for, and so the suite's own client is never wrapped: a test that moves
+    an exporter's answer between two calls is testing this service, and a window
+    would answer with what the previous line said.
+    """
+
+    def __init__(self, client: MetricsClient, cache: ScrapeCache) -> None:
+        self._client = client
+        self._cache = cache
+
+    def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
+        remembered = self._cache.remembered(url)
+        if remembered is not None:
+            return remembered
+        answer = self._client.fetch(url, timeout=timeout)
+        self._cache.keep(url, answer)
+        return answer
 
 
 def read_all(

@@ -69,6 +69,19 @@ class Settings(BaseSettings):
     # it, so every machine is asked and the one that answers is the manager.
     ceph_exporter_port: int = 9283
 
+    # How long one scrape of an exporter answers the panels that ask for it.
+    # Drawing one page asks several endpoints and several of them ask the same
+    # exporter, and a scrape is work for the machine being scraped: node_exporter
+    # reads /proc, /sys and every filesystem it can see, on a hypervisor whose
+    # CPUs belong to its guests. So one scrape serves the page, and coming back
+    # to a page just left costs the cluster nothing.
+    #
+    # It never stands between an operator and a machine: the reread control and
+    # the timer behind it send `fresh=1`, which empties the window first. Set it
+    # to 0 to turn it off entirely, which costs a page one scrape per panel.
+    # See D45.
+    scrape_window_seconds: float = 3.0
+
     # The inventory repository, separate from the service state so it can be
     # backed up, cloned and exported on its own. A folder rather than a file:
     # it holds `inventory.yaml` and the files that inventory names, which the

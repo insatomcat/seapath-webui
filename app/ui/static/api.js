@@ -123,8 +123,23 @@ const API = (function () {
     );
   }
 
+  // A reading an operator asked for says so, and the service scrapes the
+  // machines again rather than answering from the few seconds it keeps. The
+  // window exists so that drawing one page, and coming back to a page just
+  // left, costs the cluster one scrape instead of one per panel; it must never
+  // stand between the control on a panel and the machines. Both gestures that
+  // mean "now", the control and the timer behind it, come through `reread.js`
+  // and carry this. See D45.
+  function reading(path, asked) {
+    if (!asked) {
+      return path;
+    }
+    return path + (path.includes("?") ? "&" : "?") + "fresh=1";
+  }
+
   return {
     get: (path) => request("GET", path),
+    reading,
     post: (path, body) => request("POST", path, body),
     put: (path, body, extra) => request("PUT", path, body, extra),
     del: (path) => request("DELETE", path),

@@ -18,6 +18,7 @@ inventory keeps almost everything.
 
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import Any
 
 import yaml
@@ -74,6 +75,23 @@ class InvalidInventory(Exception):
 
 
 def parse(document: str) -> Inventory:
+    """The typed model of one inventory file.
+
+    Every reading of this service starts here, and drawing one page asks for it
+    several times: the panels of a page are separate endpoints, each of them
+    reads the desired state, and they all read the same file. The parse is a
+    function of the text, so the answer is kept per text and handed out as a
+    copy of its own, because a caller is free to change what it received: that
+    is how a form builds the candidate it is about to commit.
+
+    The copy costs a hundredth of the parse. Two texts are kept, which is the
+    file as it stands and the candidate a form is being checked against.
+    """
+    return _parse(document).model_copy(deep=True)
+
+
+@lru_cache(maxsize=2)
+def _parse(document: str) -> Inventory:
     try:
         loaded = yaml.safe_load(document) or {}
     except yaml.YAMLError as error:

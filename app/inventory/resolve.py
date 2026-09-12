@@ -21,7 +21,9 @@ fixtures. That agreement is the only reason to trust the ordering rules below.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 import yaml
@@ -39,11 +41,35 @@ class Group:
     children: set[str] = field(default_factory=set)
 
 
-def load(document: str | dict[str, Any]) -> dict[str, Any]:
-    if isinstance(document, dict):
-        return document
+@lru_cache(maxsize=2)
+def _parsed(document: str) -> dict[str, Any]:
+    """One YAML parse per text, because the questions below are many.
+
+    Drawing the Containers page asked this of the same document twenty three
+    times: `groups` is called once for the table, once for the undeclared units,
+    and once per container to say which group it is scoped to, and each call
+    parsed the file again. On this service that is most of what the endpoint
+    spends, and it is spent on housekeeping CPUs beside real time guests.
+
+    Two entries: the document as it stands, and the candidate a form is being
+    checked against, which is the only other text this is asked about in one
+    request.
+    """
     loaded = yaml.safe_load(document) or {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def load(document: str | dict[str, Any]) -> dict[str, Any]:
+    """The file as YAML, or a mapping a caller has already parsed.
+
+    Every caller gets its own structure, which is what the copy is for: the
+    readers in this module copy the levels they touch but share what is nested
+    under a variable, and one caller reaching into that would otherwise change
+    what the next one reads. The copy costs a fraction of the parse it replaces.
+    """
+    if isinstance(document, dict):
+        return document
+    return copy.deepcopy(_parsed(document))
 
 
 def groups(document: str | dict[str, Any]) -> dict[str, Group]:

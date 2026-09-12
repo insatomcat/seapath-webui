@@ -91,7 +91,11 @@ const Reread = (function () {
       button.disabled = true;
       button.setAttribute("aria-busy", "true");
       try {
-        await read();
+        // Asked for, which is the whole of what this module is: the panel's
+        // loader is told to reach the machines rather than take the answer the
+        // service kept from the page's own load. The timer below calls the same
+        // function, because a reading on a timer is one the operator armed.
+        await read(true);
       } catch (failure) {
         onFailure(failure);
       } finally {

@@ -505,8 +505,8 @@
   // panel that leaves the local machine, and it is the only way the question
   // can be answered: occupancy is the affinity of every QEMU thread in /proc,
   // which this container's PID namespace hides.
-  async function loadPool() {
-    const pool = await API.get("/realtime/pool");
+  async function loadPool(fresh) {
+    const pool = await API.get(API.reading("/realtime/pool", fresh));
     element("map-loading").hidden = true;
 
     // The same reading answers both panels, so the cluster is asked once. Each

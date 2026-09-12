@@ -20,6 +20,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, Request
 from pydantic import BaseModel, Field
 
+from app.api.v1 import reads
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
@@ -113,7 +114,7 @@ class ActionResponse(BaseModel):
     managed: str
 
 
-@router.get("", response_model=ContainersView)
+@router.get("", response_model=ContainersView, dependencies=[reads.reading])
 def containers(request: Request) -> ContainersView:
     """Every container the inventory declares, with its unit on each machine.
 
