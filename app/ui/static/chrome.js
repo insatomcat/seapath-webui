@@ -39,8 +39,8 @@ const Chrome = (function () {
         API.get("/auth/me"),
         API.get("/node"),
       ]);
-      document.getElementById("identity").textContent =
-        me.username + " (" + me.role + ")";
+      const identity = me.username + " (" + me.role + ")";
+      document.getElementById("identity").textContent = identity;
       document.getElementById("node-name").textContent = node.hostname;
       const mode = document.getElementById("node-mode");
       mode.textContent = node.mode;
@@ -48,21 +48,42 @@ const Chrome = (function () {
       // What the next page of this visit paints its header with, before it
       // asks. The document's own script reads it back; the key it uses is
       // built there, from the same cookie name.
-      try {
-        const key = document.querySelector('meta[name="csrf-cookie"]').content;
-        sessionStorage.setItem(
-          "seapath-chrome-" + key,
-          JSON.stringify({ hostname: node.hostname, mode: node.mode })
-        );
-      } catch (error) {
-        /* A browser refusing storage asks on every page, as it always did. */
-      }
+      //
+      // The identity is stored rendered rather than as a pair, so the string
+      // is formed here and nowhere else: two places building it is two places
+      // to change when the role stops being a parenthesis.
+      remember({ hostname: node.hostname, mode: node.mode, identity });
       return { me, node };
     } catch (failure) {
       if (failure.status === 401) {
+        forget();
         window.location.assign("login");
       }
       throw failure;
+    }
+  }
+
+  function key() {
+    const name = document.querySelector('meta[name="csrf-cookie"]').content;
+    return "seapath-chrome-" + name;
+  }
+
+  function remember(seen) {
+    try {
+      sessionStorage.setItem(key(), JSON.stringify(seen));
+    } catch (error) {
+      /* A browser refusing storage asks on every page, as it always did. */
+    }
+  }
+
+  // Signing out, and being signed out. Both end this visit, and the header of
+  // the next one belongs to whoever signs in then: a name left behind here
+  // would be painted over their first page until the API answered.
+  function forget() {
+    try {
+      sessionStorage.removeItem(key());
+    } catch (error) {
+      /* Nothing was stored either. */
     }
   }
 
@@ -74,6 +95,7 @@ const Chrome = (function () {
     try {
       await API.post("/auth/logout");
     } finally {
+      forget();
       window.location.assign("login");
     }
   });

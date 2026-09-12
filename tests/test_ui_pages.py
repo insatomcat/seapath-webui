@@ -169,6 +169,12 @@ def test_the_header_paints_the_node_this_browser_already_saw(
     assert "sessionStorage.getItem" in body
     assert "seapath-chrome-" in script
     assert "sessionStorage.setItem" in script
+    # Who is signed in is the same string on every page too, and it blinked the
+    # same way. It is stored rendered, so the name and the role are formed in
+    # one place, and cleared on the way out: a name left behind would be
+    # painted over the next person to sign in on this browser.
+    assert "seen.identity" in body
+    assert "sessionStorage.removeItem" in script
     # Keyed per node: two nodes reached through two ssh tunnels are one origin
     # to the browser, and one key would show one node's name over the other's.
     assert 'name="csrf-cookie"' in script
@@ -1502,10 +1508,12 @@ def test_the_automatic_reading_is_switched_from_the_top_bar(
 
     assert 'id="autorefresh"' in body
     assert 'role="switch"' in body
-    # Off until it is asked for, and hidden until the page has a panel that
-    # carries the manual control. A page whose panels show what this operator
-    # just changed has none, and a switch there would act on nothing.
-    assert 'aria-checked="false" hidden' in body
+    # Off until it is asked for, and in the bar on every page: it is one
+    # setting for this browser, and a control that comes and goes as an
+    # operator moves between pages is one they stop reaching for. The pages
+    # with no panel to read again arm no timer, which `reread.js` decides.
+    assert 'aria-checked="false"' in body
+    assert "hidden" not in body.split('id="autorefresh"')[1].split(">")[0]
     # It says Read, like the control it drives. Refresh on the cluster page is
     # `crm resource refresh`, and it reaches a live cluster.
     assert "Refresh" not in body.split('id="autorefresh"')[1].split("</button>")[0]
@@ -1555,6 +1563,20 @@ def test_the_automatic_reading_stops_when_nobody_is_looking(
     # And a reading still in flight, so a slow fan out cannot stack requests
     # behind itself on a cluster that is already slow to answer.
     assert "!control.running" in control
+
+
+def test_a_page_with_no_panel_to_read_again_arms_no_timer(
+    signed_in: TestClient,
+) -> None:
+    """The switch stands on every page. The timer does not.
+
+    A page whose panels show what this operator has just changed has no control
+    to register, and a timer there would wake every ten seconds to walk an
+    empty list.
+    """
+    control = signed_in.get("/static/reread.js").text
+
+    assert "if (!controls.length) {" in control
 
 
 def test_the_automatic_reading_is_remembered_by_this_browser(

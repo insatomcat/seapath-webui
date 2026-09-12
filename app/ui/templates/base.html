@@ -136,17 +136,20 @@ SPDX-License-Identifier: Apache-2.0
           </button>
         </div>
         {# Reading the panels of this page again, every ten seconds, until it
-           is switched off. Hidden until `reread.js` finds a panel carrying the
-           manual control: most pages here show what this operator has just
-           changed and have none, and the switch would act on nothing there.
+           is switched off. One setting for this browser, held in the same
+           storage as the palette and in force on every page that has a panel
+           to read again, so it keeps its place in the bar on the pages that
+           have none rather than appearing and disappearing under the pointer
+           as an operator moves between them. The timer still starts with the
+           first panel that registers, so a page with none asks nothing.
 
            Two positions, and a fresh browser starts in the off one. A timer
            that fans out to every machine of the inventory is something an
            operator asks for. #}
         <button type="button" id="autorefresh" class="autorefresh" role="switch"
-                aria-checked="false" hidden
+                aria-checked="false"
                 aria-label="Automatic reading, every 10 seconds"
-                title="Automatic reading, every 10 seconds">
+                title="Automatic reading, every 10 seconds, on the pages that have a panel to read again">
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <circle cx="8" cy="8" r="6.2"></circle>
             <path d="M8 4.4V8l2.5 1.6"></path>
@@ -157,13 +160,15 @@ SPDX-License-Identifier: Apache-2.0
       </div>
     </header>
     {#
-    The node's name and its mode, as this browser last saw them. Both change
-    when a machine is renamed or joins a cluster, which is a run, and between
-    two runs they are the same two strings on every page of this service. Read
-    here, inline and right under the bar, so a navigation paints them once
-    instead of blinking the header through its placeholders on the way back to
-    the value it had a second ago. `chrome.js` asks the API as it always did
-    and corrects both, and writes the key back.
+    The node's name, its mode and who is signed in, as this browser last saw
+    them. The first two change when a machine is renamed or joins a cluster,
+    which is a run; the third changes when somebody signs in. Between those,
+    they are the same three strings on every page of this service. Read here,
+    inline and right under the bar, so a navigation paints them once instead of
+    blinking the header through its placeholders on the way back to the values
+    it had a second ago. `chrome.js` asks the API as it always did and corrects
+    all three, writes the key back, and clears it on the way out: a name left
+    behind would be painted over the next person to sign in on this browser.
 
     Keyed on the name of this node's CSRF cookie, which carries a per node
     suffix: a browser reaching two nodes through two ssh tunnels sees one
@@ -186,6 +191,7 @@ SPDX-License-Identifier: Apache-2.0
         var mode = document.getElementById("node-mode");
         mode.textContent = seen.mode;
         mode.className = "badge badge-" + seen.mode;
+        document.getElementById("identity").textContent = seen.identity || "";
       })();
     </script>
     {% endif %}

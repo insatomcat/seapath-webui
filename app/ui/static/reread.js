@@ -23,6 +23,11 @@
 // switch is the whole of the difference: an automatic reading is the manual
 // one, taken by the same code, drawn into the same panel, reported the same
 // way when it fails.
+//
+// The switch is a setting of this browser and stands in the bar of every page,
+// including the ones whose panels show what this operator has just changed and
+// have nothing to read again. Nothing is armed there: the timer waits for a
+// panel to register, and on such a page none does.
 
 const Reread = (function () {
   const KEY = "seapath-autorefresh";
@@ -97,14 +102,11 @@ const Reread = (function () {
     };
     button.addEventListener("click", control.run);
     controls.push(control);
-    // The switch is in the top bar of every page, and most pages have nothing
-    // for it to read again. It appears with the first control that registers,
-    // so it is never shown where it would do nothing, and the timer starts
-    // with it rather than at load: a page with no control never has one.
-    const switchButton = toggle();
-    if (switchButton) {
-      switchButton.hidden = false;
-    }
+    // The timer starts with the first control that registers rather than at
+    // load, so a page with nothing to read again never arms one. The switch
+    // itself is in the bar on every page: it is one setting for this browser,
+    // like the palette beside it, and a control that comes and goes as an
+    // operator moves between pages is one they stop reaching for.
     if (on()) {
       start();
     }
@@ -186,6 +188,12 @@ const Reread = (function () {
   }
 
   function start() {
+    // A page with no panel to read again arms nothing, whatever position the
+    // switch is in. The setting is the browser's and holds for the pages that
+    // do; a timer here would wake every ten seconds to walk an empty list.
+    if (!controls.length) {
+      return;
+    }
     if (timer === null) {
       schedule();
     }
