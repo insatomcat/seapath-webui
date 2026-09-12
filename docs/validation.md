@@ -572,3 +572,26 @@ operator who knows what the pages should say.
 ### Result
 
 Not yet run.
+
+## A guest seeded with cloud-init
+
+The precondition is exercised against fakes on both of its sides, and so is the
+sentence each one prints. What no fake answers is whether the seed this
+container builds is a disk a guest boots from: `cloud-localds` writing a
+filesystem, libvirt attaching it, and cloud-init inside the guest finding it by
+its label and applying it. See [D47](decisions.md#d47).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | A guest whose entry carries a `cloud_init` mapping is created with the seed attached, and comes up with the hostname and the address the entry gives it | The whole path, from `cloud-localds` in this container to netplan inside the guest | Pending |
+| 2 | The qcow2 it was created from carries no address of its own: two guests are created from one image, at two addresses | The claim the feature exists for, which only a second guest demonstrates | Pending |
+| 3 | `cloud-localds` runs in the container as it ships, with no extra package installed by hand | Whether `cloud-image-utils` and what it pulls are enough on this base image | Pending |
+| 4 | An image whose collection has no `cloud_init_seed` role refuses the deployment with the sentence that says the guest would be created unseeded | A collection built from a branch without the upstream support | Pending |
+| 5 | The seed's files left under `/tmp` in the container, and the run's artefacts on the node, are read afterwards to see what of the mapping they kept | Never log a secret, held against a real run rather than against a fake's events | Pending |
+| 6 | The same inventory, exported and run from a control machine carrying `cloud-image-utils`, creates the same guest and reports no change | Point 5 of the definition of done, on the one thing this container builds | Pending |
+
+### Result
+
+Not yet run.

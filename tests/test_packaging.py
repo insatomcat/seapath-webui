@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from app.runs import catalogue
+
 _ROOT = Path(__file__).resolve().parent.parent
 # Unfolded, because systemd continues a line with a trailing backslash and the
 # directories are created by one command spread over three lines.
@@ -161,6 +163,16 @@ def test_the_controller_dependencies_are_all_in_one_file() -> None:
     # filter roles/cephadm uses to read the ceph-volume inventory.
     assert "jmespath==" in requirements
     assert "pip install --no-cache-dir jmespath" not in dockerfile
+
+
+def test_the_package_the_seed_precondition_names_is_the_one_installed() -> None:
+    # The precondition tells an operator which package is missing when a guest
+    # asking for a cloud-init seed cannot be deployed. The name is in the
+    # sentence, in this image and on a control machine, so the three have to be
+    # the same string: a sentence naming a package the image never installs is
+    # worse than no sentence.
+    assert f"\n        {catalogue.SEED_PACKAGE} \\\n" in _DOCKERFILE
+    assert catalogue.SEED_TOOL in _DOCKERFILE
 
 
 def test_the_listen_socket_is_never_the_wildcard() -> None:

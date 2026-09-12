@@ -21,12 +21,18 @@ def write_fake_collection(
     version: str = "2.0.0",
     contents: str = "---\n",
     extras: dict[str, str] | None = None,
+    roles: list[str] | None = None,
 ) -> Path:
     """Lay out a `seapath.ansible` collection with empty playbook files.
 
     The service checks that a catalogue entry exists in the collection its
     image ships, so the tests need somewhere for it to look. Passing `entries`
     leaves the others out, which is how the version skew case is exercised.
+
+    `roles` does the same for the roles the service asks about by name rather
+    than through a playbook, which is `cloud_init_seed`. The default lays it
+    down, because a collection of the version this service is written against
+    carries it; passing `[]` is the older collection.
 
     `MANIFEST.json` and `FILES.json` are written the way `ansible-galaxy`
     writes them, because what a run records about the code it ran is read from
@@ -72,6 +78,10 @@ def write_fake_collection(
     # for a collection released after this service was written.
     for name, body in (extras or {}).items():
         (playbooks / f"{name}.yaml").write_text(body)
+    for role in [catalogue.SEED_ROLE] if roles is None else roles:
+        tasks = root / "roles" / role / "tasks"
+        tasks.mkdir(parents=True, exist_ok=True)
+        (tasks / "main.yml").write_text(contents)
     return collections_path
 
 

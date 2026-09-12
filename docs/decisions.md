@@ -3128,3 +3128,83 @@ and take the last round trip out too. It would also mean every page script
 becoming mountable and unmountable, which is a different shape for this UI than
 the one file per screen it has now. The numbers above say what it would buy: the
 hundred milliseconds that are left.
+
+## D47 - Settled: a guest's cloud-init seed is built by the role, in this container, and the image carries the tool
+
+A guest whose inventory entry carries a `cloud_init` mapping is created with a
+NoCloud seed disk beside its system disk. `cloud_init_seed` renders `meta-data`,
+`user-data` and, where the mapping asks for it, a netplan `network-config`,
+builds the three into a small image with `cloud-localds`, uploads it to the
+hypervisor and attaches it. Inside the guest, cloud-init finds the disk by its
+`CIDATA` label on first boot and applies it.
+
+What that buys is the address. A SEAPATH VM image built with the
+`SEAPATH_CLOUD_INIT` class carries cloud-init and nothing site specific, so the
+hostname, the IP address and the keys authorised in the guest move out of the
+qcow2 and into the entry that declares it: one image, one entry per guest,
+versioned with the rest of the inventory.
+
+### Where the seed is built decided the rest
+
+The role delegates the build to `localhost`, which means the control machine,
+which for a run launched here is this container. So building a seed is something
+this service's container does, and the rule of [AGENTS.md](../AGENTS.md) has to
+be held against it.
+
+It holds. What the rule forbids is this service reaching a machine outside
+Ansible. The seed is built by the upstream role, from the inventory, exactly as
+it is built on a checkout of `seapath-ansible` driven from a laptop, and
+attaching it is the deployment role's own task. The service writes the mapping
+into the inventory and stops there, which is the same act as writing `vm_disk`.
+The rule would break if this service built the seed itself and put it beside the
+guest's disk. That is a different act, and nothing here performs it.
+
+The consequence is a package. `cloud-localds` is in `cloud-image-utils`, which
+is now the sixth tool in the image, and it pulls `genisoimage` for the
+filesystem and `qemu-utils` for the qcow2 format the role asks for. The same
+package is a dependency of a conventional control machine, which is what keeps
+the acceptance criterion of AGENTS.md true: an inventory exported from here
+converges the same way from a checkout, provided that checkout can build the
+seed too. The role's README says so, and so does the sentence the precondition
+below prints.
+
+[D41](#d41) counted `cloud-localds` in this container among the costs of a probe
+VM and dropped that feature. The package arrives here for a different guest: the
+operator's own, the one carrying the application, where the seed is what takes
+the address out of the image. The probe VM stays dropped.
+
+### Two ways it fails, and one precondition that says which
+
+`deploy_vms_cluster` and `deploy_vms_standalone` carry `seed_buildable`, unmet
+only while a guest of the inventory actually asks for a seed.
+
+- **The tool is missing.** The run dies on the task that calls it, a minute
+  after the operator confirmed a deployment of every guest the inventory
+  declares. The refusal names the guests and the package.
+- **The role is missing**, which is a collection older than the cloud-init
+  support upstream. Nothing reads the mapping, so the run ends green, the guest
+  is created with no seed disk, and it comes up with whatever its image was
+  built with. On a substation network that is a duplicate address rather than a
+  missing one, which is why the silent case is refused as hard as the loud one.
+
+Checked as a precondition rather than as validation of the inventory: the
+mapping is correct, and what is missing is on this node. The role is looked for
+as `roles/cloud_init_seed/tasks/main.yml` in the installed collection, beside
+the reading that answers whether a playbook is there at all, since the catalogue
+and the collection move separately by design.
+
+### What was accepted
+
+The seed is built and attached when the guest is created. Both deployment roles
+skip their whole creation block for a guest the hypervisor already has, so
+editing a `cloud_init` mapping afterwards changes nothing until the guest is
+recreated with `force`, which destroys it and whatever it had written. The
+precondition stays silent about that. The place for it is the form that writes
+the mapping, and it has to say it where an operator reads it.
+
+The precondition is also asked of the inventory rather than of the hypervisor.
+Both roles skip the creation of a guest the machine already has, the seed
+included, so a run whose seeded guests all exist would have gone through and is
+refused anyway. Knowing which guests exist means the exporter fan out of the
+VMs page, on a listing drawn at every visit to the Runs page, and the remedy is
+the same either way: the package, or the collection that reads the mapping.

@@ -117,7 +117,7 @@ RUN ansible-galaxy collection list --collections-path=/opt/ansible/collections
 
 FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41d6bab25604534
 
-# Five tools, each earning its place:
+# Six tools, each earning its place:
 #   git                     the inventory repository, which is the audit trail
 #   openssh-client          the configuration plane, which reaches every node
 #                           over SSH including the local one
@@ -130,12 +130,20 @@ FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41
 #                           and deploy_seapath_alloc. Without it the task fails
 #                           on every host with "Failed to find required
 #                           executable rsync", naming the container's PATH
+#   cloud-image-utils       `cloud-localds`, which `cloud_init_seed` runs on
+#                           the control machine to build the NoCloud seed of a
+#                           guest whose entry carries a `cloud_init` mapping.
+#                           A run launched here has this container for its
+#                           control machine, so without it such a guest cannot
+#                           be deployed at all. It pulls genisoimage, which
+#                           writes the filesystem the seed is, and qemu-utils,
+#                           for the qcow2 format the role asks for.
 #   ceph-common             `rbd image-meta`, for the metadata a guest's
 #                           Pacemaker configuration lives in. The quadlet has
 #                           mounted /etc/ceph from the start and the container
 #                           runs on the host network, so the monitors are
 #                           reachable; this is the client that talks to them.
-#                           It is the largest of the five by a distance, and it
+#                           It is the largest of the six by a distance, and it
 #                           buys the only supported way to change a guest's
 #                           placement without recreating it from its seed
 #                           image. See D31.
@@ -149,6 +157,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
         ceph-common \
+        cloud-image-utils \
         git \
         iproute2 \
         libpam-modules \

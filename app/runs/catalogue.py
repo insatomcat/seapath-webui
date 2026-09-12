@@ -87,6 +87,31 @@ class Precondition(str, Enum):
     gets the sentence that says which variable is missing, rather than a run
     that dies on `unreachable` after the operator confirmed a measurement.
     """
+    SEED_BUILDABLE = "seed_buildable"
+    """A guest that asks for a cloud-init seed can be given one from here.
+
+    An entry carrying a `cloud_init` mapping is created with a NoCloud seed
+    disk beside its system disk, and `cloud_init_seed` builds that seed on the
+    control machine, which for a run launched here is this node. Two things can
+    be missing and they fail differently. Without `cloud-localds` the run dies
+    on the task that calls it, a minute after the operator confirmed a
+    deployment. Without the role the run ends green having ignored the mapping,
+    and the guest comes up with whatever its image was built with, address
+    included, which on a substation network is a duplicate address rather than
+    a missing one. Both are refused before the run, with the sentence that says
+    which of the two it is.
+
+    Asked of the inventory rather than of the hypervisor. Both roles skip the
+    creation of a guest the machine already has, seed included, so a run whose
+    seeded guests all exist would have gone through. Refusing it too is the
+    cheap answer: knowing which guests exist means the exporter fan out of the
+    VMs page, on a catalogue listing that is drawn on every visit to the Runs
+    page, and the way out of the refusal is the same one either way.
+
+    A narrowing lifts nothing here. A `--limit` changes which hosts a play runs
+    on and leaves `groups['VMs']` alone, so the roles keep looping over every
+    guest the inventory declares. See `app.runs.scope`.
+    """
     STANDALONE = "standalone"
     CLUSTER = "cluster"
     PLAYBOOK_PRESENT = "playbook_present"
@@ -748,6 +773,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
             Precondition.CLUSTER,
+            Precondition.SEED_BUILDABLE,
         ],
         notes=(
             "Copies each new guest's disk image to the driving node, imports "
@@ -781,6 +807,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
             Precondition.STANDALONE,
+            Precondition.SEED_BUILDABLE,
         ],
     ),
     PlaybookEntry(
@@ -1012,6 +1039,18 @@ BY_ID = {entry.id: entry for entry in CATALOGUE}
 # Where ansible-galaxy lays a collection out under a collections path.
 _COLLECTION_DIRECTORY = ("ansible_collections", "seapath", "ansible", "playbooks")
 
+# The cloud-init seed of a guest: the role that builds it, the tool that role
+# runs on the control machine, and the Debian package carrying that tool. The
+# three are named here because two of them end up in a sentence an operator
+# reads and the third is a line in the `Dockerfile`, and a package name
+# repeated in three places is a package name that goes wrong in one of them.
+#
+# The role arrived upstream with cloud-init support in `deploy_vms`, so a
+# collection older than that carries neither the role nor the calls to it.
+SEED_ROLE = "cloud_init_seed"
+SEED_TOOL = "cloud-localds"
+SEED_PACKAGE = "cloud-image-utils"
+
 
 def get(playbook_id: str) -> PlaybookEntry | None:
     return BY_ID.get(playbook_id)
@@ -1021,6 +1060,20 @@ def playbook_file(collections_path: Path, entry: PlaybookEntry) -> Path:
     """Where the shipped collection keeps this entry's playbook."""
     name = entry.playbook.rsplit(".", 1)[-1]
     return Path(collections_path).joinpath(*_COLLECTION_DIRECTORY, f"{name}.yaml")
+
+
+def role_present(collections_path: Path, role: str) -> bool:
+    """Whether the installed collection carries a role of that name.
+
+    `tasks/main.yml` rather than the directory, because `ansible-galaxy` lays
+    the tree out file by file: a directory an interrupted install left behind
+    is not a role that runs.
+    """
+    return (
+        Path(collections_path)
+        .joinpath(*_COLLECTION_DIRECTORY[:-1], "roles", role, "tasks", "main.yml")
+        .is_file()
+    )
 
 
 def identity(collections_path: Path) -> str | None:

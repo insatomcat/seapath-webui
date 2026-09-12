@@ -69,6 +69,8 @@ def build(
     trust: TrustService,
     adapter,
     tmp_path: Path,
+    collections: Path | None = None,
+    seed_builder=lambda: "/usr/bin/cloud-localds",
 ) -> RunService:
     return RunService(
         store=store,
@@ -76,13 +78,19 @@ def build(
         inventory=inventory,
         trust=trust,
         paths=RunPaths(
-            collections_root=write_fake_collection(tmp_path / "collections"),
+            collections_root=collections
+            or write_fake_collection(tmp_path / "collections"),
             private_key_file=tmp_path / "state/ssh/id_ed25519_self",
             known_hosts_file=tmp_path / "state/ssh/known_hosts",
             ssh_config_file=tmp_path / "root/.ssh/config",
         ),
         hostname="seapath-machine",
         collection_version="2.0.0",
+        # The suite runs on a laptop, which has no `cloud-localds` and no
+        # cluster either. The default here is the machine that does, so the
+        # absence is asked for by the one test that is about it rather than
+        # inherited from whoever is running the suite.
+        seed_builder=seed_builder,
     )
 
 
@@ -896,6 +904,114 @@ def test_an_entry_the_shipped_collection_lacks_is_explained_not_offered(
         service.launch("seapath_setup_main", "alice")
 
     assert failure.value.status_code == 409
+
+
+def test_a_guest_with_no_cloud_init_asks_nothing_of_the_seed_builder(
+    store, inventory, trust, tmp_path
+) -> None:
+    # The precondition is about the guests that ask for a seed. An inventory
+    # whose guests carry no `cloud_init` deploys from a node with no
+    # `cloud-localds` on it, because nothing would call one.
+    inventory.declare_guest("plainvm", {"vm_disk": "files/vm.qcow2"}, author="alice")
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(),
+        tmp_path,
+        seed_builder=lambda: None,
+    )
+    by_id = {item.entry.id: item for item in service.playbooks()}
+
+    assert by_id["deploy_vms_standalone"].available is True
+    assert "seed_buildable" not in by_id["deploy_vms_standalone"].unmet_codes
+
+
+def test_a_seeded_guest_is_refused_while_the_tool_that_seeds_it_is_absent(
+    store, inventory, trust, tmp_path
+) -> None:
+    # `cloud_init_seed` builds the seed image on the control machine, which for
+    # a run launched here is this container. Without the tool the run dies on
+    # that task, after the operator has confirmed a deployment: the package is
+    # named here instead.
+    inventory.declare_guest(
+        "seededvm",
+        {"vm_disk": "files/vm.qcow2", "cloud_init": {"hostname": "seededvm"}},
+        author="alice",
+    )
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(),
+        tmp_path,
+        seed_builder=lambda: None,
+    )
+    by_id = {item.entry.id: item for item in service.playbooks()}
+
+    for entry in ("deploy_vms_standalone", "deploy_vms_cluster"):
+        assert "seed_buildable" in by_id[entry].unmet_codes
+    refusal = by_id["deploy_vms_standalone"].unmet[0]
+    assert "seededvm" in refusal
+    assert "cloud-localds" in refusal
+    assert "cloud-image-utils" in refusal
+    assert by_id["deploy_vms_standalone"].available is False
+
+    # And the launch is refused, rather than only the card being dimmed: the
+    # VMs page deploys by launching this entry, and a page that lost the
+    # listing would otherwise start the run anyway.
+    with pytest.raises(ApiError) as failure:
+        service.launch("deploy_vms_standalone", "alice")
+
+    assert failure.value.status_code == 409
+    assert "cloud-image-utils" in failure.value.message
+    assert failure.value.detail["codes"] == ["seed_buildable"]
+
+
+def test_a_seeded_guest_is_deployable_once_the_node_can_build_the_seed(
+    store, inventory, trust, tmp_path
+) -> None:
+    inventory.declare_guest(
+        "seededvm",
+        {"vm_disk": "files/vm.qcow2", "cloud_init": {"hostname": "seededvm"}},
+        author="alice",
+    )
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+    by_id = {item.entry.id: item for item in service.playbooks()}
+
+    assert by_id["deploy_vms_standalone"].available is True
+    assert by_id["deploy_vms_standalone"].unmet_codes == []
+
+
+def test_a_collection_without_the_seed_role_refuses_a_seeded_guest(
+    store, inventory, trust, tmp_path
+) -> None:
+    # The other half of the same precondition, and the worse one. A collection
+    # older than the cloud-init support reads no `cloud_init` mapping at all:
+    # the run ends green, the guest is created with no seed, and it comes up
+    # with the address its image was built with.
+    inventory.declare_guest(
+        "seededvm",
+        {"vm_disk": "files/vm.qcow2", "cloud_init": {"hostname": "seededvm"}},
+        author="alice",
+    )
+    service = build(
+        store,
+        inventory,
+        trust,
+        fake.FakeRunAdapter(),
+        tmp_path,
+        collections=write_fake_collection(tmp_path / "older", roles=[]),
+    )
+    by_id = {item.entry.id: item for item in service.playbooks()}
+
+    assert by_id["deploy_vms_standalone"].available is False
+    refusal = by_id["deploy_vms_standalone"].unmet[0]
+    assert "cloud_init_seed" in refusal
+    assert "report success" in refusal
+    # Every other entry is still offered: one guest asking for a seed says
+    # nothing about converging a machine.
+    assert by_id["seapath_setup_main"].available is True
 
 
 def test_the_time_each_task_took_is_kept(store, inventory, trust, tmp_path) -> None:

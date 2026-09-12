@@ -45,7 +45,12 @@ Contents:
 - `iproute2`, for the one reading that is not a file under `/proc` or `/sys`:
   sysfs carries no IPv4 address. No `systemd` and no `chrony`, which this image
   carried while it read unit states, the journal and the clock offset from the
-  host. See section 2.1.
+  host. See section 2.1;
+- `cloud-image-utils`, for the `cloud-localds` that `cloud_init_seed` runs on
+  the control machine to build the seed of a guest whose entry carries a
+  `cloud_init` mapping. A control machine driving the same playbook from a
+  checkout needs it too, which is why a run that cannot find it is refused with
+  the package named. See [D47](decisions.md#d47).
 
 Each layer arrives with the milestone that uses it, so that the image never
 carries the dependency tree, or the CVEs, of something no code calls yet. M0

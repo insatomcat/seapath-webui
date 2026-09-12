@@ -361,6 +361,17 @@ that is skipped, so an adopted guest needs neither, and nothing is reported
 missing for it. [D30](decisions.md#d30) has the reasoning and the page that
 uses it.
 
+**A guest asking for a cloud-init seed is checked before the run.** An entry
+carrying a `cloud_init` mapping is created with a NoCloud seed disk, built by
+`cloud_init_seed` with `cloud-localds` on the control machine, which for a run
+launched here is this node. Both entries therefore carry `seed_buildable`, which
+is unmet only while some guest actually asks for a seed and this node cannot
+build one: `cloud-localds` missing, which kills the run on the task that calls
+it, or the role missing from the installed collection, which is worse, since the
+run then ends green having created the guest with no seed at all. The refusal
+names the guests and, for the first case, the package. See
+[D47](decisions.md#d47).
+
 ### Not reviewed, and offered as such
 
 Every other playbook of the collection is read off the disk and listed under

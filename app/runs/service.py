@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -95,6 +96,9 @@ class RunService:
         hostname: str,
         collection_version: str = "unknown",
         node_distribution: Callable[[], str | None] = lambda: None,
+        seed_builder: Callable[[], str | None] = lambda: shutil.which(
+            catalogue.SEED_TOOL
+        ),
     ) -> None:
         self._store = store
         self._adapter = adapter
@@ -111,6 +115,12 @@ class RunService:
         # value: the reader is the thing with a fake, and a service that cached
         # this at startup would keep answering Debian after a reinstall.
         self._node_distribution = node_distribution
+        # Whether this node can build a guest's cloud-init seed, which is a
+        # `cloud-localds` on the PATH of this container rather than anything
+        # read off a machine. A callable for the same reason as the
+        # distribution: the suite runs on a laptop that has no such tool, and
+        # a precondition nobody can fake is a precondition nobody tests.
+        self._seed_builder = seed_builder
         self._cancelled: set[str] = set()
 
     # Catalogue
@@ -314,6 +324,12 @@ class RunService:
                 )
             )
 
+        seeded = _seeded_guests(state.inventory) if state.inventory else []
+        if seeded:
+            refused = self._seed_refusal(seeded)
+            if refused:
+                unmet[Precondition.SEED_BUILDABLE] = refused
+
         # Which machines the inventory has, rather than which single mode it
         # is in. A file may describe a cluster and a standalone machine at
         # once, and then both kinds of playbook have somewhere to run: asking
@@ -335,6 +351,35 @@ class RunService:
             )
 
         return unmet
+
+    def _seed_refusal(self, seeded: list[str]) -> str | None:
+        """Why a guest asking for a cloud-init seed cannot be deployed yet.
+
+        The role is asked about first. Where it is missing nothing would call
+        the tool, so whether the tool is there says nothing about the run.
+        """
+        guests = ", ".join(seeded)
+        if not catalogue.role_present(
+            self._paths.collections_path, catalogue.SEED_ROLE
+        ):
+            return (
+                f"{guests} carries a `cloud_init` mapping, and the SEAPATH "
+                f"collection this image ships ({self.collection_version()}) "
+                f"has no `{catalogue.SEED_ROLE}` role. The deployment would "
+                "create the guest with no seed disk and report success, so it "
+                "would come up with whatever its image was built with, its "
+                "address included."
+            )
+        if self._seed_builder() is None:
+            return (
+                f"{guests} carries a `cloud_init` mapping, so the deployment "
+                f"builds a NoCloud seed image with `{catalogue.SEED_TOOL}` on "
+                "the control machine, which for a run launched here is this "
+                "node. It is not installed: the package is "
+                f"`{catalogue.SEED_PACKAGE}`, and a control machine running "
+                "the same playbook from a checkout needs it just as much."
+            )
+        return None
 
     def _wrong_distribution(self, entry: PlaybookEntry) -> str | None:
         """Whether this node rules the playbook out, and why in one sentence.
@@ -962,6 +1007,20 @@ def _addressable_guests(inventory: Inventory) -> list[str]:
         name
         for name, guest in inventory.guests.items()
         if str(guest.extra.get("ansible_host") or "").strip()
+    ]
+
+
+def _seeded_guests(inventory: Inventory) -> list[str]:
+    """The guests whose entry asks the deployment to build a cloud-init seed.
+
+    Read out of `extra` for the reason `ansible_host` is: the mapping is the
+    operator's and `cloud_init_seed` is what reads it, so modelling it here
+    would be this service inventing an interface over a role that documents
+    one. Presence of the key rather than its shape, because presence is
+    exactly what the deployment roles test before they build a seed.
+    """
+    return [
+        name for name, guest in inventory.guests.items() if "cloud_init" in guest.extra
     ]
 
 

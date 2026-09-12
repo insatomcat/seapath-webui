@@ -677,8 +677,14 @@ _GUEST_DEPLOYMENT: tuple[Term, ...] = (
         "cloud_init",
         Kind.MAPPING,
         Scope.GUEST,
-        "The cloud-init seed built for the guest, naming its user data file.",
+        "What cloud-init configures in the guest on its first boot: its "
+        "hostname, its network, the keys authorised in it.",
         role="cloud_init_seed",
+        caution=(
+            "Read when the guest is created and never again. Changing it "
+            "reaches a guest that exists only through `force`, which destroys "
+            "it and recreates it from its image."
+        ),
     ),
     Term(
         "disk_extract",
