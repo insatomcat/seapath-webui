@@ -890,6 +890,10 @@ def test_the_guest_latency_panel_says_what_a_guest_needs_to_be_measurable(
     # the measurements.
     assert 'id="panel-guest_cyclictest"' in body
     assert 'id="guest-choice"' in body
+    # The vCPUs are chosen from a list, like the machine form's CPUs: `smp` is
+    # the role's word for "every online one" and says nothing in a field asking
+    # for vCPUs, so it is a label with that value behind it.
+    assert 'id="guest-affinity-choice"' in body
     # And the key this node connects with, offered to be pasted into the guest.
     # Installing it would be this service writing inside a VM, which it never
     # does, so the panel carries the line and the button that copies it.

@@ -173,11 +173,12 @@ the whole screen.
         </label>
         <label class="field">
           <span>vCPUs to measure</span>
-          {# A text field rather than the list the machine form offers. The
-             isolated set of a guest is not read from here: a guest publishes
-             no exporter, so `smp` and what the operator knows is all there is. #}
-          <input type="text" id="guest-affinity" value="smp"
-                 placeholder="smp, or 2-3">
+          {# The same select as the machine form, minus the isolated set: a
+             guest publishes no exporter, so what is isolated inside it is not
+             read from here and cannot be offered by name. `smp` stays the
+             value the role reads and never the word an operator has to know. #}
+          <select id="guest-affinity-choice"></select>
+          <input type="text" id="guest-affinity" hidden>
         </label>
         <div class="field measure-action">
           <button id="guest-go" type="button">Measure</button>

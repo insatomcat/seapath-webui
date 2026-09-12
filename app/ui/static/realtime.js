@@ -233,7 +233,7 @@
     // The report carries the CPU reading the checks were formed from, so the
     // affinity picker gets the isolated set without a second request.
     state.isolated = (report.cpu && report.cpu.isolated) || [];
-    renderAffinity();
+    renderAffinity(MACHINE_AFFINITY);
 
     showBanner(report.warnings || []);
     return report;
@@ -801,21 +801,45 @@
     return parts.join(",");
   }
 
-  // What "CPUs to measure" offers. `smp` is the upstream role's word for every
-  // online CPU and says nothing to a reader, so it is spelled out and kept as
-  // the value behind the label. The isolated set is offered by name and comes
-  // first, because it is the set a real time guest runs on and the answer this
-  // page is usually being asked for.
-  function renderAffinity() {
-    const choice = element("measure-affinity-choice");
-    const value = element("measure-affinity");
-    const isolated = ranges(state.isolated);
+  // What "CPUs to measure" offers, on both forms. `smp` is the upstream role's
+  // word for every online CPU and says nothing to a reader, so it is spelled
+  // out and kept as the value behind the label. On the machine form the
+  // isolated set is offered by name and comes first, because it is the set a
+  // real time guest runs on and the answer this page is usually being asked
+  // for. The guest form has no such option: a guest publishes no exporter, so
+  // what is isolated inside it is not read from here, and offering a set this
+  // service guessed would be worse than asking.
+  // The machine form, whose isolated set is read from this machine's own CPU
+  // reading, and the guest form, which has none to read.
+  const MACHINE_AFFINITY = {
+    choice: "measure-affinity-choice",
+    value: "measure-affinity",
+    isolated: true,
+    word: "CPU",
+    everything:
+      "One thread per online CPU, the housekeeping ones included, which is " +
+      "where this service itself runs.",
+  };
+  const GUEST_AFFINITY = {
+    choice: "guest-affinity-choice",
+    value: "guest-affinity",
+    isolated: false,
+    word: "vCPU",
+    everything:
+      "One thread per online vCPU of the guest, the ones the application " +
+      "does not use included.",
+  };
+
+  function renderAffinity(form) {
+    const choice = element(form.choice);
+    const value = element(form.value);
+    const isolated = form.isolated ? ranges(state.isolated) : "";
 
     const options = [];
     if (isolated) {
       options.push({ value: isolated, label: "The isolated set, " + isolated });
     }
-    options.push({ value: "smp", label: "Every online CPU" });
+    options.push({ value: "smp", label: "Every online " + form.word });
     options.push({ value: "", label: "A list I type" });
 
     choice.replaceChildren();
@@ -838,10 +862,9 @@
       // say what they do, which is why it became a select, and the line was
       // costing the chart below its own axis.
       choice.title = custom
-        ? "A CPU list in the kernel notation, such as 4-7 or 2,4-6."
+        ? "A " + form.word + " list in the kernel notation, such as 4-7 or 2,4-6."
         : choice.value === "smp"
-          ? "One thread per online CPU, the housekeeping ones included, which " +
-            "is where this service itself runs."
+          ? form.everything
           : "One thread per isolated CPU, which is what a real time guest " +
             "runs on.";
     };
@@ -942,6 +965,7 @@
       "guest. Nothing here installs any of the three: a measurement changes " +
       "nothing on what it measures.";
     await loadPublicKey();
+    renderAffinity(GUEST_AFFINITY);
     let choices = { addressable_guests: [] };
     try {
       choices = await API.get("/playbooks/scopes");
