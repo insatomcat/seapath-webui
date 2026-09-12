@@ -24,7 +24,7 @@ from app.hosts.fake import FakeHostReader
 from app.inventory.repository import InventoryRepository
 from app.inventory.service import InventoryService
 from app.runs import catalogue, fake
-from app.runs.adapter import RunRequest, prepare
+from app.runs.adapter import RunRequest, build_command, prepare, runner_arguments
 from app.runs.models import RunProgress, RunState
 from app.runs.progress import apply_event, summarise
 from app.runs.service import RunPaths, RunService
@@ -125,6 +125,59 @@ def test_the_invocation_carries_the_settings_the_collection_does_not_ship(
     # on rather than being waved through.
     assert "host_key_checking = True" in config
     assert f"UserKnownHostsFile={tmp_path / 'known_hosts'}" in config
+
+
+def test_the_narrowing_reaches_ansible_and_not_only_the_recorded_command(
+    tmp_path: Path,
+) -> None:
+    """The bug this holds shut: a limit that was displayed and never passed.
+
+    `build_command` builds what the run records and shows, and the adapter
+    built the call to `ansible_runner.run` separately, without the limit. A run
+    narrowed to one machine therefore played every machine the playbook names,
+    and the guest subtraction of D39 protected the screen and nothing else. On a
+    substation that is a convergence reaching machines and guests nobody aimed
+    it at.
+    """
+    request = RunRequest(
+        run_id="r1",
+        playbook="seapath.ansible.test_run_cyclictest_vms",
+        inventory_file=tmp_path / "inventory.yaml",
+        private_data_dir=tmp_path / "run",
+        collections_path=tmp_path / "collections",
+        private_key_file=tmp_path / "key",
+        known_hosts_file=tmp_path / "known_hosts",
+        limit="rtvm",
+    )
+
+    arguments = runner_arguments(request, prepare(request))
+    command = build_command(request)
+
+    assert arguments["limit"] == "rtvm"
+    # The two are built from one request and say the same thing, which is the
+    # property that was missing.
+    assert command[command.index("--limit") + 1] == arguments["limit"]
+    assert arguments["playbook"] == request.playbook
+    assert arguments["cmdline"] is None
+
+
+def test_a_run_with_no_narrowing_passes_no_limit_at_all(tmp_path: Path) -> None:
+    # `None` rather than an empty string: ansible-runner appends `--limit` for
+    # any value that is not None, and `--limit ''` selects no host at all.
+    request = RunRequest(
+        run_id="r1",
+        playbook="seapath.ansible.cluster_setup_ha",
+        inventory_file=tmp_path / "inventory.yaml",
+        private_data_dir=tmp_path / "run",
+        collections_path=tmp_path / "collections",
+        private_key_file=tmp_path / "key",
+        known_hosts_file=tmp_path / "known_hosts",
+    )
+
+    arguments = runner_arguments(request, prepare(request))
+
+    assert arguments["limit"] is None
+    assert "--limit" not in build_command(request)
 
 
 def test_the_generated_config_is_readable_by_a_config_parser(

@@ -305,6 +305,31 @@ def _as_ansible_literal(value: Any) -> str:
     return str(value)
 
 
+def runner_arguments(request: RunRequest, preparation: Preparation) -> dict[str, Any]:
+    """What `ansible_runner.run` is called with, apart from the callbacks.
+
+    Pure, and separate from `execute`, for the reason this function exists at
+    all: the command a run *records* is built by `build_command` and the command
+    that actually *runs* is built here, and the two said different things. The
+    difference was `--limit`, which was recorded and displayed and never passed,
+    so a run narrowed to one machine played every machine the playbook names,
+    and the guest subtraction of [D39](../../docs/decisions.md#d39) protected
+    nothing but the screen. Both are now built from the same request and held
+    against each other by a test.
+    """
+    return {
+        "private_data_dir": str(request.private_data_dir),
+        "playbook": request.playbook,
+        "inventory": str(request.inventory_file),
+        "extravars": dict(request.extra_vars),
+        "envvars": preparation.environment,
+        "settings": {"suppress_ansible_output": True},
+        "cmdline": "--check" if request.check else None,
+        # `None` passes no limit at all, which is the playbook's own scope.
+        "limit": request.limit,
+    }
+
+
 class AnsibleRunnerAdapter:
     """`ansible-runner` in this process, in a thread of its own.
 
@@ -335,13 +360,7 @@ class AnsibleRunnerAdapter:
             return True
 
         runner = ansible_runner.run(
-            private_data_dir=str(request.private_data_dir),
-            playbook=request.playbook,
-            inventory=str(request.inventory_file),
-            extravars=dict(request.extra_vars),
-            envvars=preparation.environment,
-            settings={"suppress_ansible_output": True},
-            cmdline="--check" if request.check else None,
+            **runner_arguments(request, preparation),
             event_handler=handle_event,
             cancel_callback=should_cancel,
             quiet=True,
