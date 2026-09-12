@@ -1102,6 +1102,59 @@ def test_a_guest_trusted_this_way_is_one_a_measurement_can_aim_at(
     assert "newvm" in scopes["addressable_guests"]
 
 
+def test_the_guest_list_says_where_each_guest_is_and_whether_a_seed_says_so(
+    signed_in: TestClient,
+) -> None:
+    # The address is read off the entry, and `seeded` says which of two things
+    # it is: what the seed will give the guest, or what somebody built the
+    # image with.
+    # The fixture first: it appends a `VMs` group of its own, which would
+    # replace a group the declaration had already written.
+    _declare(signed_in)
+    declared = signed_in.post(
+        "/api/v1/vms", json={"name": "seeded", "network": dict(NETWORK)}
+    )
+    assert declared.status_code == 201, declared.text
+
+    guests = {
+        guest["name"]: guest for guest in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["seeded"]["ansible_host"] == "10.0.0.42"
+    assert guests["seeded"]["seeded"] is True
+    assert guests["vm-guest1"]["ansible_host"] is None
+    assert guests["vm-guest1"]["seeded"] is False
+
+
+def test_two_guests_are_declared_from_one_image_and_one_template(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # What a seeded image is for. The page reuses a file this node holds by
+    # sending its path, so both entries name the same two files and differ
+    # only by what the seed gives each guest.
+    for name, address, mac in (
+        ("first", "10.0.0.41/24", "52:54:00:e4:ff:01"),
+        ("second", "10.0.0.42/24", "52:54:00:e4:ff:02"),
+    ):
+        response = signed_in.post(
+            "/api/v1/vms",
+            json={
+                "name": name,
+                "vm_disk": "../files/seapath-vm.qcow2",
+                "vm_template": "../templates/guest.xml.j2",
+                "network": {"bridge": "br0", "mac_address": mac, "address": address},
+            },
+        )
+        assert response.status_code == 201, response.text
+
+    hosts = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]
+    assert hosts["first"]["vm_disk"] == hosts["second"]["vm_disk"]
+    assert hosts["first"]["vm_template"] == hosts["second"]["vm_template"]
+    assert hosts["first"]["ansible_host"] != hosts["second"]["ansible_host"]
+
+
 def test_a_declaration_replaced_keeps_its_own_address(
     signed_in: TestClient, settings: Settings
 ) -> None:

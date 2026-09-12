@@ -1428,6 +1428,24 @@ def test_adding_a_vm_asks_for_the_network_it_will_come_up_on(
     assert "read once, when the guest is created" in body
 
 
+def test_adding_a_vm_can_reuse_the_image_and_the_xml_this_node_holds(
+    signed_in: TestClient,
+) -> None:
+    # One image and one template for every guest of a site, which is what a
+    # seeded image makes possible. The lists are filled from the folder when
+    # the form opens, so the page carries the selects and the script reads it.
+    body = signed_in.get("/vms").text
+    script = signed_in.get("/static/vms.js").text
+
+    assert 'id="add-disk-source"' in body
+    assert 'id="add-xml-source"' in body
+    assert "Upload an image" in body
+    assert 'API.get("/inventory/folder")' in script
+    # The address the entry gives each guest, as a column of the guest table.
+    assert "<th>Address</th>" in body
+    assert "function addressCell(guest)" in script
+
+
 def test_adding_a_vm_says_what_it_will_do_before_it_does_it(
     signed_in: TestClient,
 ) -> None:

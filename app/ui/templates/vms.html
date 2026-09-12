@@ -67,6 +67,7 @@ image and losing its disk. D31 records the bounds.
               <th>Deployed by</th>
               <th>State</th>
               <th>Node</th>
+              <th>Address</th>
               <th>Disk image</th>
               <th>libvirt XML</th>
               <th>On deployment</th>
@@ -166,19 +167,33 @@ image and losing its disk. D31 records the bounds.
       </p>
     </div>
 
-    <label for="add-disk">Disk image</label>
+    {# Each of the two files is either uploaded for this guest or one this node
+       already holds. The second is what a seeded image is for: one qcow2 and
+       one template serve every guest of a site, since the address and the
+       hostname are in each guest's entry rather than in the image. The lists
+       are read from the folder when the form opens. #}
+    <label for="add-disk-source">Disk image</label>
+    <select id="add-disk-source">
+      <option value="">Upload an image</option>
+    </select>
     <input type="file" id="add-disk" accept=".qcow2,.img,.gz">
     <p class="help" id="add-disk-help">
       The image a creation starts from, stored outside git. In a cluster it is
-      imported into the Ceph pool and the guest runs from there afterwards.
+      imported into the Ceph pool and the guest runs from there afterwards. An
+      image already on this node is reused as it is, and every guest created
+      from it starts from the same bytes.
     </p>
 
-    <label for="add-xml">libvirt XML</label>
+    <label for="add-xml-source">libvirt XML</label>
+    <select id="add-xml-source">
+      <option value="">Upload an XML</option>
+    </select>
     <input type="file" id="add-xml" accept=".xml,.j2">
     <p class="help">
       Committed with the inventory. A file ending in <code>.j2</code> is taken
       as a Jinja2 template and rendered per guest, anything else is used as it
-      is.
+      is. A template already in the folder serves every guest it is named by;
+      a plain XML names one domain, so reuse it for one guest only.
     </p>
 
     {# The network, which is two things at once and has to say so: the

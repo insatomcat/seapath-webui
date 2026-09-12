@@ -3276,6 +3276,29 @@ list somebody has to keep. A string that comes back as itself is written bare,
 so `52:54:00:e4:ff:02`, which has hexadecimal digits in it and is a string in
 both versions, stays unquoted and the file still reads like one somebody wrote.
 
+### One image for a site, and where the address is read
+
+The form used to upload a disk image and an XML for every guest, stored as
+`files/<guest>.qcow2`. With a seed carrying what makes each guest different,
+that is twenty gigabytes transferred per guest to store the same bytes under
+another name. So each of the two files is either uploaded or picked from what
+this node already holds, the artefacts for the image and the versioned folder
+for the XML, and the declaration names the held path. No endpoint was added:
+`GET /inventory/folder` already lists both stores, and a declaration already
+takes any path.
+
+The choice stays selected when the form reopens, because the next guest of a
+site is made from the same two files. The identity fields are emptied as
+before, the address, the MAC and the hostname with the name, since those are
+the values no two guests may share.
+
+The guest table gains an address column, read off the entry. It says whether the
+entry carries a seed, because the same address means two things: with a seed it
+is what the guest will be given at creation, without one it is what somebody
+built the image with. What the guest answers on right now is out of this page's
+reach, since a guest publishes no exporter, and the column makes no claim about
+it.
+
 ### The trust into the guest, through the same seed
 
 [D41](#d41) left the trust into a guest to the operator: the Real time page

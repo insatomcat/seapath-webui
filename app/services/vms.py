@@ -118,6 +118,20 @@ class GuestView(BaseModel):
     force: bool = False
     """The guest is destroyed and recreated on every deployment run."""
     enable: bool = True
+    ansible_host: str | None = None
+    """Where a run reaches inside the guest, when the entry says.
+
+    The address the guest is expected to answer on, read off its entry. What
+    it is actually answering on is nothing this page reads: a guest publishes
+    no exporter.
+    """
+    seeded: bool = False
+    """The entry carries a `cloud_init` mapping, so a creation attaches a seed.
+
+    Worth the column because the address above means two different things
+    depending on it: with a seed it is what the guest will be given, without
+    one it is what somebody wrote the image with.
+    """
 
     files: list[Reference] = Field(default_factory=list)
     """The paths this guest names, and whether a run would find each one."""
@@ -613,6 +627,8 @@ class VmService:
                     xml_path=guest.xml_path,
                     force=guest.force,
                     enable=guest.enable,
+                    ansible_host=guest.ansible_host,
+                    seeded=guest.cloud_init is not None,
                     preferred_host=guest.extra.get("preferred_host"),
                     pinned_host=guest.extra.get("pinned_host"),
                     files=files.get(name, []),

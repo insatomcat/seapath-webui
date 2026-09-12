@@ -173,6 +173,29 @@
   // A file the guest names, and whether a deployment would find it. A missing
   // one is the failure worth catching here: with `any_errors_fatal`, a copy
   // that cannot find its source ends the run on every host at once.
+  // The address the entry gives the guest, and where that address comes from.
+  // Read off the inventory: a guest publishes no exporter, so what it is
+  // answering on right now is not something this page knows, and the cell
+  // says which of the two statements the address is.
+  function addressCell(guest) {
+    const node = document.createElement("td");
+    if (!guest.ansible_host) {
+      // No address declared, which a guest on DHCP and a guest nobody reaches
+      // inside are alike. Guessing which would be the page inventing a fact.
+      return node;
+    }
+    const address = document.createElement("code");
+    address.textContent = guest.ansible_host;
+    node.append(address);
+    if (guest.seeded) {
+      const origin = document.createElement("span");
+      origin.className = "legend";
+      origin.textContent = " given by the seed";
+      node.append(origin);
+    }
+    return node;
+  }
+
   function file(guest, value) {
     if (!value) {
       return cell("");
@@ -834,6 +857,7 @@
         deployedBy(guest),
         state(guest),
         nodeCell(guest),
+        addressCell(guest),
         file(guest, guest.vm_disk),
         file(guest, guest.vm_template || guest.xml_path),
         ondeploy(guest),
@@ -980,8 +1004,66 @@
       element("add-replace").hidden = true;
       element("add-steps").hidden = true;
       element("add-name").focus();
+      loadHeldFiles();
     }
   }
+
+  // The images and XML files this node already holds, offered beside the
+  // upload. Read each time the form opens rather than kept, because the files
+  // a previous guest uploaded belong in the next guest's lists.
+  const IMAGE_SUFFIXES = [".qcow2", ".img", ".gz"];
+  const XML_SUFFIXES = [".xml", ".j2"];
+
+  async function loadHeldFiles() {
+    let folder = null;
+    try {
+      folder = await API.get("/inventory/folder");
+    } catch (ignored) {
+      // The lists stay at the upload alone, which still declares a guest. A
+      // node that cannot read its own folder says so on the Inventory page,
+      // and the declaration that follows fails with the reason if it matters.
+      return;
+    }
+    fillHeld(
+      "add-disk-source",
+      "Upload an image",
+      (folder.artefacts || []).map((item) => item.path),
+      IMAGE_SUFFIXES
+    );
+    fillHeld(
+      "add-xml-source",
+      "Upload an XML",
+      (folder.files || []).map((item) => item.path),
+      XML_SUFFIXES
+    );
+  }
+
+  function fillHeld(id, uploadLabel, paths, suffixes) {
+    const select = element(id);
+    const chosen = select.value;
+    select.replaceChildren(new Option(uploadLabel, ""));
+    paths
+      .filter((path) => suffixes.some((suffix) => path.endsWith(suffix)))
+      .sort()
+      .forEach((path) => select.append(new Option(path, path)));
+    // The choice survives a reopening as long as the file is still there:
+    // the next guest of a site is usually made from the same two files.
+    select.value = [...select.options].some((option) => option.value === chosen)
+      ? chosen
+      : "";
+    showUploadFor(id);
+  }
+
+  // The file input is for an upload, so it goes away while a held file is
+  // chosen rather than sitting there being ignored.
+  function showUploadFor(id) {
+    const input = id === "add-disk-source" ? "add-disk" : "add-xml";
+    element(input).hidden = Boolean(element(id).value);
+  }
+
+  ["add-disk-source", "add-xml-source"].forEach((id) => {
+    element(id).addEventListener("change", () => showUploadFor(id));
+  });
 
   // The machines a guest may be placed on and the guests it may be kept
   // beside, both filled from the reading the page already has.
@@ -1161,14 +1243,19 @@
 
   async function addGuest(replace) {
     const name = element("add-name").value.trim();
-    const disk = element("add-disk").files[0];
-    const xml = element("add-xml").files[0];
+    // A path this node already holds, or empty where the file is uploaded for
+    // this guest. The two are exclusive, which the form shows by hiding the
+    // file input while a held file is chosen.
+    const diskReused = element("add-disk-source").value;
+    const xmlReused = element("add-xml-source").value;
+    const disk = diskReused ? null : element("add-disk").files[0];
+    const xml = xmlReused ? null : element("add-xml").files[0];
     const error = element("add-error");
     const replaceButton = element("add-replace");
     error.hidden = true;
     replaceButton.hidden = true;
 
-    if (!name || !disk || !xml) {
+    if (!name || !(diskReused || disk) || !(xmlReused || xml)) {
       error.textContent =
         "A VM needs a name, a disk image and a libvirt XML. All three are " +
         "what the deployment run is given.";
@@ -1191,18 +1278,23 @@
       return;
     }
 
-    gzipped = disk.name.endsWith(".gz");
-    const diskPath = stored(name, disk.name);
-    const xmlPath = stored(name, xml.name);
-    const already =
-      sent !== null &&
-      sent.disk === disk &&
-      sent.xml === xml &&
-      sent.diskPath === diskPath &&
-      sent.xmlPath === xmlPath;
+    gzipped = (diskReused || disk.name).endsWith(".gz");
+    const diskPath = diskReused || stored(name, disk.name);
+    const xmlPath = xmlReused || stored(name, xml.name);
+    // Judged file by file, so a retry after a refusal sends neither a file it
+    // already stored nor one this node held from the start.
+    const diskThere =
+      Boolean(diskReused) ||
+      (sent !== null && sent.disk === disk && sent.diskPath === diskPath);
+    const xmlThere =
+      Boolean(xmlReused) ||
+      (sent !== null && sent.xml === xml && sent.xmlPath === xmlPath);
+    const said = (reused, there, verb, path) =>
+      (reused ? "Reusing " : there ? "Already " + verb.done + ": " : verb.doing + " ") +
+      path;
     const progress = steps([
-      (already ? "Already uploaded: " : "Uploading ") + diskPath,
-      (already ? "Already committed: " : "Committing ") + xmlPath,
+      said(diskReused, diskThere, { doing: "Uploading", done: "uploaded" }, diskPath),
+      said(xmlReused, xmlThere, { doing: "Committing", done: "committed" }, xmlPath),
       (replace ? "Replacing the declaration of " : "Declaring ") +
         name +
         " in the inventory",
@@ -1213,19 +1305,19 @@
     go.disabled = true;
     go.setAttribute("aria-busy", "true");
     try {
-      if (already) {
-        progress.at(0, "done");
-        progress.at(1, "done");
-      } else {
+      if (!diskThere) {
         progress.at(0, "doing");
         await API.upload("/inventory/artefacts/" + diskPath, disk);
-        progress.at(0, "done");
+        sent = Object.assign({}, sent, { disk, diskPath });
+      }
+      progress.at(0, "done");
 
+      if (!xmlThere) {
         progress.at(1, "doing");
         await API.upload("/inventory/files/" + xmlPath, xml);
-        progress.at(1, "done");
-        sent = { disk, xml, diskPath, xmlPath };
+        sent = Object.assign({}, sent, { xml, xmlPath });
       }
+      progress.at(1, "done");
 
       progress.at(2, "doing");
       const entry = Object.assign(
@@ -1237,7 +1329,7 @@
         },
         declaration()
       );
-      entry[xmlVariable(xml.name)] = "../" + xmlPath;
+      entry[xmlVariable(xmlPath)] = "../" + xmlPath;
       if (replace) {
         entry.replace = true;
       }
@@ -1271,6 +1363,11 @@
       // harder reason than convenience: they are the three values no two
       // guests may share, and a form that kept them would offer the next
       // guest a collision the API then refuses.
+      //
+      // A held image or template chosen in the two lists stays chosen, since
+      // declaring the next guest from the same files is what they are for.
+      // Files uploaded for this guest are held now too, and the lists read
+      // the folder again the next time the form opens.
       element("add-name").value = "";
       element("add-disk").value = "";
       element("add-xml").value = "";
