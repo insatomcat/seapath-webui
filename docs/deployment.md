@@ -449,7 +449,7 @@ here is the same thing by hand, and it is short on purpose:
 # The exact tag the quadlet pins, which is this service's own version. The
 # quadlet never says `latest`: a machine has to be able to say which code is
 # answering on it.
-podman pull docker.io/insatomcat/seapath-webui:0.3.88
+podman pull docker.io/insatomcat/seapath-webui:0.3.89
 install -m 0644 seapath-webui.container /etc/containers/systemd/
 systemctl daemon-reload
 systemctl start seapath-webui

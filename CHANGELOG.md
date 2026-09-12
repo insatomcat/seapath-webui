@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.89 - 2026-09-12
+
+- fix: a brought XML gives the seed its MAC, and names itself right
+- fix: one XML or template serves many guests, and the MAC stays unique
+
 ## 0.3.88 - 2026-09-12
 
 - feat: a guest asking for a cloud-init seed can be seeded from here
