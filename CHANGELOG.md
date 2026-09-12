@@ -19,6 +19,13 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.77 - 2026-09-12
+
+- fix: the interrupt row asks where the process bus interrupts are
+- feat: nics_affinity is checked against the isolated set when it is written
+- fix: the top bar keeps its switch and its identity from page to page
+- fix: a host nothing could reach is not reported as a task failure
+
 ## 0.3.76 - 2026-09-12
 
 - fix: the narrowing reaches Ansible, and not only the recorded command
