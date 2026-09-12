@@ -162,6 +162,22 @@ const Reread = (function () {
     }
   }
 
+  // The reading a run that just ended asks for. The panels of the page under
+  // the run window describe machines that run may have just changed, and the
+  // operator watched it to the end precisely to see them: this is what
+  // replaces the navigation back to the page and the reading it would have
+  // done on arrival.
+  //
+  // `deciding` is not consulted, unlike the timer's round. The window on top
+  // is the run's own, and it is reporting the very change this reads.
+  async function readAgain() {
+    for (const control of controls) {
+      if (due(control)) {
+        await control.run();
+      }
+    }
+  }
+
   // Scheduled from the end of the reading and not from the start of it, so a
   // fan out that takes longer than the period cannot stack requests behind
   // itself on a cluster that is already slow to answer.
@@ -244,5 +260,5 @@ const Reread = (function () {
 
   mount();
 
-  return { attach };
+  return { attach, readAgain };
 })();

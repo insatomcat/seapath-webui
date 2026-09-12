@@ -1411,7 +1411,10 @@
           variables,
           scope: selection,
         });
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        // Shut here rather than by a navigation to the Runs page: the run is
+        // followed in a window over this one, and this one has been answered.
+        modal.hidden = true;
+        RunWatch.open(started.run_id);
       } catch (failure) {
         const error = element("confirm-error");
         error.textContent = failure.message;

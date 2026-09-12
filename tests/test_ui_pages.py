@@ -767,6 +767,8 @@ def test_the_static_assets_are_served(signed_in: TestClient) -> None:
         "inventory.js",
         "deployment.js",
         "runs.js",
+        "runstream.js",
+        "runwatch.js",
         "style.css",
     ):
         assert signed_in.get(f"/static/{asset}").status_code == 200
@@ -792,8 +794,9 @@ def test_the_run_view_shows_the_skipped_column(signed_in: TestClient) -> None:
 
     assert "<th>skipped</th>" in body
     assert "counts.skipped" in script
-    # And the recap line carries Ansible's numbers rather than the bare word.
-    assert "recapLine" in script
+    # And the recap line carries Ansible's numbers rather than the bare word,
+    # in the render this page shares with the window that follows a run.
+    assert "recapLine" in signed_in.get("/static/runstream.js").text
 
 
 def test_a_static_asset_is_revalidated_rather_than_held(
@@ -991,6 +994,8 @@ def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> 
         "node.js",
         "realtime.js",
         "runs.js",
+        "runstream.js",
+        "runwatch.js",
         "deployment.js",
         "vms.js",
         "containers.js",
@@ -1758,3 +1763,147 @@ def test_the_completion_is_the_assistant_switch_too(signed_in: TestClient) -> No
     # even fetched, rather than fetched and unused.
     assert "vocabulary.length || !assistantOn()" in script
     assert "completion.close()" in script
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/cluster",
+        "/realtime",
+        "/runs",
+    ],
+)
+def test_every_page_carries_the_window_that_follows_a_run(
+    signed_in: TestClient, path: str
+) -> None:
+    """A run is watched where it was launched, and not on the way to the Runs page.
+
+    Almost every act of this service is a playbook, so launching one was a
+    navigation, and reading the result of one's own action meant finding the
+    way back to the page, the view and the card it was launched from.
+    """
+    body = signed_in.get(path).text
+
+    assert 'id="run-watch"' in body
+    assert "runstream.js" in body
+    assert "runwatch.js" in body
+    # And it is the last window in the document, which is what makes it the one
+    # drawn over the confirmation it replaces and the one Escape dismisses.
+    assert body.rindex('class="modal"') == body.index('id="run-watch"') - len(
+        'class="modal" '
+    )
+
+
+@pytest.mark.parametrize(
+    "asset",
+    ["cluster.js", "containers.js", "vms.js", "deployment.js", "realtime.js"],
+)
+def test_no_action_navigates_away_to_show_the_run_it_launched(
+    signed_in: TestClient, asset: str
+) -> None:
+    script = signed_in.get(f"/static/{asset}").text
+
+    assert 'location.assign("runs' not in script
+    assert "RunWatch.open(started.run_id" in script
+
+
+def test_the_window_and_the_runs_page_draw_the_same_log(
+    signed_in: TestClient,
+) -> None:
+    """One render for one event stream.
+
+    Two would be two sets of bugs, and the one an operator sees only for the
+    length of a convergence is the one nobody would notice going wrong.
+    """
+    stream = signed_in.get("/static/runstream.js").text
+    page = signed_in.get("/static/runs.js").text
+    window = signed_in.get("/static/runwatch.js").text
+
+    assert "recapLine" in stream
+    assert "RunStream.append" in page
+    assert "RunStream.append" in window
+    assert "RunStream.follow" in page
+    assert "RunStream.follow" in window
+
+
+def test_the_window_says_what_closing_it_does_and_does_not_do(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/vms").text
+    script = signed_in.get("/static/runwatch.js").text
+    prose = " ".join(body.split())
+
+    # The window is ignorable, and that is the whole point of it: the run
+    # belongs to the service rather than to this browser.
+    assert "Closing this window leaves the run going" in prose
+    assert 'id="run-watch-open"' in body
+    # Closing stops the stream through the control the window names, so the
+    # connection is not left open behind a hidden element.
+    assert 'data-dismiss="run-watch-close"' in body
+    assert 'element("run-watch-close").addEventListener("click", close)' in script
+
+
+def test_a_run_that_ends_under_the_window_leaves_the_page_up_to_date(
+    signed_in: TestClient,
+) -> None:
+    """What the navigation used to do on the way back.
+
+    The operator who stays to the end stays to see what the run did, and the
+    panels underneath it were drawn before it ran.
+    """
+    window = signed_in.get("/static/runwatch.js").text
+    reread = signed_in.get("/static/reread.js").text
+
+    assert "await Reread.readAgain()" in window
+    assert "async function readAgain()" in reread
+    assert "return { attach, readAgain };" in reread
+    # And only for the operator who is still watching. One who closed the
+    # window said they were not, and a fan out to every machine of the
+    # inventory on nobody's behalf is what D37 is careful about.
+    assert 'const watching = !element("run-watch").hidden' in window
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/",
+        "/inventory",
+        "/deployment",
+        "/vms",
+        "/containers",
+        "/cluster",
+        "/realtime",
+        "/runs",
+    ],
+)
+def test_every_window_names_the_control_that_shuts_it(
+    signed_in: TestClient, path: str
+) -> None:
+    """Escape and a click beside the window both press that control.
+
+    Neither hides the element, so the page's own teardown runs: the console
+    closes its socket, a confirmation clears the machine it was about to name,
+    the run window stops following its stream. A window without the attribute
+    is one those two gestures leave open.
+    """
+    body = signed_in.get(path).text
+
+    for window in re.findall(r"<div class=\"modal\"[^>]*>", body):
+        assert "data-dismiss=" in window, window
+
+
+def test_a_click_beside_a_window_shuts_it(signed_in: TestClient) -> None:
+    script = signed_in.get("/static/chrome.js").text
+
+    # The scrim is the element a click outside the window lands on, and the
+    # same control Escape presses is pressed here.
+    assert 'scrim.classList.contains("modal")' in script
+    assert "dismiss(scrim)" in script
+    # Both ends of the click, because a selection that starts on a value inside
+    # the window and ends past its edge is released on the scrim.
+    assert "scrim !== pressed" in script

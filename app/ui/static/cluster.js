@@ -279,7 +279,7 @@
             encodeURIComponent(node.name) +
             (standby ? "/standby" : "/online")
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
@@ -566,7 +566,7 @@
           "/cluster/resources/" + encodeURIComponent(resource.id) + "/move",
           { node }
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
@@ -590,7 +590,7 @@
         const started = await API.post(
           "/cluster/resources/" + encodeURIComponent(resource.id) + "/clear"
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
@@ -608,7 +608,7 @@
       label: "Refresh every resource",
       act: async () => {
         const started = await API.post("/cluster/resources/refresh");
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   });
@@ -628,7 +628,7 @@
         const started = await API.post(
           "/cluster/resources/" + encodeURIComponent(name) + "/refresh"
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }

@@ -475,3 +475,27 @@ at all, which is an SSH connection into a VM, `sudo`, `rt-tests` and a real
 ### Result
 
 Not yet run.
+
+## The run watched over the page that launched it
+
+Everything here is reachable against the fakes: the window opens, the stream
+draws, the panels underneath are read again. What a fake never produces is the
+thing the change exists for, an operator standing in a page while a real
+convergence runs against real machines, and the failure modes belong to a run
+that lasts minutes rather than milliseconds. See [D43](decisions.md#d43).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Starting a guest from the VMs page opens the window over that page, the log fills as the run goes, and the table behind it is still the one the operator was reading | The whole gesture, over a run that takes long enough to watch | Pending |
+| 2 | Closing the window leaves the run going: the Runs page shows it finishing, with the events that arrived after the window was shut | A run long enough that closing it happens in the middle of one | Pending |
+| 3 | When the run ends with the window open, the panel underneath shows the new state without a navigation or a reload | The reading, against machines that really changed | Pending |
+| 4 | A `seapath_setup_main` that reboots this node ends the window's stream without a final state, and the Runs page reports `interrupted` | The connection dying under the window, which only a real reboot does | Pending |
+| 5 | Cancelling from the window stops the run, and the record says `cancelled` | A process that is really running under `ansible-runner` | Pending |
+| 6 | A measurement launched from the Real time page lands in the measurement list when its window reports the end, without leaving the page | The run and the file it fetches back | Pending |
+| 7 | Clicking beside any window of this UI shuts it, and selecting text inside one and releasing the button outside it does not | Pointer behaviour, in a real browser | Pending |
+
+### Result
+
+Not yet run.

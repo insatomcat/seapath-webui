@@ -13,10 +13,6 @@
     return document.getElementById(id);
   }
 
-  function stateClass(name) {
-    return "state state-" + name;
-  }
-
   function fillList(target, pairs) {
     target.replaceChildren();
     pairs.forEach(([label, value]) => {
@@ -47,7 +43,7 @@
       item.className = "run" + (record.id === state.current ? " current" : "");
 
       const badge = document.createElement("span");
-      badge.className = stateClass(record.state);
+      badge.className = RunStream.stateClass(record.state);
       badge.textContent = record.state;
 
       const title = document.createElement("span");
@@ -67,90 +63,6 @@
     return runs;
   }
 
-  function appendEvent(payload) {
-    const stream = element("stream");
-    const line = document.createElement("div");
-    line.className = "stream-line stream-" + payload.kind;
-
-    if (payload.kind === "play") {
-      line.textContent = "PLAY  " + payload.play;
-    } else if (payload.kind === "task") {
-      line.textContent = "TASK  " + payload.task;
-    } else if (payload.kind === "result") {
-      line.textContent =
-        payload.outcome.padEnd(12) +
-        payload.host +
-        "  " +
-        (payload.task || "") +
-        (payload.seconds ? "  " + seconds(payload.seconds) : "");
-      line.classList.add("outcome-" + payload.outcome);
-      // A failure says why, and a debug task shows what it printed. Those are
-      // the two reasons to look at a result rather than at a counter.
-      [payload.message, payload.output].forEach((text) => {
-        if (!text) {
-          return;
-        }
-        const detail = document.createElement("div");
-        detail.className = "stream-reason";
-        detail.textContent = text;
-        line.append(detail);
-      });
-    } else if (payload.kind === "stats") {
-      // Ansible's own recap. Printing the word and dropping the numbers left a
-      // heading with nothing under it at the end of every run.
-      line.textContent = "RECAP  " + recapLine(payload.stats);
-    } else {
-      return;
-    }
-
-    stream.append(line);
-    stream.scrollTop = stream.scrollHeight;
-  }
-
-  // The stats event carries one mapping per outcome, each keyed by host, which
-  // is Ansible's shape rather than a reader's. Turned back into one line per
-  // host, and the zeroes are kept: "failed=0" is the sentence an operator is
-  // looking for.
-  function recapLine(stats) {
-    const outcomes = [
-      "ok",
-      "changed",
-      "skipped",
-      "failures",
-      "dark",
-      "rescued",
-      "ignored",
-    ];
-    const labels = { failures: "failed", dark: "unreachable" };
-    // Ansible prints these two only when they happened, and so does this. A
-    // recap ending in "rescued=0 ignored=0" on every run trains an operator to
-    // stop reading the end of the line.
-    const whenNonZero = ["rescued", "ignored"];
-    const hosts = [
-      ...new Set(outcomes.flatMap((key) => Object.keys(stats[key] || {}))),
-    ].sort();
-    if (!hosts.length) {
-      return "no host was reached";
-    }
-    return hosts
-      .map(
-        (host) =>
-          host +
-          " " +
-          outcomes
-            .filter(
-              (key) => !whenNonZero.includes(key) || (stats[key] || {})[host]
-            )
-            .map((key) => (labels[key] || key) + "=" + ((stats[key] || {})[host] || 0))
-            .join(" ")
-      )
-      .join("   ");
-  }
-
-  function seconds(value) {
-    return value >= 10 ? value.toFixed(0) + "s" : value.toFixed(1) + "s";
-  }
-
   // Ansible prints this only when profile_tasks is enabled. The numbers are in
   // the event stream either way, so the view answers "which step took the four
   // minutes" without a callback plugin and without parsing stdout.
@@ -164,13 +76,13 @@
     const total = rows.reduce((sum, [, value]) => sum + value, 0);
     opener.textContent = "Where the time went";
     element("timing-note").textContent =
-      rows.length + " tasks, " + seconds(total) + " of task time.";
+      rows.length + " tasks, " + RunStream.seconds(total) + " of task time.";
 
     const body = document.querySelector("#timing-table tbody");
     body.replaceChildren();
     rows.slice(0, 15).forEach(([task, value]) => {
       const row = document.createElement("tr");
-      [task, seconds(value)].forEach((text) => {
+      [task, RunStream.seconds(value)].forEach((text) => {
         const cell = document.createElement("td");
         cell.textContent = text;
         row.append(cell);
@@ -344,36 +256,30 @@
       try {
         await API.post("/runs/" + runId + "/cancel");
       } catch (failure) {
-        appendEvent({ kind: "task", task: failure.message });
+        RunStream.append(element("stream"), {
+          kind: "task",
+          task: failure.message,
+        });
       }
     };
 
-    // Resumable by index: a browser reconnecting after a reboot asks for what
-    // it has not seen rather than replaying a whole convergence.
-    const source = new EventSource(
-      "api/v1/runs/" + encodeURIComponent(runId) + "/events?offset=0"
-    );
-    state.source = source;
-    source.onmessage = (message) => {
-      state.seen += 1;
-      appendEvent(JSON.parse(message.data));
-    };
-    source.addEventListener("state", async (message) => {
-      const final = JSON.parse(message.data);
-      renderHosts(final.hosts);
-      renderTimings(final.durations);
-      source.close();
-      state.source = null;
-      renderRecord(await API.get("/runs/" + runId));
-      await loadList();
+    // The same lines the window over an action draws, from the same stream.
+    state.source = RunStream.follow(runId, {
+      onEvent: (payload) => {
+        state.seen += 1;
+        RunStream.append(element("stream"), payload);
+      },
+      onEnd: async (final) => {
+        state.source = null;
+        renderHosts(final.hosts);
+        renderTimings(final.durations);
+        renderRecord(await API.get("/runs/" + runId));
+        await loadList();
+      },
+      onLost: () => {
+        state.source = null;
+      },
     });
-    source.onerror = () => {
-      // The stream ends when the run does, and it also ends when the machine
-      // running it goes away. Both look the same here, and the record is the
-      // source of truth either way.
-      source.close();
-      state.source = null;
-    };
   }
 
   // Relaunching asks once, like applying does. Typing the machine's name was

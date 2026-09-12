@@ -420,7 +420,7 @@
           "/cluster/resources/" + encodeURIComponent(guest.name) + "/move",
           { node }
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
@@ -446,7 +446,7 @@
         const started = await API.post(
           "/cluster/resources/" + encodeURIComponent(guest.name) + "/clear"
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
@@ -564,7 +564,7 @@
         const started = await API.post(
           "/vms/" + encodeURIComponent(name) + "/" + action
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
@@ -1198,7 +1198,21 @@
       progress.at(3, "doing");
       const started = await API.post("/runs", { playbook: declared.playbook });
       progress.at(3, "done");
-      window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+      // The form is finished with, and what follows it is the run. It used to
+      // be closed by the navigation to the Runs page; now the window over this
+      // page is what the operator watches, and the form behind it would be a
+      // filled in copy of the guest that was just declared.
+      //
+      // What identifies that guest is emptied with it: a name and two files
+      // reopened as they were are what declares the same image twice. The
+      // shape below them is left alone, because the next guest of a site is
+      // usually the same shape.
+      element("add-name").value = "";
+      element("add-disk").value = "";
+      element("add-xml").value = "";
+      sent = null;
+      showAdd(false);
+      RunWatch.open(started.run_id);
     } catch (failure) {
       const doing = [...element("add-steps").children].findIndex(
         (item) => item.className === "doing"

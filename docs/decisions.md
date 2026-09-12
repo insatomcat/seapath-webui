@@ -2738,3 +2738,71 @@ more than the others is [D36](#d36) undone.
 
 **What it does not do is write a mask.** The fix for every finding here is an
 inventory edit and a run, which is the whole design.
+
+## D43 - Settled: the run an action launches is watched over the page that launched it
+
+Almost everything this service does to a machine is a playbook. Standing a
+guest up, moving a resource, putting a node in standby, measuring a latency,
+converging a whole inventory: each of them is a `POST /runs` and a run id. Each
+of them also replaced the page the operator was working on with the Runs page.
+
+That navigation costs the operator the place they were standing in. Coming back
+means the page, then the view inside it, sometimes the card and the row, and on
+every one of these pages a reading that fans out to the machines of the
+inventory before the answer is on screen again. An operator who starts a guest
+and wants to see it running pays all of that to read one cell of a table they
+were looking at when they clicked.
+
+**The run is shown in a window over the page it was launched from.** Same
+title, same progress line, same log, and a link to the Runs page for the whole
+record. `static/runwatch.js`, and the markup is in `base.html` so it is on every
+signed in page rather than copied into seven of them.
+
+### Closing it is the point
+
+The window is ignorable. Closing it stops this browser watching and does
+nothing else: the run belongs to the service, it keeps going, its record is in
+the history, and the Runs page has all of it. An operator who wanted the outcome
+of an act and not its log closes the window and is already where they were.
+
+That is what the navigation could not offer. A page that takes you somewhere
+lets you leave by going back; a window lets you stay.
+
+### The same log, from the same code
+
+`static/runstream.js` holds the render of an event and the connection it
+arrives on, and both views call it: the Runs page for its stream, the window for
+its own. Two renders of one event stream would be two sets of bugs, and the one
+an operator only sees for the length of a convergence is the one nobody would
+notice going wrong.
+
+### The reading at the end
+
+A run that ends under an open window reads the page's panels again, through the
+controls [D37](#d37) already attached. That is the other half of what the
+navigation used to do: the operator who stayed to the end stayed to see what the
+run did, and the table underneath was drawn before it ran.
+
+Only while the window is open. One that was closed said the operator is not
+watching, and a fan out to every machine of the inventory on nobody's behalf is
+exactly what D37 is careful about. The window holds the timer while it is open,
+like every other dialog here, so the reading at the end is the only one that
+happens during a run.
+
+### What it does not change
+
+Nothing about the run itself: the confirmations that name the machines and the
+disruption are where they were, the endpoint is the same, and the Runs page is
+still the whole record, the history, the relaunch and the log to download. The
+window is a view onto a run in flight and holds nothing the service does not
+have.
+
+### A window is also closed by clicking beside it
+
+Taken at the same time, for every window in this UI. Escape already dismissed
+the one on top by pressing the control it names in `data-dismiss`, so the page's
+own teardown runs; a click on the scrim now presses the same control. Both ends
+of that click have to land on the scrim, because a selection that starts on a
+value inside the window and ends past its edge is released outside it, and an
+operator who loses a form that way stops selecting text in these windows
+altogether.

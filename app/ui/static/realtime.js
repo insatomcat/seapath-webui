@@ -1663,9 +1663,13 @@
           // against the playbook's own scope, minus the guests.
           ...(scope ? { scope } : {}),
         });
-        window.location.assign(
-          "runs?run=" + encodeURIComponent(started.run_id)
-        );
+        // Shut here rather than by a navigation to the Runs page: the
+        // measurement is followed in a window over this one, and the panels
+        // under it are read again when it ends.
+        modal.hidden = true;
+        // The panel this measurement lands in is the list of past ones, which
+        // nothing else reads again: it is what the operator stayed to see.
+        RunWatch.open(started.run_id, () => loadMeasurements(kind));
       } catch (failure) {
         error.textContent = failure.message;
         error.hidden = false;

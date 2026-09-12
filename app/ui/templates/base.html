@@ -203,6 +203,45 @@ SPDX-License-Identifier: Apache-2.0
 
     {% block body %}{% endblock %}
 
+    {% if nav %}
+    {# The run an action just launched, over the page it was launched from.
+       Here rather than on each page, because almost every act of this service
+       is a playbook and almost every page has one to launch.
+
+       Last in the document on purpose: a window later in the document is the
+       one drawn over the others and the one Escape dismisses, and this one is
+       always opened over a page that had a confirmation open a moment ago. #}
+    <div class="modal" id="run-watch" data-dismiss="run-watch-close" hidden>
+      <div class="modal-body wide">
+        <div class="modal-head">
+          <h2 id="run-watch-title">Launched</h2>
+          <div class="run-watch-end">
+            <span id="run-watch-state" class="state"></span>
+            <button type="button" class="secondary" id="run-watch-close">
+              Close
+            </button>
+          </div>
+        </div>
+        <p class="help">
+          Closing this window leaves the run going. It is in the history, on the
+          Runs page, with everything this window shows.
+        </p>
+        <p class="banner" id="run-watch-message" hidden></p>
+        <div class="progress">
+          <span id="run-watch-play" class="play"></span>
+          <span id="run-watch-task" class="task"></span>
+        </div>
+        <div class="stream" id="run-watch-stream"></div>
+        <div class="actions">
+          <button type="button" id="run-watch-cancel" class="secondary" hidden>
+            Cancel the run
+          </button>
+          <a id="run-watch-open" class="button-link" href="runs">Open in Runs</a>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
     <footer class="footer">
       <span>seapath-webui {{ version }}</span>
     </footer>
@@ -211,7 +250,9 @@ SPDX-License-Identifier: Apache-2.0
     {% if nav %}{{ script("theme.js") }}
     {{ script("api.js") }}
     {{ script("chrome.js") }}
-    {{ script("reread.js") }}{% endif %}
+    {{ script("reread.js") }}
+    {{ script("runstream.js") }}
+    {{ script("runwatch.js") }}{% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

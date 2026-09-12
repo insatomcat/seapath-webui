@@ -336,7 +336,7 @@
         const started = await API.post(
           "/containers/" + encodeURIComponent(container.name) + "/" + action + query
         );
-        window.location.assign("runs?run=" + encodeURIComponent(started.run_id));
+        RunWatch.open(started.run_id);
       },
     });
   }
