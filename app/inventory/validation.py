@@ -23,7 +23,14 @@ from enum import Enum
 from pydantic import BaseModel
 
 from app.hosts.local import parse_cpu_list
-from app.inventory.model import Inventory, Mode, NodeConfig, Role
+from app.inventory.model import (
+    NIC_AFFINITY_VARIABLE,
+    Inventory,
+    Mode,
+    NodeConfig,
+    Role,
+    nics_affinity,
+)
 
 # A host key becomes the machine's name: `network_buildhosts` sets it from
 # `hostname | default(inventory_hostname)`. So it has to be a valid hostname,
@@ -309,6 +316,65 @@ def _validate_host(name: str, node: NodeConfig) -> list[Finding]:
         )
 
     findings.extend(_validate_isolcpus(name, node))
+    findings.extend(_validate_nics_affinity(name, node))
+    return findings
+
+
+def _validate_nics_affinity(name: str, node: NodeConfig) -> list[Finding]:
+    """Where the process bus interrupts are sent, against what is isolated.
+
+    Warnings and never errors. This is a variable no form writes, carried out
+    of a file a site wrote by hand, and an error here would lock an adopted
+    inventory out of the editor over a line this service does not own.
+
+    The finding worth having is the one that is silent everywhere else: an
+    interface pinned to a housekeeping CPU. The role applies it, the daemon
+    logs a success, the mask is exactly what was asked for, and the sampled
+    values queue behind whatever else that core is doing.
+    """
+    raw = node.extra.get(NIC_AFFINITY_VARIABLE)
+    if raw is None:
+        return []
+    wanted = nics_affinity(node)
+    if not isinstance(raw, list) or not wanted:
+        return [
+            Finding(
+                level=Level.WARNING,
+                rule="malformed_nics_affinity",
+                host=name,
+                field=NIC_AFFINITY_VARIABLE,
+                message=(
+                    "nics_affinity names no interface and a CPU to pin it to. "
+                    'It is a list of one key mappings, eno1: "4" or '
+                    'eno1: "slot=sv0:4", and configure_nic_irq_affinity '
+                    "applies nothing it cannot read."
+                ),
+            )
+        ]
+
+    isolated = set(parse_cpu_list(node.isolcpus))
+    if not isolated:
+        return []
+    findings: list[Finding] = []
+    for iface in sorted(wanted):
+        outside = sorted(cpu for cpu in wanted[iface] if cpu not in isolated)
+        if not outside:
+            continue
+        findings.append(
+            Finding(
+                level=Level.WARNING,
+                rule="nic_irqs_land_on_an_isolated_cpu",
+                host=name,
+                field=NIC_AFFINITY_VARIABLE,
+                message=(
+                    f"{iface} sends its interrupts to CPU "
+                    f"{', '.join(str(cpu) for cpu in outside)}, which "
+                    f"isolcpus does not isolate. The pinning will be applied "
+                    "and the sampled values will still arrive on a "
+                    "housekeeping core."
+                ),
+            )
+        )
     return findings
 
 

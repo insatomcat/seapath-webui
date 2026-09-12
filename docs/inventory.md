@@ -885,6 +885,16 @@ isolating it strands the host. `grub_password` must already be a PBKDF2 hash,
 because the inventory goes into git and a password in clear is a password in
 the audit trail forever.
 
+`nics_affinity` is checked against `isolcpus`, and only warned about. An
+interface pinned to a CPU the kernel is not isolating is the one placement
+error nothing else reports: `configure_nic_irq_affinity` applies it, the
+daemon logs a success, the mask is exactly what was asked for, and the sampled
+values still queue behind whatever else that core is doing. A warning rather
+than an error because no form writes that variable: it arrives in `extra` out
+of a file a site wrote by hand, and refusing the save would lock an adopted
+inventory out of the editor over a line this service does not own. The real
+time page holds the same declaration against what the machine came back with.
+
 ## 6. Fields that touch real time
 
 `isolcpus`, and anything the tuning roles consume, change latency guarantees.

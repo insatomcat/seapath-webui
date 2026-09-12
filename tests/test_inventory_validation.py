@@ -136,6 +136,38 @@ def test_the_grub_hash_is_the_format_grub_mkpasswd_produces() -> None:
     assert not verify("wrong", encoded)
 
 
+# nics_affinity, which is where the process bus interrupts are sent
+
+
+def test_a_nic_pinned_to_an_isolated_cpu_is_accepted() -> None:
+    result = validate(
+        inventory(extra={"nics_affinity": [{"eno12419": "5"}, {"eno2": "slot=sv0:6"}]})
+    )
+
+    assert result.valid
+    assert rules(result, Level.WARNING) == set()
+
+
+def test_a_nic_pinned_to_a_housekeeping_cpu_is_warned_about() -> None:
+    # The finding that is silent everywhere else: the role applies it, the
+    # daemon logs a success, the mask is what was asked for, and the sampled
+    # values arrive behind whatever else that core is doing.
+    result = validate(inventory(extra={"nics_affinity": [{"eno12419": "2"}]}))
+
+    assert result.valid
+    assert "nic_irqs_land_on_an_isolated_cpu" in rules(result, Level.WARNING)
+
+
+def test_a_nics_affinity_nothing_can_read_is_warned_about_and_not_refused() -> None:
+    # A variable no form writes, carried out of a file a site wrote by hand. An
+    # error would lock an adopted inventory out of the editor over a line this
+    # service does not own.
+    result = validate(inventory(extra={"nics_affinity": "eno1"}))
+
+    assert result.valid
+    assert "malformed_nics_affinity" in rules(result, Level.WARNING)
+
+
 def test_isolating_cpu_zero_is_refused() -> None:
     # CPU 0 carries work the kernel cannot move, and isolating it strands the
     # machine.
