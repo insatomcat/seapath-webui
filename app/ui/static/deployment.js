@@ -411,13 +411,13 @@
   // launches checks host keys against this node's own known_hosts, and until
   // now nothing here could put a guest's key in it.
   //
-  // The address is read from `extra`: `ansible_host` is not a field of a guest
-  // entry and this service never writes one. It is there because an operator
-  // put it there so that a play could reach inside.
+  // `ansible_host` is a modelled field of a guest since the VM page writes a
+  // guest's network, so the parser no longer leaves it in `extra`. Reading it
+  // there left every guest out of the scan.
   function guestPeers() {
     const guests = state.inventory ? state.inventory.guests : {};
     return Object.values(guests || {})
-      .map((guest) => (guest.extra || {}).ansible_host)
+      .map((guest) => guest.ansible_host)
       .filter(Boolean);
   }
 

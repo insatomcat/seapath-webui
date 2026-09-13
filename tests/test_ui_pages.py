@@ -335,9 +335,10 @@ def test_the_host_key_scan_reaches_the_guests_that_carry_an_address(
 
     assert "function guestPeers()" in script
     assert "peers().concat(guestPeers())" in script
-    # The address is read from `extra`: `ansible_host` is not a field of a
-    # guest entry and this service never writes one.
-    assert "(guest.extra || {}).ansible_host" in script
+    # The parser models `ansible_host` on a guest and no longer leaves it in
+    # `extra`, where the scan used to look and found nothing.
+    assert "guest.ansible_host" in script
+    assert "(guest.extra || {}).ansible_host" not in script
     assert "Host key verification failed" in body
 
 
