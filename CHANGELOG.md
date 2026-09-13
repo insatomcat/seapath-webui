@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.92 - 2026-09-13
+
+- fix: the conformance tab counts the machines that carry a finding
+
 ## 0.3.91 - 2026-09-13
 
 - feat: a conformance answer can be ignored in this browser
