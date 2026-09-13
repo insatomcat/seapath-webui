@@ -811,7 +811,8 @@ h3 {
 /* A file the inventory names and this node does not hold. A run would stop at
    the task that copies it, on every host at once, so the row says so where the
    path is. */
-td.missing {
+td.missing,
+td > div.missing {
   color: var(--warn);
 }
 

@@ -1217,7 +1217,7 @@ def test_the_vms_page_joins_the_definition_and_the_state(
     # The two halves are on one row and labelled as two: the definition
     # columns are the desired state, the state and node columns are what
     # Pacemaker reports at this moment.
-    for column in ("Guest", "State", "Node", "Disk image", "libvirt XML"):
+    for column in ("Guest", "State", "Node", "Creation"):
         assert f"<th>{column}</th>" in body
     # And where each of them is changed, since nothing on this page writes.
     assert 'href="inventory"' in body

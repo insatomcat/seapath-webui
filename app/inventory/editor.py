@@ -34,6 +34,7 @@ from typing import Any
 
 import yaml as pyyaml
 from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError as RuamelYAMLError
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString, LiteralScalarString
 
 from app.inventory.model import GUEST_GROUP
@@ -539,6 +540,40 @@ def guest_entry(document: str, name: str) -> dict[str, Any] | None:
         return None
     _, hosts = declared
     return dict(hosts[name] or {})
+
+
+def guest_entries(document: str) -> dict[str, dict[str, Any]]:
+    """The variables each declared guest's own entry carries, from one parse.
+
+    `guest_entry` for every guest at once, which is what a page listing them
+    needs: what an entry carries itself is what a removal from that entry can
+    take away, and a variable it inherits from `VMs` is the group's.
+
+    Empty for a file this parser refuses and Ansible reads, a duplicate key
+    being the usual one: nothing can be spliced out of it, so there is nothing
+    to offer, and the page reading it still lists its guests.
+    """
+    try:
+        loaded = _yaml().load(document) if document.strip() else None
+    except RuamelYAMLError:
+        return {}
+    if not isinstance(loaded, dict):
+        return {}
+    top = _named_group(loaded, GUEST_GROUP)
+    stack = [top] if isinstance(top, dict) else []
+    found: dict[str, dict[str, Any]] = {}
+    while stack:
+        body = stack.pop()
+        hosts = body.get("hosts")
+        if isinstance(hosts, dict):
+            for name, entry in hosts.items():
+                found.setdefault(str(name), dict(entry or {}))
+        children = body.get("children")
+        if isinstance(children, dict):
+            stack.extend(
+                value for value in children.values() if isinstance(value, dict)
+            )
+    return found
 
 
 def _declared_guest(loaded: Any, name: str) -> tuple[str, Any] | None:

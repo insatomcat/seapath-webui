@@ -170,9 +170,6 @@
     return node;
   }
 
-  // A file the guest names, and whether a deployment would find it. A missing
-  // one is the failure worth catching here: with `any_errors_fatal`, a copy
-  // that cannot find its source ends the run on every host at once.
   // The address the entry gives the guest, and where that address comes from.
   // Read off the inventory: a guest publishes no exporter, so what it is
   // answering on right now is not something this page knows, and the cell
@@ -196,24 +193,49 @@
     return node;
   }
 
-  function file(guest, value) {
-    if (!value) {
-      return cell("");
-    }
-    const reference = (guest.files || []).find((item) => item.value === value);
+  // How the guest is created: its image and its XML while a deployment run
+  // still reads them, which is a guest nothing reports yet or one carrying
+  // `force`. Past that the files say how the guest was made and nobody reads
+  // them, so the cell offers to take them out of the entry instead.
+  function creationCell(guest) {
+    const there = Boolean(guest.resource || guest.domain || guest.disabled);
     const node = document.createElement("td");
+    if (!there || guest.force) {
+      [guest.vm_disk, guest.vm_template || guest.xml_path]
+        .filter(Boolean)
+        .forEach((value) => node.append(file(guest, value)));
+      return node;
+    }
+    if (canWrite && (guest.creation || []).length) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Forget";
+      button.title = "Take " + guest.creation.join(", ") + " out of the entry";
+      button.addEventListener("click", () => confirmForget(guest));
+      node.append(button);
+    }
+    return node;
+  }
+
+  // A file the guest names, and whether a deployment would find it. A missing
+  // one is the failure worth catching here: with `any_errors_fatal`, a copy
+  // that cannot find its source ends the run on every host at once.
+  function file(guest, value) {
+    const reference = (guest.files || []).find((item) => item.value === value);
+    const line = document.createElement("div");
     const path = document.createElement("code");
     path.textContent = value;
-    node.append(path);
+    line.append(path);
     if (reference && !reference.found) {
       // The same colour the Inventory page gives a file it does not hold, for
       // the same reason: the run stops at the task that copies it.
-      node.className = "missing";
+      line.className = "missing";
       const missing = document.createElement("span");
       missing.textContent = " (nothing here holds it)";
-      node.append(missing);
+      line.append(missing);
     }
-    return node;
+    return line;
   }
 
   // What the next deployment run does to this guest, which the entry alone
@@ -616,6 +638,32 @@
     });
   }
 
+  // One commit and no run, so nothing on a machine moves. What is said is what
+  // the entry loses and what it keeps, since the next thing an operator wonders
+  // is whether the image can go too.
+  function confirmForget(guest) {
+    confirm({
+      title: "Forget how " + guest.name + " was created",
+      body:
+        "Takes " + guest.creation.join(", ") + " out of the entry of " +
+        guest.name + ", as a commit. Deployment runs read these only to " +
+        "create the guest, and it exists, so nothing on any machine changes " +
+        "and the next run leaves it alone as before.",
+      note:
+        "The files stay where they are: a seeded image can create other " +
+        "guests, and the Inventory page is where one is deleted. The commit " +
+        "that declared " + guest.name + " still holds the recipe, and " +
+        "reverting this one puts it back.",
+      label: "Forget",
+      act: async () => {
+        await API.post(
+          "/vms/" + encodeURIComponent(guest.name) + "/forget-creation"
+        );
+        refresh(true).catch((failure) => showBanner(failure.message));
+      },
+    });
+  }
+
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });
@@ -882,8 +930,7 @@
         state(guest),
         nodeCell(guest),
         addressCell(guest),
-        file(guest, guest.vm_disk),
-        file(guest, guest.vm_template || guest.xml_path),
+        creationCell(guest),
         ondeploy(guest),
         acts(guest),
         placement(guest),

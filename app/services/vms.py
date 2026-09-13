@@ -37,6 +37,7 @@ from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
 from app.cluster.rbd import RbdClient, RbdUnavailable
 from app.inventory import cloudinit
+from app.inventory.editor import guest_entries
 from app.inventory.files import UnsafePath
 from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
@@ -140,6 +141,13 @@ class GuestView(BaseModel):
 
     files: list[Reference] = Field(default_factory=list)
     """The paths this guest names, and whether a run would find each one."""
+    creation: list[str] = Field(default_factory=list)
+    """The variables of `CREATION_ONLY` the guest's own entry carries.
+
+    What forgetting how it was created would take out of the entry. One it
+    inherits from the `VMs` group is left out, since that line serves the
+    other guests too.
+    """
 
     resource: PacemakerResource | None = None
     """Pacemaker's line for it, absent when nothing reports one."""
@@ -264,6 +272,21 @@ CLUSTER_ONLY = (
     "xml_path",
 )
 STANDALONE_ONLY = ("autostart", "disk_extract")
+
+# What both deployment roles read inside their creation block and nowhere else:
+# the block runs for a guest the hypervisor does not have, or one whose entry
+# carries `force`. Once the guest exists these lines describe how it was made
+# and not what it is, and a later run never opens them. `bridges` is read there
+# too and stays, because the collision checks of the next declaration read the
+# MAC off it. See D49.
+CREATION_ONLY = (
+    "vm_disk",
+    "vm_template",
+    "xml_path",
+    "additional_disk",
+    "disk_extract",
+    "cloud_init",
+)
 
 # The disk buses `cluster_vm` passes through to libvirt. A short list rather
 # than free text: the value reaches a domain definition, and a bus libvirt does
@@ -395,6 +418,10 @@ class UnknownGuest(Exception):
 
 class NotDisabled(Exception):
     """A guest asked to be deleted while the cluster still holds it."""
+
+
+class CreationStillRead(Exception):
+    """The next deployment run would still read how this guest is created."""
 
 
 class VmService:
@@ -596,6 +623,56 @@ class VmService:
         commit, _ = self._inventory.undeclare_guest(name, author, expected_head)
         return commit
 
+    def forget_creation(
+        self, name: str, author: str, expected_head: str | None = None
+    ) -> tuple[Commit | None, list[str]]:
+        """Take out of a guest's entry what only its creation reads, as a commit.
+
+        The image, the XML, the extra disks and the cloud-init mapping are
+        read once, when the role creates the guest, and the entry keeps saying
+        them afterwards to nobody. Removing them leaves the guest declared by
+        its address, its interface and its placement, which is what a later
+        run and this page still read. The commit that declared it keeps the
+        recipe, and the files stay where they are: one seeded image serves
+        several guests.
+
+        Refused while a deployment run would still read them. A guest nothing
+        reports is one the next run creates, and a guest carrying `force` is
+        recreated by every run. Nothing reporting includes an exporter that did
+        not answer, which is the safe reading: the entry stays as it was.
+        """
+        view = self.guests()
+        guest = next((item for item in view.guests if item.name == name), None)
+        if guest is None:
+            raise UnknownGuest(
+                f"No guest called {name!r} is declared in this inventory."
+            )
+        if guest.force:
+            raise CreationStillRead(
+                f"{name} carries `force`, so every deployment run destroys it "
+                "and creates it again from these files. Take `force` out of "
+                "its entry first."
+            )
+        if not (guest.resource or guest.domain or guest.disabled):
+            raise CreationStillRead(
+                f"Nothing reports {name} on any machine, so the next deployment "
+                "run creates it and reads these files to do so. Once it runs, "
+                "they can go."
+            )
+        if not guest.creation:
+            raise InvalidGuest(
+                f"The entry of {name} carries nothing only a creation reads."
+            )
+        commit = self._inventory.write_variables(
+            [],
+            {name: dict.fromkeys(guest.creation)},
+            f"vms: forget how {name} was created",
+            author,
+            removals={name: guest.creation},
+            expected_head=expected_head,
+        )
+        return commit, guest.creation
+
     def _check_definition(
         self,
         name: str,
@@ -740,6 +817,7 @@ class VmService:
         )
 
         files = self._files_by_host()
+        entries = guest_entries(self._inventory.raw())
         reading = self._cluster.pacemaker()
         resources, constraints, view.runtime_note = self._resources(reading)
         # Where a move may send a guest: a machine the inventory allows it on
@@ -785,6 +863,11 @@ class VmService:
                     preferred_host=guest.extra.get("preferred_host"),
                     pinned_host=guest.extra.get("pinned_host"),
                     files=files.get(name, []),
+                    creation=[
+                        variable
+                        for variable in CREATION_ONLY
+                        if variable in entries.get(name, {})
+                    ],
                     resource=resources.get(name),
                     constraints=constraints.get(name, []),
                     domain=domains.get(name),

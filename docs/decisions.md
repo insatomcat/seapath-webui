@@ -3541,3 +3541,69 @@ rather than an error, because an error refuses the commit and the commit it
 would refuse includes the edit that fixes the guest. The run that would fail on
 it is refused where the consequence is, which is the `seed_buildable`
 precondition of the two deployment entries.
+
+## D49 - Settled: a guest that exists can forget how it was created, and a container cannot
+
+Both deployment roles read a guest's recipe inside one block, and that block
+runs for a guest the hypervisor does not have, or for one whose entry carries
+`force`. `deploy_vms_cluster` asks `cluster_vm status` first,
+`deploy_vms_standalone` asks `list_vms`, and every task that reads `vm_disk`,
+`vm_template`, `xml_path`, `additional_disk`, `disk_extract` or `cloud_init`
+sits behind that answer. The deployment happens once, so for the life of the
+guest those lines describe how it was made and are read by nobody. What a
+running guest is made of afterwards is elsewhere: in a cluster the libvirt
+domain is RBD metadata under `xml` and `_base_xml`, which Enable and Reconfigure
+read ([D31](#d31)), and on a standalone machine it is the domain libvirt holds.
+
+So the VMs page offers **Forget** on a guest that exists and whose own entry
+carries any of the six. It is one commit, `vms: forget how <name> was created`,
+through the same splice and fidelity check as every other write, and no run.
+
+### Why it keeps the acceptance criterion
+
+An inventory exported after the commit, run from a conventional control
+machine, meets a guest the hypervisor already has and skips it, which is the
+adopted guest of [D30](#d30) exactly. Nothing on a machine changes, before or
+after, from here or from a checkout.
+
+### What is refused, and why each refusal is the safe reading
+
+- **A guest nothing reports.** The next run creates it and reads these lines to
+  do so. Nothing reporting includes an exporter that did not answer, and the
+  refusal is then a guest that keeps its recipe one more page load, which costs
+  nothing.
+- **A guest carrying `force`.** Every run destroys it and creates it again from
+  these files. Taking `force` out is an edit of its own, made first.
+- **A variable the `VMs` group carries.** It serves the other guests too, and
+  only what the entry holds itself is removed.
+
+### What stays
+
+- **The files.** One seeded image and one `.j2` template serve every guest of a
+  site ([D48](#d48)), so the image a forgotten guest was created from is very
+  likely the image the next one is created from. Deleting an artefact is the
+  Inventory page's act, one file at a time.
+- **The recipe itself**, in the commit that declared the guest. Recreating a lost
+  guest is reverting the forget commit, or declaring it again with the form.
+- **`ansible_host`, `ansible_user`, `ansible_ssh_common_args` and `bridges`.**
+  The first three are how every later run reaches inside the guest. `bridges` is
+  read only at creation too, and stays because it carries the guest's MAC, which
+  the next declaration is checked against. A forgotten `cloud_init` takes the
+  MAC its `match` repeated with it, which matters only for a guest built from a
+  plain XML and no `bridges`.
+
+### Why a button and not a commit after the run
+
+The commit could follow a successful deployment run on its own. Two things
+argue against it. A commit nobody asked for, written after a run, is a line in
+the audit trail no operator can account for. And the run is the whole `VMs`
+group, so a run that fails halfway leaves some guests created and others not,
+and the per guest answer is the one this page already reads.
+
+### A container is the opposite case
+
+`upload_extra_files` copies a quadlet on every convergence. It is what puts the
+unit on a machine reinstalled, or on a node that joins the cluster, and
+Pacemaker's systemd agent needs it on every node the resource may run on. The
+entry is read for the whole life of the container, so the Containers page
+offers nothing of the kind. See [D33](#d33).

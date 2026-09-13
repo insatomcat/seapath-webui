@@ -15,6 +15,7 @@ on `/runs`.
 
 from __future__ import annotations
 
+import difflib
 import subprocess
 import time
 from pathlib import Path
@@ -1925,3 +1926,155 @@ def test_deleting_a_guest_is_an_administrator_s_act(client: TestClient) -> None:
     operator = sign_in(client, "operator")
 
     assert operator.post("/api/v1/vms/vm-guest4/delete").status_code == 403
+
+
+# 9. Forgetting how a guest was created: the variables only a creation reads,
+# taken out of an entry whose guest exists, as a commit and no run.
+
+SEEDED_GUEST = """
+    vm-guest4:
+      vm_template: "../templates/vm/guest.xml.j2"
+      vm_disk: "../files/guest4.qcow2"
+      ansible_host: 10.0.0.44
+      bridges:
+        - name: br0
+          mac_address: "52:54:00:e4:ff:04"
+      preferred_host: node1
+      # The seed, read once.
+      cloud_init:
+        hostname: guest4
+    vm-guest5:
+      vm_disk: "../files/guest5.qcow2"
+"""
+
+
+def _declare_cluster_with_seeded(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS + SEEDED_GUEST},
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_a_guest_says_which_creation_variables_its_entry_carries(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["vm-guest4"]["creation"] == ["vm_disk", "vm_template", "cloud_init"]
+    assert guests["vm-guest5"]["creation"] == ["vm_disk"]
+
+
+def test_forgetting_a_creation_takes_those_lines_out_and_nothing_else(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+    before = signed_in.get("/api/v1/inventory/raw").text
+
+    response = signed_in.post("/api/v1/vms/vm-guest4/forget-creation")
+
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["forgotten"] == ["vm_disk", "vm_template", "cloud_init"]
+    assert answer["message"] == "vms: forget how vm-guest4 was created"
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "vms: forget how vm-guest4 was created"
+    assert "run_id" not in answer
+
+    after = signed_in.get("/api/v1/inventory/raw").text
+    removed = [
+        line[2:]
+        for line in difflib.ndiff(before.splitlines(), after.splitlines())
+        if not line.startswith("  ")
+    ]
+    assert removed == [
+        '      vm_template: "../templates/vm/guest.xml.j2"',
+        '      vm_disk: "../files/guest4.qcow2"',
+        "      cloud_init:",
+        "        hostname: guest4",
+    ]
+    entry = yaml.safe_load(after)["VMs"]["hosts"]["vm-guest4"]
+    assert entry == {
+        "ansible_host": "10.0.0.44",
+        "bridges": [{"name": "br0", "mac_address": "52:54:00:e4:ff:04"}],
+        "preferred_host": "node1",
+    }
+
+
+def test_a_guest_nothing_reports_keeps_how_it_is_created(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+    before = signed_in.get("/api/v1/inventory/history").json()[0]
+
+    response = signed_in.post("/api/v1/vms/vm-guest5/forget-creation")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "creation_still_read"
+    assert signed_in.get("/api/v1/inventory/history").json()[0] == before
+
+
+def test_a_forced_guest_keeps_how_it_is_created(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    # vm-guest3 is reported by Pacemaker and carries `force`: every run
+    # recreates it from its files.
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+
+    response = signed_in.post("/api/v1/vms/vm-guest3/forget-creation")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "creation_still_read"
+    assert "force" in response.json()["error"]["message"]
+
+
+def test_a_guest_with_nothing_to_forget_is_refused(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+    assert signed_in.post("/api/v1/vms/vm-guest4/forget-creation").status_code == 200
+
+    response = signed_in.post("/api/v1/vms/vm-guest4/forget-creation")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "invalid_guest"
+
+
+def test_a_creation_variable_the_group_carries_is_the_group_s(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    document = CLUSTER.read_text() + GUESTS.replace(
+        "VMs:\n",
+        'VMs:\n  vars:\n    vm_template: "../templates/vm/guest.xml.j2"\n',
+    ).replace('      vm_template: "../templates/vm/guest.xml.j2"\n', "")
+    assert (
+        signed_in.post(
+            "/api/v1/inventory/import", json={"document": document}
+        ).status_code
+        == 200
+    )
+
+    response = signed_in.post("/api/v1/vms/vm-guest1/forget-creation")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["forgotten"] == ["vm_disk"]
+    loaded = yaml.safe_load(signed_in.get("/api/v1/inventory/raw").text)
+    assert loaded["VMs"]["vars"] == {"vm_template": "../templates/vm/guest.xml.j2"}
+
+
+def test_forgetting_a_creation_is_an_administrator_s_act(client: TestClient) -> None:
+    from tests.conftest import sign_in
+
+    operator = sign_in(client, "operator")
+
+    assert operator.post("/api/v1/vms/vm-guest1/forget-creation").status_code == 403
