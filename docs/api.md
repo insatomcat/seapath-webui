@@ -747,12 +747,16 @@ the ones that matter most on a substation network: a duplicate address is a
 guest that half works, and a duplicate MAC on one bridge is a guest receiving
 somebody else's frames.
 
-**`trust_this_node` lets runs from here log into the guest.** The seed installs
-this node's public key, the line `GET /trust/public-key` hands over, in the
-account every run connects as, and the entry names that account as
-`ansible_user`. The answer carries the key's fingerprint as `trusted_key`. The
-`users` entry written into `cloud_init` names that account and its key and
-nothing else: no `default`, which on Debian creates a `debian` account with
+**`trust_this_node` lets runs log into the guest.** The seed installs this
+node's public key, the line `GET /trust/public-key` hands over, in the account
+every run connects as, and the entry names that account as `ansible_user`.
+Where a site key is uploaded, its public half goes in beside it with the comment
+`seapath-site-key`: this node's key reaches the guest from this node alone, and
+the site key is what every node and the site's control machine hold, so it is
+what lets a measurement be launched from another node later. A run offers both
+keys and either one is enough. The answer carries their fingerprints, in that
+order, as `trusted_keys`. The `users` entry written into `cloud_init` names that
+account and its keys and nothing else: no `default`, which on Debian creates a `debian` account with
 passwordless sudo, and no `sudo`, which would widen the rights the image gave
 the account. A SEAPATH VM image creates `ansible` with those rights; a guest
 from another image fails at `become` and says so. The guest's host key still has

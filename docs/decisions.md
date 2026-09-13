@@ -3475,6 +3475,32 @@ account no guest has: the renderer writes `ansible_user` on every machine, and
 nothing ever wrote it on a guest. The reference VM inventory sets it on its
 `VMs` group for exactly this reason.
 
+**The site key goes in too, where one is uploaded.** The first version
+installed this node's key alone, and a real cluster showed why that is half the
+answer: the measurement reached the guest with the site key, which a run offers
+beside this node's own. A key that works only from the node that declared the
+guest is a guest measurable from that node only, and a measurement launched from
+another node a week later, or the exported inventory run from the site's control
+machine, holds the site key and nothing else. So the seed carries both: this
+node's key, which works whether or not a site key was ever uploaded, and the
+site key's public half, commented `seapath-site-key`, which works from anywhere
+the site already trusts.
+
+Nothing about the image is assumed, and that is the point of the seed. A FAI
+build can bake a site key into the `ansible` account, and an image meant for
+several sites cannot, since it would carry one site's key to all of them. The
+generic image is what cloud-init exists for: what makes a guest belong to this
+site, its address, its name and the keys that reach it, comes from the entry at
+first boot. So the site key is installed by the seed whether the qcow2 carries it
+or not, and a guest from an image built with it simply holds the line twice.
+
+This extends to guests a trust the site already grants its machines, and says so
+rather than hiding it: the site key is root on every machine that holds its
+public half through the `ansible` account's sudo rule, and a guest from a SEAPATH
+image carries the same rule. The key itself does not move: the public half is
+read from the `.pub` this service stored when the site key was uploaded, and the
+private half stays where [site_key.py](../app/trust/site_key.py) put it.
+
 The `users` entry is kept as narrow as the job. It leaves out `default`, so
 cloud-init creates no distribution default user, which on Debian is a `debian`
 account with passwordless sudo. It leaves out `sudo`, because a SEAPATH VM image

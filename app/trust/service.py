@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from app.trust import authorized_keys
+from app.trust import authorized_keys, site_key
 from app.trust.authorized_keys import AuthorizedKey
 from app.trust.keys import KeyPair, ensure_key_pair
 
@@ -32,11 +32,19 @@ _LOOPBACK = ("127.0.0.1", "::1")
 
 
 class GuestTrust(BaseModel):
-    """What a guest needs installed for a run from this node to reach inside it."""
+    """What a guest needs installed for a run to reach inside it."""
 
     account: str
-    key_line: str
-    fingerprint: str
+    key_lines: list[str]
+    """This node's key, then the site key where one is installed."""
+    fingerprints: list[str]
+    """The fingerprint of each line, in the same order."""
+
+
+# The comment the site key's line carries in a guest. The `.pub` this service
+# stores has none, and a line with no comment is a line nobody can identify in
+# an `authorized_keys` later.
+SITE_KEY_COMMENT = "seapath-site-key"
 
 
 class TrustRelation(BaseModel):
@@ -81,19 +89,34 @@ class TrustService:
         return f"seapath-webui@{hostname}"
 
     def guest_trust(self, hostname: str) -> GuestTrust:
-        """The account and the key line a guest's seed installs.
+        """The account and the key lines a guest's seed installs.
 
         The account is the one every run connects as, so a guest trusted this
-        way is reached by the same `ansible_user` a machine is. The line is
-        public by nature, which is what lets it be committed to the inventory:
-        what it authorises is the private half, and that never leaves
-        `/etc/seapath/webui`.
+        way is reached by the same `ansible_user` a machine is. The lines are
+        public by nature, which is what lets them be committed to the
+        inventory: what they authorise is the private halves, which never leave
+        `/etc/seapath/webui` or the control machine the site key came from.
+
+        This node's own key reaches the guest from this node alone. The site
+        key, where one is installed, is the one every node of the site and the
+        site's own control machine hold, so it is what lets a measurement be
+        launched from another node, or the exported inventory be run from a
+        checkout, long after the guest was declared here. Both are installed,
+        because a run offers both and either one is enough.
         """
         key = self.self_key()
+        lines = [f"{key.public_key} {self.offered_comment(hostname)}"]
+        fingerprints = [key.fingerprint]
+        site = site_key.describe(self._ssh_dir)
+        site_public = self._ssh_dir / f"{site_key.SITE_KEY_NAME}.pub"
+        if site is not None:
+            blob = " ".join(site_public.read_text().split()[:2])
+            lines.append(f"{blob} {SITE_KEY_COMMENT}")
+            fingerprints.append(site.fingerprint)
         return GuestTrust(
             account=self._ansible_user,
-            key_line=f"{key.public_key} {self.offered_comment(hostname)}",
-            fingerprint=key.fingerprint,
+            key_lines=lines,
+            fingerprints=fingerprints,
         )
 
     def ensure_self_trust(

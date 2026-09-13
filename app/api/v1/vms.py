@@ -154,12 +154,14 @@ class DeclarationResponse(BaseModel):
     playbook: str = Field(
         description="The catalogue entry that deploys the group in this mode"
     )
-    trusted_key: str | None = Field(
-        default=None,
+    trusted_keys: list[str] = Field(
+        default_factory=list,
         description=(
-            "The fingerprint of this node's key, where the seed installs it "
-            "in the guest. What an operator compares against the guest's "
-            "`authorized_keys` when a run into it is refused"
+            "The fingerprints of the keys the seed installs in the guest: this "
+            "node's own, then the site key where one is installed, which is "
+            "what lets a run from another node reach the guest too. What an "
+            "operator compares against the guest's `authorized_keys` when a "
+            "run into it is refused"
         ),
     )
     mac_address: str | None = Field(
@@ -265,7 +267,7 @@ def declare(
         message=commit.message if commit else None,
         playbook=service.deploy_playbook(payload.name),
         mac_address=network.mac_address if network else None,
-        trusted_key=trust.fingerprint if trust else None,
+        trusted_keys=trust.fingerprints if trust else [],
     )
 
 
@@ -394,7 +396,7 @@ def _definition(
                 payload.name,
                 network,
                 account=trust.account if trust else None,
-                key_line=trust.key_line if trust else None,
+                key_lines=trust.key_lines if trust else None,
             )
             if network
             else {}

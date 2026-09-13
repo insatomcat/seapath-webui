@@ -608,6 +608,9 @@ VMs:
           - name: ansible
             ssh_authorized_keys:
               - ssh-ed25519 AAAA... seapath-webui@node1
+              # The site key, where one is uploaded, so runs from the other
+              # nodes and from the site's control machine reach the guest too.
+              - ssh-ed25519 AAAA... seapath-site-key
 ```
 
 The address appears twice on purpose: once to give it to the guest, once to say

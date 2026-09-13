@@ -15,6 +15,7 @@ on `/runs`.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from pathlib import Path
 
@@ -1057,7 +1058,8 @@ def test_the_seed_installs_the_key_this_node_connects_with(
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["trusted_key"] == offered["fingerprint"]
+    # This node's key alone: no site key is installed on it.
+    assert response.json()["trusted_keys"] == [offered["fingerprint"]]
 
     entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
         "VMs"
@@ -1071,6 +1073,48 @@ def test_the_seed_installs_the_key_this_node_connects_with(
     ]
 
 
+def test_the_seed_installs_the_site_key_too_where_one_is_uploaded(
+    signed_in: TestClient, settings: Settings, tmp_path: Path
+) -> None:
+    """A guest reachable from the other nodes, and not from this one alone.
+
+    Seen on a real cluster: the seed installed ccv1's own key, and the latency
+    measurement reached the guest with the site key instead, the one every node
+    and the site's control machine hold. A measurement launched later from
+    another node has only that one, so it belongs in the seed as well.
+    """
+    private = tmp_path / "site"
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(private)],
+        check=True,
+    )
+    uploaded = signed_in.put(
+        "/api/v1/trust/site-key", json={"material": private.read_text()}
+    )
+    assert uploaded.status_code == 200, uploaded.text
+    site_fingerprint = uploaded.json()["fingerprint"]
+    offered = signed_in.get("/api/v1/trust/public-key").json()
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": {**NETWORK, "trust_this_node": True}},
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["trusted_keys"] == [offered["fingerprint"], site_fingerprint]
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    keys = entry["cloud_init"]["users"][0]["ssh_authorized_keys"]
+    site_public = (tmp_path / "site.pub").read_text().split()
+    assert keys == [
+        f"{offered['public_key']} {offered['comment']}",
+        f"{site_public[0]} {site_public[1]} seapath-site-key",
+    ]
+    # The public half only. The private key never reaches the inventory.
+    assert "PRIVATE KEY" not in (settings.inventory_dir / "inventory.yaml").read_text()
+
+
 def test_a_declaration_asking_for_no_trust_carries_none(
     signed_in: TestClient, settings: Settings
 ) -> None:
@@ -1079,7 +1123,7 @@ def test_a_declaration_asking_for_no_trust_carries_none(
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["trusted_key"] is None
+    assert response.json()["trusted_keys"] == []
     entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
         "VMs"
     ]["hosts"]["newvm"]

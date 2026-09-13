@@ -278,7 +278,7 @@ def variables(
     guest: str,
     network: GuestNetwork,
     account: str | None = None,
-    key_line: str | None = None,
+    key_lines: list[str] | None = None,
 ) -> dict[str, Any]:
     """The entry's network variables, in the order they read well in the file.
 
@@ -287,14 +287,15 @@ def variables(
     the guest's own configuration alone, which is the entry for an image that
     carries its address already.
 
-    `account` and `key_line` are this node's trust, read by the caller from the
-    trust material, which this module has no business opening. They are
-    written only where `trust_this_node` asked for them.
+    `account` and `key_lines` are the trust runs log in with, this node's key
+    and the site key where there is one, read by the caller from the trust
+    material, which this module has no business opening. They are written only
+    where `trust_this_node` asked for them.
     """
     written: dict[str, Any] = {}
     if network.address and not network.dhcp:
         written["ansible_host"] = network.address.split("/", 1)[0]
-    trusted = bool(network.trust_this_node and account and key_line)
+    trusted = bool(network.trust_this_node and account and key_lines)
     if trusted:
         # Beside the address, because the pair is what a run needs: where the
         # guest is and who to log in as. Without it Ansible connects as
@@ -307,14 +308,14 @@ def variables(
         ]
     seed = _seed(guest, network)
     if trusted:
-        seed["users"] = [_user(str(account), str(key_line))]
+        seed["users"] = [_user(str(account), list(key_lines or []))]
     if seed:
         written["cloud_init"] = seed
     return written
 
 
-def _user(account: str, key_line: str) -> dict[str, Any]:
-    """One cloud-config `users` entry: the account runs use, with this key.
+def _user(account: str, key_lines: list[str]) -> dict[str, Any]:
+    """One cloud-config `users` entry: the account runs use, with these keys.
 
     Three things are left out, and each is a decision.
 
@@ -332,7 +333,7 @@ def _user(account: str, key_line: str) -> dict[str, Any]:
     account the list names. On `ansible` that changes nothing: the account
     logs in by key alone.
     """
-    return {"name": account, "ssh_authorized_keys": [key_line]}
+    return {"name": account, "ssh_authorized_keys": key_lines}
 
 
 def _seed(guest: str, network: GuestNetwork) -> dict[str, Any]:
