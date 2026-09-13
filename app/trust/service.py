@@ -31,14 +31,33 @@ _SELF_KEY_NAME = "id_ed25519_self"
 _LOOPBACK = ("127.0.0.1", "::1")
 
 
+class OfferedKey(BaseModel):
+    """One key a run offers, as the line an `authorized_keys` holds."""
+
+    kind: str = Field(
+        description=(
+            "`node` for this node's own key, `site` for the key the site's "
+            "nodes and control machine share"
+        )
+    )
+    line: str
+    fingerprint: str
+
+
 class GuestTrust(BaseModel):
     """What a guest needs installed for a run to reach inside it."""
 
     account: str
-    key_lines: list[str]
+    keys: list[OfferedKey]
     """This node's key, then the site key where one is installed."""
-    fingerprints: list[str]
-    """The fingerprint of each line, in the same order."""
+
+    @property
+    def key_lines(self) -> list[str]:
+        return [key.line for key in self.keys]
+
+    @property
+    def fingerprints(self) -> list[str]:
+        return [key.fingerprint for key in self.keys]
 
 
 # The comment the site key's line carries in a guest. The `.pub` this service
@@ -105,19 +124,25 @@ class TrustService:
         because a run offers both and either one is enough.
         """
         key = self.self_key()
-        lines = [f"{key.public_key} {self.offered_comment(hostname)}"]
-        fingerprints = [key.fingerprint]
+        keys = [
+            OfferedKey(
+                kind="node",
+                line=f"{key.public_key} {self.offered_comment(hostname)}",
+                fingerprint=key.fingerprint,
+            )
+        ]
         site = site_key.describe(self._ssh_dir)
         site_public = self._ssh_dir / f"{site_key.SITE_KEY_NAME}.pub"
         if site is not None:
             blob = " ".join(site_public.read_text().split()[:2])
-            lines.append(f"{blob} {SITE_KEY_COMMENT}")
-            fingerprints.append(site.fingerprint)
-        return GuestTrust(
-            account=self._ansible_user,
-            key_lines=lines,
-            fingerprints=fingerprints,
-        )
+            keys.append(
+                OfferedKey(
+                    kind="site",
+                    line=f"{blob} {SITE_KEY_COMMENT}",
+                    fingerprint=site.fingerprint,
+                )
+            )
+        return GuestTrust(account=self._ansible_user, keys=keys)
 
     def ensure_self_trust(
         self, hostname: str, addresses: list[str]

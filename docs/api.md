@@ -614,6 +614,7 @@ See [cluster-join.md](cluster-join.md).
 | POST | `/trust/join` | Consume a blob pasted on the joining node |
 | GET | `/trust/relations` | Established relations, per direction, with their key fingerprints. `409 missing_account` where the `ansible` account this service drives does not exist, which is a machine that was not installed from the SEAPATH ISO |
 | GET PUT DELETE | `/trust/site-key` | The site key this node holds so it can reach the other machines. The material goes in and never comes back out; only type and fingerprint are reported |
+| GET | `/trust/public-key` | The lines a guest's account needs for a run from this node to log in, for the operator to paste or for a seed to carry. `public_key`, `fingerprint` and `comment` are this node's own key; `keys` lists every key a run offers, `kind` `node` then `site` where a site key is uploaded, each with its `line` and `fingerprint`; `account` is the one runs connect as. ssh offers the site key first, and either line is enough. `viewer` |
 | POST | `/trust/host-keys/scan` | Read host keys with `ssh-keyscan` and report their fingerprints. Writes nothing |
 | GET POST | `/trust/host-keys` | The peer host keys an operator accepted, and accepting more |
 | DELETE | `/trust/host-keys/{address}` | Forget one machine's host keys |

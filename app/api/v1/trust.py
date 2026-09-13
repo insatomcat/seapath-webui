@@ -31,7 +31,7 @@ from app.core.errors import ApiError
 from app.core.security import require_role
 from app.trust import keyscan, known_hosts, site_key
 from app.trust.authorized_keys import MissingAccount
-from app.trust.service import TrustRelation, TrustService
+from app.trust.service import OfferedKey, TrustRelation, TrustService
 
 router = APIRouter(prefix="/trust", tags=["trust"])
 
@@ -68,6 +68,19 @@ class PublicKey(BaseModel):
     comment: str = Field(
         description="What the line is for, written as its trailing comment"
     )
+    account: str = Field(
+        description="The account a run connects as, where these lines belong"
+    )
+    keys: list[OfferedKey] = Field(
+        default_factory=list,
+        description=(
+            "Every key a run from this node offers, as the lines a guest's "
+            "`authorized_keys` needs: this node's own, then the site key's "
+            "public half where one is uploaded. ssh offers the site key first, "
+            "and either one is enough. The site key is the one that also "
+            "reaches the guest from another node"
+        ),
+    )
 
 
 @router.get("/public-key")
@@ -89,10 +102,13 @@ def public_key(request: Request, user: User = viewer) -> PublicKey:
     service = _service(request)
     key = service.self_key()
     hostname = request.app.state.node_hostname
+    trust = service.guest_trust(hostname)
     return PublicKey(
         public_key=key.public_key,
         fingerprint=key.fingerprint,
         comment=service.offered_comment(hostname),
+        account=trust.account,
+        keys=trust.keys,
     )
 
 

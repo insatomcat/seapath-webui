@@ -979,11 +979,14 @@
       "The measurement runs inside the guest, as an Ansible run over SSH. It " +
       "needs an address on the guest's inventory entry, the guest's host key " +
       "accepted on this node, under Reaching the other machines on the " +
-      "Deployment page, this node's public key in the account it connects as, " +
-      "with sudo, and rt-tests installed in the guest. A measurement installs " +
-      "none of them, since it changes nothing on what it measures. A guest " +
-      "added on the VMs page with a network and the log in option already " +
-      "has the address and the key, from its first boot.";
+      "Deployment page, one of the keys below in the account it connects as, " +
+      "with sudo, and rt-tests installed in the guest. The run offers the " +
+      "site key first when one is uploaded, and this node's own key after " +
+      "it; either is enough, and the site key is the one that also works " +
+      "from another node. A measurement installs none of them, since it " +
+      "changes nothing on what it measures. A guest added on the VMs page " +
+      "with a network and the log in option has the address and both keys " +
+      "from its first boot.";
     await loadPublicKey(pending && pending.key);
     renderAffinity(GUEST_AFFINITY);
     let choices = { addressable_guests: [] };
@@ -1021,14 +1024,23 @@
       element("guest-key-note").textContent = failure.message;
       return;
     }
-    const line = key.public_key + " " + key.comment;
-    element("guest-key-line").textContent = line;
-    element("guest-key-note").textContent = key.fingerprint;
+    // Every key a run offers, each on its own line, which is the form an
+    // `authorized_keys` takes: pasting the whole block is pasting both. An
+    // older service answering without `keys` still has its own key to show.
+    const keys = (key.keys && key.keys.length
+      ? key.keys
+      : [{ kind: "node", line: key.public_key + " " + key.comment, fingerprint: key.fingerprint }]);
+    const lines = keys.map((item) => item.line).join("\n");
+    const named = keys
+      .map((item) => (item.kind === "site" ? "site key " : "this node ") + item.fingerprint)
+      .join(", ");
+    element("guest-key-line").textContent = lines;
+    element("guest-key-note").textContent = named;
     element("guest-key").hidden = false;
     element("guest-key-copy").onclick = async () => {
       try {
-        await navigator.clipboard.writeText(line);
-        element("guest-key-note").textContent = "Copied. " + key.fingerprint;
+        await navigator.clipboard.writeText(lines + "\n");
+        element("guest-key-note").textContent = "Copied. " + named;
       } catch (failure) {
         // A browser that refuses the clipboard leaves the line on screen,
         // which is what it was there for in the first place.

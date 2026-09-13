@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -341,9 +342,37 @@ def test_this_node_hands_over_its_public_key_for_an_account_it_cannot_write(
     # pair nothing installed anywhere.
     relation = signed_in.get("/api/v1/trust/relations").json()[0]
     assert relation["fingerprint"] == key["fingerprint"]
+    # With no site key uploaded, which is the single standalone machine, this
+    # node's own key is the only one a run offers, and so the only line.
+    assert key["account"] == "ansible"
+    assert [item["kind"] for item in key["keys"]] == ["node"]
+    assert key["keys"][0]["line"] == f"{key['public_key']} {key['comment']}"
     # Public by nature: what it authorises is the private half, which never
     # leaves this node.
     assert signed_in_viewer.get("/api/v1/trust/public-key").status_code == 200
+
+
+def test_the_site_key_is_among_the_lines_a_guest_needs_once_uploaded(
+    signed_in: TestClient, tmp_path
+) -> None:
+    # A run offers the site key before this node's own, so a panel naming this
+    # node's key alone told an operator the wrong line was being used.
+    private = tmp_path / "site"
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(private)],
+        check=True,
+    )
+    uploaded = signed_in.put(
+        "/api/v1/trust/site-key", json={"material": private.read_text()}
+    )
+    assert uploaded.status_code == 200, uploaded.text
+
+    keys = signed_in.get("/api/v1/trust/public-key").json()["keys"]
+
+    assert [item["kind"] for item in keys] == ["node", "site"]
+    assert keys[1]["fingerprint"] == uploaded.json()["fingerprint"]
+    assert keys[1]["line"].endswith(" seapath-site-key")
+    assert "PRIVATE" not in keys[1]["line"]
 
 
 def test_a_machine_with_no_ansible_account_is_told_so_by_the_catalogue(

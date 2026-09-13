@@ -185,10 +185,12 @@ the whole screen.
         </div>
       </div>
       <p class="help" id="guest-requirements"></p>
-      {# The key this node connects with, offered to be pasted into the guest's
-         own account. Nothing here installs it: appending to a file on a VM
+      {# The keys a run offers, this node's own and the site key where one is
+         uploaded, one line each, offered to be pasted into the guest's own
+         account. Nothing here installs them: appending to a file on a VM
          would be this service configuring a machine outside Ansible, and that
-         is the one thing it never does. #}
+         is the one thing it never does. The seed of a guest declared on the
+         VMs page carries the same lines. #}
       <div class="measure-key" id="guest-key" hidden>
         <code id="guest-key-line"></code>
         <button type="button" class="secondary" id="guest-key-copy">Copy</button>

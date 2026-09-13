@@ -2235,9 +2235,11 @@ button.secondary {
   margin-bottom: 0.5rem;
 }
 
+/* `pre` rather than `nowrap`: the block holds one line per key a run offers,
+   and nowrap would fold the two into one line nobody could paste. */
 .measure-key code {
   overflow-x: auto;
-  white-space: nowrap;
+  white-space: pre;
   min-width: 0;
   flex: 1 1 20rem;
   padding: 0.2rem 0.35rem;
