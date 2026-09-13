@@ -355,6 +355,11 @@
       0
     );
     const answering = nodes.filter((node) => (node.checks || []).length).length;
+    // How many machines carry the findings, beside how many answered. "1 worth
+    // a look on 4 machines" read as a finding on each of them.
+    const troubled = nodes.filter((node) =>
+      counted(node).some((check) => check.status === "warning")
+    ).length;
     const statuses = nodes.reduce(
       (all, node) => all.concat(counted(node).map((check) => check.status)),
       []
@@ -369,7 +374,10 @@
             ? "ok"
             : "unknown",
       (wanting
-        ? wanting + " worth a look on " + machines(answering)
+        ? wanting +
+          " worth a look on " +
+          (answering > 1 ? troubled + " of " : "") +
+          machines(answering)
         : "nothing worth a look on " + machines(answering)) +
         (skipped ? ", " + skipped + " ignored" : "")
     );
