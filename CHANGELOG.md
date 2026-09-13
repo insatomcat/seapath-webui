@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.96 - 2026-09-13
+
+- feat: a created VM can forget how it was created
+- feat: the tab title names the machine and the page
+
 ## 0.3.95 - 2026-09-13
 
 - feat: a declared VM installs packages and accepts its host key
