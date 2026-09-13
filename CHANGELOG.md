@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.90 - 2026-09-13
+
+- fix: the seed installs the site key too, so any node reaches the guest
+- fix: the guest measurement panel shows every key a run offers
+
 ## 0.3.89 - 2026-09-12
 
 - fix: a brought XML gives the seed its MAC, and names itself right
