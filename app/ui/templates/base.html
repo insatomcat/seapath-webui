@@ -7,7 +7,12 @@ SPDX-License-Identifier: Apache-2.0
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}SEAPATH{% endblock %}</title>
+    {# The machine's name sits between the product and the page because an
+       operator keeps several sites open side by side, and the tab strip is
+       where they tell them apart. The sign in page has no name to give: it is
+       not said to someone who has not signed in. `chrome.js` rewrites it when
+       the machine is renamed, from the page label kept beside it. #}
+    <title data-page="{% block page_title %}{% endblock %}">SEAPATH{% if node_name %} - {{ node_name }}{% endif %}{% if self.page_title() %} - {{ self.page_title() }}{% endif %}</title>
     {# Both schemes are supported, and the stylesheet's own `color-scheme`
        says which one is in force. This is what the browser paints its own
        surfaces in: form controls, scrollbars, and the canvas behind the page

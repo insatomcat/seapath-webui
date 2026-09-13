@@ -189,6 +189,25 @@ def test_the_header_arrives_with_the_document_that_carries_it(
     assert 'API.get("/node")' not in script
 
 
+def test_the_tab_title_names_the_machine_and_the_page(
+    signed_in: TestClient,
+    reader: FakeHostReader,
+) -> None:
+    # An operator with several sites open tells them apart in the tab strip.
+    body = signed_in.get("/inventory").text
+    assert f">SEAPATH - {reader.hostname} - Inventory</title>" in body
+    assert 'data-page="Inventory"' in body
+    # A rename lands in the title as well as in the bar.
+    script = signed_in.get("/static/chrome.js").text
+    assert "document.title" in script
+
+
+def test_the_sign_in_title_names_no_machine(client: TestClient) -> None:
+    assert '<title data-page="Sign in">SEAPATH - Sign in</title>' in (
+        client.get("/login").text
+    )
+
+
 def test_the_inventory_page_says_what_saving_does_and_does_not_do(
     signed_in: TestClient,
 ) -> None:

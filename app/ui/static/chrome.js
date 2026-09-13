@@ -98,6 +98,8 @@ const Chrome = (function () {
   // its own timer, so the bar follows it without a request of its own.
   function saw(node) {
     document.getElementById("node-name").textContent = node.hostname;
+    const page = document.querySelector("title").dataset.page;
+    document.title = ["SEAPATH", node.hostname, page].filter(Boolean).join(" - ");
     const mode = document.getElementById("node-mode");
     mode.textContent = node.mode;
     mode.className = "badge badge-" + node.mode;
