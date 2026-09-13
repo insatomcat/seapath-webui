@@ -110,6 +110,20 @@ def forget_peer(known_hosts_file: Path, address: str) -> bool:
     return True
 
 
+def forget_address(known_hosts_file: Path, address: str) -> None:
+    """Drop every key recorded for an address, accepted here or learnt by ssh.
+
+    For a guest declared to accept its host key on first use. The declaration
+    stands for a new machine at that address, so whatever key the address had
+    belongs to the guest before it, and left in place it is the one key
+    `accept-new` refuses: the run into the new guest would end on a changed
+    host key. A guest whose entry is only rewritten loses nothing it cannot
+    learn again at the next connection.
+    """
+    if not forget_peer(known_hosts_file, address):
+        _drop_from_live(known_hosts_file, address)
+
+
 def _merge_into_live(known_hosts_file: Path, peers: dict[str, list[str]]) -> None:
     """Add the peer lines to the file ssh reads, keeping the local ones.
 

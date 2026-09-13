@@ -17,6 +17,12 @@ variables, and each has a different reader:
 - `ansible_host`, read by Ansible itself, which is how a play reaches inside the
   guest afterwards.
 
+Two more are asked beside the network because they are read at the same moment.
+The packages the guest installs on its first boot go into the seed as the
+cloud-config `packages` key, which the role passes through untouched. And where
+the form asks for it, the entry carries `ansible_ssh_common_args` accepting the
+guest's host key on the first connection, see `ACCEPT_NEW_HOST_KEY`.
+
 Where the form asks for it, the seed also installs this node's public key in the
 account every run connects as, and the entry names that account as
 `ansible_user`. That is the trust [D41](../../docs/decisions.md) left to the
@@ -66,6 +72,22 @@ _HOSTNAME = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 # hostname's: 15 characters, and no slash or space in any of them.
 _BRIDGE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,14}$", re.IGNORECASE)
 _MATCH_NAME = re.compile(r"^[a-z0-9._*?-]{1,15}$", re.IGNORECASE)
+# A Debian package name, optionally pinned to a version the way apt takes it,
+# `name=1.2-3`. Anything wider would be a shell word cloud-init hands to apt.
+_PACKAGE = re.compile(r"^[a-z0-9][a-z0-9+.-]+(=[A-Za-z0-9.+~:-]+)?$")
+
+# What the entry carries where the form asks to accept the guest's host key.
+#
+# `accept-new` rather than `no`: the first key a guest presents is recorded, and
+# a different key presented later still fails the run. That is trust on first
+# use, the same trust the scan gives, without a person comparing fingerprints.
+#
+# It works under this service's own runs because `ssh_args` in the generated
+# ansible.cfg names no `StrictHostKeyChecking`, and ssh keeps the first value an
+# option is given: this one, from the inventory, is the first. The key is
+# written into the `known_hosts` those runs name, and on a conventional control
+# machine into that machine's own, so the exported inventory behaves the same.
+ACCEPT_NEW_HOST_KEY = "-o StrictHostKeyChecking=accept-new"
 
 # The name pattern a seed selects an interface by when no MAC can: every
 # Ethernet naming a guest is likely to use, predictable (`enp1s0`, `ens3`) or
@@ -127,6 +149,23 @@ class GuestNetwork(BaseModel):
             "guest's own name, which is what this leaves alone"
         ),
     )
+    packages: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Packages the guest installs on its first boot, written as the "
+            "cloud-config `packages` key. cloud-init refreshes the package "
+            "lists first, so the guest needs a reachable repository then"
+        ),
+    )
+    accept_host_key: bool = Field(
+        default=False,
+        description=(
+            "Accept the guest's host key on the first connection a run makes, "
+            "written as `ansible_ssh_common_args` beside `ansible_host`. A key "
+            "that changes afterwards is still refused. Ignored without an "
+            "address, where there is no `ansible_host` for it to go beside"
+        ),
+    )
     trust_this_node: bool = Field(
         default=False,
         description=(
@@ -150,6 +189,7 @@ class GuestNetwork(BaseModel):
             or self.dns
             or self.gateway
             or self.hostname
+            or self.packages
             or self.trust_this_node
         )
 
@@ -302,6 +342,8 @@ def variables(
         # whoever runs it, and in this container that is no account any guest
         # has.
         written["ansible_user"] = account
+    if network.accept_host_key and "ansible_host" in written:
+        written["ansible_ssh_common_args"] = ACCEPT_NEW_HOST_KEY
     if network.bridge:
         written["bridges"] = [
             {"name": network.bridge, "mac_address": network.mac_address}
@@ -344,6 +386,8 @@ def _seed(guest: str, network: GuestNetwork) -> dict[str, Any]:
         # writing the name again would be an entry that says what it says
         # anyway. An operator reads these lines in a diff.
         seed["hostname"] = network.hostname
+    if network.packages:
+        seed["packages"] = list(network.packages)
     interface = _interface(network)
     if interface:
         seed["network"] = {"ethernets": {NETDEF: interface}}
@@ -484,6 +528,13 @@ def refusal(
             "interface on the hypervisor, so fifteen characters at most, "
             "letters, digits, dots, dashes and underscores."
         )
+
+    for package in network.packages:
+        if not _PACKAGE.match(package):
+            return (
+                f"{package!r} is not a package name apt would take. Lower case "
+                "letters, digits and + . -, optionally followed by =version."
+            )
 
     if network.hostname and not _HOSTNAME.match(network.hostname):
         return (

@@ -213,6 +213,10 @@ def test_the_generated_config_is_readable_by_a_config_parser(
     ssh_args = parser["ssh_connection"]["ssh_args"]
     assert "\n" not in ssh_args
     assert ssh_args.startswith(f"-o UserKnownHostsFile={tmp_path / 'known_hosts'}")
+    # Nothing here decides host key checking for a host: a guest entry's
+    # `ansible_ssh_common_args` comes after these, and ssh keeps the first value.
+    assert "StrictHostKeyChecking" not in ssh_args
+    assert "-o HashKnownHosts=no" in ssh_args
     assert parser["defaults"]["gathering"] == "explicit"
     assert parser["tags"]["skip"] == "package-install"
 

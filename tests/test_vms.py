@@ -26,6 +26,7 @@ from app.cluster.fake import FakeRbdClient
 from app.cluster.rbd import RbdUnavailable
 from app.core.settings import Settings
 from app.runs.store import RunStore
+from app.trust import known_hosts
 
 # The fake cluster runs `vm-guest1` and `vm-guest2`, and `vm-guest3` failed
 # where it last ran. Declaring two of the three is what lets one row be a guest
@@ -1129,6 +1130,68 @@ def test_a_declaration_asking_for_no_trust_carries_none(
     ]["hosts"]["newvm"]
     assert "ansible_user" not in entry
     assert "users" not in entry["cloud_init"]
+
+
+def test_a_guest_accepting_its_host_key_forgets_the_key_its_address_had(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    """A guest recreated at the address of an older one.
+
+    Seen on a real cluster: the scan offered the guest that used to hold an
+    address and not the new one. With `accept-new` the old key is the one key
+    the first run would be refused on, so the declaration drops it.
+    """
+    known_hosts.accept_peers(
+        settings.known_hosts_file, {"10.0.0.42": ["ssh-ed25519 AAAAold"]}
+    )
+    with settings.known_hosts_file.open("a") as live:
+        live.write("10.0.0.42 ecdsa-sha2-nistp256 AAAAlearnt\n")
+
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": {**NETWORK, "accept_host_key": True}},
+    )
+
+    assert response.status_code == 201, response.text
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert entry["ansible_ssh_common_args"] == "-o StrictHostKeyChecking=accept-new"
+    assert "10.0.0.42" not in settings.known_hosts_file.read_text()
+    assert known_hosts.read_peers(settings.known_hosts_file) == {}
+
+
+def test_a_guest_not_accepting_its_host_key_leaves_the_keys_alone(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    known_hosts.accept_peers(
+        settings.known_hosts_file, {"10.0.0.42": ["ssh-ed25519 AAAAold"]}
+    )
+
+    response = signed_in.post(
+        "/api/v1/vms", json={"name": "newvm", "network": dict(NETWORK)}
+    )
+
+    assert response.status_code == 201, response.text
+    assert known_hosts.read_peers(settings.known_hosts_file) == {
+        "10.0.0.42": ["ssh-ed25519 AAAAold"]
+    }
+
+
+def test_the_packages_reach_the_seed(signed_in: TestClient, settings: Settings) -> None:
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "network": {**NETWORK, "packages": ["qemu-guest-agent"]},
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    entry = yaml.safe_load((settings.inventory_dir / "inventory.yaml").read_text())[
+        "VMs"
+    ]["hosts"]["newvm"]
+    assert entry["cloud_init"]["packages"] == ["qemu-guest-agent"]
 
 
 def test_a_guest_trusted_this_way_is_one_a_measurement_can_aim_at(

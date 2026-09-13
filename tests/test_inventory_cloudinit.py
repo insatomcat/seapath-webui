@@ -323,6 +323,59 @@ def test_the_trust_alone_is_a_section_that_says_something() -> None:
     }
 
 
+# The host key, accepted on the first connection.
+
+
+def test_accepting_the_host_key_is_written_beside_the_address() -> None:
+    network = GuestNetwork(
+        bridge="br0", mac_address=MAC, address="10.0.0.42/24", accept_host_key=True
+    )
+
+    written = cloudinit.variables("vm1", network)
+
+    assert written["ansible_host"] == "10.0.0.42"
+    assert written["ansible_ssh_common_args"] == "-o StrictHostKeyChecking=accept-new"
+
+
+def test_accepting_the_host_key_is_not_written_unless_asked() -> None:
+    network = GuestNetwork(bridge="br0", mac_address=MAC, address="10.0.0.42/24")
+
+    assert "ansible_ssh_common_args" not in cloudinit.variables("vm1", network)
+
+
+def test_accepting_the_host_key_without_an_address_writes_nothing() -> None:
+    # A lease gives the guest an address nothing here knows, so there is no
+    # `ansible_host` for the option to go beside.
+    network = GuestNetwork(
+        bridge="br0", mac_address=MAC, dhcp=True, accept_host_key=True
+    )
+
+    assert "ansible_ssh_common_args" not in cloudinit.variables("vm1", network)
+
+
+# Packages installed on the first boot.
+
+
+def test_the_packages_go_into_the_seed_as_cloud_config() -> None:
+    network = GuestNetwork(packages=["qemu-guest-agent", "tcpdump=4.99.5-2"])
+
+    assert network.asked_for is True
+    assert cloudinit.refusal("vm1", network) is None
+    assert cloudinit.variables("vm1", network) == {
+        "cloud_init": {"packages": ["qemu-guest-agent", "tcpdump=4.99.5-2"]}
+    }
+
+
+@pytest.mark.parametrize(
+    "package", ["Qemu-Guest-Agent", "vim; reboot", "-y", "a", "tcpdump=", "pkg name"]
+)
+def test_a_package_name_apt_would_not_take_is_refused(package: str) -> None:
+    refusal = cloudinit.refusal("vm1", GuestNetwork(packages=[package]))
+
+    assert refusal is not None
+    assert "package" in refusal
+
+
 # An XML the operator brought, which declares the domain's interfaces itself.
 
 BROUGHT = b"""<domain type="kvm">

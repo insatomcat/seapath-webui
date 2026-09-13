@@ -761,10 +761,28 @@ order, as `trusted_keys`. The `users` entry written into `cloud_init` names that
 account and its keys and nothing else: no `default`, which on Debian creates a `debian` account with
 passwordless sudo, and no `sudo`, which would widen the rights the image gave
 the account. A SEAPATH VM image creates `ansible` with those rights; a guest
-from another image fails at `become` and says so. The guest's host key still has
-to be accepted once the guest is up, under Reaching the other machines. With the
-address above and this, the guest is one the latency measurement can aim at from
-its first boot.
+from another image fails at `become` and says so. With the address above and
+this, the guest is one the latency measurement can aim at.
+
+**`accept_host_key` lets the first run in without a scan.** Beside
+`ansible_host`, the entry carries `ansible_ssh_common_args: -o
+StrictHostKeyChecking=accept-new`, and every key recorded for that address
+before, accepted under Reaching the other machines or learnt by ssh, is
+forgotten: the declaration stands for a new machine there, and the old key is
+the one `accept-new` would refuse. The first key the guest presents is then
+recorded without anyone comparing it, which is trust on first use, and a
+different key presented later still stops the run. It takes effect under this
+service's runs because the `ssh_args` they are given name no
+`StrictHostKeyChecking`, and on a conventional control machine the same way.
+Without an address nothing is written, since there is no `ansible_host` for it
+to go beside. Left false, the host key is accepted by hand once the guest is up.
+
+**`packages` are installed on the guest's first boot.** Written as the
+cloud-config `packages` key, which `cloud_init_seed` passes through as it is.
+cloud-init refreshes the package lists first, so the guest needs a repository
+it can reach on that boot. A name apt would not take, which is anything but
+lower case letters, digits and `+ . -` optionally followed by `=version`, is
+refused.
 
 An entry is read once when the guest is created and never again. Both roles
 skip the creation of a guest the hypervisor already has, seed included, so

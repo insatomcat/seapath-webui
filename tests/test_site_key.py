@@ -192,6 +192,37 @@ def test_forgetting_a_host_removes_it_from_both_files(
     assert signed_in.get("/api/v1/trust/host-keys").json() == []
 
 
+def test_forgetting_an_address_drops_a_key_ssh_learnt_by_itself(
+    settings: Settings,
+) -> None:
+    # `accept-new` writes into the live file and never into the record, and a
+    # guest declared anew at that address is refused by exactly that line.
+    settings.known_hosts_file.parent.mkdir(parents=True, exist_ok=True)
+    settings.known_hosts_file.write_text(
+        "seapath-machine ssh-ed25519 AAAAlocal\n"
+        "10.132.159.193 ssh-ed25519 AAAAold\n"
+        "10.132.159.211 ssh-ed25519 AAAAother\n"
+    )
+
+    known_hosts.forget_address(settings.known_hosts_file, "10.132.159.193")
+
+    assert settings.known_hosts_file.read_text() == (
+        "seapath-machine ssh-ed25519 AAAAlocal\n"
+        "10.132.159.211 ssh-ed25519 AAAAother\n"
+    )
+
+
+def test_forgetting_an_address_drops_an_accepted_key_too(settings: Settings) -> None:
+    known_hosts.accept_peers(
+        settings.known_hosts_file, {"10.132.159.61": ["ssh-ed25519 AAAApeer"]}
+    )
+
+    known_hosts.forget_address(settings.known_hosts_file, "10.132.159.61")
+
+    assert known_hosts.read_peers(settings.known_hosts_file) == {}
+    assert "10.132.159.61" not in settings.known_hosts_file.read_text()
+
+
 def test_several_host_keys_are_accepted_in_one_go(
     signed_in: TestClient, settings: Settings
 ) -> None:

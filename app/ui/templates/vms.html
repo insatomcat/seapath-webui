@@ -256,6 +256,16 @@ image and losing its disk. D31 records the bounds.
     <input type="text" id="add-hostname" autocomplete="off" spellcheck="false"
       placeholder="the name above">
 
+    <label for="add-packages">Packages to install on first boot</label>
+    <input type="text" id="add-packages" autocomplete="off" spellcheck="false"
+      placeholder="qemu-guest-agent, tcpdump">
+    <p class="help">
+      Written as <code>packages</code> in the guest's cloud-init configuration.
+      cloud-init refreshes the package lists first, so the guest needs a
+      repository it can reach on that boot; a package it cannot install is
+      reported in the guest's cloud-init log and the boot goes on.
+    </p>
+
     {# Checked by default, and only ever sent with the rest of the section: a
        guest this node gives an address to is a guest it will want to reach,
        for the latency measurement first. The key goes in through the seed and
@@ -271,8 +281,24 @@ image and losing its disk. D31 records the bounds.
       another node, or from the site's control machine, reach the guest later.
       The entry names that account as <code>ansible_user</code>. The account
       and its sudo rights
-      are the image's: a SEAPATH VM image has both. The guest's host key still
-      has to be accepted once it is up, under Reaching the other machines.
+      are the image's: a SEAPATH VM image has both.
+    </p>
+
+    {# Checked by default for the same reason as the box above: a guest given
+       an address here is one a run will reach, and a run into a guest whose
+       host key nobody accepted ends on `Host key verification failed`. #}
+    <label class="switch">
+      <input type="checkbox" id="add-accept-host-key" checked>
+      Accept the guest's host key on the first connection
+    </label>
+    <p class="help">
+      Writes <code>ansible_ssh_common_args: -o StrictHostKeyChecking=accept-new</code>
+      beside <code>ansible_host</code>. The first key the guest presents is
+      recorded without being compared by anyone, and a different key presented
+      later still stops the run. Any key recorded for that address before, from
+      a guest that held it earlier, is forgotten. Unchecked, the key is
+      accepted by hand under Reaching the other machines once the guest is up.
+      Needs an address: a guest on DHCP has no <code>ansible_host</code>.
     </p>
 
     <p class="help">

@@ -1231,6 +1231,9 @@
         .map((server) => server.trim())
         .filter((server) => server !== ""),
       dhcp: element("add-dhcp").checked,
+      packages: text("add-packages")
+        .split(/[\s,]+/)
+        .filter((name) => name !== ""),
     };
     const empty =
       !asked.bridge &&
@@ -1239,7 +1242,8 @@
       !asked.gateway &&
       !asked.hostname &&
       !asked.dns.length &&
-      !asked.dhcp;
+      !asked.dhcp &&
+      !asked.packages.length;
     if (empty) {
       return null;
     }
@@ -1248,6 +1252,7 @@
     // whose image carries its own configuration, which a seed would only get
     // in the way of.
     asked.trust_this_node = element("add-trust").checked;
+    asked.accept_host_key = element("add-accept-host-key").checked;
     return asked;
   }
 

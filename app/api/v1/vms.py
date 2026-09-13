@@ -39,6 +39,7 @@ from app.services.vms import (
     UnknownGuest,
     VmService,
 )
+from app.trust import known_hosts
 from app.trust.service import GuestTrust, TrustService
 
 router = APIRouter(
@@ -266,6 +267,12 @@ def declare(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
+
+    address = definition.get("ansible_host")
+    if address and definition.get("ansible_ssh_common_args"):
+        # A guest that accepts its host key on first use accepts only a key
+        # its address has none of yet. See `known_hosts.forget_address`.
+        known_hosts.forget_address(request.app.state.settings.known_hosts_file, address)
 
     return DeclarationResponse(
         name=payload.name,

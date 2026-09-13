@@ -100,8 +100,15 @@ Host *
 {identities}    BatchMode yes
 """
 
+# `HashKnownHosts=no` because a key ssh records by itself lands in that file,
+# which is what a guest entry accepting its host key on first use relies on,
+# and Debian's /etc/ssh/ssh_config hashes by default. A hashed line names no
+# address, so declaring a guest anew could not drop the key of the one that
+# held the address before it, and the run into the new guest would fail on a
+# changed host key.
 _SSH_OPTIONS = (
     "-o UserKnownHostsFile={known_hosts}",
+    "-o HashKnownHosts=no",
     "-o IdentitiesOnly=yes",
     "-o ControlMaster=auto",
     "-o ControlPersist=60s",
