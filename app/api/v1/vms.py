@@ -32,7 +32,13 @@ from app.services.metadata import (
     MetadataView,
     RbdUnavailable,
 )
-from app.services.vms import GuestsView, InvalidGuest, UnknownGuest, VmService
+from app.services.vms import (
+    GuestsView,
+    InvalidGuest,
+    NotDisabled,
+    UnknownGuest,
+    VmService,
+)
 from app.trust.service import GuestTrust, TrustService
 
 router = APIRouter(
@@ -357,6 +363,80 @@ def enable(request: Request, name: str, user: User = operator) -> ActionResponse
     _known(request, name)
     _in_cluster(request, name)
     return _act(request, name, Action.ENABLE, user)
+
+
+class DeletionResponse(ActionResponse):
+    """The commit that took the entry out, and the run that deletes the disk."""
+
+    commit: str
+    message: str
+
+
+@router.post("/{name}/delete", status_code=202)
+def delete(
+    request: Request,
+    name: str,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> DeletionResponse:
+    """Delete a disabled guest for good: its entry, then its disk.
+
+    Two acts in the order that fails safe. The entry is committed out of the
+    inventory first, so no deployment run can create the guest again; then
+    `cluster_vm remove` deletes its RBD group and images, as a run. A run that
+    fails leaves an image nothing declares, which the history of the inventory
+    brings back by reverting the commit. A run that cannot start at all, the
+    lock held by a convergence for one, reverts the commit here and answers
+    with the reason.
+
+    Only a guest `disable` left, which is what `cluster_vm status` calls
+    Disabled: `409 not_disabled` otherwise. `admin`, because it writes the
+    inventory and destroys data.
+    """
+    service = _service(request)
+    _known(request, name)
+    _in_cluster(request, name)
+    try:
+        commit = service.undeclare(name, user.username, if_match)
+    except UnknownGuest as error:
+        raise ApiError("unknown_guest", str(error), 404) from error
+    except NotDisabled as error:
+        raise ApiError("not_disabled", str(error), 409) from error
+    except InvalidGuest as error:
+        raise ApiError("invalid_guest", str(error), 409) from error
+    except RefusedWrite as error:
+        raise ApiError(
+            "refused_write",
+            str(error),
+            409,
+            {"divergences": [d.model_dump() for d in error.divergences]},
+        ) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+
+    try:
+        record = _runs(request).launch_action(
+            Action.DELETE, name, user.username, Mode.CLUSTER
+        )
+    except ApiError:
+        # Declared again rather than left half deleted: an entry with its disk
+        # is where the operator started, and they can try once the run that
+        # held the lock is over.
+        request.app.state.inventory_service.revert(commit.hash, user.username)
+        raise
+    return DeletionResponse(
+        run_id=record.id,
+        state=record.state.value,
+        guest=name,
+        action=Action.DELETE.value,
+        commit=commit.hash,
+        message=commit.message,
+    )
 
 
 def _trust(

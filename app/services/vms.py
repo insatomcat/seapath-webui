@@ -393,6 +393,10 @@ class UnknownGuest(Exception):
     """No guest of that name is declared here or reported by the cluster."""
 
 
+class NotDisabled(Exception):
+    """A guest asked to be deleted while the cluster still holds it."""
+
+
 class VmService:
     def __init__(
         self,
@@ -550,6 +554,46 @@ class VmService:
             _group_for(deployment),
             replace=replace,
         )
+        return commit
+
+    def undeclare(
+        self, name: str, author: str, expected_head: str | None = None
+    ) -> Commit:
+        """Take a disabled guest out of the inventory, as a commit.
+
+        The first half of deleting it, and the half that has to come first: an
+        entry left behind after its images are gone is a guest the next
+        deployment run creates afresh. Only a guest `disable` left is accepted.
+        One Pacemaker still holds would lose its resource and its disk in a
+        single click, and one nothing reports is a declaration the Inventory
+        page edits.
+        """
+        view = self.guests()
+        guest = next((item for item in view.guests if item.name == name), None)
+        if guest is None:
+            raise UnknownGuest(
+                f"No guest called {name!r} is declared in this inventory."
+            )
+        if not guest.disabled:
+            raise NotDisabled(
+                f"{name} is not out of the cluster. Disable it first: that stops "
+                "it and removes its Pacemaker resource, and leaves the disk this "
+                "would delete."
+            )
+        state = self._inventory.state()
+        beside = sorted(
+            other
+            for other, entry in (
+                state.inventory.guests.items() if state.inventory else []
+            )
+            if other != name and name in (entry.extra.get("colocated_vms") or [])
+        )
+        if beside:
+            raise InvalidGuest(
+                f"{', '.join(beside)} is kept beside {name} through "
+                "`colocated_vms`. Take it out of that list first."
+            )
+        commit, _ = self._inventory.undeclare_guest(name, author, expected_head)
         return commit
 
     def _check_definition(

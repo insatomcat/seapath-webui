@@ -251,10 +251,14 @@
     if (!canAct) {
       return cell;
     }
-    // Out of the cluster, with its disk still in Ceph: the one act left is
-    // putting it back.
+    // Out of the cluster, with its disk still in Ceph: what is left is
+    // putting it back, or deleting it for good. Deleting writes the inventory
+    // and destroys the images, so it is the administrator's.
     if (guest.disabled) {
       cell.append(actButton(guest.name, "enable"));
+      if (canWrite) {
+        cell.append(" ", actButton(guest.name, "delete"));
+      }
       return cell;
     }
     // Something has to have reported the guest before it can be acted on: a
@@ -492,6 +496,7 @@
     reconfigure: "Apply",
     disable: "Disable",
     enable: "Enable",
+    delete: "Delete",
   };
 
   const DISRUPTION = {
@@ -500,6 +505,13 @@
       "no longer runs it, restarts it or moves it. Its disk image, the " +
       "metadata on it and its inventory entry all stay: Enable puts it back " +
       "as it was, and a deployment run leaves it alone.",
+    delete:
+      "Takes the guest's entry out of the inventory, as a commit, then " +
+      "deletes its disk image, every other image of its RBD group and the " +
+      "metadata on them from Ceph, as a run. The entry goes first so that no " +
+      "deployment run creates the guest again. The disk image file and the " +
+      "libvirt XML the entry named stay where they are, since another guest " +
+      "may use them.",
     enable:
       "Creates the guest's Pacemaker resource again from the metadata on its " +
       "image, and Pacemaker starts it on the node it chooses.",
@@ -575,19 +587,31 @@
           ? "Take " + name + " out of the cluster"
           : action === "enable"
             ? "Put " + name + " back in the cluster"
-            : verb + " " + name,
+            : action === "delete"
+              ? "Delete " + name + " and its disk"
+              : verb + " " + name,
       body: DISRUPTION[action],
       note:
         action === "stop" && mode !== "cluster"
           ? "This machine has no Pacemaker, so the guest is asked to shut " +
             "down through ACPI. One that ignores ACPI keeps running."
-          : "",
-      label: verb,
+          : action === "delete"
+            ? "What the guest had written on its disk is lost, and nothing " +
+              "here brings it back. Should the run fail, the images stay in " +
+              "Ceph and reverting the commit on the Inventory page declares " +
+              "the guest again."
+            : "",
+      label: action === "delete" ? "Delete " + name : verb,
       act: async () => {
         const started = await API.post(
           "/vms/" + encodeURIComponent(name) + "/" + action
         );
         RunWatch.open(started.run_id);
+        if (action === "delete") {
+          // The entry is already gone from the inventory, so the row goes now
+          // rather than when somebody next rereads.
+          refresh(true).catch((failure) => showBanner(failure.message));
+        }
       },
     });
   }

@@ -28,6 +28,7 @@ from app.inventory.editor import (
     add_guest,
     edit,
     guest_entry,
+    remove_guest,
     set_variables,
 )
 from app.inventory.fidelity import Divergence, unintended_changes
@@ -567,6 +568,43 @@ class InventoryService:
             expected_head=expected_head,
         )
         logger.info("%s the guest %s", "Redeclared" if replaced else "Declared", name)
+        return commit, result
+
+    def undeclare_guest(
+        self, name: str, author: str, expected_head: str | None = None
+    ) -> tuple[Commit, ValidationResult]:
+        """Take one guest out of the `VMs` group, as a commit like any other.
+
+        The inverse of `declare_guest`, checked the same way: exactly this host
+        may disappear, and nothing else may move. A guest whose disk is deleted
+        and whose entry stays is one the next `deploy_vms_cluster` creates again
+        from the image it names.
+        """
+        document = self._repository.read()
+        try:
+            edited = remove_guest(document, name)
+        except UneditableInventory as error:
+            raise RefusedWrite(str(error), []) from error
+
+        unintended = unintended_changes(document, edited, {}, removed={name})
+        if unintended:
+            raise RefusedWrite(
+                f"Deleting {name} could not be written without changing other "
+                "things in the file, so nothing was written.",
+                unintended,
+            )
+
+        result = self.check_document(edited)
+        if not result.valid:
+            raise ImportRefused(result.errors()[0].message, result)
+
+        commit = self._repository.commit(
+            content=edited,
+            message=f"vms: delete {name}",
+            author=author,
+            expected_head=expected_head,
+        )
+        logger.info("Deleted the declaration of the guest %s", name)
         return commit, result
 
     def declare_container(

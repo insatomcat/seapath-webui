@@ -1763,3 +1763,102 @@ def test_a_viewer_may_not_take_a_guest_out_of_the_cluster(
 ) -> None:
     assert signed_in_viewer.post("/api/v1/vms/vm-guest1/disable").status_code == 403
     assert signed_in_viewer.post("/api/v1/vms/vm-guest1/enable").status_code == 403
+
+
+# 8. Deleting a disabled guest: the entry out of the inventory, then
+# `cluster_vm remove` as a run.
+
+
+def test_deleting_a_disabled_guest_commits_the_entry_out_then_removes_the_disk(
+    signed_in: TestClient, settings: Settings, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_disabled(signed_in)
+
+    response = signed_in.post("/api/v1/vms/vm-guest4/delete")
+
+    assert response.status_code == 202, response.text
+    run = response.json()
+    assert run["action"] == "delete"
+    assert run["message"] == "vms: delete vm-guest4"
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "vms: delete vm-guest4"
+    names = {item["name"] for item in signed_in.get("/api/v1/vms").json()["guests"]}
+    assert names == {"vm-guest1", "vm-guest3"}
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_delete.yaml"))
+    document = yaml.safe_load(written[0].read_text())
+    assert document[0]["hosts"] == "{{ groups['cluster_machines'][0] }}"
+    assert document[0]["tasks"] == [
+        {
+            "name": "Delete vm-guest4 and its disk",
+            "seapath.ansible.cluster_vm": {"name": "vm-guest4", "command": "remove"},
+        }
+    ]
+
+
+def test_a_guest_the_cluster_still_holds_is_not_deleted(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_disabled(signed_in)
+    before = signed_in.get("/api/v1/inventory/history").json()[0]
+
+    response = signed_in.post("/api/v1/vms/vm-guest1/delete")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "not_disabled"
+    assert signed_in.get("/api/v1/inventory/history").json()[0] == before
+
+
+def test_a_guest_another_is_colocated_with_is_not_deleted(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    beside = DISABLED_GUEST + "      colocated_vms: []\n"
+    document = (
+        CLUSTER.read_text()
+        + GUESTS.replace(
+            '      vm_disk: "../files/guest1.qcow2"\n',
+            '      vm_disk: "../files/guest1.qcow2"\n'
+            "      colocated_vms: [vm-guest4]\n",
+        )
+        + beside
+    )
+    assert (
+        signed_in.post(
+            "/api/v1/inventory/import", json={"document": document}
+        ).status_code
+        == 200
+    )
+
+    response = signed_in.post("/api/v1/vms/vm-guest4/delete")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "invalid_guest"
+    assert "vm-guest1" in response.json()["error"]["message"]
+
+
+def test_a_deletion_whose_run_cannot_start_declares_the_guest_again(
+    signed_in: TestClient, settings: Settings, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_disabled(signed_in)
+    RunStore(settings.runs_dir).acquire("an-earlier-run")
+
+    response = signed_in.post("/api/v1/vms/vm-guest4/delete")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "run_in_progress"
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+    assert guests["vm-guest4"]["disabled"] is True
+
+
+def test_deleting_a_guest_is_an_administrator_s_act(client: TestClient) -> None:
+    from tests.conftest import sign_in
+
+    operator = sign_in(client, "operator")
+
+    assert operator.post("/api/v1/vms/vm-guest4/delete").status_code == 403

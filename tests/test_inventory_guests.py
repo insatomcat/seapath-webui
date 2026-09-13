@@ -31,6 +31,7 @@ from app.inventory.editor import (
     UneditableInventory,
     add_guest,
     guest_entry,
+    remove_guest,
 )
 from app.inventory.fidelity import unintended_changes
 from app.inventory.parser import parse
@@ -456,3 +457,52 @@ def test_a_replacement_does_not_move_a_guest_to_the_other_deployment() -> None:
     # Its own group, or the flat `VMs` a caller names by default, is fine.
     add_guest(document, "rtvm", {}, group="standalone_VMs", replace=True)
     add_guest(document, "rtvm", {}, replace=True)
+
+
+# Deleting a guest: the entry goes, and nothing else in the file moves.
+
+
+def test_a_deleted_guest_leaves_the_file_as_it_was_around_it() -> None:
+    document = OURS.read_text() + GUESTS
+
+    edited = remove_guest(document, "rtvm")
+
+    assert edited == document.replace(RTVM, "")
+    assert "rtvm" not in resolve(edited)
+    assert unintended_changes(document, edited, {}, removed={"rtvm"}) == []
+
+
+def test_the_last_guest_deleted_leaves_its_group_to_be_written_into_again() -> None:
+    document = OURS.read_text() + GUESTS
+    edited = remove_guest(remove_guest(document, "rtvm"), "guest2")
+
+    assert validate(parse(edited)).valid
+    # The group stays, and the next declaration goes back into it.
+    again = add_guest(edited, "fresh", {})
+    assert "fresh" in resolve(again)
+
+
+def test_a_machine_is_never_deleted_as_a_guest() -> None:
+    document = OURS.read_text() + GUESTS
+
+    with pytest.raises(UneditableInventory):
+        remove_guest(document, "seapath-machine")
+    with pytest.raises(UneditableInventory):
+        remove_guest(document, "absent")
+
+
+def test_a_host_that_vanishes_beside_the_deleted_one_is_a_refusal() -> None:
+    document = OURS.read_text() + GUESTS
+    edited = remove_guest(remove_guest(document, "rtvm"), "guest2")
+
+    kinds = {d.kind for d in unintended_changes(document, edited, {}, removed={"rtvm"})}
+
+    assert kinds == {"host_lost"}
+
+
+def test_a_deletion_that_left_the_guest_in_place_is_a_refusal() -> None:
+    document = OURS.read_text() + GUESTS
+
+    divergences = unintended_changes(document, document, {}, removed={"rtvm"})
+
+    assert [d.kind for d in divergences] == ["host_kept"]

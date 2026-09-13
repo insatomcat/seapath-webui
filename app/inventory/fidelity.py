@@ -51,6 +51,7 @@ _ORDER = {
     "host_lost": 1,
     "host_added": 2,
     "host_missing": 3,
+    "host_kept": 3,
     "not_applied": 4,
     "changed": 5,
     "invented": 6,
@@ -69,7 +70,7 @@ class Divergence(BaseModel):
     kind: str = Field(
         description=(
             "lost, changed, invented, not_applied, host_lost, host_added, "
-            "host_missing or unsupported"
+            "host_missing, host_kept or unsupported"
         )
     )
     message: str
@@ -82,6 +83,7 @@ def unintended_changes(
     after: str,
     intended: dict[str, dict[str, Any]],
     added: set[str] = frozenset(),
+    removed: set[str] = frozenset(),
 ) -> list[Divergence]:
     """What this write changed beyond what was asked. Empty means the write is
     exactly its intent.
@@ -90,6 +92,9 @@ def unintended_changes(
     being declared and nothing else. Left empty, a write that invents a host is
     a splice that landed inside the wrong mapping, and that is worth catching:
     a name in the `VMs` group is a VM the next deployment run creates.
+
+    `removed` is the other direction, a guest being deleted: those hosts must
+    be gone afterwards, and every other host must still be there unchanged.
     """
     resolved_before = resolve(before)
     resolved_after = resolve(after)
@@ -101,10 +106,13 @@ def unintended_changes(
         raw.append(("host_added", None, host, None, None))
     for host in sorted(set(added) - appeared):
         raw.append(("host_missing", None, host, None, None))
+    for host in sorted(set(removed) & set(resolved_after)):
+        raw.append(("host_kept", None, host, None, None))
 
     for host, variables in resolved_before.items():
         if host not in resolved_after:
-            raw.append(("host_lost", None, host, None, None))
+            if host not in removed:
+                raw.append(("host_lost", None, host, None, None))
             continue
         asked = intended.get(host, {})
         for change in _compare(host, variables, resolved_after[host]):
@@ -196,6 +204,8 @@ def _message(
         )
     if kind == "host_missing":
         return f"{hosts} was to be declared and is not in the result."
+    if kind == "host_kept":
+        return f"{hosts} was to be deleted and is still in the result."
     if kind == "not_applied":
         wanted = {repr(before) for _, before, _ in occurrences}
         got = {repr(after) for _, _, after in occurrences}

@@ -499,6 +499,32 @@ def add_guest(
     return "".join(lines)
 
 
+def remove_guest(document: str, name: str) -> str:
+    """Take a guest's entry out of `VMs`, and nothing else.
+
+    The entry goes whole, its variables and the comments under it included,
+    and the rest of the file survives byte for byte. The group it sat in stays
+    even when it is left holding nobody: `hosts:` with nothing under it is what
+    `add_guest` writes into next time, and a group a site created is the site's
+    to take away.
+
+    Bounded to guests like `add_guest`: a machine leaves the cluster through
+    `cluster_remove_machine`, and a name found anywhere but `VMs` is refused.
+    """
+    loaded = _yaml().load(document)
+    if not isinstance(loaded, dict):
+        raise UneditableInventory("The inventory is not a mapping of groups.")
+    declared = _declared_guest(loaded, name)
+    if declared is None:
+        raise UneditableInventory(f"{name} is not a guest this inventory declares.")
+    _, hosts = declared
+    lines = document.splitlines(keepends=True)
+    key_line, column = hosts.lc.key(name)
+    end = _block_end(lines, key_line + 1, column)
+    del lines[key_line:end]
+    return "".join(lines)
+
+
 def guest_entry(document: str, name: str) -> dict[str, Any] | None:
     """The variables a declared guest's own entry carries.
 

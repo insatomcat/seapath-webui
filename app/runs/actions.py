@@ -49,6 +49,7 @@ class Action(str, Enum):
     RECONFIGURE = "reconfigure"
     ENABLE = "enable"
     DISABLE = "disable"
+    DELETE = "delete"
     REFRESH = "refresh"
     REFRESH_ALL = "refresh_all"
     UNIT_START = "unit_start"
@@ -120,8 +121,18 @@ _SPECS: dict[Action, ActionSpec] = {
             "disk image and the metadata on it stay in Ceph, and so does its "
             "inventory entry: Enable puts it back as it was, and a deployment "
             "run leaves it alone, because deploy_vms_cluster creates only a "
-            "guest Ceph does not hold. Deleting a guest for good is an edit "
-            "of the inventory."
+            "guest Ceph does not hold. Delete then removes it for good."
+        ),
+    ),
+    Action.DELETE: ActionSpec(
+        verb="Delete",
+        title="Delete {name} and its disk",
+        disruption=(
+            "Removes the guest's disk image, every other image of its RBD "
+            "group and the metadata on them from Ceph, and undefines whatever "
+            "libvirt domain is left of it. Its entry was taken out of the "
+            "inventory first, so no deployment run creates it again. The data "
+            "on those images is gone and nothing here brings it back."
         ),
     ),
     Action.ENABLE: ActionSpec(
@@ -361,6 +372,7 @@ _CLUSTER_ONLY = (
     Action.RECONFIGURE,
     Action.ENABLE,
     Action.DISABLE,
+    Action.DELETE,
     Action.REFRESH,
     Action.REFRESH_ALL,
     Action.RESOURCE_START,
@@ -535,6 +547,17 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
                     "command": "enable",
                 },
             },
+        ]
+    if action is Action.DELETE:
+        # `cluster_vm remove`, which is `vm_manager.remove`: the resource if
+        # there is one, the domain, then the RBD group and every image in it.
+        # The guest is already disabled when the page offers this, so the first
+        # two find nothing and the call is the deletion of the images.
+        return [
+            {
+                "name": title,
+                "seapath.ansible.cluster_vm": {"name": guest, "command": "remove"},
+            }
         ]
     if action in (Action.ENABLE, Action.DISABLE):
         # The two halves of a reconfigure, each on its own. `disable` removes
