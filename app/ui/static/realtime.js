@@ -252,10 +252,57 @@
   // came back after the exporters did used to narrow the cluster back to one
   // column, which is what an operator saw flicker. A draw is refused when the
   // matrix already shows more than the one it carries.
+  // Findings an operator has chosen to live with, such as hyperthreading left
+  // on by a site that measured it and accepted it. Kept in the browser, per
+  // viewer, keyed by machine and check, because it is a way of reading the
+  // page: nothing is written to the inventory and a colleague on another
+  // browser still sees the finding. An ignored answer is still drawn, in
+  // italics, so the exception stays visible to the one who made it.
+  const IGNORED_KEY = "seapath-webui.realtime.ignored";
+  let ignored = new Set();
+  try {
+    const stored = JSON.parse(localStorage.getItem(IGNORED_KEY) || "[]");
+    ignored = new Set(Array.isArray(stored) ? stored : []);
+  } catch (unreadable) {
+    ignored = new Set();
+  }
+
+  function ignoredKey(host, id) {
+    return host + ":" + id;
+  }
+
+  function isIgnored(host, id) {
+    return ignored.has(ignoredKey(host, id));
+  }
+
+  function setIgnored(hosts, id, on) {
+    hosts.forEach((host) => {
+      if (on) {
+        ignored.add(ignoredKey(host, id));
+      } else {
+        ignored.delete(ignoredKey(host, id));
+      }
+    });
+    try {
+      localStorage.setItem(IGNORED_KEY, JSON.stringify(Array.from(ignored)));
+    } catch (unwritable) {
+      // A browser that keeps nothing still ignores, for this visit.
+    }
+    if (state.matrix) {
+      const matrix = state.matrix;
+      renderMatrix(matrix.nodes, matrix.thisHost, matrix.commit, matrix.scope);
+    }
+  }
+
+  // The rows an operator opened, so a redraw, whether it comes from a refresh
+  // or from ignoring an answer, does not fold the detail they were reading.
+  const openRows = new Set();
+
   function renderMatrix(nodes, thisHost, commit, scope) {
     if (scope === "local" && state.matrix && state.matrix.scope === "cluster") {
       return;
     }
+    closeCheckMenu();
     state.matrix = {
       nodes: nodes,
       thisHost: thisHost,
@@ -289,16 +336,27 @@
       rows.append(renderRow(check, nodes, columns))
     );
 
+    // An ignored warning is out of the count and out of the tab's colour: the
+    // operator already decided about it, and a tab that stays amber for it
+    // hides the next finding that is not.
+    const counted = (node) =>
+      (node.checks || []).filter((check) => !isIgnored(node.host, check.id));
     const wanting = nodes.reduce(
       (total, node) =>
+        total + counted(node).filter((check) => check.status === "warning").length,
+      0
+    );
+    const skipped = nodes.reduce(
+      (total, node) =>
         total +
-        (node.checks || []).filter((check) => check.status === "warning")
-          .length,
+        (node.checks || []).filter(
+          (check) => check.status === "warning" && isIgnored(node.host, check.id)
+        ).length,
       0
     );
     const answering = nodes.filter((node) => (node.checks || []).length).length;
     const statuses = nodes.reduce(
-      (all, node) => all.concat((node.checks || []).map((check) => check.status)),
+      (all, node) => all.concat(counted(node).map((check) => check.status)),
       []
     );
     summarise(
@@ -310,9 +368,10 @@
           : statuses.includes("ok")
             ? "ok"
             : "unknown",
-      wanting
+      (wanting
         ? wanting + " worth a look on " + machines(answering)
-        : "nothing worth a look on " + machines(answering)
+        : "nothing worth a look on " + machines(answering)) +
+        (skipped ? ", " + skipped + " ignored" : "")
     );
     // Which inventory the comparison was made against belongs to the panel
     // rather than to the tab: it is read once, when an operator wonders why a
@@ -366,6 +425,7 @@
     name.textContent = check.title;
     row.append(name);
 
+    row.dataset.check = check.id;
     const answers = nodes.map((node) => answerOf(node, check.id));
     answers.forEach((answer) => row.append(renderAnswer(answer)));
 
@@ -384,16 +444,124 @@
 
     const detail = document.createElement("div");
     detail.className = "check-detail";
-    detail.hidden = true;
+    detail.hidden = !openRows.has(check.id);
     nodes.forEach((node, index) =>
       detail.append(detailLine(node, answers[index]))
     );
     row.append(detail);
     row.addEventListener("click", () => {
       detail.hidden = !detail.hidden;
+      if (detail.hidden) {
+        openRows.delete(check.id);
+      } else {
+        openRows.add(check.id);
+      }
+    });
+    row.addEventListener("contextmenu", (event) => {
+      const cell = event.target.closest(".check-cell");
+      const hosts = answers
+        .filter((answer) => answer.check)
+        .map((answer) => answer.node.host);
+      if (!hosts.length) {
+        return;
+      }
+      event.preventDefault();
+      // On one machine's answer the menu is about that machine first. On the
+      // name, or from the keyboard's menu key on the focused row, it offers
+      // each machine in turn.
+      const one = cell && cell.dataset.host;
+      openCheckMenu(event, row, check.id, one ? [one] : hosts, hosts);
     });
     return row;
   }
+
+  // The menu a right click on the matrix opens. One element for the page,
+  // attached to the body rather than to the row: the row is a button, and a
+  // button inside a button is a click that toggles the detail as well.
+  let checkMenu = null;
+
+  function openCheckMenu(event, row, id, offered, every) {
+    closeCheckMenu();
+    const menu = document.createElement("div");
+    menu.className = "check-menu";
+    menu.setAttribute("role", "menu");
+
+    const item = (label, act) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.setAttribute("role", "menuitem");
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        closeCheckMenu();
+        act();
+        focusRow(id);
+      });
+      menu.append(button);
+    };
+
+    offered.forEach((host) => {
+      const on = isIgnored(host, id);
+      item((on ? "Stop ignoring on " : "Ignore on ") + host, () =>
+        setIgnored([host], id, !on)
+      );
+    });
+    if (every.length > 1) {
+      if (every.some((host) => !isIgnored(host, id))) {
+        item("Ignore on every machine", () => setIgnored(every, id, true));
+      }
+      if (every.some((host) => isIgnored(host, id))) {
+        item("Stop ignoring on every machine", () =>
+          setIgnored(every, id, false)
+        );
+      }
+    }
+
+    document.body.append(menu);
+    // At the pointer, or under the row when the keyboard opened it, and kept
+    // on screen either way.
+    const box = row.getBoundingClientRect();
+    const x = event.clientX || box.left + 16;
+    const y = event.clientY || box.top + box.height;
+    const size = menu.getBoundingClientRect();
+    menu.style.left =
+      Math.max(8, Math.min(x, window.innerWidth - size.width - 8)) + "px";
+    menu.style.top =
+      Math.max(8, Math.min(y, window.innerHeight - size.height - 8)) + "px";
+    checkMenu = { element: menu, id: id };
+    menu.querySelector("button").focus();
+  }
+
+  function closeCheckMenu() {
+    if (checkMenu) {
+      checkMenu.element.remove();
+      checkMenu = null;
+    }
+  }
+
+  function focusRow(id) {
+    const row = element("check-rows").querySelector(
+      '.check-row[data-check="' + CSS.escape(id) + '"]'
+    );
+    if (row) {
+      row.focus();
+    }
+  }
+
+  document.addEventListener("mousedown", (event) => {
+    if (checkMenu && !checkMenu.element.contains(event.target)) {
+      closeCheckMenu();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && checkMenu) {
+      event.preventDefault();
+      const id = checkMenu.id;
+      closeCheckMenu();
+      focusRow(id);
+    }
+  });
+  window.addEventListener("resize", closeCheckMenu);
+  element("check-rows").addEventListener("scroll", closeCheckMenu);
 
   function answerOf(node, id) {
     const check = (node.checks || []).find((entry) => entry.id === id);
@@ -416,6 +584,11 @@
   function renderAnswer(answer) {
     const box = document.createElement("span");
     box.className = "check-cell";
+    box.dataset.host = answer.node.host;
+    if (answer.check && isIgnored(answer.node.host, answer.check.id)) {
+      box.classList.add("ignored");
+      box.title = "Ignored in this browser. Right click to stop ignoring.";
+    }
 
     const dot = document.createElement("span");
     dot.className = "dot status-" + (answer.check ? answer.check.status : "absent");
@@ -464,6 +637,11 @@
         " " +
         (check.detail || defaultDetail(check))
     );
+    if (isIgnored(node.host, check.id)) {
+      const tag = document.createElement("em");
+      tag.textContent = "Ignored in this browser.";
+      line.append(" ", tag);
+    }
     return line;
   }
 

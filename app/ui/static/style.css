@@ -2052,6 +2052,55 @@ button.secondary {
   color: var(--muted);
 }
 
+/* An answer the operator chose to ignore in this browser. Still drawn, with
+   its status faded rather than replaced, so the exception reads as one: the
+   value in italics says someone decided about it, and the dot still says what
+   the machine answered. */
+.check-cell.ignored .value,
+.check-cell.ignored .value.differs {
+  font-style: italic;
+  color: var(--muted);
+}
+
+.check-cell.ignored > .dot {
+  opacity: 0.35;
+}
+
+.legend-item .ignored {
+  font-style: italic;
+}
+
+.check-menu {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+.check-menu button {
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.check-menu button:hover,
+.check-menu button:focus-visible {
+  background: var(--row-hover);
+  outline: none;
+}
+
 /* The machines disagree. Two nodes converged from the same inventory that
    answer differently is the finding, whatever the answers are, and it is the
    one thing a matrix says that a list could not. */
