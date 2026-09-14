@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.99 - 2026-09-14
+
+- feat: a deployment run forgets how it created a guest, and the row deletes its files
+
 ## 0.3.98 - 2026-09-14
 
 - docs: the VMs image shows a seeded guest and Forget
