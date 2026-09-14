@@ -159,13 +159,36 @@ code {
 
 /* Login */
 
+/* The width leaves a gutter on each side, so on a screen narrower than the card
+   its edges stay off the edges of the glass. */
 .login {
+  width: calc(100% - 2rem);
   max-width: 26rem;
   margin: 12vh auto;
   padding: 2rem;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+/* A phone. The card rises toward the top, where the keyboard leaves it in
+   view. The fields and the button are drawn at 16px: Safari on an iPhone zooms
+   into a field whose text is any smaller when it takes the focus, and it does
+   not zoom back out after the sign in. */
+@media (max-width: 49.6rem) {
+  .login {
+    margin-block: 4vh;
+    padding: 1.5rem 1.25rem;
+  }
+
+  .login input,
+  .login button {
+    font-size: 16px;
+  }
+
+  .login input {
+    padding: 0.75rem;
+  }
 }
 
 .login h1 {
