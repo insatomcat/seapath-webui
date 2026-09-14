@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.97 - 2026-09-14
+
+- test: the suite runs one worker per core
+- docs: the README shows the run window, the machine choice and cloud-init
+
 ## 0.3.96 - 2026-09-13
 
 - feat: a created VM can forget how it was created
