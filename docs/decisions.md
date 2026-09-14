@@ -3651,13 +3651,13 @@ deployment run of its playbook, the same way.
 The record of the run carries `followups`, saved true with its final state and
 set false once the listeners are done. The window that watched the run reads
 the page again when the run ends, as [D43](#d43) has it, and once more when
-`followups` goes false, so the row shows **Delete source files** without the
+`followups` goes false, so the row shows **Delete files** without the
 operator reading it again by hand. A service restarted in between clears the
 flag at start, and the window stops waiting after two minutes.
 
 ### Deleting the files
 
-The row of a forgotten guest offers **Delete source files** when a file its
+The row of a forgotten guest offers **Delete files** when a file its
 forgetting commit names is still held here and no entry of the inventory names
 it. The newest forgetting commit of a guest is the one read, so a guest
 declared again under the same name answers for its latest creation. The image

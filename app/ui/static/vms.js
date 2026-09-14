@@ -208,11 +208,12 @@
     }
     const sources = guest.sources || [];
     if (canWrite && sources.length) {
-      node.className = "acts";
+      // Allowed to wrap: the guest table already fills its card on a laptop
+      // screen, and a label held on one line pushed Metadata out of sight.
       const button = document.createElement("button");
       button.type = "button";
       button.className = "secondary";
-      button.textContent = "Delete source files";
+      button.textContent = "Delete files";
       button.title = sources.map((source) => source.path).join(", ");
       button.addEventListener("click", () => confirmDeleteSources(guest));
       node.append(button);

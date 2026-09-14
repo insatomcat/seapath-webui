@@ -227,7 +227,7 @@ operator who launched the run and naming it, and leaves the variables later
 runs read. Each guest is judged on what the machines report, so a guest the run
 did not manage to create keeps its recipe for the next one. The Creation column
 names the files while the entry still carries them, and afterwards offers
-**Delete source files**: the image and the XML the guest was made from, deleted
+**Delete files**: the image and the XML the guest was made from, deleted
 from this node when no other entry names them. See D49 and D50 in
 [docs/decisions.md](docs/decisions.md).
 
