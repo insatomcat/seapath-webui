@@ -262,6 +262,11 @@ class RunStore:
         """
         recovered = []
         for record in self.list(limit=1000):
+            if record.followups:
+                # The listeners died with the process, and nothing will say
+                # they are done if this does not.
+                record.followups = False
+                self.save(record)
             if record.state not in (RunState.PENDING, RunState.RUNNING):
                 continue
             record.state = RunState.INTERRUPTED

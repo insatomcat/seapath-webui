@@ -219,7 +219,7 @@ starts. `409 no_replicas` where the inventory declares no other machine, and
 | GET | `/playbooks/scopes` | What a run may be narrowed to: every group of the inventory with its hosts, every host, which of them are guests, and `unreachable`, the machines this node holds no way of reaching. That last list is the one precondition a narrowing lifts, so the chooser can say which boxes will get the run refused. `addressable_guests` is the subset of the guests whose entry declares an `ansible_host`, which is what a run reaching *into* a guest may be aimed at |
 | POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode, and the scope |
 | GET | `/runs` | History, most recent first, as a `RunSummary` per run: what it was, when, who launched it, the inventory commit and collection it ran with, and how it ended. What a run **did** is on the run's own record, because a record carries a duration per task and fifty of them in a list was six hundred kilobytes. See [D47](decisions.md#d47) |
-| GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used |
+| GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used, and `followups`, true while what listens for the end of the run is still acting on it (a deployment run forgetting how it created its guests, see [D50](decisions.md#d50)) |
 | GET | `/runs/{id}/events` | Server sent events, one per Ansible task event, each host result carrying the seconds it took |
 | GET | `/runs/{id}/log` | Full log, for download |
 | POST | `/runs/{id}/cancel` | Best effort, and honest that a cancelled convergence leaves a partial state |

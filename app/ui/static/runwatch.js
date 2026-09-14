@@ -139,6 +139,37 @@ const RunWatch = (function () {
     if (state.done) {
       await state.done();
     }
+    if (await followedUp(runId)) {
+      await Reread.readAgain();
+    }
+  }
+
+  // Whether something acted on the run after it ended, waited for. A deployment
+  // run takes the creation lines of its guests out of the inventory once the
+  // machines report them, which is after the reading above, so the table is
+  // read once more when that is done. Bounded: a service restarted in between
+  // clears the flag, and a window left waiting forever would be one nobody
+  // could tell from a working one.
+  async function followedUp(runId) {
+    const deadline = Date.now() + 120000;
+    let waited = false;
+    while (Date.now() < deadline) {
+      if (element("run-watch").hidden || state.runId !== runId) {
+        return false;
+      }
+      let record;
+      try {
+        record = await API.get("/runs/" + encodeURIComponent(runId));
+      } catch (failure) {
+        return false;
+      }
+      if (!record.followups) {
+        return waited;
+      }
+      waited = true;
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+    return false;
   }
 
   function stop() {

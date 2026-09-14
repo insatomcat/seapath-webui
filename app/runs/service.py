@@ -881,6 +881,9 @@ class RunService:
         finally:
             record.finished_at = datetime.now(tz=UTC)
             record.progress = run_progress
+            # Saved with the final state rather than after it, so no reader sees
+            # a run ended with its listeners done before they have started.
+            record.followups = bool(self._finished)
             self._store.save(record)
             self._store.release(record.id)
             self._cancelled.discard(record.id)
@@ -890,6 +893,9 @@ class RunService:
                 callback(record)
             except Exception:
                 logger.exception("A listener of run %s raised", record.id)
+        if record.followups:
+            record.followups = False
+            self._store.save(record)
 
     @staticmethod
     def _final_state(outcome, run_progress: RunProgress) -> RunState:

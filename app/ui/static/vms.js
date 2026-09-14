@@ -208,6 +208,7 @@
     }
     const sources = guest.sources || [];
     if (canWrite && sources.length) {
+      node.className = "acts";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "secondary";

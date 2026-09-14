@@ -506,7 +506,11 @@ def test_a_run_that_ended_is_heard_by_every_listener(
         raise RuntimeError("a listener with a bug")
 
     service.when_finished(broken)
-    service.when_finished(lambda record: heard.append((record.id, record.state)))
+    service.when_finished(
+        lambda record: heard.append(
+            (record.id, record.state, service.get(record.id).followups)
+        )
+    )
 
     record = wait_for(service, service.launch("seapath_setup_main", "alice").id)
     deadline = time.time() + 5
@@ -515,7 +519,12 @@ def test_a_run_that_ended_is_heard_by_every_listener(
 
     # After the final state is saved and the lock released, and a listener
     # that raises costs the others nothing.
-    assert heard == [(record.id, RunState.SUCCESS)]
+    # And the record says the listeners are at work until they are done.
+    assert heard == [(record.id, RunState.SUCCESS, True)]
+    deadline = time.time() + 5
+    while service.get(record.id).followups and time.time() < deadline:
+        time.sleep(0.01)
+    assert service.get(record.id).followups is False
     assert service.launch("seapath_setup_main", "alice").id
 
 
@@ -747,6 +756,27 @@ def test_a_restart_closes_out_a_run_that_was_going(store) -> None:
     assert "restarted" in recovered[0].message
     # And the lock is freed, or the node could never converge again.
     store.acquire("a-later-run")
+
+
+def test_a_restart_clears_listeners_that_died_with_the_process(store) -> None:
+    store.create(
+        RunRecord(
+            id="20260914T090000",
+            playbook="seapath.ansible.deploy_vms_cluster",
+            playbook_id="deploy_vms_cluster",
+            state=RunState.SUCCESS,
+            launched_by="alice",
+            followups=True,
+        )
+    )
+
+    recovered = store.reconcile()
+
+    # An ended run stays ended, and no page waits on it any longer.
+    assert recovered == []
+    record = store.load("20260914T090000")
+    assert record.state is RunState.SUCCESS
+    assert record.followups is False
 
 
 def test_a_second_acquire_is_refused(store) -> None:

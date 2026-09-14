@@ -3648,6 +3648,13 @@ one.
 A guest declared before this and never forgotten is forgotten by the next
 deployment run of its playbook, the same way.
 
+The record of the run carries `followups`, saved true with its final state and
+set false once the listeners are done. The window that watched the run reads
+the page again when the run ends, as [D43](#d43) has it, and once more when
+`followups` goes false, so the row shows **Delete source files** without the
+operator reading it again by hand. A service restarted in between clears the
+flag at start, and the window stops waiting after two minutes.
+
 ### Deleting the files
 
 The row of a forgotten guest offers **Delete source files** when a file its

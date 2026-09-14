@@ -125,6 +125,14 @@ class RunRecord(BaseModel):
     # catalogue. It is what lets the VMs page find the run that read a guest's
     # metadata without opening every run directory to look.
     guest: str | None = None
+    followups: bool = False
+    """The run has ended and what listens for its end is still acting on it.
+
+    A deployment run forgets how it created its guests only after its final
+    state is saved, and that can take a minute of waiting for the exporters. A
+    page that read itself again the moment the run ended would draw the table
+    from before that commit, so it reads once more when this goes false.
+    """
 
     @property
     def finished(self) -> bool:
