@@ -107,4 +107,22 @@ came from the build you meant, since a check turns green only once the fix it
 covers has shipped (for example clock synchronisation went green in 0.3.80).
 
 The other pages are the two-pane document layout, not this paned one, so they
-are captured full-page and do not need the per-view clip.
+are captured full-page and do not need the per-view clip. Clip them to the
+footer's bottom plus 12 px, so the empty ground a tall viewport leaves under a
+short page is not in the image.
+
+## Windows over a page
+
+Three images show a window rather than a page. Use a viewport tall enough for
+the window to fit (2600 px does), open it, and clip to the full 1500 px width
+from 32 px above the `.modal-body` to 32 px below it, so the dimmed page
+shows at both sides.
+
+| file                           | how the window is opened                                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `5-1-deployment-machines.png`  | Deployment, the first **Choose machines**, with `node1` and `node2` checked. Close with Cancel.                                          |
+| `6-1-add-vm.png`               | VMs, **Add a VM**: name `rtu-bay3`, a held qcow2 and `guest.xml.j2` picked, bridge `br0`, address `192.168.110.43/24`, gateway and resolver `192.168.110.1`, packages `qemu-guest-agent, rt-tests`. Never press Add and deploy. |
+| `6-2-vm-run.png`               | VMs, then `RunWatch.open("<id>")` from `page.evaluate`, with the id of a finished `deploy_vms_cluster` run from `GET api/v1/runs`, and 8 s for the stream to replay. |
+
+The run window replays a run that already happened, so no playbook is launched
+to take this picture: these are live substation hypervisors.
