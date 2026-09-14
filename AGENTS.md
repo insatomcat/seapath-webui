@@ -118,6 +118,11 @@ place, and lets a test replay recorded output.
   mapping from Ansible events to the progress model, including a run that is
   interrupted without a final status.
 
+While iterating on a change, run the test files that cover it
+(`pytest tests/test_vms.py`). Run the whole suite once, when the change is
+done and before committing, rather than after every edit. It runs in parallel
+by default; `-n0` runs it serially.
+
 ## Screenshots
 
 The README images under `img/` are shot against a live deployment. When a UI

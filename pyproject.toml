@@ -18,7 +18,10 @@ select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# Every test builds its own application over its own temporary tree and git
+# repository, so the suite runs one worker per core. `-n0` runs it serially,
+# which is what a debugger or `--pdb` needs.
+addopts = "-q -n auto"
 filterwarnings = ["error::DeprecationWarning:app.*"]
 
 # Coverage is measured over `app/`, branches included, because the branch
