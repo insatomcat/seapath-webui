@@ -122,6 +122,17 @@ class RunService:
         # a precondition nobody can fake is a precondition nobody tests.
         self._seed_builder = seed_builder
         self._cancelled: set[str] = set()
+        self._finished: list[Callable[[RunRecord], None]] = []
+
+    def when_finished(self, callback: Callable[[RunRecord], None]) -> None:
+        """Call this with the record of every run once it has ended.
+
+        After the lock is released and the final state saved, in the run's own
+        thread, so what a listener does is not part of the run and cannot hold
+        up the next one. A listener that raises is logged and the others still
+        hear.
+        """
+        self._finished.append(callback)
 
     # Catalogue
 
@@ -874,6 +885,11 @@ class RunService:
             self._store.release(record.id)
             self._cancelled.discard(record.id)
             audit_event("run.finished", run=record.id, state=record.state.value)
+        for callback in self._finished:
+            try:
+                callback(record)
+            except Exception:
+                logger.exception("A listener of run %s raised", record.id)
 
     @staticmethod
     def _final_state(outcome, run_progress: RunProgress) -> RunState:

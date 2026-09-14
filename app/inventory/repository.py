@@ -327,6 +327,31 @@ class InventoryRepository:
             return []
         return [_parse_commit(line) for line in output.splitlines() if line]
 
+    def messages(self, subject_prefix: str) -> list[tuple[str, str]]:
+        """The whole message of every commit whose subject starts with this.
+
+        Newest first, as (hash, message). For the few acts of this service
+        that leave something in a commit body to be read back later, which
+        `history` does not carry since it keeps the subject only.
+        """
+        try:
+            output = self._git(
+                "log",
+                "--fixed-strings",
+                f"--grep={subject_prefix}",
+                "--pretty=format:%H%x1f%B%x1e",
+            )
+        except RepositoryError:
+            return []
+        found: list[tuple[str, str]] = []
+        for record in output.split("\x1e"):
+            if "\x1f" not in record:
+                continue
+            commit_hash, message = record.strip("\n").split("\x1f", 1)
+            if message.startswith(subject_prefix):
+                found.append((commit_hash, message))
+        return found
+
     def diff(self, from_ref: str | None = None, to_ref: str | None = None) -> str:
         """A unified diff of the whole folder, defaulting to HEAD.
 

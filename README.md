@@ -221,10 +221,14 @@ image and the XML stay, since another guest may be made from them.
 
 Once a guest exists, the lines that created it are read by nobody: the roles
 read `vm_disk`, `vm_template`, `cloud_init` and their neighbours only for a
-guest the hypervisor does not have yet. The Creation column names those files
-while a run would still read them, and otherwise offers **Forget**, which takes
-them out of the guest's entry as one commit and no run, leaving the entry with
-the variables later runs read. See D49 in
+guest the hypervisor does not have yet. So the deployment run that creates a
+guest takes them out of its entry when it ends, as one commit authored by the
+operator who launched the run and naming it, and leaves the variables later
+runs read. Each guest is judged on what the machines report, so a guest the run
+did not manage to create keeps its recipe for the next one. The Creation column
+names the files while the entry still carries them, and afterwards offers
+**Delete source files**: the image and the XML the guest was made from, deleted
+from this node when no other entry names them. See D49 and D50 in
 [docs/decisions.md](docs/decisions.md).
 
 ![The Containers page: one row per quadlet, who manages it, the machine it is on and the state of its unit](img/7-containers.png)
@@ -434,7 +438,8 @@ inventory declares to what Pacemaker reports, adding one is one act that gives
 it its network through a cloud-init seed, starting and stopping one are runs,
 the RBD metadata is read and edited from the same page, a guest can be sent to
 a named node and given back to the cluster, disabled, enabled and deleted, and
-its entry can forget how it was created.
+its creation lines leave its entry once it is created, with the files they
+named deleted from the row.
 The snapshots follow the same shape. For a container,
 the quadlets the inventory uploads are read back with the unit each machine
 made of them, declaring one writes the three variables the upstream roles

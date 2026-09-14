@@ -3542,7 +3542,11 @@ would refuse includes the edit that fixes the guest. The run that would fail on
 it is refused where the consequence is, which is the `seed_buildable`
 precondition of the two deployment entries.
 
-## D49 - Settled: a guest that exists can forget how it was created, and a container cannot
+## D49 - Superseded in part by [D50](#d50): a guest that exists can forget how it was created, and a container cannot
+
+What a guest forgets, what is refused and why a container never forgets still
+hold. The button does not: [D50](#d50) moves the act to the end of the
+deployment run and puts the deletion of the files on the row.
 
 Both deployment roles read a guest's recipe inside one block, and that block
 runs for a guest the hypervisor does not have, or for one whose entry carries
@@ -3607,3 +3611,59 @@ unit on a machine reinstalled, or on a node that joins the cluster, and
 Pacemaker's systemd agent needs it on every node the resource may run on. The
 entry is read for the whole life of the container, so the Containers page
 offers nothing of the kind. See [D33](#d33).
+
+## D50 - Settled: the deployment run forgets how it created a guest, and the row deletes the files it came from
+
+[D49](#d49) offered **Forget** as a button and said why the commit should not
+follow the run on its own. In use the button was one more act for every guest
+added, always taken, in the same order, right after the run, and the operator
+who wanted the image gone after it still had to find it on the Inventory page.
+Both of D49's objections have an answer that needs no button.
+
+**The audit trail.** The commit is authored by the operator who launched the
+deployment run, and its body names the run. The line in the history is
+accounted for by an act that operator took, and the run record says what the
+act was.
+
+**A run that fails halfway.** The forgetting is judged guest by guest on the
+reading the page already makes, whatever state the run ended in: a guest
+Pacemaker, libvirt or Ceph reports has been created, and one nothing reports
+keeps its recipe for the next run. The exporters answer from their last scrape,
+so the reading is taken again over about a minute until every candidate is
+reported, and a guest still missing after that keeps its lines, which is the
+failure that costs nothing.
+
+### What happens when a deployment run ends
+
+`RunService` calls its listeners once a run has ended, after the final state is
+saved and the lock released. For a `deploy_vms_cluster` or
+`deploy_vms_standalone` run that was not a preview, `VmService.forget_created`
+takes the variables of D49 out of the entry of every guest that playbook
+creates, carries none of `force`, and is now reported. One commit for all of
+them, `vms: forget how <names> was created` (or `were`), with a
+`Source-File: <guest> <artefacts|inventory> <path>` trailer for each file the
+lines named that this node holds. A file SEAPATH's collection ships is never
+one.
+
+A guest declared before this and never forgotten is forgotten by the next
+deployment run of its playbook, the same way.
+
+### Deleting the files
+
+The row of a forgotten guest offers **Delete source files** when a file its
+forgetting commit names is still held here and no entry of the inventory names
+it. The newest forgetting commit of a guest is the one read, so a guest
+declared again under the same name answers for its latest creation. The image
+is deleted from the artefacts and an XML from the versioned folder as its own
+commit. What is offered is read again when the button is pressed, since a guest
+declared from the same image in between makes the image a file somebody names.
+
+The history is the only record of which files a guest came from, and that is
+deliberate: this service keeps no database ([D1](#d1)), and a commit body is
+already where a reader of the inventory looks.
+
+### Why it still keeps the acceptance criterion
+
+Nothing about a machine changes. The commit removes lines a conventional
+control machine would skip for the same reason, and a deleted image is one no
+entry names, so an export of the inventory runs identically from a checkout.

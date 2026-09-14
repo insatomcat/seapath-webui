@@ -626,8 +626,8 @@ Three consequences worth knowing while editing the file by hand:
 - **`cloud_init` is read when the guest is created and never again.** Both
   deployment roles skip a guest the hypervisor already has, seed included, so
   an edit here reaches an existing guest only through `force`, which destroys
-  it and recreates it from its image. Once the guest exists, **Forget** on
-  the VMs page takes `cloud_init` out of the entry, with `vm_disk`,
+  it and recreates it from its image. The deployment run that creates the
+  guest takes `cloud_init` out of the entry when it ends, with `vm_disk`,
   `vm_template`, `xml_path`, `additional_disk` and `disk_extract`, since no
   later run reads any of them. See [D49](decisions.md#d49).
 - **The image has to carry cloud-init**, which is `build_qcow2.sh --cloud-init`

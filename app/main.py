@@ -69,7 +69,7 @@ from app.services.realtime import RealtimeService
 from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
 from app.services.storage import StorageService
 from app.services.update import UpdateService
-from app.services.vms import VmService
+from app.services.vms import DEPLOY_PLAYBOOK, VmService
 from app.trust.service import TrustService
 from app.ui import routes as ui_routes
 
@@ -411,6 +411,18 @@ def create_app(
         # The RBD groups, which tell a guest taken out of the cluster from one
         # never deployed: Pacemaker has no resource for either.
         rbd=rbd_client,
+    )
+    # A deployment run that created a guest takes the lines only its creation
+    # read out of the guest's entry, as one commit by the operator who launched
+    # it. See D50.
+    app.state.run_service.when_finished(
+        lambda record: (
+            app.state.vm_service.forget_created(
+                record.playbook_id, record.launched_by, record.id
+            )
+            if record.playbook_id in DEPLOY_PLAYBOOK.values() and not record.check
+            else None
+        )
     )
     # The containers: the quadlets the inventory uploads, the systemd units
     # they become on each machine, and the Pacemaker resources holding some of

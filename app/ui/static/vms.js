@@ -193,26 +193,27 @@
     return node;
   }
 
-  // How the guest is created: its image and its XML while a deployment run
-  // still reads them, which is a guest nothing reports yet or one carrying
-  // `force`. Past that the files say how the guest was made and nobody reads
-  // them, so the cell offers to take them out of the entry instead.
+  // How the guest is created: the image and the XML its entry names, for as
+  // long as it names them. The deployment run that creates the guest takes
+  // those lines out when it ends, and from then on the cell offers to delete
+  // the files it was made from, where this node holds them and no other entry
+  // names them.
   function creationCell(guest) {
-    const there = Boolean(guest.resource || guest.domain || guest.disabled);
     const node = document.createElement("td");
-    if (!there || guest.force) {
+    if ((guest.creation || []).length || guest.force) {
       [guest.vm_disk, guest.vm_template || guest.xml_path]
         .filter(Boolean)
         .forEach((value) => node.append(file(guest, value)));
       return node;
     }
-    if (canWrite && (guest.creation || []).length) {
+    const sources = guest.sources || [];
+    if (canWrite && sources.length) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "secondary";
-      button.textContent = "Forget";
-      button.title = "Take " + guest.creation.join(", ") + " out of the entry";
-      button.addEventListener("click", () => confirmForget(guest));
+      button.textContent = "Delete source files";
+      button.title = sources.map((source) => source.path).join(", ");
+      button.addEventListener("click", () => confirmDeleteSources(guest));
       node.append(button);
     }
     return node;
@@ -638,26 +639,30 @@
     });
   }
 
-  // One commit and no run, so nothing on a machine moves. What is said is what
-  // the entry loses and what it keeps, since the next thing an operator wonders
-  // is whether the image can go too.
-  function confirmForget(guest) {
+  // No run and nothing on a machine: the guest runs from its own disk, which
+  // the image was copied or imported into when it was created. What is said is
+  // which files go and where from, since the image is the one that cannot be
+  // taken back from the history.
+  function confirmDeleteSources(guest) {
+    const described = guest.sources.map(
+      (source) =>
+        source.path +
+        (source.where === "artefacts"
+          ? " from the artefacts"
+          : " from the inventory folder, as a commit")
+    );
     confirm({
-      title: "Forget how " + guest.name + " was created",
+      title: "Delete the files " + guest.name + " was created from",
       body:
-        "Takes " + guest.creation.join(", ") + " out of the entry of " +
-        guest.name + ", as a commit. Deployment runs read these only to " +
-        "create the guest, and it exists, so nothing on any machine changes " +
-        "and the next run leaves it alone as before.",
+        "Deletes " + described.join(" and ") + " on this node. " + guest.name +
+        " keeps running from its own disk, and nothing on any machine changes.",
       note:
-        "The files stay where they are: a seeded image can create other " +
-        "guests, and the Inventory page is where one is deleted. The commit " +
-        "that declared " + guest.name + " still holds the recipe, and " +
-        "reverting this one puts it back.",
-      label: "Forget",
+        "No other entry of the inventory names these files. An image deleted " +
+        "here is gone: creating this guest again means uploading it again.",
+      label: "Delete",
       act: async () => {
         await API.post(
-          "/vms/" + encodeURIComponent(guest.name) + "/forget-creation"
+          "/vms/" + encodeURIComponent(guest.name) + "/delete-sources"
         );
         refresh(true).catch((failure) => showBanner(failure.message));
       },

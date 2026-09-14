@@ -23,7 +23,6 @@ from app.core.errors import ApiError
 from app.core.security import require_role
 from app.inventory import cloudinit
 from app.inventory.model import Mode
-from app.inventory.repository import StaleWrite
 from app.inventory.service import GuestExists, ImportRefused, RefusedWrite
 from app.runs.actions import Action
 from app.runs.service import RunService
@@ -34,10 +33,11 @@ from app.services.metadata import (
     RbdUnavailable,
 )
 from app.services.vms import (
-    CreationStillRead,
     GuestsView,
     InvalidGuest,
+    NoSources,
     NotDisabled,
+    SourceFile,
     UnknownGuest,
     VmService,
 )
@@ -448,71 +448,38 @@ def delete(
     )
 
 
-class ForgottenCreation(BaseModel):
-    """The commit that took a guest's creation variables out of its entry."""
+class DeletedSources(BaseModel):
+    """The files a guest was created from, deleted from this node."""
 
     name: str
-    commit: str | None = Field(
-        default=None,
-        description="Absent where the file already said none of them",
-    )
-    message: str | None = None
-    forgotten: list[str] = Field(
+    files: list[SourceFile] = Field(default_factory=list)
+    commits: list[str] = Field(
         default_factory=list,
-        description="The variables taken out of the entry",
+        description="One per file removed from the versioned folder",
     )
 
 
-@router.post("/{name}/forget-creation")
-def forget_creation(
-    request: Request,
-    name: str,
-    if_match: str | None = Header(default=None, alias="If-Match"),
-    user: User = admin,
-) -> ForgottenCreation:
-    """Take out of a guest's entry what only its creation reads.
+@router.post("/{name}/delete-sources")
+def delete_sources(request: Request, name: str, user: User = admin) -> DeletedSources:
+    """Delete the image and the XML a created guest was made from.
 
-    `vm_disk`, `vm_template`, `xml_path`, `additional_disk`, `disk_extract`
-    and `cloud_init`, where the entry carries them itself: both deployment
-    roles read them for a guest the hypervisor does not have, and skip them
-    for one it does. One commit, `vms: forget how <name> was created`, and no
-    run. The files they named stay in the artefacts and the inventory folder,
-    and the commit that declared the guest keeps the recipe.
-
-    `409 creation_still_read` while a deployment run would read them: a guest
-    nothing reports, which the next run creates, or one carrying `force`.
-    `admin`, because it writes the inventory.
+    Offered once the deployment run that created the guest has taken its
+    creation lines out of the entry, which names the files in its commit. Only
+    the files this node still holds and no entry of the inventory names: the
+    image from the artefacts, the XML from the versioned folder as a commit
+    (`files: remove <path>`). A file SEAPATH's collection ships is never one of
+    them. `409 no_sources` when nothing is left to delete. `admin`, because it
+    destroys a file another declaration could have used.
     """
     service = _service(request)
     try:
-        commit, forgotten = service.forget_creation(name, user.username, if_match)
+        files, commits = service.delete_sources(name, user.username)
     except UnknownGuest as error:
         raise ApiError("unknown_guest", str(error), 404) from error
-    except CreationStillRead as error:
-        raise ApiError("creation_still_read", str(error), 409) from error
-    except InvalidGuest as error:
-        raise ApiError("invalid_guest", str(error), 409) from error
-    except StaleWrite as error:
-        raise ApiError("stale_write", str(error), 409) from error
-    except RefusedWrite as error:
-        raise ApiError(
-            "refused_write",
-            str(error),
-            409,
-            {"divergences": [d.model_dump() for d in error.divergences]},
-        ) from error
-    except ImportRefused as error:
-        raise ApiError(
-            "invalid_inventory",
-            str(error),
-            422,
-            {"findings": [f.model_dump() for f in error.validation.findings]},
-        ) from error
-    return ForgottenCreation(
-        name=name,
-        commit=commit.hash if commit else None,
-        message=commit.message if commit else None,
-        forgotten=forgotten,
+    except NoSources as error:
+        raise ApiError("no_sources", str(error), 409) from error
+    return DeletedSources(
+        name=name, files=files, commits=[commit.hash for commit in commits]
     )
 
 

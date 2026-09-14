@@ -25,6 +25,9 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -36,6 +39,7 @@ from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
 from app.cluster.rbd import RbdClient, RbdUnavailable
+from app.core.logging import audit_event
 from app.inventory import cloudinit
 from app.inventory.editor import guest_entries
 from app.inventory.files import UnsafePath
@@ -46,9 +50,9 @@ from app.inventory.model import (
     Inventory,
     Mode,
 )
-from app.inventory.references import Reference, in_folder
+from app.inventory.references import Reference, Where, in_folder
 from app.inventory.repository import Commit
-from app.inventory.service import InventoryService, InventoryState
+from app.inventory.service import InventoryService, InventoryState, RefusedFile
 from app.services.cluster import ClusterService
 
 logger = logging.getLogger(__name__)
@@ -100,6 +104,15 @@ _FROM_PACEMAKER = (
 )
 
 
+class SourceFile(BaseModel):
+    """A file a guest was created from, where this node keeps it."""
+
+    where: Where
+    """`inventory`, the versioned folder, or `artefacts`, the store git skips."""
+    path: str
+    """Relative to that root, as the Inventory page names it."""
+
+
 class GuestView(BaseModel):
     """One guest: what the inventory declares, and what Pacemaker reports."""
 
@@ -144,9 +157,16 @@ class GuestView(BaseModel):
     creation: list[str] = Field(default_factory=list)
     """The variables of `CREATION_ONLY` the guest's own entry carries.
 
-    What forgetting how it was created would take out of the entry. One it
-    inherits from the `VMs` group is left out, since that line serves the
-    other guests too.
+    What the end of the deployment run that creates it takes out of the entry.
+    One it inherits from the `VMs` group is left out, since that line serves
+    the other guests too.
+    """
+    sources: list[SourceFile] = Field(default_factory=list)
+    """The files it was created from that this node still holds and nothing names.
+
+    Read back from the commit that forgot how it was created, and offered for
+    deletion on its row. A file another entry still names is left out, since
+    deleting it would break that guest's next creation.
     """
 
     resource: PacemakerResource | None = None
@@ -276,9 +296,10 @@ STANDALONE_ONLY = ("autostart", "disk_extract")
 # What both deployment roles read inside their creation block and nowhere else:
 # the block runs for a guest the hypervisor does not have, or one whose entry
 # carries `force`. Once the guest exists these lines describe how it was made
-# and not what it is, and a later run never opens them. `bridges` is read there
-# too and stays, because the collision checks of the next declaration read the
-# MAC off it. See D49.
+# and not what it is, and a later run never opens them, so the deployment run
+# that created it takes them out. `bridges` is read there too and stays,
+# because the collision checks of the next declaration read the MAC off it.
+# See D49 and D50.
 CREATION_ONLY = (
     "vm_disk",
     "vm_template",
@@ -287,6 +308,22 @@ CREATION_ONLY = (
     "disk_extract",
     "cloud_init",
 )
+
+# The subject every forgetting commit starts with, and the trailer naming each
+# file the guest was created from. The commit is where those names outlive the
+# entry that carried them, and where the row reads them back to offer deleting
+# the files: this service keeps no other record, and the history already
+# answers which guest a file served.
+FORGET_SUBJECT = "vms: forget how "
+SOURCE_TRAILER = "Source-File"
+
+# How long a guest just created is waited for before its recipe is kept. The
+# exporters answer from what libvirt and crm_mon said at their last scrape, so
+# a domain the run defined a second ago can be missing from the first reading.
+# A guest still unreported after the last attempt keeps its lines, which is
+# the reading that fails safe: the next deployment run needs them if the
+# creation did not happen.
+SETTLE_DELAYS = (0.0, 5.0, 10.0, 15.0, 30.0)
 
 # The disk buses `cluster_vm` passes through to libvirt. A short list rather
 # than free text: the value reaches a domain definition, and a bus libvirt does
@@ -420,8 +457,8 @@ class NotDisabled(Exception):
     """A guest asked to be deleted while the cluster still holds it."""
 
 
-class CreationStillRead(Exception):
-    """The next deployment run would still read how this guest is created."""
+class NoSources(Exception):
+    """A guest with no source file left to delete."""
 
 
 class VmService:
@@ -433,10 +470,14 @@ class VmService:
         libvirt_port: int = DEFAULT_PORT,
         timeout: float = 2.0,
         rbd: RbdClient | None = None,
+        settle: Sequence[float] = SETTLE_DELAYS,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._inventory = inventory
         self._cluster = cluster
         self._rbd = rbd
+        self._settle = tuple(settle)
+        self._sleep = sleep
         self._client = client or UrllibMetricsClient()
         self._libvirt_port = libvirt_port
         self._timeout = timeout
@@ -623,55 +664,175 @@ class VmService:
         commit, _ = self._inventory.undeclare_guest(name, author, expected_head)
         return commit
 
-    def forget_creation(
-        self, name: str, author: str, expected_head: str | None = None
-    ) -> tuple[Commit | None, list[str]]:
-        """Take out of a guest's entry what only its creation reads, as a commit.
+    def forget_created(
+        self, playbook_id: str, author: str, run_id: str
+    ) -> Commit | None:
+        """Take out of the guests a run created what only their creation reads.
 
-        The image, the XML, the extra disks and the cloud-init mapping are
-        read once, when the role creates the guest, and the entry keeps saying
-        them afterwards to nobody. Removing them leaves the guest declared by
-        its address, its interface and its placement, which is what a later
-        run and this page still read. The commit that declared it keeps the
-        recipe, and the files stay where they are: one seeded image serves
-        several guests.
+        Called when a deployment run ends, whatever its state: a run that failed
+        halfway still created the guests it reached. The candidates are the
+        guests this playbook creates whose own entry still carries a variable of
+        `CREATION_ONLY` and no `force`, and each is judged on its own reading, so
+        a guest the run did not create keeps its recipe for the next one. The
+        exporters are asked again over `SETTLE_DELAYS` until every candidate is
+        reported or the delays run out.
 
-        Refused while a deployment run would still read them. A guest nothing
-        reports is one the next run creates, and a guest carrying `force` is
-        recreated by every run. Nothing reporting includes an exporter that did
-        not answer, which is the safe reading: the entry stays as it was.
+        One commit for all of them, authored by the operator who launched the
+        run and naming it, so the line in the history is accounted for by an
+        act somebody took. Its trailers name the files each guest was created
+        from, which is what the row reads back to offer deleting them. None when
+        nothing was left to forget.
         """
-        view = self.guests()
-        guest = next((item for item in view.guests if item.name == name), None)
+        forgotten: dict[str, GuestView] = {}
+        for delay in self._settle or (0.0,):
+            if delay:
+                self._sleep(delay)
+            view = self.guests()
+            waiting = [
+                guest
+                for guest in view.guests
+                if guest.playbook == playbook_id
+                and guest.creation
+                and not guest.force
+                and guest.name not in forgotten
+            ]
+            for guest in waiting:
+                if guest.resource or guest.domain or guest.disabled:
+                    forgotten[guest.name] = guest
+            if all(guest.name in forgotten for guest in waiting):
+                break
+        if not forgotten:
+            return None
+
+        names = sorted(forgotten)
+        verb = "was" if len(names) == 1 else "were"
+        trailers = [
+            f"{SOURCE_TRAILER}: {name} {source.where.value} {source.path}"
+            for name in names
+            for source in self._sources_named_by(forgotten[name])
+        ]
+        message = (
+            f"{FORGET_SUBJECT}{', '.join(names)} {verb} created\n\n"
+            f"Deployment run {run_id} created {'it' if len(names) == 1 else 'them'}, "
+            "and a deployment run reads these lines only for a guest the "
+            "hypervisor does not have."
+        )
+        if trailers:
+            message += "\n\n" + "\n".join(trailers)
+        removals = {name: forgotten[name].creation for name in names}
+        commit = self._inventory.write_variables(
+            [],
+            {name: dict.fromkeys(variables) for name, variables in removals.items()},
+            message,
+            author,
+            removals=removals,
+        )
+        if commit is not None:
+            audit_event(
+                "vms.creation_forgotten",
+                run=run_id,
+                guests=",".join(names),
+                commit=commit.hash,
+                user=author,
+            )
+        return commit
+
+    def delete_sources(
+        self, name: str, author: str
+    ) -> tuple[list[SourceFile], list[Commit]]:
+        """Delete the files a guest was created from, where nothing else names them.
+
+        The image from the artefacts, the XML from the versioned folder as a
+        commit. What is offered is read again here rather than trusted from the
+        page, since another guest may have been declared from the same image in
+        between, and a file it names is not deleted.
+        """
+        guest = next((item for item in self.guests().guests if item.name == name), None)
         if guest is None:
             raise UnknownGuest(
                 f"No guest called {name!r} is declared in this inventory."
             )
-        if guest.force:
-            raise CreationStillRead(
-                f"{name} carries `force`, so every deployment run destroys it "
-                "and creates it again from these files. Take `force` out of "
-                "its entry first."
+        if not guest.sources:
+            raise NoSources(
+                f"This node holds no file {name} was created from that nothing "
+                "else names."
             )
-        if not (guest.resource or guest.domain or guest.disabled):
-            raise CreationStillRead(
-                f"Nothing reports {name} on any machine, so the next deployment "
-                "run creates it and reads these files to do so. Once it runs, "
-                "they can go."
-            )
-        if not guest.creation:
-            raise InvalidGuest(
-                f"The entry of {name} carries nothing only a creation reads."
-            )
-        commit = self._inventory.write_variables(
-            [],
-            {name: dict.fromkeys(guest.creation)},
-            f"vms: forget how {name} was created",
-            author,
-            removals={name: guest.creation},
-            expected_head=expected_head,
+        commits: list[Commit] = []
+        for source in guest.sources:
+            if source.where is Where.INVENTORY:
+                commit = self._inventory.remove_file(source.path, author)
+                if commit is not None:
+                    commits.append(commit)
+            else:
+                self._inventory.remove_artefact(source.path)
+        audit_event(
+            "vms.sources_deleted",
+            guest=name,
+            files=",".join(f"{s.where.value}:{s.path}" for s in guest.sources),
+            user=author,
         )
-        return commit, guest.creation
+        return guest.sources, commits
+
+    def _sources_named_by(self, guest: GuestView) -> list[SourceFile]:
+        """The files this node holds that the guest's own creation lines name."""
+        roots = {
+            Where.INVENTORY: self._inventory.folder,
+            Where.ARTEFACTS: self._inventory.artefacts_root,
+        }
+        found: list[SourceFile] = []
+        for reference in guest.files:
+            root = roots.get(reference.where) if reference.where else None
+            if (
+                reference.variable not in guest.creation
+                or root is None
+                or not reference.resolved
+            ):
+                continue
+            try:
+                resolved = Path(reference.resolved).resolve()
+                relative = resolved.relative_to(root.resolve())
+            except ValueError:
+                continue
+            source = SourceFile(where=reference.where, path=relative.as_posix())
+            if source not in found:
+                found.append(source)
+        return found
+
+    def _recorded_sources(self) -> dict[str, list[SourceFile]]:
+        """What the newest forgetting commit of each guest says it was created from."""
+        recorded: dict[str, list[SourceFile]] = {}
+        for _, message in self._inventory.messages(FORGET_SUBJECT):
+            lines = message.splitlines()
+            subject = lines[0][len(FORGET_SUBJECT) :]
+            for ending in (" was created", " were created"):
+                subject = subject.removesuffix(ending)
+            named = [name.strip() for name in subject.split(",") if name.strip()]
+            files: dict[str, list[SourceFile]] = {}
+            for line in lines[1:]:
+                key, _, value = line.partition(":")
+                parts = value.strip().split(" ", 2)
+                if key != SOURCE_TRAILER or len(parts) != 3:
+                    continue
+                try:
+                    source = SourceFile(where=Where(parts[1]), path=parts[2])
+                except ValueError:
+                    continue
+                files.setdefault(parts[0], []).append(source)
+            for name in named:
+                recorded.setdefault(name, files.get(name, []))
+        return recorded
+
+    def _held(self, source: SourceFile) -> Path | None:
+        """Where this node keeps a source file, when it still does."""
+        try:
+            path = (
+                self._inventory.file_path(source.path)
+                if source.where is Where.INVENTORY
+                else self._inventory.artefact_path(source.path)
+            )
+        except (OSError, UnsafePath, RefusedFile):
+            return None
+        return path.resolve() if path.is_file() else None
 
     def _check_definition(
         self,
@@ -816,8 +977,17 @@ class VmService:
             inventory_commit=state.commit,
         )
 
-        files = self._files_by_host()
+        named = self._inventory.references()
+        files = self._files_by_host(named)
         entries = guest_entries(self._inventory.raw())
+        # A file still named by any entry, the guest's own included, is one a
+        # creation may read, so it is never offered for deletion.
+        in_use = {
+            Path(reference.resolved).resolve()
+            for reference in named
+            if reference.resolved
+        }
+        recorded = self._recorded_sources()
         reading = self._cluster.pacemaker()
         resources, constraints, view.runtime_note = self._resources(reading)
         # Where a move may send a guest: a machine the inventory allows it on
@@ -879,6 +1049,14 @@ class VmService:
                 )
             )
 
+        for guest in view.guests:
+            if guest.creation:
+                continue
+            for source in recorded.get(guest.name, []):
+                held = self._held(source)
+                if held is not None and held not in in_use:
+                    guest.sources.append(source)
+
         declared = set(state.inventory.guests)
         view.undeclared = [
             resource for name, resource in resources.items() if name not in declared
@@ -939,7 +1117,9 @@ class VmService:
             logger.info("Could not list the RBD groups: %s", error)
             return set()
 
-    def _files_by_host(self) -> dict[str, list[Reference]]:
+    def _files_by_host(
+        self, named: list[Reference] | None = None
+    ) -> dict[str, list[Reference]]:
         """Every path the inventory names, kept under the entry that names it.
 
         The same reading the Inventory page shows, so a guest whose image has
@@ -948,7 +1128,7 @@ class VmService:
         once, three minutes in.
         """
         found: dict[str, list[Reference]] = {}
-        for reference in self._inventory.references():
+        for reference in named if named is not None else self._inventory.references():
             found.setdefault(reference.host, []).append(reference)
         return found
 

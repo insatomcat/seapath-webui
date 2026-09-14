@@ -496,6 +496,29 @@ def test_a_successful_run_is_recorded_with_its_reproducibility_pair(
     assert len(record.collection_version) == len("2.0.0+") + 12
 
 
+def test_a_run_that_ended_is_heard_by_every_listener(
+    store, inventory, trust, tmp_path
+) -> None:
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+    heard = []
+
+    def broken(record) -> None:
+        raise RuntimeError("a listener with a bug")
+
+    service.when_finished(broken)
+    service.when_finished(lambda record: heard.append((record.id, record.state)))
+
+    record = wait_for(service, service.launch("seapath_setup_main", "alice").id)
+    deadline = time.time() + 5
+    while not heard and time.time() < deadline:
+        time.sleep(0.01)
+
+    # After the final state is saved and the lock released, and a listener
+    # that raises costs the others nothing.
+    assert heard == [(record.id, RunState.SUCCESS)]
+    assert service.launch("seapath_setup_main", "alice").id
+
+
 def test_the_inventory_used_is_frozen_with_the_run(
     store, inventory, trust, tmp_path
 ) -> None:

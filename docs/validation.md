@@ -626,6 +626,10 @@ its label and applying it. See [D48](decisions.md#d48).
 | 15 | A guest from an XML whose one interface has no `<mac>` comes up on its address, the seed having matched `e*` | netplan inside a real image, and whatever the image names its interface | Pending |
 | 16 | The image lists `templates/vm/guest.xml.j2` in the installed collection, the VMs page offers it, and two guests declared with it and one bridge get two MACs and two addresses | The restore in the `Dockerfile`, and the template rendered by the real role | Pending |
 | 17 | A guest declared on one node with a site key uploaded, from an image built without that key, is measured from another node of the cluster, and its `authorized_keys` holds both lines | The site key reaching the guest through the seed alone, and a run from a node that never declared the guest | Pending |
+| 18 | Adding a guest from the VMs page ends with a `vms: forget how <name> was created` commit authored by the operator, naming the run, and the entry keeps `ansible_host`, `ansible_user`, `ansible_ssh_common_args` and `bridges` | The exporters reporting a domain created seconds earlier, within the delays D50 waits | Pending |
+| 19 | A deployment run that fails on one guest forgets the others it created and leaves the failed one's recipe, and the next run creates it | A partial run on real machines, which no fake event stream produces | Pending |
+| 20 | Delete source files on that guest removes the uploaded image from the artefacts and a brought XML with a commit, the guest keeps running, and after a reboot of its node it still starts | The guest's disk living in Ceph or the libvirt pool, independent of the file it was imported from | Pending |
+| 21 | The inventory exported after 18 and 20, run from a conventional control machine, reports no change on the guest | Point 5 of the definition of done, against lines this service removed | Pending |
 
 ### Result
 

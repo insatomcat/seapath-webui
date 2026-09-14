@@ -1929,7 +1929,8 @@ def test_deleting_a_guest_is_an_administrator_s_act(client: TestClient) -> None:
 
 
 # 9. Forgetting how a guest was created: the variables only a creation reads,
-# taken out of an entry whose guest exists, as a commit and no run.
+# taken out of the entries of the guests a deployment run created, as one
+# commit, and the files they named offered for deletion on the row.
 
 SEEDED_GUEST = """
     vm-guest4:
@@ -1947,13 +1948,31 @@ SEEDED_GUEST = """
       vm_disk: "../files/guest5.qcow2"
 """
 
+RUN_ID = "20260914T101500.000000"
 
-def _declare_cluster_with_seeded(client: TestClient) -> None:
+
+def _declare_cluster_with_seeded(client: TestClient, extra: str = "") -> None:
     response = client.post(
         "/api/v1/inventory/import",
-        json={"document": CLUSTER.read_text() + GUESTS + SEEDED_GUEST},
+        json={"document": CLUSTER.read_text() + GUESTS + SEEDED_GUEST + extra},
     )
     assert response.status_code == 200, response.text
+
+
+def _vm_service(client: TestClient, sleeps: list[float] | None = None):
+    service = client.app.state.vm_service
+    # Waiting for the exporters is real time on a machine and none here.
+    service._settle = (0.0,)
+    service._sleep = (sleeps if sleeps is not None else []).append
+    return service
+
+
+def _guests(client: TestClient) -> dict[str, dict]:
+    return {item["name"]: item for item in client.get("/api/v1/vms").json()["guests"]}
+
+
+def _entries(client: TestClient) -> dict[str, dict]:
+    return yaml.safe_load(client.get("/api/v1/inventory/raw").text)["VMs"]["hosts"]
 
 
 def test_a_guest_says_which_creation_variables_its_entry_carries(
@@ -1962,30 +1981,31 @@ def test_a_guest_says_which_creation_variables_its_entry_carries(
     _pacemaker_answers(monkeypatch)
     _declare_cluster_with_seeded(signed_in)
 
-    guests = {
-        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
-    }
+    guests = _guests(signed_in)
 
     assert guests["vm-guest4"]["creation"] == ["vm_disk", "vm_template", "cloud_init"]
     assert guests["vm-guest5"]["creation"] == ["vm_disk"]
 
 
-def test_forgetting_a_creation_takes_those_lines_out_and_nothing_else(
+def test_a_deployment_run_forgets_how_the_guests_it_created_were_made(
     signed_in: TestClient, monkeypatch
 ) -> None:
+    # vm-guest1 runs and vm-guest4 is held by Ceph, so both exist. vm-guest3
+    # carries `force` and vm-guest5 is reported by nothing.
     _pacemaker_answers(monkeypatch)
     _declare_cluster_with_seeded(signed_in)
     before = signed_in.get("/api/v1/inventory/raw").text
 
-    response = signed_in.post("/api/v1/vms/vm-guest4/forget-creation")
+    commit = _vm_service(signed_in).forget_created(
+        "deploy_vms_cluster", "operator1", RUN_ID
+    )
 
-    assert response.status_code == 200, response.text
-    answer = response.json()
-    assert answer["forgotten"] == ["vm_disk", "vm_template", "cloud_init"]
-    assert answer["message"] == "vms: forget how vm-guest4 was created"
+    assert commit is not None
     history = signed_in.get("/api/v1/inventory/history").json()
-    assert history[0]["message"] == "vms: forget how vm-guest4 was created"
-    assert "run_id" not in answer
+    assert history[0]["message"] == "vms: forget how vm-guest1, vm-guest4 were created"
+    assert history[0]["author"] == "operator1"
+    body = dict(signed_in.app.state.inventory_service.messages("vms: forget"))
+    assert RUN_ID in body[commit.hash]
 
     after = signed_in.get("/api/v1/inventory/raw").text
     removed = [
@@ -1995,58 +2015,54 @@ def test_forgetting_a_creation_takes_those_lines_out_and_nothing_else(
     ]
     assert removed == [
         '      vm_template: "../templates/vm/guest.xml.j2"',
+        '      vm_disk: "../files/guest1.qcow2"',
+        '      vm_template: "../templates/vm/guest.xml.j2"',
         '      vm_disk: "../files/guest4.qcow2"',
         "      cloud_init:",
         "        hostname: guest4",
     ]
-    entry = yaml.safe_load(after)["VMs"]["hosts"]["vm-guest4"]
-    assert entry == {
+    entries = _entries(signed_in)
+    assert entries["vm-guest4"] == {
         "ansible_host": "10.0.0.44",
         "bridges": [{"name": "br0", "mac_address": "52:54:00:e4:ff:04"}],
         "preferred_host": "node1",
     }
+    # What a later run still needs to create them is left alone.
+    assert entries["vm-guest5"] == {"vm_disk": "../files/guest5.qcow2"}
+    assert entries["vm-guest3"]["vm_disk"] == "../files/guest3.qcow2"
 
 
-def test_a_guest_nothing_reports_keeps_how_it_is_created(
+def test_a_guest_nothing_reports_is_waited_for_and_keeps_its_recipe(
     signed_in: TestClient, monkeypatch
 ) -> None:
     _pacemaker_answers(monkeypatch)
     _declare_cluster_with_seeded(signed_in)
-    before = signed_in.get("/api/v1/inventory/history").json()[0]
+    service = _vm_service(signed_in, sleeps := [])
+    service._settle = (0.0, 5.0, 10.0)
+    service.forget_created("deploy_vms_cluster", "operator1", RUN_ID)
+    history = signed_in.get("/api/v1/inventory/history").json()
 
-    response = signed_in.post("/api/v1/vms/vm-guest5/forget-creation")
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "creation_still_read"
-    assert signed_in.get("/api/v1/inventory/history").json()[0] == before
-
-
-def test_a_forced_guest_keeps_how_it_is_created(
-    signed_in: TestClient, monkeypatch
-) -> None:
-    # vm-guest3 is reported by Pacemaker and carries `force`: every run
-    # recreates it from its files.
-    _pacemaker_answers(monkeypatch)
-    _declare_cluster_with_seeded(signed_in)
-
-    response = signed_in.post("/api/v1/vms/vm-guest3/forget-creation")
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "creation_still_read"
-    assert "force" in response.json()["error"]["message"]
+    # vm-guest5 never showed up, so every delay was waited through, and a
+    # second run has nothing left to forget but vm-guest5's own lines.
+    assert sleeps == [5.0, 10.0]
+    assert service.forget_created("deploy_vms_cluster", "operator1", RUN_ID) is None
+    assert signed_in.get("/api/v1/inventory/history").json() == history
+    assert _entries(signed_in)["vm-guest5"] == {"vm_disk": "../files/guest5.qcow2"}
 
 
-def test_a_guest_with_nothing_to_forget_is_refused(
+def test_the_other_deployment_forgets_nothing_of_a_cluster_guest(
     signed_in: TestClient, monkeypatch
 ) -> None:
     _pacemaker_answers(monkeypatch)
     _declare_cluster_with_seeded(signed_in)
-    assert signed_in.post("/api/v1/vms/vm-guest4/forget-creation").status_code == 200
+    history = signed_in.get("/api/v1/inventory/history").json()
 
-    response = signed_in.post("/api/v1/vms/vm-guest4/forget-creation")
+    commit = _vm_service(signed_in).forget_created(
+        "deploy_vms_standalone", "operator1", RUN_ID
+    )
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "invalid_guest"
+    assert commit is None
+    assert signed_in.get("/api/v1/inventory/history").json() == history
 
 
 def test_a_creation_variable_the_group_carries_is_the_group_s(
@@ -2064,17 +2080,134 @@ def test_a_creation_variable_the_group_carries_is_the_group_s(
         == 200
     )
 
-    response = signed_in.post("/api/v1/vms/vm-guest1/forget-creation")
+    _vm_service(signed_in).forget_created("deploy_vms_cluster", "operator1", RUN_ID)
 
-    assert response.status_code == 200, response.text
-    assert response.json()["forgotten"] == ["vm_disk"]
     loaded = yaml.safe_load(signed_in.get("/api/v1/inventory/raw").text)
     assert loaded["VMs"]["vars"] == {"vm_template": "../templates/vm/guest.xml.j2"}
+    assert loaded["VMs"]["hosts"]["vm-guest1"] is None
 
 
-def test_forgetting_a_creation_is_an_administrator_s_act(client: TestClient) -> None:
+def test_the_end_of_a_deployment_run_is_what_forgets(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    from app.runs.models import RunRecord, RunState
+
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+    _vm_service(signed_in)
+    listeners = signed_in.app.state.run_service._finished
+
+    def finish(playbook_id: str, check: bool = False) -> None:
+        record = RunRecord(
+            id=RUN_ID,
+            playbook=f"seapath.ansible.{playbook_id}",
+            playbook_id=playbook_id,
+            launched_by="operator1",
+            check=check,
+            state=RunState.FAILED,
+        )
+        for listener in listeners:
+            listener(record)
+
+    history = signed_in.get("/api/v1/inventory/history").json()
+    finish("deploy_vms_cluster", check=True)
+    finish("seapath_setup_main")
+    assert signed_in.get("/api/v1/inventory/history").json() == history
+
+    # A run that failed still created what it reached.
+    finish("deploy_vms_cluster")
+    assert signed_in.get("/api/v1/inventory/history").json()[0]["message"] == (
+        "vms: forget how vm-guest1, vm-guest4 were created"
+    )
+
+
+def test_the_row_offers_the_files_a_guest_was_created_from(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    _declare_cluster_with_seeded(signed_in)
+    signed_in.put("/api/v1/inventory/artefacts/files/guest4.qcow2", content=b"\0" * 16)
+    assert _guests(signed_in)["vm-guest4"]["sources"] == []
+
+    commit = _vm_service(signed_in).forget_created(
+        "deploy_vms_cluster", "operator1", RUN_ID
+    )
+
+    body = dict(signed_in.app.state.inventory_service.messages("vms: forget"))
+    assert "Source-File: vm-guest4 artefacts files/guest4.qcow2" in body[commit.hash]
+    guests = _guests(signed_in)
+    assert guests["vm-guest4"]["sources"] == [
+        {"where": "artefacts", "path": "files/guest4.qcow2"}
+    ]
+    # SEAPATH's own template is the collection's, and guest1's image was never
+    # uploaded: neither is a file this node could delete.
+    assert guests["vm-guest1"]["sources"] == []
+
+
+def test_a_file_another_entry_still_names_is_not_offered(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    # vm-guest6 is not created yet, and its creation will read the same image.
+    _declare_cluster_with_seeded(
+        signed_in, '    vm-guest6:\n      vm_disk: "../files/guest4.qcow2"\n'
+    )
+    signed_in.put("/api/v1/inventory/artefacts/files/guest4.qcow2", content=b"\0" * 16)
+    _vm_service(signed_in).forget_created("deploy_vms_cluster", "operator1", RUN_ID)
+
+    assert _guests(signed_in)["vm-guest4"]["sources"] == []
+    response = signed_in.post("/api/v1/vms/vm-guest4/delete-sources")
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "no_sources"
+
+
+def test_deleting_the_sources_removes_those_files_and_nothing_else(
+    signed_in: TestClient, monkeypatch, settings: Settings
+) -> None:
+    _pacemaker_answers(monkeypatch)
+    # vm-guest4 brought its own XML, committed beside the inventory.
+    own_xml = SEEDED_GUEST.replace(
+        '"../templates/vm/guest.xml.j2"\n      vm_disk: "../files/guest4',
+        '"../templates/vm/guest4.xml"\n      vm_disk: "../files/guest4',
+    )
+    response = signed_in.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS + own_xml},
+    )
+    assert response.status_code == 200, response.text
+    signed_in.put(
+        "/api/v1/inventory/files/templates/vm/guest4.xml", content=b"<domain/>\n"
+    )
+    for image in ("guest4", "other"):
+        signed_in.put(
+            f"/api/v1/inventory/artefacts/files/{image}.qcow2", content=b"\0" * 16
+        )
+    _vm_service(signed_in).forget_created("deploy_vms_cluster", "operator1", RUN_ID)
+    inventory_before = signed_in.get("/api/v1/inventory/raw").text
+
+    response = signed_in.post("/api/v1/vms/vm-guest4/delete-sources")
+
+    assert response.status_code == 200, response.text
+    answer = response.json()
+    assert answer["files"] == [
+        {"where": "artefacts", "path": "files/guest4.qcow2"},
+        {"where": "inventory", "path": "templates/vm/guest4.xml"},
+    ]
+    assert len(answer["commits"]) == 1
+    history = signed_in.get("/api/v1/inventory/history").json()
+    assert history[0]["message"] == "files: remove templates/vm/guest4.xml"
+    assert not (settings.artefacts_dir / "files/guest4.qcow2").exists()
+    assert not (settings.inventory_dir / "templates/vm/guest4.xml").exists()
+    assert (settings.artefacts_dir / "files/other.qcow2").exists()
+    assert signed_in.get("/api/v1/inventory/raw").text == inventory_before
+    assert _guests(signed_in)["vm-guest4"]["sources"] == []
+    again = signed_in.post("/api/v1/vms/vm-guest4/delete-sources")
+    assert again.json()["error"]["code"] == "no_sources"
+
+
+def test_deleting_the_sources_is_an_administrator_s_act(client: TestClient) -> None:
     from tests.conftest import sign_in
 
     operator = sign_in(client, "operator")
 
-    assert operator.post("/api/v1/vms/vm-guest1/forget-creation").status_code == 403
+    assert operator.post("/api/v1/vms/vm-guest1/delete-sources").status_code == 403

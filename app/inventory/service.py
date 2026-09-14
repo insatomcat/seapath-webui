@@ -332,6 +332,9 @@ class InventoryService:
     def discovery(self) -> Discovery:
         return discover(self._reader)
 
+    def messages(self, subject_prefix: str) -> list[tuple[str, str]]:
+        return self._repository.messages(subject_prefix)
+
     def history(self, limit: int = 50) -> list[Commit]:
         return self._repository.history(limit)
 
