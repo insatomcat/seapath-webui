@@ -224,7 +224,10 @@ def test_the_image_says_what_it_is_in_its_labels() -> None:
     buildpush = (_ROOT / "buildpush.sh").read_text()
     workflow = (_ROOT / ".github/workflows/image.yml").read_text()
     assert '--build-arg "VERSION=${VERSION}"' in buildpush
-    assert '--build-arg "VERSION=${{ steps.version.outputs.version }}"' in workflow
+    # CI builds twice, once to smoke test and once to push from the cache, and
+    # the pushed image is the one whose label a machine reads.
+    assert "VERSION=${{ steps.version.outputs.version }}" in workflow
+    assert "VERSION=${{ needs.image.outputs.version }}" in workflow
 
 
 def test_the_site_collection_rides_in_the_state_volume() -> None:
