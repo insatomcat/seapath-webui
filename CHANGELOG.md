@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.105 - 2026-09-15
+
+- feat: ping the address a new VM is given before creating it
+
 ## 0.3.104 - 2026-09-14
 
 - fix: the login page fits a phone screen
