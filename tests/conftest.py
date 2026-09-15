@@ -34,6 +34,7 @@ from app.hosts.fake import FakeHostReader
 from app.inventory.fake import FakePeerTransport
 from app.main import create_app
 from app.runs.fake import FakeRunAdapter
+from app.services.ping import FakePinger
 from app.services.registry import FakeTagSource
 from tests.fakes import FakeAuthenticator, FakeRoleDirectory, write_fake_collection
 
@@ -151,6 +152,12 @@ def tag_source() -> FakeTagSource:
 
 
 @pytest.fixture
+def pinger() -> FakePinger:
+    """The network, where one address answers and every other is silent."""
+    return FakePinger({"192.168.200.1"})
+
+
+@pytest.fixture
 def authenticator() -> FakeAuthenticator:
     return FakeAuthenticator(
         {
@@ -191,6 +198,7 @@ def client(
     rbd_client: FakeRbdClient,
     tag_source: FakeTagSource,
     replication_transport: FakePeerTransport,
+    pinger: FakePinger,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -204,6 +212,7 @@ def client(
         rbd_client=rbd_client,
         tag_source=tag_source,
         replication_transport=replication_transport,
+        pinger=pinger,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client

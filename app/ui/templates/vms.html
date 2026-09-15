@@ -234,8 +234,15 @@ image and losing its disk. D31 records the bounds.
 
     <div id="add-static">
       <label for="add-address">Address</label>
-      <input type="text" id="add-address" autocomplete="off" spellcheck="false"
-        placeholder="10.0.0.42/24">
+      {# The inventory already refuses an address one of its own hosts holds.
+         The button asks the network about everything the inventory does not
+         declare, before the guest comes up on an address somebody holds. #}
+      <div class="with-button">
+        <input type="text" id="add-address" autocomplete="off" spellcheck="false"
+          placeholder="10.0.0.42/24">
+        <button type="button" class="secondary" id="add-address-ping">Ping</button>
+      </div>
+      <p id="add-address-answer" hidden></p>
       <p class="help">
         With its prefix length. It is written into the guest's cloud-init
         configuration and, without the prefix, as <code>ansible_host</code>,

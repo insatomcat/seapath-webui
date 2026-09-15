@@ -1436,6 +1436,8 @@ def test_adding_a_vm_asks_for_the_network_it_will_come_up_on(
     for field in ("add-bridge", "add-mac", "add-address", "add-gateway", "add-dns"):
         assert f'id="{field}"' in body
     assert 'id="add-dhcp"' in body
+    # The address can be checked against the network before it is written.
+    assert 'id="add-address-ping"' in body
     assert 'id="add-hostname"' in body
     # The trust into the guest, offered checked, and saying what it leaves to
     # the image: the account and its sudo rights, and the host key to accept.

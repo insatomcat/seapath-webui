@@ -65,6 +65,7 @@ from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
 from app.services.metadata import MetadataService
 from app.services.node import NodeService
+from app.services.ping import FakePinger, IcmpPinger, Pinger
 from app.services.realtime import RealtimeService
 from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
 from app.services.storage import StorageService
@@ -189,6 +190,7 @@ def create_app(
     metrics_client: MetricsClient | None = None,
     rbd_client: RbdClient | None = None,
     tag_source: TagSource | None = None,
+    pinger: Pinger | None = None,
     replication_transport: Transport | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
@@ -400,6 +402,11 @@ def create_app(
     if rbd_client is None:
         rbd_client = FakeRbdClient() if settings.use_fakes else CommandRbdClient()
     app.state.metadata_service = MetadataService(rbd_client)
+    # Whether an address a new guest is given already answers. One echo from
+    # this node, which reads the network and writes nothing anywhere.
+    app.state.pinger = pinger or (
+        FakePinger({"192.168.200.1"}) if settings.use_fakes else IcmpPinger()
+    )
     app.state.vm_service = VmService(
         inventory=app.state.inventory_service,
         cluster=app.state.cluster_service,

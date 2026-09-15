@@ -32,6 +32,8 @@ from app.services.metadata import (
     MetadataView,
     RbdUnavailable,
 )
+from app.services.ping import InvalidAddress, PingAnswer, Pinger
+from app.services.ping import target as ping_target
 from app.services.vms import (
     GuestsView,
     InvalidGuest,
@@ -195,6 +197,24 @@ def guests(request: Request) -> GuestsView:
     saying which of the two it is.
     """
     return _service(request).guests()
+
+
+@router.get("/ping", response_model=PingAnswer, dependencies=[admin])
+def ping(request: Request, address: str) -> PingAnswer:
+    """Whether something already answers at an address a new guest is given.
+
+    Echo requests sent from this node, up to three, stopping at the first
+    reply. `answered` is conclusive; `silent` means nothing this node reaches
+    answered, which a host dropping ICMP also produces; `unknown` says why this
+    node could not tell. `address` may carry its prefix length, as the form
+    field does. Asked by the same role that declares the guest.
+    """
+    try:
+        destination = ping_target(address)
+    except InvalidAddress as error:
+        raise ApiError("invalid_address", str(error), 400) from error
+    pinger: Pinger = request.app.state.pinger
+    return pinger.ping(destination)
 
 
 @router.post("", status_code=201)

@@ -1317,6 +1317,52 @@
     element("add-static").hidden = element("add-dhcp").checked;
   });
 
+  // Whether something already answers at the address typed. Asked on the
+  // button rather than as the field changes, because each ask sends echo
+  // requests onto a substation network and waits up to three seconds. The
+  // answer belongs to the value it was asked about, so editing the field
+  // takes it away.
+  const pingAnswer = element("add-address-answer");
+  element("add-address").addEventListener("input", () => {
+    pingAnswer.hidden = true;
+  });
+  element("add-address-ping").addEventListener("click", async () => {
+    const button = element("add-address-ping");
+    const address = element("add-address").value.trim();
+    if (!address) {
+      element("add-address").focus();
+      return;
+    }
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    pingAnswer.className = "help";
+    pingAnswer.textContent = "Pinging " + address + "...";
+    pingAnswer.hidden = false;
+    try {
+      const answer = await API.get(
+        "/vms/ping?address=" + encodeURIComponent(address)
+      );
+      // Answered is the warning, since it is the one conclusive result and
+      // the one that should stop the form. Silence is reassuring, not proof.
+      pingAnswer.className =
+        answer.state === "answered"
+          ? "warning"
+          : answer.state === "silent"
+          ? "clear"
+          : "help";
+      pingAnswer.textContent =
+        answer.state === "answered" && answer.round_trip_ms !== null
+          ? answer.detail + " (" + answer.round_trip_ms + " ms)"
+          : answer.detail;
+    } catch (failure) {
+      pingAnswer.className = "error";
+      pingAnswer.textContent = failure.message;
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  });
+
   // Which variable names the XML, which the two roles answer differently. The
   // cluster role takes a `.j2` as a template and anything else as the XML
   // itself, through `xml_path`. The standalone role reads `vm_template` and
@@ -1490,6 +1536,7 @@
       element("add-disk").value = "";
       element("add-xml").value = "";
       element("add-address").value = "";
+      element("add-address-answer").hidden = true;
       element("add-mac").value = "";
       element("add-hostname").value = "";
       sent = null;
