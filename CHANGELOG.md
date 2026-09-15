@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.108 - 2026-09-15
+
+- feat: open the console on another machine or a guest of the inventory
+
 ## 0.3.107 - 2026-09-15
 
 - feat: offer passwordless sudo to the account a guest's seed creates
