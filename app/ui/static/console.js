@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The console panel: xterm.js on one side, a websocket to this node on the
-// other, and nothing in between. The bytes the terminal draws are the bytes
+// other, and nothing in between. The shell opens on this machine or on another
+// entry of the inventory, named in the `host` parameter; the node resolves the
+// name to the address a run connects to. The bytes the terminal draws are the bytes
 // that came off the pseudo terminal, which is why the socket is binary in that
 // direction and JSON in the other.
 //
@@ -42,6 +44,10 @@ const Console = (function () {
   let socket = null;
   let fitTimer = null;
   let allowed = false;
+  // What the last description offered, and the name the panel is open on, so
+  // Reconnect goes back to the same machine.
+  let targets = [];
+  let current = null;
 
   function element(id) {
     return document.getElementById(id);
@@ -117,6 +123,9 @@ const Console = (function () {
   function connect() {
     const url = new URL("api/v1/node/console/ws", window.location.href);
     url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    if (current) {
+      url.searchParams.set("host", current);
+    }
     url.searchParams.set("columns", terminal.cols);
     url.searchParams.set("lines", terminal.rows);
 
@@ -151,7 +160,8 @@ const Console = (function () {
   function control(message) {
     if (message.type === "ready") {
       state("connected", "ok");
-      element("console-target").textContent = message.target;
+      element("console-target").textContent =
+        message.host + " (" + message.target + ")";
       terminal.focus();
     } else if (message.type === "error") {
       state(message.code, "bad");
@@ -159,10 +169,15 @@ const Console = (function () {
     }
   }
 
-  function open() {
+  // The name is checked against what the node offered only to keep a button
+  // from opening a panel that is sure to be refused. The node resolves it
+  // again, and is the one that decides.
+  function open(name) {
     if (!allowed) {
       return;
     }
+    current = name || null;
+    element("console-target").textContent = current || "";
     element("console-modal").hidden = false;
     ensureTerminal();
     terminal.reset();
@@ -185,13 +200,64 @@ const Console = (function () {
     return RANKS[role] === undefined ? -1 : RANKS[role];
   }
 
-  // Called on every refresh of the node page, so that a console turned off, a
-  // node whose trust is not provisioned, or a limit already reached shows on
-  // the button rather than being discovered on click.
+  // Called on every refresh of a page that opens a console, so that a console
+  // turned off, a node whose trust is not provisioned, a limit already reached
+  // or a machine whose host key nobody accepted shows before the click rather
+  // than on it. The node page carries the button and the list of machines;
+  // another page asks `offers` for the row it draws.
   async function describe(me) {
     const info = await API.get("/node/console");
     allowed = info.enabled && rank(me.role) >= rank(info.required_role);
+    targets = info.targets || [];
+    if (element("console-open") !== null) {
+      drawNodeControls(info);
+    }
+    return info;
+  }
+
+  // The target a row may open a console on, or null when there is none to
+  // offer: no permission, no address, or no host key to check it against.
+  function offers(name) {
+    if (!allowed) {
+      return null;
+    }
+    const target = targets.find((item) => item.name === name);
+    return target && target.host_key_known ? target : null;
+  }
+
+  function describeTarget(target) {
+    const where =
+      target.kind === "this_machine"
+        ? "this machine"
+        : target.kind === "guest"
+        ? "guest"
+        : "machine";
+    return target.name + " (" + where + ", " + target.address + ")";
+  }
+
+  function drawNodeControls(info) {
     element("console-open").hidden = !allowed;
+    const label = element("console-host-label");
+    const select = element("console-host");
+    label.hidden = !allowed || targets.length < 2;
+    if (!label.hidden) {
+      const chosen = select.value;
+      select.replaceChildren();
+      targets.forEach((target) => {
+        const option = document.createElement("option");
+        option.value = target.name;
+        option.textContent =
+          describeTarget(target) +
+          (target.host_key_known ? "" : ", host key not accepted");
+        // Listed rather than left out, so an operator looking for a machine
+        // finds it and learns why it cannot be opened yet.
+        option.disabled = !target.host_key_known;
+        select.append(option);
+      });
+      if (targets.some((target) => target.name === chosen && target.host_key_known)) {
+        select.value = chosen;
+      }
+    }
 
     const note = element("console-note");
     if (!info.enabled) {
@@ -204,11 +270,11 @@ const Console = (function () {
       return;
     }
     note.textContent =
-      "A shell on this machine as " +
+      "A shell as " +
       info.user +
-      "@" +
-      info.target +
-      ", " +
+      (targets.length < 2
+        ? " on this machine, "
+        : " on this machine or on another entry of the inventory, ") +
       info.active_sessions +
       " of " +
       info.max_sessions +
@@ -218,7 +284,12 @@ const Console = (function () {
         : ".");
   }
 
-  element("console-open").addEventListener("click", open);
+  if (element("console-open") !== null) {
+    element("console-open").addEventListener("click", () => {
+      const select = element("console-host");
+      open(element("console-host-label").hidden ? null : select.value);
+    });
+  }
   element("console-close").addEventListener("click", close);
   element("console-reconnect").addEventListener("click", () => {
     terminal.reset();
@@ -226,5 +297,5 @@ const Console = (function () {
     connect();
   });
 
-  return { describe, close };
+  return { describe, offers, open, close };
 })();

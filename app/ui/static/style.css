@@ -1695,6 +1695,7 @@ button.secondary {
 
 .card-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 0.75rem;
   margin-top: 1rem;
@@ -1709,6 +1710,18 @@ button.secondary {
 
 .card-actions .legend {
   margin: 0;
+}
+
+/* The machine a console opens on, read as the end of the button's sentence. */
+.console-host {
+  display: inline-flex;
+  flex: none;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.console-host select {
+  max-width: 22rem;
 }
 
 /* The panel fills the window rather than centring a small box: a terminal is

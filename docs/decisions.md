@@ -96,6 +96,11 @@ to the authenticated session, with a hard timeout.
 *Recommendation followed. Nothing is built, and the API surface has no room
 reserved for it, which is deliberate: reserving room is how scope creeps.*
 
+*A shell over SSH into a guest that carries an `ansible_host` is
+[D51](#d51), and settles nothing here: it reaches the guest the way a run does,
+and a guest with no address, or one whose network is down, still needs the
+console this entry is about.*
+
 ## D6 - Open: first login credentials
 
 The ISO must produce a machine reachable from a browser immediately, with no
@@ -573,9 +578,10 @@ what exists is a journal line naming the account that opened the console and
 one naming its exit. That is the whole trace, which is the reason the panel
 says what it says.
 
-This decision covers the shell on **this** node. A console into a guest is
-still [D5](#d5---open-vm-console), still out of scope, and still a different
-problem: it is a proxy into a machine this service does not administer.
+This decision covers the shell on **this** node. [D51](#d51) extends it to the
+other machines and to the guests a run reaches over SSH. A serial or VNC
+console into a guest is still [D5](#d5---open-vm-console): it is a proxy into a
+machine through libvirt, which no run ever uses.
 ## D20 - Settled: the inventory page is an editor over the folder, and the form is gone
 
 [D16](#d16) kept the guided form beside the file and argued that what it held
@@ -3674,3 +3680,62 @@ already where a reader of the inventory looks.
 Nothing about a machine changes. The commit removes lines a conventional
 control machine would skip for the same reason, and a deleted image is one no
 entry names, so an export of the inventory runs identically from a checkout.
+
+## D51 - Settled: the console opens on every machine and guest a run reaches
+
+[D19](#d19) served a shell on this node and argued it opened no access the
+service did not already have. The same argument holds, unchanged, for every
+other place a run connects to: an administrator who can launch
+`seapath_setup_main.yaml` already executes arbitrary tasks as `ansible`, with
+its `sudo`, on each machine of the inventory and in each guest a playbook
+reaches. Sending that administrator to a terminal and an `ssh` of their own, to
+type a command on the machine beside the one on screen, bought nothing and
+cost the minutes D19 was written to save.
+
+What was checked first, on the demo cluster, with the exact command line the
+console builds: a terminal is allocated on a peer reached with the site key,
+and in a guest reached with this node's key through its seed. The site key the
+ISO installs carries no option, so `restrict` never removes `pty` there, and the
+line a seed installs carries none either. The "PTY allocation request failed"
+that D19 met on the self relation does not come back.
+
+### The rules that keep it the connection a run makes
+
+- **A name, never an address.** The browser sends `?host=<name>` and the node
+  resolves it to the entry's `ansible_host`. Accepting an address would turn
+  the console into an ssh relay, carrying the site key, to anything the
+  administration network routes. A name reaches exactly what the inventory
+  declares.
+- **Only an entry with an `ansible_host`.** A run would ask the resolver for an
+  entry without one, and a console doing the same would land wherever DNS
+  points today, checked against a key recorded for an address. A templated
+  address is skipped for the same reason: Ansible resolves it, and nothing
+  here does.
+- **The keys a run offers, in its order.** This node's key, then the site key
+  when one is installed. This machine keeps its self relation alone, the one
+  that carries `pty` and names the loopback.
+- **Strict host keys, learnt nowhere.** The console reads the `known_hosts` the
+  runs use and never adds to it. A target with no recorded key is listed with
+  the reason and refused before any ssh starts, and the refusal points at the
+  Host keys panel of the Deployment page. A guest declared to accept its key
+  on first use gets one at the first run that reaches it; the startup rewrites
+  that file from the accepted keys, so a key only ssh learnt is gone after a
+  restart until a run learns it again.
+- **The same role, the same cap.** `console_min_role` governs every target,
+  and the session limit counts consoles across all of them, since what it
+  protects is this node as much as the sshd at the other end.
+
+### What the page offers
+
+The node page lists the targets beside **Open a console**, this machine first,
+with the ones whose host key nobody accepted shown and disabled. The VMs page
+puts a **Console** button in the address cell of each guest the node could open
+one on. The journal line names the target by its inventory name and its
+address, which is still the whole audit trail a shell has.
+
+### Why it keeps the acceptance criterion
+
+The service writes nothing new: no key, no `known_hosts` line, no inventory
+change. What an operator types on a peer or in a guest is theirs, invisible to
+the inventory and undone by the next run that touches it, which is what the
+panel already says on every open.

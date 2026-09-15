@@ -24,6 +24,7 @@ from app.console.service import ConsoleService, ConsoleUnavailable, clamp_window
 from app.core.auth import Role
 from app.core.settings import Settings
 from app.main import create_app
+from app.trust import known_hosts
 from tests.conftest import BASE_URL, cookie_names
 
 WS = "/api/v1/node/console/ws"
@@ -71,8 +72,27 @@ def test_command_line_is_the_connection_a_run_makes(tmp_path: Path) -> None:
     assert "ControlMaster=no" in command
     assert "ControlPath=none" in command
     assert command[command.index("-i") + 1] == str(tmp_path / "id_ed25519_self")
+    assert command.count("-i") == 1
     assert command[command.index("-l") + 1] == "ansible"
     assert command[-1] == "127.0.0.1"
+
+
+def test_another_machine_is_offered_the_keys_a_run_offers_in_its_order(
+    tmp_path: Path,
+) -> None:
+    command = ssh_command(
+        ConsoleRequest(
+            address="10.132.159.61",
+            user="ansible",
+            private_key_file=tmp_path / "id_ed25519_self",
+            known_hosts_file=tmp_path / "known_hosts",
+            extra_key_files=(tmp_path / "id_site",),
+        )
+    )
+
+    identities = [command[i + 1] for i, arg in enumerate(command) if arg == "-i"]
+    assert identities == [str(tmp_path / "id_ed25519_self"), str(tmp_path / "id_site")]
+    assert command[-1] == "10.132.159.61"
 
 
 def test_window_size_from_a_browser_is_bounded() -> None:
@@ -133,6 +153,8 @@ def test_a_session_carries_bytes_both_ways(
     with connect(signed_in, "?columns=120&lines=40") as socket:
         assert socket.receive_json() == {
             "type": "ready",
+            "host": "seapath-machine",
+            "kind": "this_machine",
             "target": "ansible@127.0.0.1",
         }
         # The terminal stream is binary: a UTF-8 sequence split across two
@@ -296,3 +318,179 @@ def test_a_node_without_its_own_key_says_so_before_opening_a_terminal(
         asyncio.run(service.open("admin", 80, 24))
 
     assert failure.value.code == "trust_missing"
+
+
+# The console on the other machines and the guests. The cluster is the real
+# inventory the fidelity tests use, with two guests added: one a run reaches at
+# an address, and one nothing reaches from outside.
+CLUSTER = Path(__file__).parent / "golden" / "adopted-cluster.yaml"
+GUESTS = """
+VMs:
+  hosts:
+    guest-addressed:
+      ansible_host: 192.168.55.20
+      vm_template: "../templates/vm/guest.xml.j2"
+      vm_disk: "../files/guest.qcow2"
+    guest-dark:
+      vm_template: "../templates/vm/guest.xml.j2"
+      vm_disk: "../files/guest.qcow2"
+"""
+HOST_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAteCrWVAzKoCWvV6"
+
+
+def _declare_cluster(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS},
+    )
+    assert response.status_code == 200, response.text
+
+
+def _accept(settings: Settings, *addresses: str) -> None:
+    known_hosts.accept_peers(
+        settings.known_hosts_file, {address: [HOST_KEY] for address in addresses}
+    )
+
+
+def test_every_machine_and_addressed_guest_is_offered(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    _declare_cluster(signed_in)
+    _accept(settings, "10.132.159.61", "192.168.55.20")
+
+    targets = signed_in.get("/api/v1/node/console").json()["targets"]
+
+    # This machine first, by the name it is known under, then the inventory in
+    # its own order. The guest nobody can reach from outside is not offered.
+    offered = [
+        (t["name"], t["kind"], t["address"], t["host_key_known"]) for t in targets
+    ]
+    assert offered == [
+        ("seapath-machine", "this_machine", "127.0.0.1", True),
+        ("node1", "machine", "10.132.159.60", False),
+        ("node2", "machine", "10.132.159.61", True),
+        ("node3", "machine", "10.132.159.62", False),
+        ("guest-addressed", "guest", "192.168.55.20", True),
+    ]
+
+
+def test_a_console_on_another_machine_goes_to_its_ansible_host_with_the_site_key(
+    signed_in: TestClient, settings: Settings, console_adapter: FakeConsoleAdapter
+) -> None:
+    _declare_cluster(signed_in)
+    _accept(settings, "10.132.159.61")
+    settings.site_private_key_file.write_text("not a real key\n")
+
+    with connect(signed_in, "?host=node2") as socket:
+        assert socket.receive_json() == {
+            "type": "ready",
+            "host": "node2",
+            "kind": "machine",
+            "target": "ansible@10.132.159.61",
+        }
+
+    request = console_adapter.opened[0]
+    assert request.address == "10.132.159.61"
+    assert request.user == "ansible"
+    assert request.private_key_file == settings.self_private_key_file
+    assert request.extra_key_files == (settings.site_private_key_file,)
+    assert request.known_hosts_file == settings.known_hosts_file
+
+
+def test_this_machine_is_reached_over_its_self_relation_alone(
+    signed_in: TestClient, settings: Settings, console_adapter: FakeConsoleAdapter
+) -> None:
+    # The self relation is the one that carries `pty`, and the loopback is in
+    # its `from=` clause. Offering the site key there as well would change
+    # nothing that works and make a refused self key look like a site problem.
+    settings.site_private_key_file.write_text("not a real key\n")
+
+    with connect(signed_in) as socket:
+        socket.receive_json()
+
+    assert console_adapter.opened[0].address == "127.0.0.1"
+    assert console_adapter.opened[0].extra_key_files == ()
+
+
+def test_a_console_on_a_guest_goes_to_the_address_its_entry_gives(
+    signed_in: TestClient, settings: Settings, console_adapter: FakeConsoleAdapter
+) -> None:
+    _declare_cluster(signed_in)
+    _accept(settings, "192.168.55.20")
+
+    with connect(signed_in, "?host=guest-addressed") as socket:
+        assert socket.receive_json()["kind"] == "guest"
+
+    assert console_adapter.opened[0].address == "192.168.55.20"
+
+
+@pytest.mark.parametrize(
+    "host",
+    [
+        # Not in the inventory at all.
+        "elsewhere",
+        # A guest with no address, which a run does not reach from outside.
+        "guest-dark",
+        # An address rather than a name. Accepting one would make the console
+        # an ssh relay, carrying the site key, to anything the network routes.
+        "10.132.159.61",
+    ],
+)
+def test_a_console_goes_only_to_a_name_the_inventory_gives_an_address(
+    signed_in: TestClient,
+    settings: Settings,
+    console_adapter: FakeConsoleAdapter,
+    host: str,
+) -> None:
+    _declare_cluster(signed_in)
+    _accept(settings, "10.132.159.61")
+
+    with connect(signed_in, f"?host={host}") as socket:
+        assert socket.receive_json()["code"] == "unknown_host"
+        assert socket.receive()["code"] == 4404
+
+    assert console_adapter.opened == []
+
+
+def test_a_machine_whose_host_key_nobody_accepted_is_refused_before_ssh(
+    signed_in: TestClient, console_adapter: FakeConsoleAdapter
+) -> None:
+    # The console checks host keys strictly and never learns one. Saying so
+    # beats "Host key verification failed" inside a terminal.
+    _declare_cluster(signed_in)
+
+    with connect(signed_in, "?host=node1") as socket:
+        message = socket.receive_json()
+        assert message["code"] == "host_key_unknown"
+        assert "10.132.159.60" in message["message"]
+        assert socket.receive()["code"] == 4409
+
+    assert console_adapter.opened == []
+
+
+def test_another_machine_needs_the_same_role(signed_in_viewer: TestClient) -> None:
+    with connect(signed_in_viewer, "?host=node2") as socket:
+        assert socket.receive_json()["code"] == "permission_denied"
+
+
+def test_the_names_a_known_hosts_file_holds_keys_for(tmp_path: Path) -> None:
+    record = tmp_path / "known_hosts"
+    record.write_text(
+        "# a comment\n"
+        f"10.0.0.1 {HOST_KEY}\n"
+        f"ccv1,10.0.0.2 {HOST_KEY}\n"
+        f"[10.0.0.3]:22 {HOST_KEY}\n"
+        f"[10.0.0.4]:2222 {HOST_KEY}\n"
+        f"|1|c2FsdA==|aGFzaA== {HOST_KEY}\n"
+        f"@revoked 10.0.0.5 {HOST_KEY}\n"
+        "10.0.0.6\n"
+    )
+
+    assert known_hosts.recorded_names(record) == {
+        "10.0.0.1",
+        "ccv1",
+        "10.0.0.2",
+        "10.0.0.3",
+        "10.0.0.5",
+    }
+    assert known_hosts.recorded_names(tmp_path / "missing") == set()

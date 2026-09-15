@@ -5,13 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 {% extends "base.html" %}
 {% block page_title %}Node{% endblock %}
 
-{% block head %}
-{# Linked and stamped like the rest, and held by the browser for the same
-   reason: the URL names one release of this service. #}
-{{ styles("vendor/xterm.css") }}
-{% endblock %}
-
 {% from "_controls.html" import reread %}
+{% from "_console.html" import console_head, console_modal, console_scripts %}
+
+{% block head %}
+{{ console_head() }}
+{% endblock %}
 
 {% block body %}
 <main class="page node">
@@ -34,8 +33,15 @@ SPDX-License-Identifier: Apache-2.0
       {{ reread("reread", "this machine") }}
     </div>
     <dl id="summary"></dl>
+    {# The machine is chosen beside the button rather than in the panel: every
+       entry of the inventory a run reaches is listed, this one first, and the
+       list only shows when there is more than this machine to choose. #}
     <div class="card-actions">
       <button id="console-open" type="button" hidden>Open a console</button>
+      <label class="console-host" id="console-host-label" hidden>
+        <span>on</span>
+        <select id="console-host"></select>
+      </label>
       <p class="legend" id="console-note"></p>
     </div>
   </section>
@@ -85,31 +91,11 @@ SPDX-License-Identifier: Apache-2.0
     </div>
   </section>
 
-  <div class="modal" id="console-modal" data-dismiss="console-close" hidden>
-    <div class="console-panel">
-      <div class="console-head">
-        <h2>Console</h2>
-        <span class="console-target" id="console-target"></span>
-        <span class="console-state" id="console-state"></span>
-        <button id="console-reconnect" type="button" hidden>Reconnect</button>
-        <button id="console-close" type="button">Close</button>
-      </div>
-      <div class="console-screen" id="console-screen"></div>
-      <p class="legend">
-        This is a shell on this machine, opened over the same SSH path a run
-        uses, so it lands on the <code>ansible</code> account and that account
-        has passwordless <code>sudo</code>. Nothing typed here is part of the
-        desired state: a change made in this terminal is invisible to the
-        inventory and is undone by the next run that touches it.
-      </p>
-    </div>
-  </div>
+  {{ console_modal() }}
 </main>
 {% endblock %}
 
 {% block scripts %}
-{{ script("vendor/xterm.js") }}
-{{ script("vendor/addon-fit.js") }}
-{{ script("console.js") }}
+{{ console_scripts() }}
 {{ script("node.js") }}
 {% endblock %}

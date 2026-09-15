@@ -79,7 +79,7 @@ node can run it right now.
 | Action | Role |
 |---|---|
 | Read anything: node, inventory, history, runs, catalogue, trust relations | `viewer` |
-| Open a console on this node | `admin`, moved with `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` |
+| Open a console on this node, another machine or a guest | `admin`, moved with `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` |
 | Cancel a run | `operator` |
 | Commit an inventory change, revert, pin the version of this service, launch a run, revoke a trust relation | `admin` |
 
@@ -326,8 +326,8 @@ is where this service answers "who changed what, and when".
 | GET | `/node/cpu` | Topology, isolated set, per core busy ratio |
 | GET | `/node/network` | Interfaces, addresses, link state, default route |
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |
-| GET | `/node/console` | Whether a console can be opened here, on which account, and how many are open |
-| WS | `/node/console/ws` | The console itself: a shell on this machine |
+| GET | `/node/console` | Whether a console can be opened, on which account and on which machines, and how many are open |
+| WS | `/node/console/ws` | The console itself: a shell on this machine, or on the entry `?host=` names |
 | GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
@@ -562,39 +562,54 @@ would report 400us on exactly the machine where the number matters.
 ### The console
 
 `GET /node/console` describes what the console would be: whether it is enabled,
-which account it lands on, the role it requires, the idle timeout, and how many
-of the allowed sessions are open. The page reads it before showing the button,
-so a console that is turned off or already at its limit is visible rather than
-discovered on click.
+which account it lands on, the role it requires, the idle timeout, how many of
+the allowed sessions are open, and `targets`, the places one can be opened on.
+The page reads it before showing the button, so a console that is turned off,
+already at its limit, or aimed at a machine whose host key nobody accepted is
+visible rather than discovered on click.
+
+Each target is `{"name", "kind", "address", "host_key_known"}`. The first is
+this machine, `kind` `this_machine`, at the loopback. The others are the
+machines (`machine`) and the guests (`guest`) of the inventory that carry an
+`ansible_host`, in the file's order, at that address. An entry without one is
+not listed, and neither is a templated address.
 
 The session itself is the websocket at `/node/console/ws`, the one endpoint in
-this API that is a stream.
+this API that is a stream. `?host=<name>` opens it on a target, and without the
+parameter it opens on this machine. The value is a name from `targets`, never
+an address: a console that accepted an address would be an ssh relay, carrying
+the site key, to anything the administration network routes.
 
 - The browser sends JSON text frames, `{"type": "input", "data": "..."}` and
   `{"type": "resize", "columns": n, "lines": n}`. The node sends the terminal's
   bytes as **binary** frames, and JSON text frames for the events around them:
-  `ready` once the terminal is open, `error` when it will not be.
+  `ready` once the terminal is open, carrying `host`, `kind` and `target`
+  (`ansible@<address>`), and `error` when it will not be.
 - Binary rather than JSON escaped text because a terminal stream is not text
   until an emulator has decoded it, and a UTF-8 sequence split across two reads
   must stay split.
 - A refusal is a close code, since there is no envelope to put it in:
-  `4401` unauthenticated, `4403` role, `4409` disabled, busy, or trust not
-  provisioned, `4408` idle timeout, `1008` an origin that is not this page's.
+  `4401` unauthenticated, `4403` role, `4404` a host that is not a target,
+  `4409` disabled, busy, trust not provisioned, or no host key recorded for the
+  target (`host_key_unknown`), `4408` idle timeout, `1008` an origin that is
+  not this page's.
   The close reason carries the operator facing message, and the panel prints it.
 - The `Origin` header is checked before the socket is accepted. A websocket
   handshake is not subject to the same origin policy and carries the session
   cookie whatever page opened it, so this check is what the CSRF middleware
   does for every other unsafe request.
 
-The console reaches the `ansible` account with the key the self trust
-provisioned, over the loopback, which is the connection a run makes. It opens
-exactly the access the configuration plane already has, and that account has
-passwordless `sudo`: a console is root on this node whatever role opened it.
+On this machine the console reaches the `ansible` account with the key the self
+trust provisioned, over the loopback. On any other target it offers that key
+and then the site key, against the `known_hosts` the runs use, with strict host
+key checking. Both are the connection a run makes. It opens exactly the access
+the configuration plane already has, and that account has passwordless `sudo`:
+a console is root on the machine it opens on whatever role opened it.
 `admin` is the default for that reason, since an admin already runs
 `ansible-playbook` as that account on every machine of the inventory, while a
 viewer's surface is GET requests and an operator's adds only cancelling a run.
 `SEAPATH_WEBUI_CONSOLE_MIN_ROLE` moves the bar in both directions and
-`SEAPATH_WEBUI_CONSOLE_ENABLED=0` turns the endpoint off. See D19.
+`SEAPATH_WEBUI_CONSOLE_ENABLED=0` turns the endpoint off. See D19 and D51.
 
 Nothing typed there is part of the desired state. The journal records who
 opened a console and when, and that is the whole audit trail a shell can have,

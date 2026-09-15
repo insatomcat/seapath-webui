@@ -124,6 +124,35 @@ def forget_address(known_hosts_file: Path, address: str) -> None:
         _drop_from_live(known_hosts_file, address)
 
 
+def recorded_names(known_hosts_file: Path) -> set[str]:
+    """Every name and address the file ssh reads holds a key for.
+
+    Read rather than asked of ssh, and only good for the plain lines this
+    service and the runs write: a hashed line names nothing, which is why the
+    runs set `HashKnownHosts=no`. A name with a port other than 22 is left
+    out, since nothing here connects to one.
+    """
+    try:
+        content = known_hosts_file.read_text()
+    except OSError:
+        return set()
+    names: set[str] = set()
+    for line in content.splitlines():
+        fields = line.split()
+        if fields and fields[0].startswith("@"):
+            fields = fields[1:]
+        if len(fields) < 3 or fields[0].startswith(("#", "|")):
+            continue
+        for name in fields[0].split(","):
+            if name.startswith("["):
+                host, _, port = name[1:].partition("]:")
+                if port != "22":
+                    continue
+                name = host
+            names.add(name)
+    return names
+
+
 def _merge_into_live(known_hosts_file: Path, peers: dict[str, list[str]]) -> None:
     """Add the peer lines to the file ssh reads, keeping the local ones.
 

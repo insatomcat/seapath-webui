@@ -6,9 +6,10 @@
 This is a third host adapter beside the two AGENTS.md describes, and it is
 deliberately the thinnest of them. It runs the `ssh` client the image already
 carries, with the key the trust provisioned and the `known_hosts` the startup
-wrote, against the `ansible` account. It renders no file, it holds no state,
-and what it can reach is exactly what a run can reach: an operator typing here
-has the same access the configuration plane already has, no more.
+wrote, against the `ansible` account of a machine or a guest the inventory
+declares. It renders no file, it holds no state, and what it can reach is
+exactly what a run can reach: an operator typing here has the same access the
+configuration plane already has, no more.
 
 The window size is handled by hand because the child is given a pseudo terminal
 without making it a controlling one. `TIOCSWINSZ` on the master changes the
@@ -52,6 +53,9 @@ class ConsoleRequest:
     user: str
     private_key_file: Path
     known_hosts_file: Path
+    # Offered after `private_key_file`, in the order a run offers them: the
+    # site key, to a machine that is not this one.
+    extra_key_files: tuple[Path, ...] = ()
     columns: int = 80
     lines: int = 24
 
@@ -85,6 +89,11 @@ def ssh_command(request: ConsoleRequest) -> list[str]:
     authentication the hardening role has disabled, so the operator would type
     into a prompt that cannot succeed.
     """
+    identities = [
+        argument
+        for key_file in (request.private_key_file, *request.extra_key_files)
+        for argument in ("-i", str(key_file))
+    ]
     return [
         "ssh",
         "-tt",
@@ -106,8 +115,7 @@ def ssh_command(request: ConsoleRequest) -> list[str]:
         "ControlPath=none",
         "-o",
         f"ConnectTimeout={_CONNECT_TIMEOUT_SECONDS}",
-        "-i",
-        str(request.private_key_file),
+        *identities,
         "-l",
         request.user,
         request.address,

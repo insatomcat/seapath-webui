@@ -190,6 +190,18 @@
       origin.textContent = " given by the seed";
       node.append(origin);
     }
+    // A shell inside the guest, at this address, over the connection a run
+    // makes. Offered only where the node has a host key to check it against,
+    // which is also the reason a guest just declared shows no button yet.
+    if (Console.offers(guest.name)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Console";
+      button.title = "Open a shell in " + guest.name + " at " + guest.ansible_host;
+      button.addEventListener("click", () => Console.open(guest.name));
+      node.append(" ", button);
+    }
     return node;
   }
 
@@ -1591,8 +1603,22 @@
     fillChoices(view);
   }
 
+  // What the console offers is read beside the guests, so a row draws its
+  // button in the same pass. A description that fails costs the buttons and
+  // nothing else on the page.
+  async function describeConsole() {
+    try {
+      await Console.describe(Chrome.current());
+    } catch (ignored) {
+      // The rows are drawn without a console button.
+    }
+  }
+
   async function refresh(fresh, pending) {
-    const view = await (pending || API.get(API.reading("/vms", fresh)));
+    const [view] = await Promise.all([
+      pending || API.get(API.reading("/vms", fresh)),
+      describeConsole(),
+    ]);
     draw(view);
     Kept.keep(KEPT, view);
     Kept.release();

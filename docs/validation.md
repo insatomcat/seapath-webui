@@ -634,3 +634,26 @@ its label and applying it. See [D48](decisions.md#d48).
 ### Result
 
 Not yet run.
+
+## A console on another machine or in a guest
+
+The suite asserts the command line and every refusal against a fake terminal.
+What it cannot show is that a real sshd on a peer and in a guest hands the
+console a terminal for the keys it offers. See [D51](decisions.md#d51).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | From this node, the console's ssh command line, run as root with the service's keys and `known_hosts`, allocates a terminal on a peer reached with the site key | The site key's line on a peer is the ISO's, and its options decide whether `pty` survives | Passed on ccv1 on 2026-09-15: `tty` answered `/dev/pts/2` on ccv2, and the site key line carries no option |
+| 2 | The same command line allocates a terminal in a guest reached with this node's key through its seed, at the address a run recorded a key for | The seed's line in a real guest | Passed on ccv1 on 2026-09-15: `tty` answered `/dev/pts/0` in debian13c1 at 10.132.159.212 |
+| 3 | The node page lists every machine and addressed guest, and a console opened on a peer from it prompts as `ansible` on that peer, `hostname` answering its name | The whole path through the websocket, from the container's network namespace | Pending |
+| 4 | The VMs page offers **Console** on a guest whose key is recorded, and the shell it opens is inside that guest | | Pending |
+| 5 | A machine whose host key was never accepted is listed disabled, and a websocket opened on it by hand refuses with `host_key_unknown` without any ssh in the journal | Strict host keys against the real file the startup writes | Pending |
+| 6 | The journal line of each console names the inventory entry and its address | The audit trail, read where an operator reads it | Pending |
+
+### Result
+
+Checks 1 and 2 ran against the demo cluster before the code was written, since
+their answer decided whether the feature needed a change to the trust. It did
+not.

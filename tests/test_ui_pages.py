@@ -946,6 +946,18 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     assert "undone by the next run that touches it" in body
 
 
+def test_the_vms_page_carries_the_same_terminal(signed_in: TestClient) -> None:
+    # A guest's row opens a shell inside it, so the page carries the emulator
+    # and the panel the node page does, from the one template both include.
+    body = signed_in.get("/vms").text
+
+    assert f'src="static/vendor/xterm.js?v={stamp("vendor/xterm.js")}"' in body
+    assert f'href="static/vendor/xterm.css?v={stamp("vendor/xterm.css")}"' in body
+    assert body.index("static/console.js") < body.index("static/vms.js")
+    assert 'id="console-modal"' in body
+    assert "undone by the next run that touches it" in body
+
+
 def test_the_real_time_page_checks_every_machine(
     signed_in: TestClient,
 ) -> None:

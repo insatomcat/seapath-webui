@@ -1,0 +1,44 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: Apache-2.0
+
+The console panel, written once for every page that opens one. The page links
+`console_head()` in its head block, places `console_modal()` in its body and
+loads `console_scripts()` before its own script, which then calls
+`Console.describe` and `Console.open`.
+#}
+
+{% macro console_head() %}
+{# Linked and stamped like the rest, and held by the browser for the same
+   reason: the URL names one release of this service. #}
+{{ styles("vendor/xterm.css") }}
+{%- endmacro %}
+
+{% macro console_modal() %}
+<div class="modal" id="console-modal" data-dismiss="console-close" hidden>
+  <div class="console-panel">
+    <div class="console-head">
+      <h2>Console</h2>
+      <span class="console-target" id="console-target"></span>
+      <span class="console-state" id="console-state"></span>
+      <button id="console-reconnect" type="button" hidden>Reconnect</button>
+      <button id="console-close" type="button">Close</button>
+    </div>
+    <div class="console-screen" id="console-screen"></div>
+    <p class="legend">
+      This is a shell on the machine named above, opened over the same SSH path
+      a run uses, so it lands on the <code>ansible</code> account, which has
+      passwordless <code>sudo</code> on every SEAPATH machine and in a guest
+      whose seed grants it. Nothing typed here is part of the desired state: a
+      change made in this terminal is invisible to the inventory and is
+      undone by the next run that touches it.
+    </p>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro console_scripts() %}
+{{ script("vendor/xterm.js") }}
+{{ script("vendor/addon-fit.js") }}
+{{ script("console.js") }}
+{%- endmacro %}

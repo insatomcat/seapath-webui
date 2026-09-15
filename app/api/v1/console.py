@@ -16,6 +16,10 @@ exactly as they came off the pseudo terminal, and JSON text frames for the
 events around them. Binary rather than JSON escaped text because a terminal
 stream is not text until an emulator has decoded it, and a UTF-8 sequence split
 across two reads must stay split rather than become a replacement character.
+
+Which machine the shell opens on is the `host` query parameter, a name the
+inventory declares, and this machine when it is absent. The address is never
+the browser's to give.
 """
 
 from __future__ import annotations
@@ -33,6 +37,7 @@ from app.console.service import (
     ConsoleInfo,
     ConsoleService,
     ConsoleUnavailable,
+    OpenedConsole,
     clamp_window,
 )
 from app.core.auth import Role
@@ -51,6 +56,7 @@ _NORMAL = 1000
 _POLICY = 1008
 _UNAUTHENTICATED = 4401
 _FORBIDDEN = 4403
+_NOT_FOUND = 4404
 _TIMED_OUT = 4408
 _UNAVAILABLE = 4409
 _FAILED = 4500
@@ -110,9 +116,15 @@ async def console_stream(websocket: WebSocket) -> None:
         _window(websocket, "lines", _DEFAULT_LINES),
     )
     try:
-        process = await service.open(session.username, columns, lines)
+        opened = await service.open(
+            session.username,
+            columns,
+            lines,
+            host=websocket.query_params.get("host"),
+        )
     except ConsoleUnavailable as failure:
-        await _refuse(websocket, _UNAVAILABLE, failure.code, failure.message)
+        code = _NOT_FOUND if failure.status == 404 else _UNAVAILABLE
+        await _refuse(websocket, code, failure.code, failure.message)
         return
     except OSError as failure:
         logger.error("Could not open a console: %s", failure)
@@ -130,12 +142,21 @@ async def console_stream(websocket: WebSocket) -> None:
     # until this node is restarted.
     ending = _Ending(_FAILED, "the console stream failed")
     try:
-        await websocket.send_json({"type": "ready", "target": service.target})
-        ending = await _pump(websocket, process, service.idle_timeout_seconds)
+        await websocket.send_json(_ready(service, opened))
+        ending = await _pump(websocket, opened.process, service.idle_timeout_seconds)
     finally:
-        await service.close(process, session.username)
+        await service.close(opened, session.username)
     with contextlib.suppress(RuntimeError):
         await websocket.close(code=ending.code, reason=ending.reason)
+
+
+def _ready(service: ConsoleService, opened: OpenedConsole) -> dict[str, str]:
+    return {
+        "type": "ready",
+        "host": opened.target.name,
+        "kind": opened.target.kind.value,
+        "target": f"{service.user}@{opened.target.address}",
+    }
 
 
 async def _pump(

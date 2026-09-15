@@ -30,7 +30,12 @@ image and losing its disk. D31 records the bounds.
 #}
 {% extends "base.html" %}
 {% from "_controls.html" import reread %}
+{% from "_console.html" import console_head, console_modal, console_scripts %}
 {% block page_title %}VMs{% endblock %}
+
+{% block head %}
+{{ console_head() }}
+{% endblock %}
 
 {% block body %}
 <main class="page single vms">
@@ -538,8 +543,10 @@ image and losing its disk. D31 records the bounds.
     </div>
   </div>
 </div>
+{{ console_modal() }}
 {% endblock %}
 
 {% block scripts %}
+{{ console_scripts() }}
 {{ script("vms.js") }}
 {% endblock %}

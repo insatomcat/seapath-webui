@@ -248,20 +248,6 @@ def create_app(
     # and the browser keeps one cookie jar for the pair. See `CookieNames`.
     app.state.cookie_names = derive_cookie_names(settings, secret)
     app.state.node_service = NodeService(reader, settings.collection_version)
-    app.state.console_service = ConsoleService(
-        console_adapter or _default_console_adapter(settings),
-        target=settings.console_target,
-        user=settings.ansible_user,
-        # The key and the record the self trust provisions at every start. A
-        # console is the same connection a run makes, which is what keeps this
-        # from being a second way into the machine.
-        private_key_file=settings.self_private_key_file,
-        known_hosts_file=settings.known_hosts_file,
-        enabled=settings.console_enabled,
-        required_role=Role(settings.console_min_role),
-        max_sessions=settings.console_max_sessions,
-        idle_timeout_seconds=settings.console_idle_timeout_seconds,
-    )
 
     # The node's own name, from the mounted /etc/hostname rather than from this
     # container's UTS namespace. It is the inventory host key, the name in the
@@ -293,6 +279,27 @@ def create_app(
         collections_path=resolve_collections,
         max_file_bytes=settings.max_inventory_file_bytes,
     )
+    # After the inventory, because where a console may go is an entry of it:
+    # this machine over the loopback, and every other machine or guest at the
+    # `ansible_host` a run connects to, with the keys a run offers. See D51.
+    app.state.console_service = ConsoleService(
+        console_adapter or _default_console_adapter(settings),
+        target=settings.console_target,
+        user=settings.ansible_user,
+        # The key and the record the self trust provisions at every start. A
+        # console is the same connection a run makes, which is what keeps this
+        # from being a second way into the machine.
+        private_key_file=settings.self_private_key_file,
+        known_hosts_file=settings.known_hosts_file,
+        extra_key_files=_site_keys(settings),
+        hostname=hostname,
+        inventory=app.state.inventory_service.state,
+        enabled=settings.console_enabled,
+        required_role=Role(settings.console_min_role),
+        max_sessions=settings.console_max_sessions,
+        idle_timeout_seconds=settings.console_idle_timeout_seconds,
+    )
+
     # One store, because the installer and the runs share its lock: a
     # collection is never swapped under a convergence that is already going.
     run_store = RunStore(settings.runs_dir)

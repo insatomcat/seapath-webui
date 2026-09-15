@@ -47,8 +47,10 @@ the UI runs is what the CI tests.
 isolated and housekeeping CPUs as the kernel command line and `sysfs` report
 them, the disks under the stable `by-path` name Ceph wants, and the interfaces.
 It is read only, and the console button opens a shell on the `ansible` account
-for the times a page is not enough. That account has passwordless sudo, so a
-console is root on the machine, and opening one asks for an administrator.
+for the times a page is not enough, on this machine or on any other machine or
+guest of the inventory a run reaches over SSH. That account has passwordless
+sudo, so a console is root on the machine, and opening one asks for an
+administrator.
 
 ![The Inventory page: the folder on the left, the file being edited on the right](img/2-inventory.png)
 
