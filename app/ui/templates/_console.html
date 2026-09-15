@@ -27,9 +27,10 @@ loads `console_scripts()` before its own script, which then calls
     <div class="console-screen" id="console-screen"></div>
     <p class="legend">
       This is a shell on the machine named above, opened over the same SSH path
-      a run uses, so it lands on the <code>ansible</code> account, which has
-      passwordless <code>sudo</code> on every SEAPATH machine and in a guest
-      whose seed grants it. Nothing typed here is part of the desired state: a
+      a run uses, so it lands on the <code>ansible</code> account. On a SEAPATH
+      machine that account may run <code>/bin/sh</code> as root with no
+      password: <code>sudo sh</code> is root, and any other <code>sudo</code>
+      asks for a password. Nothing typed here is part of the desired state: a
       change made in this terminal is invisible to the inventory and is
       undone by the next run that touches it.
     </p>

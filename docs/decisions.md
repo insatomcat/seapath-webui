@@ -541,8 +541,12 @@ What keeps this from being a hole in [D1](#d1---settled-the-ui-edits-the-invento
   open, and with the ssh client configuration ignored so the connection is what
   the command line says it is. Sessions are capped and idle ones are closed.
 
-The cost, stated rather than hidden: **the `ansible` account has passwordless
-`sudo`, so a console is root on this node.** That is what fixes the default at
+The cost, stated rather than hidden: **the `ansible` account may run `/bin/sh`
+as root with no password, so a console is root on this node.** The rule is the
+ISO's `NOPASSWD:EXEC:SETENV: /bin/sh` and nothing wider: `sudo sh` is root,
+while `sudo systemctl ...` or `sudo -s` under bash asks for a password nobody
+has. It changes how an operator gets there and nothing about where they end
+up. That is what fixes the default at
 `admin`, and the rule it follows is that a console hands out the access the
 role already commands and nothing beyond it:
 
@@ -2177,7 +2181,7 @@ into a cluster is not a thing this service knows how to make safe.
 ## D35 - Settled: the browser is told what this page may do, and never told to trust the certificate
 
 An authenticated session here is root on every machine of the cluster: the
-console button opens a shell on an account with passwordless sudo, and an apply
+console button opens a shell on an account that becomes root with `sudo sh`, and an apply
 runs playbooks against the mesh. A string that reaches a page and runs there
 therefore costs more than it does almost anywhere else, which is what makes a
 content policy worth its weight on a service of this size.

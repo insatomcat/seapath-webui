@@ -603,8 +603,10 @@ On this machine the console reaches the `ansible` account with the key the self
 trust provisioned, over the loopback. On any other target it offers that key
 and then the site key, against the `known_hosts` the runs use, with strict host
 key checking. Both are the connection a run makes. It opens exactly the access
-the configuration plane already has, and that account has passwordless `sudo`:
-a console is root on the machine it opens on whatever role opened it.
+the configuration plane already has, and that account may run `/bin/sh` as
+root with no password: `sudo sh` makes a console root on the machine it opens
+on whatever role opened it. Any other `sudo` command asks for a password, and
+so does `sudo -s` under a login shell other than `/bin/sh`.
 `admin` is the default for that reason, since an admin already runs
 `ansible-playbook` as that account on every machine of the inventory, while a
 viewer's surface is GET requests and an operator's adds only cancelling a run.

@@ -27,7 +27,8 @@ against fakes, which is where a proof of concept belongs.
 This service runs on every SEAPATH node, and the machines are live electrical
 substation hypervisors. It authenticates operators through PAM, it holds the
 SSH material that lets one node drive the others, and the account it runs
-playbooks under has passwordless sudo. An authenticated session is therefore
+playbooks under may run `/bin/sh` as root with no password. An authenticated
+session is therefore
 root on every machine of the cluster, and an authentication bypass is the worst
 thing that can happen to it.
 
@@ -47,9 +48,10 @@ So the reports that matter most are, in order:
 
 ## What is working as designed
 
-- The console gives a shell on the `ansible` account, which has passwordless
-  sudo. That is the point of the button, it asks for an administrator first,
-  and [docs/decisions.md](docs/decisions.md) records it.
+- The console gives a shell on the `ansible` account, which may run `/bin/sh`
+  as root with no password, so `sudo sh` there is root. That is the point of
+  the button, it asks for an administrator first, and
+  [docs/decisions.md](docs/decisions.md) records it.
 - The TLS certificate generated at first boot is self signed. A site replaces
   it with its own material.
 - `SEAPATH_WEBUI_USE_FAKES=1` serves invented readings. It is a development

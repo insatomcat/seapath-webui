@@ -114,7 +114,7 @@ def test_description_is_open_to_a_viewer(signed_in_viewer: TestClient) -> None:
 
 
 def test_a_viewer_is_refused_a_shell_by_default(signed_in_viewer: TestClient) -> None:
-    # The console reaches the `ansible` account, which has passwordless sudo.
+    # The console reaches the `ansible` account, and `sudo sh` there is root.
     # A viewer's whole surface is GET requests, so serving one here would raise
     # a read only account to root on a live hypervisor. `seapath-viewer` is a
     # supplementary group added to an ordinary Unix account: being in it says

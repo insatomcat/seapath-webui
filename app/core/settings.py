@@ -154,8 +154,9 @@ class Settings(BaseSettings):
     # `known_hosts` records it at every start. An address change therefore
     # cannot break the console.
     console_target: str = "127.0.0.1"
-    # Who may open one. The console reaches the `ansible` account, which has
-    # passwordless sudo, so it is root on this machine whatever role opened it.
+    # Who may open one. The console reaches the `ansible` account, which may run
+    # `/bin/sh` as root with no password, so `sudo sh` makes it root on this
+    # machine whatever role opened it.
     # `admin` is therefore the only default that hands out access the role
     # already commands: an admin launches runs, so `ansible-playbook` already
     # runs as that account, with that sudo, on every machine of the inventory.

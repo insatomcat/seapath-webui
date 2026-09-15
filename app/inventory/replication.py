@@ -19,11 +19,11 @@ The invocation lives here, in one reviewable place, the way the console's does.
 Two things about it are worth reading before changing anything:
 
 - **`sudo` on the far side.** The repository is root owned, and the connection
-  is the `ansible` account. The account already has passwordless sudo, which is
-  what lets Ansible converge the machine, so this grants nothing new; it uses
-  the escalation the trust already implies. The ISO grants it as `/bin/sh`,
-  which is why the remote helper is spelled through `sh -c` rather than as a
-  bare `sudo git-receive-pack`.
+  is the `ansible` account. The account may already run `/bin/sh` as root with
+  no password, which is what lets Ansible converge the machine, so this grants
+  nothing new; it uses the escalation the trust already implies. `/bin/sh` is
+  the whole rule, which is why the remote helper is spelled through `sh -c`: a
+  bare `sudo git-receive-pack` would ask for a password.
 - **The far side needs this service, and not git on its host.** The helper
   runs the host's `git` when there is one, and otherwise the one in the peer's
   own `seapath-webui` container, which holds the same repository at the same

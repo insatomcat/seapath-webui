@@ -48,9 +48,11 @@ isolated and housekeeping CPUs as the kernel command line and `sysfs` report
 them, the disks under the stable `by-path` name Ceph wants, and the interfaces.
 It is read only, and the console button opens a shell on the `ansible` account
 for the times a page is not enough, on this machine or on any other machine or
-guest of the inventory a run reaches over SSH. That account has passwordless
-sudo, so a console is root on the machine, and opening one asks for an
-administrator.
+guest of the inventory a run reaches over SSH. That account may run `/bin/sh`
+as root with no password, the rule Ansible's escalation uses, so `sudo sh` in a
+console is root on the machine, and opening one asks for an administrator.
+Other `sudo` commands ask for a password, `sudo -s` included when the login
+shell is bash.
 
 ![The Inventory page: the folder on the left, the file being edited on the right](img/2-inventory.png)
 

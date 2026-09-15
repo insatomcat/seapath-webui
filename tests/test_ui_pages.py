@@ -942,7 +942,7 @@ def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     # A shell is the one place in this UI where what an operator does is
     # neither recorded nor part of the desired state, and the panel says so
     # every time it opens.
-    assert "passwordless <code>sudo</code>" in body
+    assert "<code>sudo sh</code> is root" in body
     assert "undone by the next run that touches it" in body
 
 
