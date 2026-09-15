@@ -1306,6 +1306,7 @@
     // whose image carries its own configuration, which a seed would only get
     // in the way of.
     asked.trust_this_node = element("add-trust").checked;
+    asked.grant_sudo = asked.trust_this_node && element("add-grant-sudo").checked;
     asked.accept_host_key = element("add-accept-host-key").checked;
     return asked;
   }

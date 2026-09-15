@@ -290,6 +290,21 @@ image and losing its disk. D31 records the bounds.
       are the image's: a SEAPATH VM image has both.
     </p>
 
+    {# Unchecked by default: a SEAPATH VM image grants `ansible` narrower
+       rights than this, and checking the box would widen them. #}
+    <label class="switch">
+      <input type="checkbox" id="add-grant-sudo">
+      Give that account passwordless sudo
+    </label>
+    <p class="help">
+      For a generic cloud image, the Debian one for instance: cloud-init
+      creates <code>ansible</code> there with no sudo at all, and every task
+      run as root stops on <code>Missing sudo password</code>. Writes
+      <code>sudo: ALL=(ALL) NOPASSWD:ALL</code> in the account's
+      <code>users</code> entry. Leave it unchecked on a SEAPATH VM image, whose
+      rights for the account are narrower. Only with the box above.
+    </p>
+
     {# Checked by default for the same reason as the box above: a guest given
        an address here is one a run will reach, and a run into a guest whose
        host key nobody accepted ends on `Host key verification failed`. #}

@@ -94,6 +94,11 @@ ACCEPT_NEW_HOST_KEY = "-o StrictHostKeyChecking=accept-new"
 # not (`eth0`). Used for one interface only, where it cannot pick the wrong one.
 ANY_ETHERNET = "e*"
 
+# The sudoers rule cloud-init writes for the account when `grant_sudo` is set.
+# Every command, because what a playbook becomes root for is the playbook's
+# business and no narrower list survives the next role.
+PASSWORDLESS_SUDO = "ALL=(ALL) NOPASSWD:ALL"
+
 
 class GuestNetwork(BaseModel):
     """What one form section says about a guest's network."""
@@ -173,7 +178,19 @@ class GuestNetwork(BaseModel):
             "account runs connect as, and name that account as `ansible_user` "
             "on the entry. What lets a run from here, the latency measurement "
             "among them, reach inside the guest with nothing pasted by hand. "
-            "The account's sudo rights stay the image's"
+            "The account's sudo rights stay the image's unless "
+            "`grant_sudo` is set"
+        ),
+    )
+    grant_sudo: bool = Field(
+        default=False,
+        description=(
+            "Give the account runs connect as passwordless sudo on every "
+            "command, written as the `sudo` key of its cloud-config `users` "
+            "entry. For an image that does not create that account with sudo "
+            "itself, where every `become` would otherwise stop on `Missing "
+            "sudo password`. Ignored without `trust_this_node`, where no "
+            "`users` entry is written for it to go in"
         ),
     )
 
@@ -350,32 +367,39 @@ def variables(
         ]
     seed = _seed(guest, network)
     if trusted:
-        seed["users"] = [_user(str(account), list(key_lines or []))]
+        seed["users"] = [_user(str(account), list(key_lines or []), network.grant_sudo)]
     if seed:
         written["cloud_init"] = seed
     return written
 
 
-def _user(account: str, key_lines: list[str]) -> dict[str, Any]:
+def _user(account: str, key_lines: list[str], grant_sudo: bool) -> dict[str, Any]:
     """One cloud-config `users` entry: the account runs use, with these keys.
 
-    Three things are left out, and each is a decision.
+    Three things are left out by default, and each is a decision.
 
     `default` is absent from the list, so cloud-init creates no distribution
     default user. On Debian that is a `debian` account with passwordless sudo,
     and a substation guest gaining one because this node wanted to log in is a
     hole nobody asked for.
 
-    `sudo` is absent too. A SEAPATH VM image creates `ansible` with the narrow
-    rights its FAI class grants, and `ALL=(ALL) NOPASSWD:ALL` written here
-    would widen them behind the image's back. A guest from another image, whose
-    account has no sudo, fails at `become` and says so.
+    `sudo` is absent unless `grant_sudo` asks for it. A SEAPATH VM image
+    creates `ansible` with the narrow rights its FAI class grants, and
+    `ALL=(ALL) NOPASSWD:ALL` written here would widen them behind the image's
+    back. A generic cloud image creates no such account, so cloud-init creates
+    it from this entry with no sudo at all, and every `become` stops on
+    `Missing sudo password`. The operator who brought that image says so on the
+    form, and the rule lands in the entry where the diff shows it.
 
     The password is left to cloud-init's default, which locks it on every
     account the list names. On `ansible` that changes nothing: the account
-    logs in by key alone.
+    logs in by key alone, and the sudo rule asks for no password.
     """
-    return {"name": account, "ssh_authorized_keys": key_lines}
+    user: dict[str, Any] = {"name": account}
+    if grant_sudo:
+        user["sudo"] = PASSWORDLESS_SUDO
+    user["ssh_authorized_keys"] = key_lines
+    return user
 
 
 def _seed(guest: str, network: GuestNetwork) -> dict[str, Any]:

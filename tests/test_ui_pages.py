@@ -1442,6 +1442,9 @@ def test_adding_a_vm_asks_for_the_network_it_will_come_up_on(
     # The trust into the guest, offered checked, and saying what it leaves to
     # the image: the account and its sudo rights, and the host key to accept.
     assert 'id="add-trust" checked' in body
+    # Passwordless sudo is offered for foreign images, and unchecked, since on
+    # a SEAPATH VM image it widens the account's rights.
+    assert '<input type="checkbox" id="add-grant-sudo">' in body
     assert "sudo rights" in body
     assert "host key" in body
     # The two things an operator cannot guess: what the MAC is for, and that

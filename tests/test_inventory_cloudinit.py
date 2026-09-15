@@ -295,6 +295,41 @@ def test_the_trust_writes_the_account_and_the_key_and_nothing_wider() -> None:
     ]
 
 
+def test_sudo_is_written_into_the_account_when_granted() -> None:
+    network = GuestNetwork(
+        bridge="br0",
+        mac_address=MAC,
+        address="10.0.0.42/24",
+        trust_this_node=True,
+        grant_sudo=True,
+    )
+
+    written = cloudinit.variables(
+        "vm1", network, account="ansible", key_lines=[KEY_LINE]
+    )
+
+    assert written["cloud_init"]["users"] == [
+        {
+            "name": "ansible",
+            "sudo": "ALL=(ALL) NOPASSWD:ALL",
+            "ssh_authorized_keys": [KEY_LINE],
+        }
+    ]
+
+
+def test_sudo_is_ignored_without_the_trust() -> None:
+    network = GuestNetwork(
+        bridge="br0", mac_address=MAC, address="10.0.0.42/24", grant_sudo=True
+    )
+
+    written = cloudinit.variables(
+        "vm1", network, account="ansible", key_lines=[KEY_LINE]
+    )
+
+    assert "users" not in written["cloud_init"]
+    assert "ansible_user" not in written
+
+
 def test_no_trust_is_written_unless_it_was_asked_for() -> None:
     network = GuestNetwork(bridge="br0", mac_address=MAC, address="10.0.0.42/24")
 

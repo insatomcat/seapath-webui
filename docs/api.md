@@ -766,6 +766,14 @@ the account. A SEAPATH VM image creates `ansible` with those rights; a guest
 from another image fails at `become` and says so. With the address above and
 this, the guest is one the latency measurement can aim at.
 
+**`grant_sudo` gives that account passwordless sudo.** For a guest from a
+generic cloud image, the Debian one for instance, where cloud-init creates the
+account from the `users` entry with no sudo at all and every `become` stops on
+`Missing sudo password`. The entry gains `sudo: ALL=(ALL) NOPASSWD:ALL`,
+between the name and the keys. False by default, because on a SEAPATH VM image
+it widens the rights the image gave the account. Ignored without
+`trust_this_node`, where no `users` entry is written.
+
 **`accept_host_key` lets the first run in without a scan.** Beside
 `ansible_host`, the entry carries `ansible_ssh_common_args: -o
 StrictHostKeyChecking=accept-new`, and every key recorded for that address
