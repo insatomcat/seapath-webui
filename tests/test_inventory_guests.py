@@ -222,6 +222,18 @@ def test_a_guest_is_added_to_a_group_the_file_already_has() -> None:
     assert removed == []
 
 
+def test_a_guest_is_added_after_a_last_line_with_no_newline() -> None:
+    # A file saved without a final newline, ending on the last guest. The new
+    # entry used to land on that line, `guest2:        third:`, and the check
+    # that parses the result failed with an unhandled YAML error.
+    document = OURS.read_text() + "VMs:\n  hosts:\n    guest2:"
+
+    edited = add_guest(document, "third", {"vm_disk": "../files/third.qcow2"})
+
+    assert "    guest2:\n    third:\n" in edited
+    assert set(resolve(edited)) >= {"guest2", "third"}
+
+
 def test_the_group_is_created_where_the_other_groups_live() -> None:
     # Both shapes are valid Ansible and a hand written file uses either. A
     # file keeping its groups under `all.children` gets one more child.

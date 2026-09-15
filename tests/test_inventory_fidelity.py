@@ -210,6 +210,17 @@ def test_the_blank_line_after_an_edited_variable_stays_where_it_was() -> None:
     assert len(edited.splitlines()) == len(document.splitlines())
 
 
+def test_a_variable_is_added_after_a_last_line_with_no_newline() -> None:
+    document = "cluster_machines:\n  hosts:\n    node1:\n      ansible_host: 10.0.0.1"
+
+    edited = edit(document, {"node1": {"ptp_interface": "eno5"}})
+
+    assert resolve(edited)["node1"] == {
+        "ansible_host": "10.0.0.1",
+        "ptp_interface": "eno5",
+    }
+
+
 def test_an_edit_to_a_host_with_no_entry_of_its_own_is_refused() -> None:
     document = """
     all:

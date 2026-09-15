@@ -82,11 +82,7 @@ def edit(document: str, changes: dict[str, dict[str, Any]]) -> str:
         for variable, value in sorted(variables.items()):
             splices.append(_change(lines, mapping, host, variable, value, inherited))
 
-    # Applied bottom up, so an earlier splice cannot move a later one's lines.
-    for splice in sorted(splices, key=lambda s: s.start, reverse=True):
-        lines[splice.start : splice.end] = splice.replacement
-
-    return "".join(lines)
+    return _apply(lines, splices)
 
 
 @dataclass(frozen=True)
@@ -149,9 +145,7 @@ def set_variables(document: str, scope: Scope, variables: dict[str, Any]) -> str
             for variable, value in sorted(variables.items())
         ]
 
-    for splice in sorted(splices, key=lambda s: s.start, reverse=True):
-        lines[splice.start : splice.end] = splice.replacement
-    return "".join(lines)
+    return _apply(lines, splices)
 
 
 def _group_variables(
@@ -202,6 +196,23 @@ class _Splice:
         self.start = start
         self.end = end
         self.replacement = replacement
+
+
+def _apply(lines: list[str], splices: list[_Splice]) -> str:
+    """The splices, applied bottom up so an earlier one cannot move a later one.
+
+    A file whose last line has no newline often ends on the mapping a line is
+    appended to. Written as is, the new line lands on the end of that one, and
+    `debian13:` followed by a new guest becomes a single line YAML refuses. The
+    newline is restored before anything is written after it.
+    """
+    for splice in sorted(splices, key=lambda s: s.start, reverse=True):
+        if splice.replacement and splice.start > 0:
+            before = lines[splice.start - 1]
+            if not before.endswith("\n"):
+                lines[splice.start - 1] = before + "\n"
+        lines[splice.start : splice.end] = splice.replacement
+    return "".join(lines)
 
 
 def _yaml() -> YAML:
@@ -496,8 +507,7 @@ def add_guest(
         splice = _guest_group(lines, loaded, name, variables)
     else:
         splice = _deployment_group(lines, loaded, group, name, variables)
-    lines[splice.start : splice.end] = splice.replacement
-    return "".join(lines)
+    return _apply(lines, [splice])
 
 
 def remove_guest(document: str, name: str) -> str:
