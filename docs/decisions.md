@@ -101,6 +101,9 @@ reserved for it, which is deliberate: reserving room is how scope creeps.*
 and a guest with no address, or one whose network is down, still needs the
 console this entry is about.*
 
+*Settled by [D52](#d52): the serial console is `vm-mgr console`, run over the
+console's own connection, for `admin` by default.*
+
 ## D6 - Open: first login credentials
 
 The ISO must produce a machine reachable from a browser immediately, with no
@@ -3743,3 +3746,69 @@ The service writes nothing new: no key, no `known_hosts` line, no inventory
 change. What an operator types on a peer or in a guest is theirs, invisible to
 the inventory and undone by the next run that touches it, which is what the
 panel already says on every open.
+
+## D52 - Settled: a guest's serial console is `vm-mgr console`, at the end of the console's connection
+
+A guest that crashed, hangs at boot or lost its network does not answer on its
+address, and [D51](#d51) cannot reach it. [D5](#d5---open-vm-console) held the
+serial console back until it could be done without a proxy into libvirt. It can:
+`vm_manager` already has `vm-mgr console <guest>`, which asks Pacemaker where a
+cluster guest runs and attaches with
+`virsh -c qemu+ssh://libvirtadmin@<node>/system console`, or attaches to the
+local libvirt on a standalone machine.
+
+### The chain, and why it adds nothing
+
+```
+browser -> ssh ansible@<machine> -> sudo -n /bin/sh -c 'exec vm-mgr console <guest>'
+        -> qemu+ssh libvirtadmin@<hypervisor> -> the guest's serial port
+```
+
+- The first hop is the connection D19 and D51 already make, with the same keys
+  and the same strict host keys.
+- `sudo /bin/sh -c` is the rule the ISO grants and the one every run's become
+  uses. The `ansible` account is outside the `libvirt` group, and polkit asks
+  for root's password, so this is the shortest honest path.
+- The hop to the hypervisor is `vm_manager`'s own, as root, with the key
+  `add_libvirtadmin_user` generated and copied into `libvirtadmin`'s
+  `authorized_keys` on every hypervisor of the cluster. This service holds no
+  key for `libvirtadmin`, and giving it one would mean writing trust on the
+  hosts, which [D1](#d1---settled-the-ui-edits-the-inventory-it-does-not-configure-machines)
+  rules out.
+
+Which hypervisor runs the guest is Pacemaker's answer, read by `vm_manager`, the
+tool that owns the question.
+
+### The rules
+
+- **The browser names a guest, and the node writes the command.** The name must
+  be a guest of the inventory, and it is quoted for both shells it crosses.
+  `exec` leaves no shell on the machine once `virsh` exits.
+- **Where it runs.** A cluster guest is served from a hypervisor of the cluster
+  (`hypervisors` and `cluster_machines`), this machine first, otherwise the first
+  one whose host key is accepted. A standalone guest is served from the machine
+  whose libvirt exporter reports its domain. When nothing reports it, the only
+  standalone hypervisor, or this machine when there are several: a machine
+  picked at random could hold a different guest of the same name.
+- **`admin`, like a shell.** The chain passes through root on the machine it
+  runs on, so the rule of D19 applies unchanged. D5 recommended `operator`.
+  This keeps `admin`, because a fixed command only makes the shell on the
+  machine hard to reach, a weaker property than a role that already commands
+  root. `console_min_role` still moves the bar.
+- **Leaving it.** `Ctrl+]` detaches `virsh`, and the panel has a Detach button
+  sending that byte, since the chord is awkward on a French keyboard. Closing
+  the panel ends the ssh, which ends `virsh` with it.
+
+### Limits
+
+Libvirt allows one console session per domain, and `vm-mgr console` does not
+expose `--force`, so a second operator is refused with libvirt's message in the
+terminal. A guest Pacemaker stopped has no console to attach to, and `vm-mgr`
+says it runs nowhere. A guest whose XML declares no serial console, or whose
+kernel does not write to it, shows an empty terminal. The idle timeout counts
+keystrokes, so watching a boot scroll by without typing is closed after it.
+
+Verified on the demo cluster on 2026-09-15 before the page offered it: the
+command above, run through node2, answered "Connected to domain 'debian13c1'",
+a guest running on node3.
+

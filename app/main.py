@@ -145,6 +145,14 @@ def _replication_transport(settings: Settings, repository: Path) -> Transport:
     )
 
 
+def _domain_host(app: FastAPI, guest: str) -> str | None:
+    """The machine whose libvirt exporter reports a guest's domain, if any."""
+    for view in app.state.vm_service.guests().guests:
+        if view.name == guest and view.domain is not None:
+            return view.domain.host
+    return None
+
+
 def _default_console_adapter(settings: Settings) -> ConsoleAdapter:
     if settings.use_fakes:
         from app.console.fake import FakeConsoleAdapter
@@ -294,6 +302,10 @@ def create_app(
         extra_key_files=_site_keys(settings),
         hostname=hostname,
         inventory=app.state.inventory_service.state,
+        # Where libvirt reports a standalone guest, read when a serial console
+        # is asked for. Looked up through the state because the VM service is
+        # built further down, on top of the cluster readings.
+        locate=lambda guest: _domain_host(app, guest),
         enabled=settings.console_enabled,
         required_role=Role(settings.console_min_role),
         max_sessions=settings.console_max_sessions,

@@ -133,9 +133,13 @@ resource table. The page puts them on one row: the guest, whether it is running
 and where, whether a deployment would find the two files it names, and what the
 next run does to it, `force` being the word that matters there since the roles
 destroy and recreate a guest that carries it. The address a run reaches it at
-sits beside them, with whether the entry carries a cloud-init seed, and a
-switch above the table shows all the guests, the cluster ones or the standalone
-ones, with a count on each.
+sits beside them, with whether the entry carries a cloud-init seed and a
+**Console** button for a shell inside the guest at that address. **Serial
+console** is for the guest that no longer answers there: it runs
+`vm-mgr console` as root on a hypervisor, and `vm_manager` finds the machine
+running the guest and attaches to its serial port. A switch above the table
+shows all the guests, the cluster ones or the standalone ones, with a count on
+each.
 
 Where an inventory describes a cluster and a standalone machine at once, each
 guest says which of the two creates it, through `cluster_VMs` and

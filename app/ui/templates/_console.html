@@ -21,11 +21,23 @@ loads `console_scripts()` before its own script, which then calls
       <h2>Console</h2>
       <span class="console-target" id="console-target"></span>
       <span class="console-state" id="console-state"></span>
+      {# `Ctrl+]` is what leaves `virsh console`, and on a French keyboard it
+         is a chord few people find, so the byte gets a button of its own. #}
+      <button id="console-detach" type="button" class="secondary" hidden
+              title="Send Ctrl+] to leave the serial console">Detach</button>
       <button id="console-reconnect" type="button" hidden>Reconnect</button>
       <button id="console-close" type="button">Close</button>
     </div>
     <div class="console-screen" id="console-screen"></div>
-    <p class="legend">
+    <p class="legend" id="console-serial-note" hidden>
+      This is the guest's serial port, opened by <code>vm-mgr console</code>
+      on the machine named above. In a cluster it asks Pacemaker where the guest
+      runs and reaches that libvirt as <code>libvirtadmin</code>; on a
+      standalone machine it reads its own. Libvirt allows one
+      such session per guest. Detach, or <code>Ctrl+]</code>, leaves it, and a
+      guest with no serial console in its XML shows nothing at all.
+    </p>
+    <p class="legend" id="console-shell-note">
       This is a shell on the machine named above, opened over the same SSH path
       a run uses, so it lands on the <code>ansible</code> account. On a SEAPATH
       machine that account may run <code>/bin/sh</code> as root with no

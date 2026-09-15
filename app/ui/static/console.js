@@ -3,10 +3,11 @@
 
 // The console panel: xterm.js on one side, a websocket to this node on the
 // other, and nothing in between. The shell opens on this machine or on another
-// entry of the inventory, named in the `host` parameter; the node resolves the
-// name to the address a run connects to. The bytes the terminal draws are the bytes
-// that came off the pseudo terminal, which is why the socket is binary in that
-// direction and JSON in the other.
+// entry of the inventory, named in the `host` parameter, and a guest's serial
+// console is named in `serial`; the node resolves either to an address and a
+// command. The bytes the terminal draws are the bytes that came off the pseudo
+// terminal, which is why the socket is binary in that direction and JSON in
+// the other.
 //
 // The panel says what the console is every time it is opened, because a shell
 // is the one place in this UI where what an operator does is not recorded
@@ -48,6 +49,8 @@ const Console = (function () {
   // Reconnect goes back to the same machine.
   let targets = [];
   let current = null;
+  // The guest whose serial console the panel is open on, or null for a shell.
+  let serial = null;
 
   function element(id) {
     return document.getElementById(id);
@@ -123,7 +126,9 @@ const Console = (function () {
   function connect() {
     const url = new URL("api/v1/node/console/ws", window.location.href);
     url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    if (current) {
+    if (serial) {
+      url.searchParams.set("serial", serial);
+    } else if (current) {
       url.searchParams.set("host", current);
     }
     url.searchParams.set("columns", terminal.cols);
@@ -160,8 +165,10 @@ const Console = (function () {
   function control(message) {
     if (message.type === "ready") {
       state("connected", "ok");
-      element("console-target").textContent =
-        message.host + " (" + message.target + ")";
+      element("console-target").textContent = message.serial
+        ? message.serial + " serial console, through " +
+          message.host + " (" + message.target + ")"
+        : message.host + " (" + message.target + ")";
       terminal.focus();
     } else if (message.type === "error") {
       state(message.code, "bad");
@@ -173,11 +180,27 @@ const Console = (function () {
   // from opening a panel that is sure to be refused. The node resolves it
   // again, and is the one that decides.
   function open(name) {
+    show(name || null, null);
+  }
+
+  // A guest's serial console. The node picks the machine and the command, so
+  // all the page sends is the guest's name.
+  function openSerial(guest) {
+    show(null, guest);
+  }
+
+  function show(name, guest) {
     if (!allowed) {
       return;
     }
-    current = name || null;
-    element("console-target").textContent = current || "";
+    current = name;
+    serial = guest;
+    element("console-target").textContent = serial
+      ? serial + " serial console"
+      : current || "";
+    element("console-detach").hidden = !serial;
+    element("console-serial-note").hidden = !serial;
+    element("console-shell-note").hidden = Boolean(serial);
     element("console-modal").hidden = false;
     ensureTerminal();
     terminal.reset();
@@ -213,6 +236,13 @@ const Console = (function () {
       drawNodeControls(info);
     }
     return info;
+  }
+
+  // Whether this session may open a console at all, which is the whole of what
+  // a row needs to know before offering a guest's serial console: where it is
+  // opened from is the node's decision, made when it is asked.
+  function permitted() {
+    return allowed;
   }
 
   // The target a row may open a console on, or null when there is none to
@@ -291,11 +321,15 @@ const Console = (function () {
     });
   }
   element("console-close").addEventListener("click", close);
+  element("console-detach").addEventListener("click", () => {
+    send({ type: "input", data: "\u001d" });
+    terminal.focus();
+  });
   element("console-reconnect").addEventListener("click", () => {
     terminal.reset();
     fitAddon.fit();
     connect();
   });
 
-  return { describe, offers, open, close };
+  return { describe, offers, permitted, open, openSerial, close };
 })();

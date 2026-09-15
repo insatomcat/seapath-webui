@@ -19,7 +19,8 @@ across two reads must stay split rather than become a replacement character.
 
 Which machine the shell opens on is the `host` query parameter, a name the
 inventory declares, and this machine when it is absent. The address is never
-the browser's to give.
+the browser's to give. `serial` names a guest instead, and the node picks the
+machine and the command.
 """
 
 from __future__ import annotations
@@ -121,6 +122,7 @@ async def console_stream(websocket: WebSocket) -> None:
             columns,
             lines,
             host=websocket.query_params.get("host"),
+            serial=websocket.query_params.get("serial"),
         )
     except ConsoleUnavailable as failure:
         code = _NOT_FOUND if failure.status == 404 else _UNAVAILABLE
@@ -151,12 +153,15 @@ async def console_stream(websocket: WebSocket) -> None:
 
 
 def _ready(service: ConsoleService, opened: OpenedConsole) -> dict[str, str]:
-    return {
+    ready = {
         "type": "ready",
         "host": opened.target.name,
         "kind": opened.target.kind.value,
         "target": f"{service.user}@{opened.target.address}",
     }
+    if opened.guest:
+        ready["serial"] = opened.guest
+    return ready
 
 
 async def _pump(

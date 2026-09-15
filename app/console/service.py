@@ -22,11 +22,18 @@ entry of the inventory, and the address is the `ansible_host` a run would
 connect to. A console that accepted an address would be an ssh relay to
 anything the administration network routes, carrying the site key; one that
 accepts a name reaches exactly the machines and guests a run reaches. See D51.
+
+A guest's serial console is the same connection with one fixed command at the
+end of it: `vm-mgr console`, as root, on a machine that can reach the guest's
+libvirt. `vm_manager` finds the hypervisor through Pacemaker and reaches it as
+`libvirtadmin`, with the root key `add_libvirtadmin_user` provisioned, so this
+service reimplements none of it and adds no trust. See D52.
 """
 
 from __future__ import annotations
 
 import logging
+import shlex
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -36,6 +43,7 @@ from pydantic import BaseModel
 
 from app.console.adapter import ConsoleAdapter, ConsoleProcess, ConsoleRequest
 from app.core.auth import Role
+from app.inventory.model import Mode
 from app.inventory.service import InventoryState
 from app.trust import known_hosts
 
@@ -92,6 +100,21 @@ class ConsoleInfo(BaseModel):
 class OpenedConsole:
     process: ConsoleProcess
     target: ConsoleTarget
+    guest: str | None = None
+    """The guest whose serial console this is, reached through `target`."""
+
+
+def serial_command(guest: str) -> str:
+    """What the far end runs for a guest's serial console, quoted once per shell.
+
+    `sudo /bin/sh -c` because that is the whole of the rule the ISO grants the
+    `ansible` account, and `-n` so a machine where it is missing answers with an
+    error rather than a password prompt. `exec` so that `virsh` leaving, on
+    `Ctrl+]` or when the guest's console goes away, ends the session with no
+    shell left behind it on the hypervisor.
+    """
+    inner = f"exec vm-mgr console {shlex.quote(guest)}"
+    return f"sudo -n /bin/sh -c {shlex.quote(inner)}"
 
 
 class ConsoleService:
@@ -106,6 +129,7 @@ class ConsoleService:
         hostname: str = "",
         inventory: Callable[[], InventoryState] | None = None,
         extra_key_files: Callable[[], tuple[Path, ...]] = tuple,
+        locate: Callable[[str], str | None] | None = None,
         enabled: bool = True,
         required_role: Role = Role.VIEWER,
         max_sessions: int = 4,
@@ -119,6 +143,7 @@ class ConsoleService:
         self._hostname = hostname
         self._inventory = inventory
         self._extra_key_files = extra_key_files
+        self._locate = locate
         self._enabled = enabled
         self._required_role = required_role
         self._max_sessions = max_sessions
@@ -214,15 +239,89 @@ class ConsoleService:
             status=404,
         )
 
+    def serial_route(self, guest: str) -> ConsoleTarget:
+        """The machine a guest's serial console is opened from.
+
+        A cluster guest from a hypervisor of the cluster, this one when it is
+        one: `vm-mgr` asks Pacemaker where the guest runs and goes there
+        itself, so any of them will do. A standalone guest from the machine
+        whose libvirt exporter reports its domain, since `vm-mgr` there only
+        knows its own libvirt; when nothing reports it, the one standalone
+        machine if there is one, and this machine if it is among several.
+        """
+        state = self._inventory() if self._inventory is not None else None
+        inventory = state.inventory if state is not None else None
+        if inventory is None or guest not in inventory.guests:
+            raise ConsoleUnavailable(
+                "unknown_guest",
+                f"{guest} is not a guest of the inventory, so no serial console "
+                "can be opened on it.",
+                status=404,
+            )
+
+        targets = self.targets()
+        this_machine = targets[0].name
+        if inventory.deployment_of(guest) is Mode.CLUSTER:
+            candidates = inventory.placement_hosts()
+        else:
+            standalone = [
+                name
+                for name in inventory.hypervisors()
+                if name not in inventory.cluster_members
+            ]
+            located = self._located(guest)
+            if located in standalone:
+                candidates = [located]
+            elif len(standalone) == 1:
+                candidates = standalone
+            elif this_machine in standalone:
+                candidates = [this_machine]
+            else:
+                # Several machines and no reading saying which one holds the
+                # domain: picking one would open a console on a guest that is
+                # not there, which reads like a guest that is broken.
+                candidates = []
+
+        by_name = {target.name: target for target in targets}
+        for name in sorted(candidates, key=lambda name: name != this_machine):
+            target = by_name.get(name)
+            if target is not None and target.host_key_known:
+                return target
+        raise ConsoleUnavailable(
+            "no_hypervisor",
+            f"No machine this node can reach runs vm-mgr for {guest}: "
+            + (
+                "the candidates are " + ", ".join(candidates) + ", and none of "
+                "them has an ansible_host with an accepted host key."
+                if candidates
+                else "no libvirt exporter reports its domain, and the inventory "
+                "names no single machine it could be on."
+            ),
+        )
+
+    def _located(self, guest: str) -> str | None:
+        if self._locate is None:
+            return None
+        try:
+            return self._locate(guest)
+        except Exception as failure:  # noqa: BLE001 - a reading, never fatal
+            logger.warning("Could not tell where %s runs: %s", guest, failure)
+            return None
+
     async def open(
-        self, username: str, columns: int, lines: int, host: str | None = None
+        self,
+        username: str,
+        columns: int,
+        lines: int,
+        host: str | None = None,
+        serial: str | None = None,
     ) -> OpenedConsole:
         if not self._enabled:
             raise ConsoleUnavailable(
                 "console_disabled",
                 "The console is turned off on this node.",
             )
-        target = self.resolve(host)
+        target = self.serial_route(serial) if serial else self.resolve(host)
         if self._active >= self._max_sessions:
             raise ConsoleUnavailable(
                 "console_busy",
@@ -261,6 +360,7 @@ class ConsoleService:
             private_key_file=self._private_key_file,
             known_hosts_file=self._known_hosts_file,
             extra_key_files=extra,
+            command=serial_command(serial) if serial else "",
             columns=columns,
             lines=lines,
         )
@@ -272,12 +372,16 @@ class ConsoleService:
         logger.info(
             "Console opened by %s on %s, %s@%s (%d open)",
             username,
-            target.name,
+            (
+                f"the serial console of {serial} through {target.name}"
+                if serial
+                else target.name
+            ),
             self._user,
             target.address,
             self._active,
         )
-        return OpenedConsole(process=process, target=target)
+        return OpenedConsole(process=process, target=target, guest=serial)
 
     async def close(self, opened: OpenedConsole, username: str) -> None:
         code = await opened.process.close()
@@ -285,7 +389,11 @@ class ConsoleService:
         logger.info(
             "Console of %s on %s closed, ssh exit %s (%d open)",
             username,
-            opened.target.name,
+            (
+                f"the serial console of {opened.guest}"
+                if opened.guest
+                else opened.target.name
+            ),
             "unknown" if code is None else code,
             self._active,
         )

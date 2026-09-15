@@ -12,6 +12,7 @@ reached differently from how this service says it reaches machines.
 from __future__ import annotations
 
 import asyncio
+import shlex
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,12 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.console.adapter import ConsoleRequest, ssh_command
 from app.console.fake import FakeConsoleAdapter
-from app.console.service import ConsoleService, ConsoleUnavailable, clamp_window
+from app.console.service import (
+    ConsoleService,
+    ConsoleUnavailable,
+    clamp_window,
+    serial_command,
+)
 from app.core.auth import Role
 from app.core.settings import Settings
 from app.main import create_app
@@ -494,3 +500,192 @@ def test_the_names_a_known_hosts_file_holds_keys_for(tmp_path: Path) -> None:
         "10.0.0.5",
     }
     assert known_hosts.recorded_names(tmp_path / "missing") == set()
+
+
+# A guest's serial console: `vm-mgr console` at the end of the same connection.
+STANDALONE = """
+all:
+  hosts:
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+      admin_user: admin
+  children:
+    standalone_machine:
+      hosts:
+        seapath-machine:
+    hypervisors:
+      hosts:
+        seapath-machine:
+    VMs:
+      hosts:
+        ABBICT:
+"""
+
+
+def test_the_serial_console_command_is_vm_mgr_as_root_and_nothing_else() -> None:
+    # The whole of the ISO's rule is `/bin/sh`, `-n` keeps a missing rule from
+    # becoming a prompt, and `exec` leaves no shell on the hypervisor once
+    # `virsh` is gone. A name is quoted for both shells it crosses.
+    assert serial_command("vm-guest1") == (
+        "sudo -n /bin/sh -c 'exec vm-mgr console vm-guest1'"
+    )
+    assert shlex.split(shlex.split(serial_command("a'b; reboot"))[4]) == [
+        "exec",
+        "vm-mgr",
+        "console",
+        "a'b; reboot",
+    ]
+
+
+def test_a_cluster_guests_serial_console_runs_vm_mgr_on_a_reachable_hypervisor(
+    signed_in: TestClient, settings: Settings, console_adapter: FakeConsoleAdapter
+) -> None:
+    # This node is not in that cluster, so the first hypervisor whose host key
+    # is accepted drives: `vm-mgr` asks Pacemaker where the guest runs and goes
+    # there itself, as libvirtadmin.
+    _declare_cluster(signed_in)
+    _accept(settings, "10.132.159.61", "10.132.159.62")
+    settings.site_private_key_file.write_text("not a real key\n")
+
+    with connect(signed_in, "?serial=guest-dark") as socket:
+        assert socket.receive_json() == {
+            "type": "ready",
+            "host": "node2",
+            "kind": "machine",
+            "target": "ansible@10.132.159.61",
+            "serial": "guest-dark",
+        }
+
+    request = console_adapter.opened[0]
+    assert request.address == "10.132.159.61"
+    assert request.command == "sudo -n /bin/sh -c 'exec vm-mgr console guest-dark'"
+    assert request.extra_key_files == (settings.site_private_key_file,)
+    assert ssh_command(request)[-2:] == ["10.132.159.61", request.command]
+
+
+def test_a_standalone_guests_serial_console_runs_on_this_machine(
+    signed_in: TestClient, console_adapter: FakeConsoleAdapter
+) -> None:
+    response = signed_in.post("/api/v1/inventory/import", json={"document": STANDALONE})
+    assert response.status_code == 200, response.text
+
+    with connect(signed_in, "?serial=ABBICT") as socket:
+        ready = socket.receive_json()
+        assert ready["kind"] == "this_machine"
+        assert ready["serial"] == "ABBICT"
+
+    request = console_adapter.opened[0]
+    assert request.address == "127.0.0.1"
+    assert request.extra_key_files == ()
+    assert request.command.endswith("'exec vm-mgr console ABBICT'")
+
+
+def test_a_shell_carries_no_command(
+    signed_in: TestClient, console_adapter: FakeConsoleAdapter
+) -> None:
+    with connect(signed_in) as socket:
+        assert "serial" not in socket.receive_json()
+
+    assert console_adapter.opened[0].command == ""
+    assert ssh_command(console_adapter.opened[0])[-1] == "127.0.0.1"
+
+
+def test_a_serial_console_goes_only_to_a_guest_of_the_inventory(
+    signed_in: TestClient, settings: Settings, console_adapter: FakeConsoleAdapter
+) -> None:
+    # A machine is not a guest, and a name nobody declared reaches nothing.
+    _declare_cluster(signed_in)
+    _accept(settings, "10.132.159.61")
+
+    for name in ("node2", "elsewhere"):
+        with connect(signed_in, f"?serial={name}") as socket:
+            assert socket.receive_json()["code"] == "unknown_guest"
+            assert socket.receive()["code"] == 4404
+
+    assert console_adapter.opened == []
+
+
+def test_a_serial_console_with_no_reachable_hypervisor_says_which_were_tried(
+    signed_in: TestClient, console_adapter: FakeConsoleAdapter
+) -> None:
+    _declare_cluster(signed_in)
+
+    with connect(signed_in, "?serial=guest-dark") as socket:
+        message = socket.receive_json()
+        assert message["code"] == "no_hypervisor"
+        assert "node1, node2, node3" in message["message"]
+        assert socket.receive()["code"] == 4409
+
+    assert console_adapter.opened == []
+
+
+def test_a_serial_console_needs_the_same_role(signed_in_viewer: TestClient) -> None:
+    with connect(signed_in_viewer, "?serial=guest-dark") as socket:
+        assert socket.receive_json()["code"] == "permission_denied"
+
+
+def _standalone_service(tmp_path: Path, document: str, located: str | None):
+    from app.inventory.parser import parse
+    from app.inventory.service import InventoryState
+
+    (tmp_path / "key").write_text("")
+    record = tmp_path / "known_hosts"
+    known_hosts.accept_peers(record, {"10.0.0.2": [HOST_KEY], "10.0.0.3": [HOST_KEY]})
+    return ConsoleService(
+        FakeConsoleAdapter(),
+        target="127.0.0.1",
+        user="ansible",
+        private_key_file=tmp_path / "key",
+        known_hosts_file=record,
+        hostname="box1",
+        inventory=lambda: InventoryState(
+            inventory=parse(document), seeded=True, this_host="box1"
+        ),
+        locate=lambda guest: located,
+    )
+
+
+TWO_STANDALONE = """
+all:
+  hosts:
+    box1:
+      ansible_host: 10.0.0.1
+    box2:
+      ansible_host: 10.0.0.2
+    box3:
+      ansible_host: 10.0.0.3
+  children:
+    standalone_machine:
+      hosts:
+        box1:
+        box2:
+        box3:
+    hypervisors:
+      hosts:
+        box1:
+        box2:
+        box3:
+    VMs:
+      hosts:
+        guest:
+"""
+
+
+def test_a_standalone_guest_is_reached_where_libvirt_reports_it(
+    tmp_path: Path,
+) -> None:
+    service = _standalone_service(tmp_path, TWO_STANDALONE, located="box3")
+
+    assert service.serial_route("guest").name == "box3"
+
+
+def test_an_unlocated_guest_among_several_machines_is_tried_on_this_one(
+    tmp_path: Path,
+) -> None:
+    # On this machine rather than an arbitrary other: a guest that is not here
+    # makes `virsh` say so, while a guest on a machine picked at random could
+    # be a different guest of the same name.
+    service = _standalone_service(tmp_path, TWO_STANDALONE, located=None)
+
+    assert service.serial_route("guest").name == "box1"

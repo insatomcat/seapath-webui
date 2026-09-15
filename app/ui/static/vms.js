@@ -283,6 +283,23 @@
   // reports as stopped a start, and a guest nothing reports at all neither,
   // because there is no domain to act on until it has been deployed.
   function acts(guest) {
+    const cell = runtimeActs(guest);
+    // The guest's serial console, for the moment it no longer answers on its
+    // address. Offered once something reports the guest, since before that
+    // there is no domain whose serial port could be read.
+    if (Console.permitted() && (guest.resource || guest.domain)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Serial console";
+      button.title = "Open " + guest.name + "'s serial console with vm-mgr console";
+      button.addEventListener("click", () => Console.openSerial(guest.name));
+      cell.append(cell.childNodes.length ? " " : "", button);
+    }
+    return cell;
+  }
+
+  function runtimeActs(guest) {
     const cell = document.createElement("td");
     cell.className = "acts";
     if (!canAct) {

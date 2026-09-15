@@ -657,3 +657,20 @@ console a terminal for the keys it offers. See [D51](decisions.md#d51).
 Checks 1 and 2 ran against the demo cluster before the code was written, since
 their answer decided whether the feature needed a change to the trust. It did
 not.
+
+## A guest's serial console
+
+The suite asserts the command, its quoting and where it is sent. What it cannot
+show is `vm_manager` finding the hypervisor and libvirt handing over the serial
+port. See [D52](decisions.md#d52).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | `sudo -n /bin/sh -c 'exec vm-mgr console <guest>'`, run over the console's ssh command line on a hypervisor that does not host the guest, attaches to it | Pacemaker's location, `libvirtadmin`'s trust and libvirt's console, end to end | Passed on ccv1 on 2026-09-15: through node2, "Connected to domain 'debian13c1'", which runs on node3 |
+| 2 | **Serial console** on the VMs page shows the guest's login prompt after `Enter`, and a login works | The websocket, the pty and a real serial port together | Pending |
+| 3 | **Detach** ends the session with the panel saying so, and Reconnect opens a new one straight away | `Ctrl+]` reaching `virsh` through xterm.js and ssh, and libvirt releasing the console | Pending |
+| 4 | A second browser opening the same guest's serial console gets libvirt's refusal in the terminal, and the first session is untouched | The one session per domain libvirt enforces | Pending |
+| 5 | A standalone machine's guest opens its serial console from that machine | The local branch of `vm_manager` | Pending |
+

@@ -56,6 +56,10 @@ class ConsoleRequest:
     # Offered after `private_key_file`, in the order a run offers them: the
     # site key, to a machine that is not this one.
     extra_key_files: tuple[Path, ...] = ()
+    # What the far end runs in the terminal instead of the login shell, as one
+    # string the remote shell parses. Empty for a shell, and set by the service
+    # alone for a guest's serial console: nothing a browser sends reaches it.
+    command: str = ""
     columns: int = 80
     lines: int = 24
 
@@ -119,6 +123,7 @@ def ssh_command(request: ConsoleRequest) -> list[str]:
         "-l",
         request.user,
         request.address,
+        *([request.command] if request.command else []),
     ]
 
 

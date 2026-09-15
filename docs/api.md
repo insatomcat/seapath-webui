@@ -327,7 +327,7 @@ is where this service answers "who changed what, and when".
 | GET | `/node/network` | Interfaces, addresses, link state, default route |
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |
 | GET | `/node/console` | Whether a console can be opened, on which account and on which machines, and how many are open |
-| WS | `/node/console/ws` | The console itself: a shell on this machine, or on the entry `?host=` names |
+| WS | `/node/console/ws` | The console itself: a shell on this machine, on the entry `?host=` names, or the serial console of the guest `?serial=` names |
 | GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
@@ -579,6 +579,18 @@ this API that is a stream. `?host=<name>` opens it on a target, and without the
 parameter it opens on this machine. The value is a name from `targets`, never
 an address: a console that accepted an address would be an ssh relay, carrying
 the site key, to anything the administration network routes.
+
+`?serial=<guest>` opens a guest's serial console instead. The node picks where:
+for a cluster guest, this machine when it is a hypervisor of the cluster,
+otherwise the first one with an accepted host key; for a standalone guest, the
+machine whose libvirt exporter reports the domain, the only standalone machine,
+or this one among several. It connects there as for a shell and runs one fixed
+command, `sudo -n /bin/sh -c 'exec vm-mgr console <guest>'`, so `vm_manager`
+finds the hypervisor and attaches to the serial port. The `ready` event then
+carries `serial`, the guest's name, and `host` names the machine it went
+through. A name that is not a guest of the inventory closes with `4404`
+(`unknown_guest`), and a guest no reachable machine can serve with `4409`
+(`no_hypervisor`). `Ctrl+]`, sent as the input byte `\u001d`, leaves it.
 
 - The browser sends JSON text frames, `{"type": "input", "data": "..."}` and
   `{"type": "resize", "columns": n, "lines": n}`. The node sends the terminal's
