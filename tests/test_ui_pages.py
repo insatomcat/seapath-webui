@@ -1391,18 +1391,20 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
 
     assert 'item.id.startsWith("cli-prefer-")' in script
     assert 'item.id.startsWith("pin-")' in script
-    # Three states in the colour of the node name, and an entry declaring a
+    # Four states in the colour of the node name, and an entry declaring a
     # placement the cluster does not hold is one of them: the inventory and the
     # cluster disagree, which is the same finding as a constraint nobody
     # declared.
-    assert 'name.className = "placement " + placementState(held, declared)' in script
+    assert (
+        'name.className = "placement " + placementState(held, declared, where)'
+    ) in script
     assert 'return declared ? "adrift" : "free";' in script
     assert 'return held.node === declared ? "kept" : "adrift";' in script
     # And the sentence behind the colour, which carries what to do about it.
     # The subject of every one of them is the placement rather than the guest:
     # "declared" on its own would read as whether the inventory has the guest
     # at all, which is a different question this page also answers.
-    assert "name.title = explain(guest.name, held, declared)" in script
+    assert "name.title = explain(guest.name, held, declared, where)" in script
     assert '"No constraint holds " +' in script
     assert "declares no placement, so the cluster " in script
     assert '". A deployment run writes that placement to the cluster."' in script
@@ -1411,18 +1413,62 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
     assert "leaves the placement to Pacemaker" in script
 
     # A colour nobody has been told the meaning of is a decoration, so the
-    # three are keyed under the table.
+    # four are keyed under the table.
     body = signed_in.get("/vms").text
     css = signed_in.get("/static/style.css").text
 
     assert '<span class="placement free">node</span> the cluster places' in body
     assert "held where the inventory declares" in body
     assert "cluster and inventory disagree" in body
+    assert "not the machine the constraint names" in body
     assert ".placement.free {\n  color: var(--accent);\n}" in css
     assert ".placement.kept {\n  color: var(--ok);\n}" in css
     assert ".placement.adrift {\n  color: var(--warn);\n}" in css
+    assert ".placement.displaced {\n  color: var(--bad);\n}" in css
     # And the dotted underline, which is what says a node carries a sentence.
     assert ".placement {\n  text-decoration: underline dotted;" in css
+
+
+def test_the_vms_page_marks_a_guest_the_cluster_could_not_place_where_it_says(
+    signed_in: TestClient,
+) -> None:
+    # The third record, and the one the first version of this colour left out.
+    # A placement carries an infinite score, so a guest running anywhere but
+    # the machine its own constraint names says that machine could not take it,
+    # which outranks any disagreement between the entry and the CIB. See D34.
+    script = signed_in.get("/static/vms.js").text
+
+    assert 'if (held && held.node !== where) {\n      return "displaced";' in script
+    assert '" is running on " +' in script
+    assert (
+        "could not take it: offline, in standby, or the guest failed there." in script
+    )
+    # Where the two records agree there is nothing to put back: the guest
+    # returns by itself once the machine can hold it again.
+    assert "so there is nothing here to put back: the guest returns on its " in script
+
+
+def test_the_vms_page_offers_a_return_only_where_there_is_one_to_make(
+    signed_in: TestClient,
+) -> None:
+    # Return on a guest whose constraint already names what the entry declares
+    # clears it and writes the identical one straight back: no migration, no
+    # change in the CIB, one run in the audit trail for nothing. See D34.
+    script = signed_in.get("/static/vms.js").text
+
+    assert 'if (held && held.node !== (guest.preferred_host || "")) {' in script
+    # `crm resource clear` takes the bans with the preference, and a ban is how
+    # a guest is kept off an observer. Nobody asks for that when they ask for a
+    # placement back, so the window that names the disruption names them.
+    assert 'item.id.startsWith("cli-ban-")' in script
+    assert "crm resource clear takes the bans on this guest with it: " in script
+    assert "deployment run is what writes it again." in script
+
+    # The same side effect on the Cluster page, where the same act is offered
+    # on the raw resource.
+    cluster = signed_in.get("/static/cluster.js").text
+
+    assert "It takes the bans on this resource with it: " in cluster
 
 
 def test_the_vms_page_reads_its_two_lists_side_by_side(

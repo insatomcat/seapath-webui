@@ -573,6 +573,12 @@
 
   function confirmClear(resource, cluster) {
     const held = preferenceOf(cluster, resource.id);
+    // `crm resource clear` removes the bans along with the preference, and a
+    // ban is how an observer is kept from running guests. Nobody asks for that
+    // when they ask for a placement back, so the disruption says it.
+    const bans = cluster.constraints.filter(
+      (item) => item.resource === resource.id && item.id.startsWith("cli-ban-")
+    );
     confirm({
       title: "Return " + resource.id + " to the cluster",
       body:
@@ -580,7 +586,13 @@
         (held ? held.id : "the cli-prefer constraint") +
         ", and writes back the placement the inventory declares for this " +
         "guest where it declares one. Pacemaker may move the resource as a " +
-        "result, at the same cost the move had.",
+        "result, at the same cost the move had." +
+        (bans.length
+          ? " It takes the bans on this resource with it: " +
+            bans.map((item) => item.id).join(", ") +
+            ". A ban is how a guest is kept off an observer, and the next " +
+            "deployment run is what writes it again."
+          : ""),
       note:
         "What is written back is the inventory's preferred_host. Where that " +
         "differs from the value on the guest's image, the metadata window is " +

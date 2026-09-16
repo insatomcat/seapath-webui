@@ -2159,16 +2159,54 @@ whatever an operator did in the meantime.
 **Where the override is made visible.** The Cluster page's constraint table
 already showed these rules and now says what each prefix means. The VMs page
 holds the constraint on each guest against the `preferred_host` its entry
-declares, and says the result in the colour of the node name: blue where
-nothing holds the guest and the cluster places it, green where the constraint
-and the entry agree, amber where they disagree either way round, with the whole
+declares, and says the result in the colour of the node name, with the whole
 sentence on hover. That comparison is the only way to see an override at all:
 the CIB cannot say who asked for a `cli-prefer-<resource>`, so the reading that
 means something is the constraint held against the entry.
 
 The first form of it was a badge spelling that sentence out beside every node
-name, and it cost the table its widest column for a reading that is three
-states. A colour carries three states, and the column is the node name again.
+name, and it cost the table its widest column for a reading that is a handful
+of states. A colour carries them, and the column is the node name again.
+
+**Three records are compared and not two.** The first version of the colour
+held the constraint against the entry and stopped there, which left a guest
+green while it was running on a machine neither of them named. That is the
+state an operator opens this page during an incident to find, and it was the
+one state the page did not say. The third record is where the guest is running
+at this moment, and it is the node name the colour is painted on.
+
+So four states, in the order the colour resolves them:
+
+- blue, nothing holds the guest and its entry declares nothing: the cluster
+  places it, and there is nothing to reconcile;
+- red, the constraint names a machine the guest is not running on. `crm
+  resource move` writes an infinite score, so this happens only when the named
+  machine cannot take the guest: offline, in standby, or the guest failed
+  there. It outranks the two readings below, which are about records
+  disagreeing, because this one is about a machine being down;
+- amber, the constraint and the entry disagree, either way round, an entry
+  declaring a placement the cluster does not hold included;
+- green, the entry declares this machine, the constraint holds it there, and
+  the guest is running on it.
+
+**Return is offered where there is something to return.** The button appeared
+on every guest carrying a `cli-prefer`, green ones included, and on a green
+guest it clears the constraint and writes the identical one back: no
+migration, no change in the CIB, one run and one line of the audit trail for
+nothing. It was also the question the page got asked most, since a button on a
+row reads as a claim that the row has something to put right. It is offered
+now where the constraint names a machine the entry does not, which is the
+definition of a move waiting to be undone.
+
+**A return takes the bans with it.** `crm resource clear` removes the
+`cli-ban-<resource>-on-<node>` constraints along with the preference, and a ban
+is what `vm_manager` writes to keep a guest off an observer. Nobody asks for
+that when they ask for a placement back, and the VMs page does not even list
+the bans, so both confirmations name them and say that the next deployment run
+is what writes them again. Removing the side effect is not on the table: a
+targeted `crm configure delete cli-prefer-<resource>` would leave this service
+composing CIB surgery of its own, where the whole point of D34 is that it runs
+the commands upstream already runs.
 
 ### What was refused
 

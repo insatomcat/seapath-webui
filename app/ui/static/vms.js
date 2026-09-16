@@ -343,6 +343,12 @@
   // the same `cli-prefer` object, so the CIB cannot say who asked for it; held
   // against the entry it can say whether anybody declared it.
   //
+  // Three things are held against each other and not two: the entry, the
+  // constraint, and the machine the guest is running on at this moment. A
+  // colour that compared the first two alone called a guest green while it was
+  // running somewhere else entirely, which is a reading an operator opens this
+  // page to get.
+  //
   // The answer used to be a badge spelling that sentence out beside every node
   // name, which made this column the widest in the table for a reading that is
   // three states. The colour of the node name carries the three, and the
@@ -361,18 +367,27 @@
     const held = preferenceOf(guest);
     const declared = guest.preferred_host || "";
     const name = document.createElement("span");
-    name.className = "placement " + placementState(held, declared);
+    name.className = "placement " + placementState(held, declared, where);
     name.textContent = where;
-    name.title = explain(guest.name, held, declared);
+    name.title = explain(guest.name, held, declared, where);
     box.append(name);
     return box;
   }
 
-  // The three states the colour says, and the only thing it says. An entry
-  // that declares a placement the cluster does not hold is the same finding as
-  // a cluster holding one the entry never named: the two disagree, and which
-  // way round is in the sentence rather than in the colour.
-  function placementState(held, declared) {
+  // The four states the colour says, and the only thing it says. An entry that
+  // declares a placement the cluster does not hold is the same finding as a
+  // cluster holding one the entry never named: the two disagree, and which way
+  // round is in the sentence rather than in the colour.
+  //
+  // The fourth is the cluster failing to honour a rule it carries, and it
+  // comes first because it outranks every disagreement about where the guest
+  // belongs. `crm resource move` writes an infinite score, so a guest running
+  // anywhere but the machine its own constraint names means that machine could
+  // not take it: it is down, in standby, or the guest failed there.
+  function placementState(held, declared, where) {
+    if (held && held.node !== where) {
+      return "displaced";
+    }
     if (!held) {
       return declared ? "adrift" : "free";
     }
@@ -384,7 +399,47 @@
   // every one of them is the placement and never the guest: "declared" alone
   // would read as whether the inventory has the guest at all, which is a
   // different question this page also answers.
-  function explain(name, held, declared) {
+  function explain(name, held, declared, where) {
+    // The cluster is running the guest away from an infinite preference, which
+    // is a finding about a machine rather than a drift between two records.
+    // What the entry says is still worth a clause, because it decides what a
+    // return would put back.
+    if (held && held.node !== where) {
+      const unheld =
+        held.id +
+        " names " +
+        held.node +
+        ", and " +
+        name +
+        " is running on " +
+        where +
+        ". A placement carries an infinite score, so the cluster put the " +
+        "guest elsewhere only because " +
+        held.node +
+        " could not take it: offline, in standby, or the guest failed there.";
+      if (declared === held.node) {
+        return (
+          unheld +
+          " The constraint and the inventory entry agree on " +
+          held.node +
+          ", so there is nothing here to put back: the guest returns on its " +
+          "own once that machine can take it again."
+        );
+      }
+      if (declared) {
+        return (
+          unheld +
+          " The inventory entry declares " +
+          declared +
+          ", and Return writes that placement back."
+        );
+      }
+      return (
+        unheld +
+        " The inventory entry declares no placement at all, and Return " +
+        "removes the constraint and leaves the placement to Pacemaker."
+      );
+    }
     if (!held && !declared) {
       return (
         "No constraint holds " +
@@ -458,6 +513,17 @@
     return (guest.constraints || []).find((item) => item.id.startsWith("pin-"));
   }
 
+  // `cli-ban-<resource>-on-<node>` is what an observer leaves: `vm_manager`
+  // bans a guest from a machine that declares itself one. `crm resource clear`
+  // removes those along with the preference, which is a side effect of the
+  // return rather than anything it was asked for, so the confirmation names
+  // them and says what puts them back.
+  function bansOf(guest) {
+    return (guest.constraints || []).filter((item) =>
+      item.id.startsWith("cli-ban-")
+    );
+  }
+
   // Moving a guest, and giving its placement back. Offered on a guest
   // Pacemaker holds and nowhere else: a standalone guest has no cluster to
   // hear a constraint, and a pinned one runs where it is pinned or nowhere,
@@ -483,7 +549,15 @@
       move.addEventListener("click", () => confirmMove(guest, options));
       box.append(move);
     }
-    if (preferenceOf(guest)) {
+    // Return is the inverse of a move, so it is offered where there is a move
+    // to undo: a constraint naming a machine the entry does not name. Where
+    // the two already agree the run would clear the constraint and write the
+    // same one straight back, moving nothing and changing nothing, at the cost
+    // of a run and a line of the audit trail. Offered there it also made the
+    // green state unreadable, since a button on a row is a claim that the row
+    // has something to put right.
+    const held = preferenceOf(guest);
+    if (held && held.node !== (guest.preferred_host || "")) {
       const back = document.createElement("button");
       back.type = "button";
       back.className = "secondary";
@@ -531,6 +605,10 @@
 
   function confirmReturn(guest) {
     const held = preferenceOf(guest);
+    // The bans belong in the disruption rather than in the aside under it:
+    // `crm resource clear` takes them with the preference, so removing them is
+    // part of what the button does even though nobody asked for it.
+    const bans = bansOf(guest);
     confirm({
       title: "Return " + guest.name + " to the cluster",
       body:
@@ -540,7 +618,13 @@
           ? ", and writes back preferred_host: " + guest.preferred_host + "."
           : ", and the inventory declares no placement to write back, so " +
             "Pacemaker places the guest by its own rules.") +
-        " It may move as a result, at the same cost the move had.",
+        " It may move as a result, at the same cost the move had." +
+        (bans.length
+          ? " crm resource clear takes the bans on this guest with it: " +
+            bans.map((item) => item.id).join(", ") +
+            ". A ban is how a guest is kept off an observer, and the next " +
+            "deployment run is what writes it again."
+          : ""),
       note:
         "What is written back is the inventory's preferred_host. Where that " +
         "differs from _preferred_host on the guest's image, the metadata " +

@@ -3025,10 +3025,12 @@ td.meta-key code.reserved {
 /* Where the guest is, and what holds it there, said by the colour of the node
    name: blue where nothing holds the guest and the cluster places it, green
    where the cluster holds it exactly where its inventory entry says, amber
-   where the two disagree either way round. The reading used to be a badge
-   spelling that out beside every node name, and a sentence per row made this
-   column the widest in the table. The sentence is on hover now, and the dotted
-   underline is what says there is one to read. */
+   where the two disagree either way round, red where the guest is running on
+   a machine its own constraint does not name, which means the one it names
+   could not take it. The reading used to be a badge spelling that out beside
+   every node name, and a sentence per row made this column the widest in the
+   table. The sentence is on hover now, and the dotted underline is what says
+   there is one to read. */
 td.placed {
   white-space: nowrap;
 }
@@ -3051,7 +3053,11 @@ td.placed {
   color: var(--warn);
 }
 
-/* The key to those three, under the table, because a colour nobody has been
+.placement.displaced {
+  color: var(--bad);
+}
+
+/* The key to those four, under the table, because a colour nobody has been
    told the meaning of is a decoration. */
 .placement-key {
   display: flex;
