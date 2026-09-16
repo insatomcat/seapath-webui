@@ -1059,20 +1059,45 @@
     renderFilter(view);
     const rows = element("guest-rows");
     rows.replaceChildren();
-    (view.guests || []).filter((guest) => shown(guest.deployment)).forEach((guest) => {
+    const listed = (view.guests || []).filter((guest) => shown(guest.deployment));
+    // The Creation column, only where it has something to say about the guests
+    // on screen. Everything it carries belongs to a window: the recipe until
+    // the run that creates the guest takes it out of the entry, `force` for as
+    // long as the entry carries it, and the files to delete until somebody
+    // does. Outside those a converged inventory gives the column nothing, and
+    // an empty column on every row is width this table does not have on a
+    // laptop. It comes back on its own with the next guest declared.
+    //
+    // Judged against the rows the filter is showing, because the width is what
+    // is being spent and the rows are what spend it.
+    const creation = listed.some(hasCreation);
+    element("creation-head").hidden = !creation;
+    listed.forEach((guest) => {
       row(rows, [
         cell(guest.name),
         deployedBy(guest),
         state(guest),
         nodeCell(guest),
         addressCell(guest),
-        creationCell(guest),
+        ...(creation ? [creationCell(guest)] : []),
         acts(guest),
         placement(guest),
         metaButton(guest.name, guest.deployment),
       ]);
     });
     element("guest-table").hidden = !(view.guests || []).length;
+  }
+
+  // What `creationCell` would draw for this guest, as a yes or no. The two
+  // have to agree: a column shown with nothing in it is the state this hides,
+  // and a column hidden over a row that had something takes an act away. The
+  // files are admin's, so for anybody else that third reading is already no.
+  function hasCreation(guest) {
+    return Boolean(
+      (guest.creation || []).length ||
+        guest.force ||
+        (canWrite && (guest.sources || []).length)
+    );
   }
 
   // The filter, with how many rows of the table each choice lists. The count

@@ -1248,8 +1248,11 @@ def test_the_vms_page_joins_the_definition_and_the_state(
     # The two halves are on one row and labelled as two: the definition
     # columns are the desired state, the state and node columns are what
     # Pacemaker reports at this moment.
-    for column in ("Guest", "State", "Node", "Creation"):
+    for column in ("Guest", "State", "Node"):
         assert f"<th>{column}</th>" in body
+    # Creation carries an id because the page hides it where it would be empty
+    # on every row, which on a converged inventory is every page load.
+    assert '<th id="creation-head">Creation</th>' in body
     # And where each of them is changed, since nothing on this page writes.
     assert 'href="inventory"' in body
     assert 'href="deployment"' in body
@@ -1377,6 +1380,29 @@ def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
 
     assert '<div class="modal" id="add-modal"' in body
     assert 'id="add-steps"' in body
+
+
+def test_the_creation_column_goes_away_when_it_has_nothing_to_say(
+    signed_in: TestClient,
+) -> None:
+    # Everything that column carries belongs to a window: the recipe until the
+    # run that creates the guest takes it out of the entry, `force` while the
+    # entry carries it, and the files to delete until somebody does. A
+    # converged inventory is outside all three, and an empty column on every
+    # row is width this table does not have on a laptop.
+    script = signed_in.get("/static/vms.js").text
+    body = signed_in.get("/vms").text
+
+    assert '<th id="creation-head">Creation</th>' in body
+    assert 'element("creation-head").hidden = !creation;' in script
+    assert "const creation = listed.some(hasCreation);" in script
+    # The cell goes with the header, so the row keeps as many cells as the
+    # table has visible columns.
+    assert "...(creation ? [creationCell(guest)] : [])," in script
+    # And the test of what the cell would hold has to be the cell's own three
+    # readings, the admin only one included.
+    assert "(guest.creation || []).length ||" in script
+    assert "(canWrite && (guest.sources || []).length)" in script
 
 
 def test_a_forced_guest_says_a_run_recreates_it(signed_in: TestClient) -> None:
