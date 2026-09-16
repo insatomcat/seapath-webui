@@ -2158,11 +2158,17 @@ whatever an operator did in the meantime.
 
 **Where the override is made visible.** The Cluster page's constraint table
 already showed these rules and now says what each prefix means. The VMs page
-carries the constraint holding each guest beside the `preferred_host` its entry
-declares, and marks the row when the two disagree. That comparison is the only
-way to see an override at all: the CIB cannot say who asked for a
-`cli-prefer-<resource>`, so the reading that means something is the constraint
-held against the entry.
+holds the constraint on each guest against the `preferred_host` its entry
+declares, and says the result in the colour of the node name: blue where
+nothing holds the guest and the cluster places it, green where the constraint
+and the entry agree, amber where they disagree either way round, with the whole
+sentence on hover. That comparison is the only way to see an override at all:
+the CIB cannot say who asked for a `cli-prefer-<resource>`, so the reading that
+means something is the constraint held against the entry.
+
+The first form of it was a badge spelling that sentence out beside every node
+name, and it cost the table its widest column for a reading that is three
+states. A colour carries three states, and the column is the node name again.
 
 ### What was refused
 

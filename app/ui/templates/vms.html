@@ -86,6 +86,14 @@ image and losing its disk. D31 records the bounds.
 
       <p class="pane-foot">
         <span class="pane-foot-note" id="runtime-note"></span>
+        {# The key to the colour of a node name, which is where the table says
+           what holds a guest on the machine it is running on. Three states fit
+           in a colour; the sentence behind each one is on hover. #}
+        <span class="pane-foot-note placement-key">
+          <span><span class="placement free">node</span> the cluster places</span>
+          <span><span class="placement kept">node</span> held where the inventory declares</span>
+          <span><span class="placement adrift">node</span> cluster and inventory disagree</span>
+        </span>
       </p>
     </section>
   </div>

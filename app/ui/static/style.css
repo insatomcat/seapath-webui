@@ -3022,11 +3022,41 @@ td.meta-key code.reserved {
   }
 }
 
-/* Where the guest is, and the badge that says what holds it there, on one
-   line. The column is as wide as that sentence, which is what makes every row
-   of this table the same height. */
+/* Where the guest is, and what holds it there, said by the colour of the node
+   name: blue where nothing holds the guest and the cluster places it, green
+   where the cluster holds it exactly where its inventory entry says, amber
+   where the two disagree either way round. The reading used to be a badge
+   spelling that out beside every node name, and a sentence per row made this
+   column the widest in the table. The sentence is on hover now, and the dotted
+   underline is what says there is one to read. */
 td.placed {
   white-space: nowrap;
+}
+
+.placement {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  cursor: help;
+}
+
+.placement.free {
+  color: var(--accent);
+}
+
+.placement.kept {
+  color: var(--ok);
+}
+
+.placement.adrift {
+  color: var(--warn);
+}
+
+/* The key to those three, under the table, because a colour nobody has been
+   told the meaning of is a decoration. */
+.placement-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
 }
 
 /* Move and Return, side by side for the same reason. */

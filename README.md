@@ -132,7 +132,11 @@ around that file, and what it is doing right now is one line of the Pacemaker
 resource table. The page puts them on one row: the guest, whether it is running
 and where, whether a deployment would find the two files it names, and what the
 next run does to it, `force` being the word that matters there since the roles
-destroy and recreate a guest that carries it. The address a run reaches it at
+destroy and recreate a guest that carries it. The node it runs on says in its
+colour what holds it there: blue where nothing does and the cluster placed it,
+green where a constraint holds it exactly where its inventory entry declares,
+amber where the cluster and the inventory disagree, with the whole sentence on
+hover. The address a run reaches it at
 sits beside them, with whether the entry carries a cloud-init seed and a
 **Console** button for a shell inside the guest at that address. **Serial
 console** is for the guest that no longer answers there: it runs

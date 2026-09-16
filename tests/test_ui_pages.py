@@ -1391,15 +1391,38 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
 
     assert 'item.id.startsWith("cli-prefer-")' in script
     assert 'item.id.startsWith("pin-")' in script
-    # The three readings, and the subject of each is the placement rather than
-    # the guest: "declared" on its own would read as whether the inventory has
-    # the guest at all, which is a different question this page also answers.
-    assert '", as the inventory declares"' in script
-    assert '", inventory declares " + declared' in script
-    assert '", inventory declares no placement"' in script
-    # And the sentence behind the tag, which carries what to do about it.
+    # Three states in the colour of the node name, and an entry declaring a
+    # placement the cluster does not hold is one of them: the inventory and the
+    # cluster disagree, which is the same finding as a constraint nobody
+    # declared.
+    assert 'name.className = "placement " + placementState(held, declared)' in script
+    assert 'return declared ? "adrift" : "free";' in script
+    assert 'return held.node === declared ? "kept" : "adrift";' in script
+    # And the sentence behind the colour, which carries what to do about it.
+    # The subject of every one of them is the placement rather than the guest:
+    # "declared" on its own would read as whether the inventory has the guest
+    # at all, which is a different question this page also answers.
+    assert "name.title = explain(guest.name, held, declared)" in script
+    assert '"No constraint holds " +' in script
+    assert "declares no placement, so the cluster " in script
+    assert '". A deployment run writes that placement to the cluster."' in script
+    assert '", which is the placement its inventory entry declares."' in script
     assert "Return writes " in script
     assert "leaves the placement to Pacemaker" in script
+
+    # A colour nobody has been told the meaning of is a decoration, so the
+    # three are keyed under the table.
+    body = signed_in.get("/vms").text
+    css = signed_in.get("/static/style.css").text
+
+    assert '<span class="placement free">node</span> the cluster places' in body
+    assert "held where the inventory declares" in body
+    assert "cluster and inventory disagree" in body
+    assert ".placement.free {\n  color: var(--accent);\n}" in css
+    assert ".placement.kept {\n  color: var(--ok);\n}" in css
+    assert ".placement.adrift {\n  color: var(--warn);\n}" in css
+    # And the dotted underline, which is what says a node carries a sentence.
+    assert ".placement {\n  text-decoration: underline dotted;" in css
 
 
 def test_the_vms_page_reads_its_two_lists_side_by_side(
@@ -1416,10 +1439,11 @@ def test_the_vms_page_reads_its_two_lists_side_by_side(
     assert '<div class="column aside">' in body
     assert "@media (min-width: 83rem) {\n  .page.vms {\n    display: flex;" in css
 
-    # The badge beside the node is a sentence about a placement, and a column
-    # narrow enough to break it after every second word made three rows of
-    # this table four lines tall.
-    assert 'cell(where, "placed")' in script
+    # The node column says what holds a guest in the colour of the node name,
+    # which costs the table no width. The badge it replaced was a sentence per
+    # row, and a column narrow enough to break it after every second word made
+    # three rows of this table four lines tall.
+    assert 'box.className = "placed";' in script
     assert "td.placed {\n  white-space: nowrap;\n}" in css
     assert "#guest-rows td.acts {\n  white-space: nowrap;\n}" in css
 

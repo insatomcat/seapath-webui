@@ -342,49 +342,70 @@
   // The comparison is the whole point. `preferred_host` and a move here write
   // the same `cli-prefer` object, so the CIB cannot say who asked for it; held
   // against the entry it can say whether anybody declared it.
+  //
+  // The answer used to be a badge spelling that sentence out beside every node
+  // name, which made this column the widest in the table for a reading that is
+  // three states. The colour of the node name carries the three, and the
+  // sentence is on hover, where the half worth reading is what to do about it.
   function nodeCell(guest) {
     const where = guest.resource
       ? guest.resource.node
       : guest.domain
         ? guest.domain.host
         : "";
-    // `placed`, which keeps the badge beside the node name on one line: this
-    // column is as wide as that sentence, and a table that has the room says
-    // so rather than breaking it after every second word.
-    const box = cell(where, "placed");
-    const held = preferenceOf(guest);
-    if (!held) {
+    const box = document.createElement("td");
+    box.className = "placed";
+    if (!where) {
       return box;
     }
+    const held = preferenceOf(guest);
     const declared = guest.preferred_host || "";
-    const tag = document.createElement("span");
-    tag.className = declared === held.node ? "tag" : "tag warn";
-    tag.textContent = badge(held, declared);
-    tag.title = held.id + ". " + explain(guest.name, held, declared);
-    box.append(" ", tag);
+    const name = document.createElement("span");
+    name.className = "placement " + placementState(held, declared);
+    name.textContent = where;
+    name.title = explain(guest.name, held, declared);
+    box.append(name);
     return box;
   }
 
-  // Three readings of one constraint, in words that have to survive being read
-  // in a narrow column. The subject of every one of them is the placement and
-  // never the guest: "declared" alone would read as whether the inventory has
-  // the guest at all, which is a different question this page also answers.
-  function badge(held, declared) {
-    if (declared === held.node) {
-      return "held on " + held.node + ", as the inventory declares";
+  // The three states the colour says, and the only thing it says. An entry
+  // that declares a placement the cluster does not hold is the same finding as
+  // a cluster holding one the entry never named: the two disagree, and which
+  // way round is in the sentence rather than in the colour.
+  function placementState(held, declared) {
+    if (!held) {
+      return declared ? "adrift" : "free";
     }
-    if (declared) {
-      return "held on " + held.node + ", inventory declares " + declared;
-    }
-    return "held on " + held.node + ", inventory declares no placement";
+    return held.node === declared ? "kept" : "adrift";
   }
 
-  // The same finding as a sentence, on hover, because the interesting half is
-  // what to do about it and that does not fit in a tag.
+  // The whole reading as a sentence, on hover, because the colour says which
+  // of the three states a placement is in and nothing more. The subject of
+  // every one of them is the placement and never the guest: "declared" alone
+  // would read as whether the inventory has the guest at all, which is a
+  // different question this page also answers.
   function explain(name, held, declared) {
+    if (!held && !declared) {
+      return (
+        "No constraint holds " +
+        name +
+        ", and its inventory entry declares no placement, so the cluster " +
+        "places it."
+      );
+    }
+    if (!held) {
+      return (
+        "No constraint holds " +
+        name +
+        ", and its inventory entry declares " +
+        declared +
+        ". A deployment run writes that placement to the cluster."
+      );
+    }
     if (declared === held.node) {
       return (
-        "The cluster keeps " +
+        held.id +
+        ". The cluster keeps " +
         name +
         " on " +
         held.node +
@@ -397,7 +418,8 @@
       "cluster cannot say which of the two asked for it.";
     if (declared) {
       return (
-        "The cluster keeps " +
+        held.id +
+        ". The cluster keeps " +
         name +
         " on " +
         held.node +
@@ -411,7 +433,8 @@
       );
     }
     return (
-      "The cluster keeps " +
+      held.id +
+      ". The cluster keeps " +
       name +
       " on " +
       held.node +
