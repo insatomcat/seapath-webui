@@ -104,6 +104,21 @@ def wait_for(service: RunService, run_id: str, timeout: float = 5.0):
     raise AssertionError(f"Run {run_id} did not finish")
 
 
+def wait_for_the_lock(store, timeout: float = 5.0):
+    """Wait for the run lock to be free, and hand back whether it is.
+
+    A run is finished for a reader an instant before it is finished for the
+    lock: the record is saved with its final state and the lock released right
+    after, in that order, so that nothing ever reads a run as ended while its
+    listeners have not started. Waiting on the record can therefore land in
+    that window, which on a loaded machine is wide enough to fail a test.
+    """
+    deadline = time.time() + timeout
+    while store.locked() and time.time() < deadline:
+        time.sleep(0.01)
+    return not store.locked()
+
+
 # The invocation
 
 
@@ -735,6 +750,7 @@ def test_the_lock_is_released_when_a_run_ends(
     wait_for(service, service.launch("seapath_setup_main", "alice").id)
 
     # A lock nobody releases is a node that can never converge again.
+    assert wait_for_the_lock(store)
     store.acquire("a-later-run")
 
 
