@@ -1288,6 +1288,25 @@ def test_the_add_form_separates_what_each_deployment_role_reads(
     assert "the RBD image, the Ceph monitors and the libvirt secret" in body
 
 
+def test_the_add_form_allows_a_live_migration_unless_it_is_unchecked(
+    signed_in: TestClient,
+) -> None:
+    # A move Pacemaker makes for a guest without `live_migration` is a stop on
+    # one machine and a start on the other, standby and a failover included,
+    # and on these machines that is a substation function down for the length
+    # of a boot. The guest that cannot take a live migration is the exception,
+    # so it is the one the operator has to say something about.
+    body = signed_in.get("/vms").text
+
+    assert '<input type="checkbox" id="add-live-migration" checked>' in body
+
+    # The migration settings follow the switch, so they are on screen when the
+    # form opens on a cluster.
+    script = signed_in.get("/static/vms.js").text
+
+    assert '!cluster || !element("add-live-migration").checked;' in script
+
+
 @pytest.mark.parametrize(
     "path",
     [

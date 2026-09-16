@@ -377,8 +377,15 @@ image and losing its disk. D31 records the bounds.
         Higher wins.
       </p>
 
+      {# Checked, because the cost of the other answer lands on a substation
+         function. Every move Pacemaker makes for a guest without it is a stop
+         on one machine and a start on the other, standby and a failover
+         included, and the guest is down for the length of a boot. A guest that
+         cannot take a live migration is the exception, and unchecking this is
+         how it is declared: the entry then carries no `live_migration` and the
+         role's own default is what applies. #}
       <label class="switch" data-cluster>
-        <input type="checkbox" id="add-live-migration">
+        <input type="checkbox" id="add-live-migration" checked>
         Allow live migration
       </label>
       <div id="add-migration" hidden>
