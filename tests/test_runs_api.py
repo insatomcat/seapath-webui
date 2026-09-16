@@ -162,6 +162,28 @@ def test_launching_returns_the_run_and_its_preview_quality(
     assert record["collection_version"].endswith("(build test)")
 
 
+def test_a_root_password_on_a_playbook_that_creates_no_guest_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # The seed is read by the creation block of the two deployment roles and by
+    # nothing else, so a password sent with any other playbook is one the
+    # sender believes is being set. Refused rather than ignored.
+    response = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "seapath_setup_main",
+            "root_passwords": {"vm-guest1": "an office chair"},
+        },
+    )
+
+    assert response.status_code == 400
+    message = response.json()["error"]["message"]
+    assert "deploy_vms_cluster" in message
+    # It travels in a response and is read out loud: it never quotes the
+    # password back.
+    assert "an office chair" not in message
+
+
 def test_the_reboot_can_be_declined_and_the_variables_reach_the_run(
     signed_in: TestClient, run_adapter
 ) -> None:

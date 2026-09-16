@@ -3856,15 +3856,28 @@ And a console is a login prompt, so it needs an account with a password. A
 SEAPATH VM image leaves root locked and is reached by key over the network,
 which is the right default and is also exactly nothing when the network is what
 failed. So the add form asks, as a box under the network section: a root
-password, hashed here into the `$6$` string `/etc/shadow` holds and written
-into the guest's seed as a second `users` member with `lock_passwd: false`.
+password, hashed into the `$6$` string `/etc/shadow` holds and put in the
+guest's seed as a `users` member with `lock_passwd: false`.
 
-The hash goes into the inventory, and the inventory is git, so this is
-`grub_password`'s bargain exactly: the password is hashed before anything is
-written, it is kept nowhere afterwards, and the hash is readable by everybody
-the repository is. The form says so, the work factor is 656000 rounds rather
-than the format's 5000, and a password under twelve characters is refused. It
-opens no SSH login: the seed leaves `ssh_pwauth` as the image set it. Unchecked,
+**The hash reaches no entry of the inventory.** This is the one thing the form
+collects that does not become a variable, and the exception is worth stating.
+Everything else it asks for is desired state, and belongs in a file that is
+committed, replicated to every machine it declares, and kept in the history for
+good. A password hash gains nothing from any of those three and loses by all of
+them: an attacker who has it gets to try offline and without a rate limit, and
+taking it out afterwards changes nothing, because git keeps what it was given.
+
+So it travels with the run instead, as `root_passwords` of `POST /runs`, and
+the run splices it into the copy of the inventory it already stages for itself
+(`app.runs.seed`). The play reads the seed, and the copy is wiped when the run
+ends, whatever the run's state. The repository is never written: no commit, and
+nothing left in the working tree either.
+
+The work factor is 656000 rounds rather than the format's 5000, and the password
+itself is held nowhere at any point. Which password root gets is the operator's
+call, on their own guest, so there is no length rule: the refusals are a box
+checked over an empty field, and a character the file could not carry. It opens
+no SSH login, since the seed leaves `ssh_pwauth` as the image set it. Unchecked,
 which is the default, nothing is written and the guest's root account stays as
 its image built it.
 

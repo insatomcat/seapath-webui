@@ -21,7 +21,15 @@ from app.core.logging import audit_event
 from app.hosts.local import parse_cpu_list
 from app.inventory.model import Inventory, Mode
 from app.inventory.service import InventoryService, InventoryState
-from app.runs import actions, catalogue, cyclictest, hwlatdetect, progress, staging
+from app.runs import (
+    actions,
+    catalogue,
+    cyclictest,
+    hwlatdetect,
+    progress,
+    seed,
+    staging,
+)
 from app.runs import scope as scoping
 from app.runs.adapter import RunAdapter, RunRequest, build_command
 from app.runs.catalogue import (
@@ -123,6 +131,11 @@ class RunService:
         self._seed_builder = seed_builder
         self._cancelled: set[str] = set()
         self._finished: list[Callable[[RunRecord], None]] = []
+        # The runs whose own copy of the inventory was given a root password,
+        # so that the copy is wiped when they end. Held here rather than on the
+        # record, which is a file this service writes and a document the API
+        # answers with. See `app.runs.seed`.
+        self._seeded: set[str] = set()
 
     def when_finished(self, callback: Callable[[RunRecord], None]) -> None:
         """Call this with the record of every run once it has ended.
@@ -483,6 +496,7 @@ class RunService:
         variables: dict[str, Any] | None = None,
         check: bool = False,
         scope: RunScope | None = None,
+        root_passwords: dict[str, str] | None = None,
     ) -> RunRecord:
         entries = {item.id: item for item in self.entries()}
         entry = entries.get(playbook_id)
@@ -493,7 +507,14 @@ class RunService:
                 404,
                 {"available": sorted(entries)},
             )
-        return self._launch(entry, launched_by, variables, check, scope=scope)
+        return self._launch(
+            entry,
+            launched_by,
+            variables,
+            check,
+            scope=scope,
+            root_passwords=root_passwords,
+        )
 
     def launch_action(
         self,
@@ -588,6 +609,7 @@ class RunService:
         play: str | None = None,
         guest: str | None = None,
         scope: RunScope | None = None,
+        root_passwords: dict[str, str] | None = None,
     ) -> RunRecord:
         # The scope first: it decides which machines the preconditions are
         # about, and a scope naming a group the file does not declare is
@@ -623,6 +645,22 @@ class RunService:
                     "codes": [code for code, _ in blocking],
                 },
             )
+
+        if root_passwords:
+            # The same precondition the inventory raises for a guest whose
+            # entry carries a seed, asked here because this guest's seed is not
+            # in the entry: it is spliced into this run's copy below, and the
+            # file the precondition read says nothing about it. Without the
+            # tool the role creates the guest with no seed disk and reports
+            # success, and the console still refuses.
+            refused = self._seed_refusal(sorted(root_passwords), [])
+            if refused:
+                raise ApiError(
+                    "precondition_failed",
+                    refused,
+                    409,
+                    {"unmet": [refused], "codes": [Precondition.SEED_BUILDABLE.value]},
+                )
 
         if check and not entry.previewable:
             raise ApiError(
@@ -688,6 +726,20 @@ class RunService:
                 artefacts_dir=self._inventory.artefacts_root,
             )
             record.files = staged.files
+            if root_passwords:
+                # Into this run's own copy of the inventory, which is what
+                # Ansible reads, and never into the repository: a hash the
+                # form asked for is a hash git would keep for good. Wiped out
+                # of the copy when the run ends. See `app.runs.seed`.
+                try:
+                    staged.inventory_file.write_text(
+                        seed.carrying_passwords(
+                            staged.inventory_file.read_text(), root_passwords
+                        )
+                    )
+                except seed.SeedRefused as error:
+                    raise ApiError("invalid_seed", str(error), 400) from error
+                self._seeded.add(run_id)
             playbook = entry.playbook
             if play is not None:
                 # Into the mirror's own `playbooks/`, which is a real
@@ -698,6 +750,11 @@ class RunService:
                 target.write_text(play)
                 playbook = str(target)
         except Exception:
+            # A run that never started leaves a staged copy nothing will read
+            # and nothing will wipe at the end, so it is wiped here.
+            if run_id in self._seeded:
+                seed.wipe(staged.inventory_file)
+                self._seeded.discard(run_id)
             self._store.release(run_id)
             raise
 
@@ -885,6 +942,12 @@ class RunService:
             # a run ended with its listeners done before they have started.
             record.followups = bool(self._finished)
             self._store.save(record)
+            # Before the lock is released, so no reader of a finished run finds
+            # a copy still carrying the hash. The play has read the seed by
+            # now, whatever the run's state.
+            if record.id in self._seeded:
+                seed.wipe(request.inventory_file)
+                self._seeded.discard(record.id)
             self._store.release(record.id)
             self._cancelled.discard(record.id)
             audit_event("run.finished", run=record.id, state=record.state.value)

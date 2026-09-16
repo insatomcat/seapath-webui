@@ -565,13 +565,34 @@ def test_a_brought_xml_asks_nothing_of_a_section_without_an_address() -> None:
 PASSWORD = "an office chair"
 
 
-def test_the_root_password_is_written_as_a_hash_and_never_as_itself() -> None:
+def test_the_root_password_reaches_no_variable_at_all() -> None:
+    # The whole point of where this one lives. Every other thing the form asks
+    # for becomes a line in the file, and this one becomes nothing: a hash in
+    # the inventory is a hash in git, replicated and kept for good. The run
+    # splices it into its own copy instead, see `app.runs.seed`.
     network = GuestNetwork(root_password=PASSWORD)
 
     assert network.asked_for is True
     assert cloudinit.refusal("vm1", network) is None
     written = cloudinit.variables("vm1", network)
-    entry = written["cloud_init"]["users"][0]
+
+    assert written == {}
+    assert PASSWORD not in repr(written)
+
+
+def test_a_password_beside_the_trust_leaves_the_trust_alone() -> None:
+    network = GuestNetwork(trust_this_node=True, root_password=PASSWORD)
+
+    written = cloudinit.variables(
+        "vm1", network, account="ansible", key_lines=[KEY_LINE]
+    )
+
+    assert [user["name"] for user in written["cloud_init"]["users"]] == ["ansible"]
+    assert PASSWORD not in repr(written)
+
+
+def test_the_root_user_is_a_hash_and_never_the_password() -> None:
+    entry = cloudinit.root_user(PASSWORD)
 
     assert entry["name"] == "root"
     # cloud-init locks every account it touches unless it is told otherwise,
@@ -579,31 +600,15 @@ def test_the_root_password_is_written_as_a_hash_and_never_as_itself() -> None:
     # comes up with a root password that is set and refused.
     assert entry["lock_passwd"] is False
     assert entry["hashed_passwd"].startswith("$6$rounds=656000$")
-    assert PASSWORD not in repr(written)
-
-
-def test_the_root_password_and_the_trust_are_two_accounts_of_one_seed() -> None:
-    network = GuestNetwork(trust_this_node=True, root_password=PASSWORD)
-
-    written = cloudinit.variables(
-        "vm1", network, account="ansible", key_lines=[KEY_LINE]
-    )
-
-    assert [user["name"] for user in written["cloud_init"]["users"]] == [
-        "ansible",
-        "root",
-    ]
+    assert PASSWORD not in repr(entry)
     # Nothing logs into root over SSH, and nothing grants it sudo it has by
     # being root: this password answers the console and nothing else.
-    root = written["cloud_init"]["users"][1]
-    assert set(root) == {"name", "lock_passwd", "hashed_passwd"}
+    assert set(entry) == {"name", "lock_passwd", "hashed_passwd"}
 
 
 def test_two_guests_given_the_same_password_carry_two_lines() -> None:
-    network = GuestNetwork(root_password=PASSWORD)
-
-    first = cloudinit.variables("vm1", network)["cloud_init"]["users"][0]
-    second = cloudinit.variables("vm2", network)["cloud_init"]["users"][0]
+    first = cloudinit.root_user(PASSWORD)
+    second = cloudinit.root_user(PASSWORD)
 
     assert first["hashed_passwd"] != second["hashed_passwd"]
 
@@ -623,14 +628,10 @@ def test_a_root_password_asked_for_and_left_empty_is_refused() -> None:
     assert "none was typed" in refusal
 
 
-def test_a_root_password_short_enough_to_guess_is_refused() -> None:
-    refusal = cloudinit.refusal("vm1", GuestNetwork(root_password="seapath"))
-
-    assert refusal is not None
-    assert "fewer than 12 characters" in refusal
-    # The refusal is read out loud and travels in a response: it never quotes
-    # the password back.
-    assert "seapath" not in refusal
+def test_a_short_root_password_is_the_operator_s_to_choose() -> None:
+    # No length rule. The password opens a console on the operator's own guest,
+    # and which one root gets is their call.
+    assert cloudinit.refusal("vm1", GuestNetwork(root_password="x")) is None
 
 
 def test_a_root_password_carrying_a_newline_is_refused() -> None:

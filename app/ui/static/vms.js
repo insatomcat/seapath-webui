@@ -1655,7 +1655,23 @@
       );
 
       progress.at(3, "doing");
-      const started = await API.post("/runs", { playbook: declared.playbook });
+      // Where the root password is actually read. The declaration above sent
+      // it too, and the entry it committed names no password at all: that call
+      // checks the value and writes nothing, because a hash written into the
+      // inventory is a hash git keeps, replicated to every machine the file
+      // declares. This run splices it into the copy of the inventory it reads,
+      // and wipes that copy when it ends.
+      //
+      // Read off the form once more rather than held across the calls above:
+      // the field is still filled in until this returns, and it is emptied
+      // below.
+      const rootPassword = element("add-root-password").checked
+        ? element("add-root-secret").value
+        : "";
+      const started = await API.post("/runs", {
+        playbook: declared.playbook,
+        root_passwords: rootPassword ? { [name]: rootPassword } : {},
+      });
       progress.at(3, "done");
       // The form is finished with, and what follows it is the run. It used to
       // be closed by the navigation to the Runs page; now the window over this

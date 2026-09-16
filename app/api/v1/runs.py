@@ -25,6 +25,7 @@ from app.core.security import require_role
 from app.runs.models import RunRecord
 from app.runs.scope import RunScope, ScopeChoices
 from app.runs.service import PlaybookAvailability, RunService
+from app.services.vms import DEPLOY_PLAYBOOK
 
 router = APIRouter(tags=["runs"])
 
@@ -52,6 +53,18 @@ class LaunchRequest(BaseModel):
             "Omitted, or both lists empty, means the playbook's own hosts "
             "minus the VMs group. Every name has to be one "
             "GET /playbooks/scopes offers"
+        ),
+    )
+    root_passwords: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "A root password per guest name, for the console of a guest this "
+            "run creates. Hashed on the way in and written into the copy of "
+            "the inventory this run makes for itself, which is wiped when it "
+            "ends: the repository never holds it, so it is sent here rather "
+            "than declared with the guest. Accepted on a deployment playbook "
+            "only. Write only, and absent from every answer, every log and "
+            "the run's own record"
         ),
     )
 
@@ -98,12 +111,24 @@ def launch(
     request: Request, payload: LaunchRequest, user: User = admin
 ) -> LaunchResponse:
     service = _service(request)
+    if payload.root_passwords and payload.playbook not in DEPLOY_PLAYBOOK.values():
+        # Refused rather than ignored: the seed is read by the creation block
+        # of the two deployment roles and by nothing else, so a password sent
+        # with any other playbook is one the sender believes is being set.
+        raise ApiError(
+            "invalid_seed",
+            f"A root password is read when a guest is created, and "
+            f"{payload.playbook} creates none. Send it with "
+            f"{' or '.join(sorted(DEPLOY_PLAYBOOK.values()))}.",
+            400,
+        )
     record = service.launch(
         playbook_id=payload.playbook,
         launched_by=user.username,
         variables=payload.variables,
         check=payload.check,
         scope=payload.scope,
+        root_passwords=payload.root_passwords,
     )
     entry = next(item for item in service.entries() if item.id == payload.playbook)
     # Carried back so the UI can refuse to present a partial check as a

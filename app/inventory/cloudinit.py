@@ -78,11 +78,6 @@ _MATCH_NAME = re.compile(r"^[a-z0-9._*?-]{1,15}$", re.IGNORECASE)
 # `name=1.2-3`. Anything wider would be a shell word cloud-init hands to apt.
 _PACKAGE = re.compile(r"^[a-z0-9][a-z0-9+.-]+(=[A-Za-z0-9.+~:-]+)?$")
 
-# The shortest root password this form accepts. The hash lands in a git
-# repository, where an attacker gets to try offline and without a rate limit,
-# and the account is root on a guest of an electrical substation.
-_PASSWORD_LENGTH = 12
-
 # What the entry carries where the form asks to accept the guest's host key.
 #
 # `accept-new` rather than `no`: the first key a guest presents is recorded, and
@@ -193,10 +188,12 @@ class GuestNetwork(BaseModel):
         default=None,
         description=(
             "A password for `root` inside the guest, so that somebody at the "
-            "console can log in. Hashed here and written to the entry as the "
-            "`$6$` string `/etc/shadow` holds: the password itself is kept "
-            "nowhere, and never reaches the inventory. It opens no SSH login, "
-            "since the seed leaves `ssh_pwauth` as the image set it"
+            "console can log in. Checked here and written to no entry: the "
+            "hash reaches the seed through the copy of the inventory the "
+            "deployment run makes for itself, and the repository never holds "
+            "it. Send it again on the run that creates the guest, as "
+            "`root_passwords` of `POST /runs`. It opens no SSH login, since "
+            "the seed leaves `ssh_pwauth` as the image set it"
         ),
     )
     grant_sudo: bool = Field(
@@ -384,13 +381,15 @@ def variables(
             {"name": network.bridge, "mac_address": network.mac_address}
         ]
     seed = _seed(guest, network)
-    users = []
+    # The root password is absent by design, and it is the one thing this form
+    # asks for that no entry ever carries. A hash in the inventory is a hash in
+    # git, replicated to every machine the file declares and readable there for
+    # as long as the repository lives, and an attacker who has it gets to try
+    # offline. It reaches the seed through `app.runs.seed`, in the copy of the
+    # inventory the deployment run makes for itself, and is wiped from that
+    # copy when the run ends.
     if trusted:
-        users.append(_user(str(account), list(key_lines or []), network.grant_sudo))
-    if network.root_password:
-        users.append(_root(network.root_password))
-    if users:
-        seed["users"] = users
+        seed["users"] = [_user(str(account), list(key_lines or []), network.grant_sudo)]
     if seed:
         written["cloud_init"] = seed
     return written
@@ -425,8 +424,12 @@ def _user(account: str, key_lines: list[str], grant_sudo: bool) -> dict[str, Any
     return user
 
 
-def _root(password: str) -> dict[str, Any]:
+def root_user(password: str) -> dict[str, Any]:
     """The `users` entry that gives `root` a password at the console.
+
+    Built where the seed is built and used where the seed is staged: the
+    deployment run splices this into its own copy of the inventory, and the
+    repository never sees it. See `app.runs.seed`.
 
     `hashed_passwd` rather than `chpasswd`, which is the same result written
     two ways: the `users` list is where the other account of this seed already
@@ -615,22 +618,18 @@ def refusal(
             "certificate for it would name."
         )
 
-    # The password is never quoted back, here or anywhere else: a refusal is
-    # read out loud over a shoulder, and it reaches the browser through a
-    # response somebody may be recording.
+    # What is refused here is a password the file could not carry, and nothing
+    # about how good a password it is: which one root gets is the operator's
+    # call, on their own guest, on their own substation network. The password
+    # is never quoted back, here or anywhere else: a refusal is read out loud
+    # over a shoulder, and it reaches the browser through a response somebody
+    # may be recording.
     if network.root_password is not None:
         if not network.root_password.strip():
             return (
                 "A root password was asked for and none was typed. Leave the "
                 "box unchecked for a guest whose root account stays as the "
                 "image built it."
-            )
-        if len(network.root_password) < _PASSWORD_LENGTH:
-            return (
-                f"A root password of fewer than {_PASSWORD_LENGTH} characters "
-                "is one that opens the console of a substation guest to "
-                "anybody who tries. Its hash goes into the inventory, and the "
-                "inventory is readable by everybody the repository is."
             )
         if any(character in network.root_password for character in "\n\r\x00"):
             return (

@@ -638,6 +638,13 @@ Three consequences worth knowing while editing the file by hand:
   document in this folder. The form writes the network, the hostname and this
   node's key; the rest is written here, and this service reads it back and
   writes it out untouched.
+- **A root password is the one thing the form never writes here.** It asks for
+  one, for the console of a guest whose network does not come up, and the hash
+  goes into the copy of the inventory the deployment run stages for itself,
+  which is wiped when that run ends. A `hashed_passwd` in this file is a hash
+  in git, replicated to every machine the file declares and kept in the history
+  for good. Written by hand it works exactly as cloud-init documents it, and it
+  is worth knowing what it costs. See [D52](decisions.md#d52).
 
 See [D48](decisions.md#d48).
 

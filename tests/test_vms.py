@@ -920,13 +920,14 @@ def test_a_guest_is_given_an_interface_a_seed_and_an_address(
     assert block.index("bridges") < block.index("cloud_init")
 
 
-def test_a_root_password_reaches_the_inventory_as_a_hash(
+def test_a_root_password_reaches_the_inventory_in_no_form_at_all(
     signed_in: TestClient, settings: Settings
 ) -> None:
     # The way in when the network does not come up: somebody at the console of
-    # a guest whose root account would otherwise answer nothing. What the file
-    # carries is the `$6$` string /etc/shadow holds, because the file is git
-    # and a password written there is a password in the log forever.
+    # a guest whose root account would otherwise answer nothing. The file is
+    # git, and git keeps what it is given, so neither the password nor its hash
+    # is written here. The run that creates the guest puts the hash in its own
+    # copy, see `app.runs.seed`.
     response = signed_in.post(
         "/api/v1/vms",
         json={
@@ -939,32 +940,38 @@ def test_a_root_password_reaches_the_inventory_as_a_hash(
 
     written = (settings.inventory_dir / "inventory.yaml").read_text()
     entry = yaml.safe_load(written)["VMs"]["hosts"]["newvm"]
-    assert entry["cloud_init"]["users"] == [
-        {
-            "name": "root",
-            "lock_passwd": False,
-            "hashed_passwd": entry["cloud_init"]["users"][0]["hashed_passwd"],
-        }
-    ]
-    assert entry["cloud_init"]["users"][0]["hashed_passwd"].startswith("$6$rounds=")
+    assert "cloud_init" not in entry
     assert "an office chair" not in written
+    assert "hashed_passwd" not in written
+    assert "$6$" not in written
 
 
-def test_a_root_password_a_guess_would_reach_is_refused(signed_in: TestClient) -> None:
+def test_a_root_password_asked_for_and_left_empty_is_refused(
+    signed_in: TestClient,
+) -> None:
+    # The one refusal left. The box was checked and the field was empty, so
+    # writing it through would leave a guest with no way in at the console and
+    # no message saying so.
     response = signed_in.post(
         "/api/v1/vms",
         json={
             "name": "newvm",
-            "network": {"bridge": "br0", "root_password": "swordfish"},
+            "network": {"bridge": "br0", "root_password": "   "},
         },
     )
 
     assert response.status_code == 400
-    message = response.json()["error"]["message"]
-    assert "fewer than 12 characters" in message
-    # The refusal travels in a response and is read out loud: it says what is
-    # wrong without quoting the password back.
-    assert "swordfish" not in message
+    assert "none was typed" in response.json()["error"]["message"]
+
+
+def test_a_short_root_password_is_accepted(signed_in: TestClient) -> None:
+    # Which password root gets is the operator's, on their own guest.
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={"name": "newvm", "network": {"bridge": "br0", "root_password": "x"}},
+    )
+
+    assert response.status_code == 201, response.text
 
 
 def test_the_mac_is_generated_where_a_bridge_is_named_without_one(
