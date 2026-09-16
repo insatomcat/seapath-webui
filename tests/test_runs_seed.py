@@ -25,7 +25,13 @@ from app.runs.adapter import (
     RunOutcome,
     RunRequest,
 )
-from tests.test_runs import build, store, trust, wait_for  # noqa: F401
+from tests.test_runs import (  # noqa: F401
+    build,
+    store,
+    trust,
+    wait_for,
+    wait_for_the_lock,
+)
 from tests.test_runs import inventory as inventory_fixture  # noqa: F401
 
 PASSWORD = "an office chair"
@@ -279,6 +285,33 @@ def test_the_copy_is_wiped_even_when_the_run_fails(
     wait_for(service, record.id)
 
     assert "$6$" not in adapter.requests[0].inventory_file.read_text()
+
+
+def test_the_copy_is_wiped_before_anything_reads_the_run_as_finished(
+    store,  # noqa: F811
+    declared,
+    trust,  # noqa: F811
+    tmp_path: Path,
+) -> None:
+    # The ordering inside the run's `finally`, pinned because getting it wrong
+    # fails on a loaded machine and nowhere else. The record is what every
+    # reader watches, this service's own listeners included, so the wipe comes
+    # before the record says the run ended. A listener runs later still, and
+    # what it sees here is what a reader polling the record sees too.
+    seen: list[str] = []
+    adapter = WatchingAdapter()
+    service = build(store, declared, trust, adapter, tmp_path)
+    service.when_finished(
+        lambda record: seen.append(adapter.requests[0].inventory_file.read_text())
+    )
+
+    record = service.launch(
+        "deploy_vms_standalone", "alice", root_passwords={"guest1": PASSWORD}
+    )
+    wait_for(service, record.id)
+    assert wait_for_the_lock(store)
+
+    assert seen and "hashed_passwd" not in seen[0]
 
 
 def test_the_password_reaches_no_variable_of_the_record(

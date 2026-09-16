@@ -936,18 +936,20 @@ class RunService:
             record.state = RunState.FAILED
             record.message = str(error)
         finally:
+            # First, and before the record says the run ended. The record is
+            # what every reader watches, this service's own listeners included,
+            # so anything that sees a finished run has to find a copy already
+            # wiped. The play has read the seed by now, whatever the run's
+            # state.
+            if record.id in self._seeded:
+                seed.wipe(request.inventory_file)
+                self._seeded.discard(record.id)
             record.finished_at = datetime.now(tz=UTC)
             record.progress = run_progress
             # Saved with the final state rather than after it, so no reader sees
             # a run ended with its listeners done before they have started.
             record.followups = bool(self._finished)
             self._store.save(record)
-            # Before the lock is released, so no reader of a finished run finds
-            # a copy still carrying the hash. The play has read the seed by
-            # now, whatever the run's state.
-            if record.id in self._seeded:
-                seed.wipe(request.inventory_file)
-                self._seeded.discard(record.id)
             self._store.release(record.id)
             self._cancelled.discard(record.id)
             audit_event("run.finished", run=record.id, state=record.state.value)
