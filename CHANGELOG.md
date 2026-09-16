@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.117 - 2026-09-16
+
+- fix: wipe a run's seed copy before the record says the run ended
+
 ## 0.3.116 - 2026-09-16
 
 - feat: keep a guest's root password out of the inventory entirely
