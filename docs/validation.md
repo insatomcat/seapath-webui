@@ -673,4 +673,6 @@ port. See [D52](decisions.md#d52).
 | 3 | **Detach** ends the session with the panel saying so, and Reconnect opens a new one straight away | `Ctrl+]` reaching `virsh` through xterm.js and ssh, and libvirt releasing the console | Pending |
 | 4 | A second browser opening the same guest's serial console gets libvirt's refusal in the terminal, and the first session is untouched | The one session per domain libvirt enforces | Pending |
 | 5 | A standalone machine's guest opens its serial console from that machine | The local branch of `vm_manager` | Pending |
+| 6 | A guest declared with a root password answers `root` and that password at its serial console, and the `$6$` string in its entry is the one `/etc/shadow` ends up holding | cloud-init reading `hashed_passwd`, `chpasswd -e` taking a hash computed here rather than by `mkpasswd`, and agetty letting root in on the serial line. The suite asserts the hash against the algorithm's published vectors and can assert nothing about the guest that boots with it | Pending |
+| 7 | The same guest still refuses a password over SSH, and the `ansible` account still gets in by key | `ssh_pwauth` left as the image set it, which is what says this password reaches the console alone | Pending |
 
