@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.119 - 2026-09-16
+
+- feat: open a container's quadlet, and place one the cluster holds
+
 ## 0.3.118 - 2026-09-16
 
 - feat: hide the VMs Creation column where it would be empty on every row

@@ -3,4 +3,4 @@
 
 """Node local management UI and API for SEAPATH machines."""
 
-__version__ = "0.3.118"
+__version__ = "0.3.119"
