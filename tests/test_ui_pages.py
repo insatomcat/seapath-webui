@@ -1366,27 +1366,21 @@ def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
     assert 'id="add-steps"' in body
 
 
-def test_the_deployment_column_says_what_the_run_does_to_this_guest(
-    signed_in: TestClient,
-) -> None:
-    # Both roles register the hypervisor's own list first and skip their whole
-    # creation block for a guest it already has, so the entry alone cannot
-    # answer. A guest nothing reports is one the next run creates, and saying
-    # "left alone" about it is the one case where this column would mislead
-    # the operator who is about to launch that run.
+def test_a_forced_guest_says_a_run_recreates_it(signed_in: TestClient) -> None:
+    # Both roles skip their creation block for a guest the hypervisor already
+    # has, so on nearly every row a deployment run does nothing at all, and a
+    # column saying so on every row said nothing. `force` is the reading that
+    # is worth a warning: the roles destroy the guest and make it again, and
+    # the operator launching a convergence has to see that before they do.
+    # It sits with the files it would be made from, which cost the width
+    # already, and the State column next to it still says "not deployed"
+    # for the guest a run would create.
     script = signed_in.get("/static/vms.js").text
+    body = signed_in.get("/vms").text
 
-    # A disabled guest is there as well: Ceph holds it, `cluster_vm status`
-    # answers Disabled, and the role skips it.
-    assert (
-        "const there = Boolean(guest.resource || guest.domain || guest.disabled);"
-        in script
-    )
-    assert "if (there && !guest.force) {" in script
-    assert 'return cell("left alone");' in script
-    assert 'there ? "recreated" : "created"' in script
-    # And the colour warns about the destruction rather than about a creation.
-    assert 'there && guest.force ? "recreated" : ""' in script
+    assert "On deployment" not in body
+    assert 'warning.className = "recreated";' in script
+    assert 'warning.textContent = "force: a run recreates it";' in script
 
 
 def test_the_vms_page_offers_no_snapshot_yet(signed_in: TestClient) -> None:

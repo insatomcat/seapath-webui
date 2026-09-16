@@ -2774,9 +2774,10 @@ tr.row-bad > td {
 }
 
 /* VMs. A guest that carries `force` is reinstalled by the next deployment
-   run, disk and all, so the cell that says so is coloured like the other
-   things on this UI that an operator must not read past. */
-td.recreated {
+   run, disk and all, so the line that says so, under the files it would be
+   made from again, is coloured like the other things on this UI that an
+   operator must not read past. */
+td > div.recreated {
   color: var(--warn);
 }
 

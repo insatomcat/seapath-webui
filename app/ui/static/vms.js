@@ -216,6 +216,24 @@
       [guest.vm_disk, guest.vm_template || guest.xml_path]
         .filter(Boolean)
         .forEach((value) => node.append(file(guest, value)));
+      // `force` is why these lines stay: both roles skip their creation block
+      // for a guest the hypervisor already has, unless the entry carries it,
+      // and then they destroy the guest and make it again from this recipe.
+      // So a run an operator reads as "converge my VMs" reinstalls this one
+      // and whatever it had written is gone. Said where the recipe is,
+      // because the recipe is what the run reads back.
+      if (guest.force) {
+        const warning = document.createElement("div");
+        warning.className = "recreated";
+        warning.textContent = "force: a run recreates it";
+        warning.title =
+          "This entry carries force: true, so the next deployment run " +
+          "destroys " +
+          guest.name +
+          " and creates it again from these files. Everything written inside " +
+          "the guest since it was created is lost.";
+        node.append(warning);
+      }
       return node;
     }
     const sources = guest.sources || [];
@@ -251,31 +269,6 @@
       line.append(missing);
     }
     return line;
-  }
-
-  // What the next deployment run does to this guest, which the entry alone
-  // cannot say. Both roles register the hypervisor's own list first and skip
-  // their whole creation block for a guest it already has, so the answer
-  // depends on whether the guest is there: one nothing reports is one the run
-  // creates, and that is the row an operator wants before launching it.
-  //
-  // `force` is the one worth a colour: the roles destroy and recreate a guest
-  // that carries it, so a run an operator reads as "converge my VMs"
-  // reinstalls that one and whatever it had written is gone.
-  function ondeploy(guest) {
-    // A disabled guest is there too: the role asks `cluster_vm status`, which
-    // answers Disabled rather than Undefined, and skips it.
-    const there = Boolean(guest.resource || guest.domain || guest.disabled);
-    if (there && !guest.force) {
-      return cell("left alone");
-    }
-    // `enable` reaches `cluster_vm create`, so it says something only about a
-    // guest this run creates. On one the run skips, it is inert.
-    const words = [there ? "recreated" : "created"];
-    if (!guest.enable) {
-      words.push("left stopped");
-    }
-    return cell(words.join(", "), there && guest.force ? "recreated" : "");
   }
 
   // Starting and stopping. The button offered is the one that changes
@@ -1074,7 +1067,6 @@
         nodeCell(guest),
         addressCell(guest),
         creationCell(guest),
-        ondeploy(guest),
         acts(guest),
         placement(guest),
         metaButton(guest.name, guest.deployment),
