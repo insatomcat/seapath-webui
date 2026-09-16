@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.inventory import shadow
 from app.inventory.grub import hash_password, verify
 from app.inventory.model import Guest, Inventory, Mode, NodeConfig, Role
 from app.inventory.validation import Level, validate
@@ -266,3 +267,39 @@ def test_a_guest_network_variable_of_the_right_shape_says_nothing() -> None:
     candidate.guests["vm1"] = Guest(cloud_init={"hostname": "vm1"}, bridges=[])
 
     assert "malformed_guest_network" not in rules(validate(candidate), Level.WARNING)
+
+
+# The password a guest's root account is given, which is a hash by the time it
+# reaches the inventory.
+
+
+def test_the_root_hash_is_the_format_etc_shadow_holds() -> None:
+    # The two vectors published with the algorithm, which is what says this
+    # implementation is the one every `/etc/shadow` parser expects. The salt
+    # and the rounds are given here; every other call generates the salt.
+    assert (
+        shadow.hash_password("Hello world!", salt="saltstringsaltst", rounds=10000)
+        == "$6$rounds=10000$saltstringsaltst$OW1/O6BYHV6BcXZu8QVeXbDWra3Oeqh0sb"
+        "HbbMCVNSnCM/UrjmM0Dp8vOuZeHBy/YTBmSK6H9qs/y3RnOaw5v."
+    )
+    assert (
+        shadow.hash_password(
+            "This is just a test", salt="toolongsaltstrin", rounds=5000
+        )
+        == "$6$rounds=5000$toolongsaltstrin$lQ8jolhgVRVhY4b5pZKaysCLi0QBxGoNeKQ"
+        "zQ3glMhwllF7oGDZxUhx1yxdYcz/e1JSbq3y6JMxxl8audkUEm0"
+    )
+
+
+def test_a_root_hash_carries_its_own_salt_and_a_work_factor() -> None:
+    encoded = shadow.hash_password("an office chair")
+
+    assert encoded.startswith("$6$rounds=656000$")
+    salt = encoded.split("$")[3]
+    assert len(salt) == 16
+    assert shadow.hash_password("an office chair", salt=salt) == encoded
+
+
+def test_an_empty_password_has_no_hash() -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        shadow.hash_password("")

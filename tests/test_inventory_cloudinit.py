@@ -558,3 +558,83 @@ def test_a_brought_xml_asks_nothing_of_a_section_without_an_address() -> None:
     network = GuestNetwork(hostname="hmi", trust_this_node=True)
 
     assert cloudinit.against_brought_xml(network, [], 0, "guest.xml") == network
+
+
+# The root password, which is the console's way in.
+
+PASSWORD = "an office chair"
+
+
+def test_the_root_password_is_written_as_a_hash_and_never_as_itself() -> None:
+    network = GuestNetwork(root_password=PASSWORD)
+
+    assert network.asked_for is True
+    assert cloudinit.refusal("vm1", network) is None
+    written = cloudinit.variables("vm1", network)
+    entry = written["cloud_init"]["users"][0]
+
+    assert entry["name"] == "root"
+    # cloud-init locks every account it touches unless it is told otherwise,
+    # and it does that after setting the password: without this line the guest
+    # comes up with a root password that is set and refused.
+    assert entry["lock_passwd"] is False
+    assert entry["hashed_passwd"].startswith("$6$rounds=656000$")
+    assert PASSWORD not in repr(written)
+
+
+def test_the_root_password_and_the_trust_are_two_accounts_of_one_seed() -> None:
+    network = GuestNetwork(trust_this_node=True, root_password=PASSWORD)
+
+    written = cloudinit.variables(
+        "vm1", network, account="ansible", key_lines=[KEY_LINE]
+    )
+
+    assert [user["name"] for user in written["cloud_init"]["users"]] == [
+        "ansible",
+        "root",
+    ]
+    # Nothing logs into root over SSH, and nothing grants it sudo it has by
+    # being root: this password answers the console and nothing else.
+    root = written["cloud_init"]["users"][1]
+    assert set(root) == {"name", "lock_passwd", "hashed_passwd"}
+
+
+def test_two_guests_given_the_same_password_carry_two_lines() -> None:
+    network = GuestNetwork(root_password=PASSWORD)
+
+    first = cloudinit.variables("vm1", network)["cloud_init"]["users"][0]
+    second = cloudinit.variables("vm2", network)["cloud_init"]["users"][0]
+
+    assert first["hashed_passwd"] != second["hashed_passwd"]
+
+
+def test_no_users_entry_is_written_for_a_guest_that_asked_for_neither() -> None:
+    network = GuestNetwork(bridge="br0", mac_address=MAC, address="10.0.0.42/24")
+
+    assert "users" not in cloudinit.variables("vm1", network)["cloud_init"]
+
+
+def test_a_root_password_asked_for_and_left_empty_is_refused() -> None:
+    # The box checked over an empty field. Writing nothing would leave the
+    # operator a guest with no way in at the console and no message saying so.
+    refusal = cloudinit.refusal("vm1", GuestNetwork(root_password="   "))
+
+    assert refusal is not None
+    assert "none was typed" in refusal
+
+
+def test_a_root_password_short_enough_to_guess_is_refused() -> None:
+    refusal = cloudinit.refusal("vm1", GuestNetwork(root_password="seapath"))
+
+    assert refusal is not None
+    assert "fewer than 12 characters" in refusal
+    # The refusal is read out loud and travels in a response: it never quotes
+    # the password back.
+    assert "seapath" not in refusal
+
+
+def test_a_root_password_carrying_a_newline_is_refused() -> None:
+    refusal = cloudinit.refusal("vm1", GuestNetwork(root_password="one\ntwo three"))
+
+    assert refusal is not None
+    assert "newline" in refusal

@@ -3852,6 +3852,22 @@ says it runs nowhere. A guest whose XML declares no serial console, or whose
 kernel does not write to it, shows an empty terminal. The idle timeout counts
 keystrokes, so watching a boot scroll by without typing is closed after it.
 
+And a console is a login prompt, so it needs an account with a password. A
+SEAPATH VM image leaves root locked and is reached by key over the network,
+which is the right default and is also exactly nothing when the network is what
+failed. So the add form asks, as a box under the network section: a root
+password, hashed here into the `$6$` string `/etc/shadow` holds and written
+into the guest's seed as a second `users` member with `lock_passwd: false`.
+
+The hash goes into the inventory, and the inventory is git, so this is
+`grub_password`'s bargain exactly: the password is hashed before anything is
+written, it is kept nowhere afterwards, and the hash is readable by everybody
+the repository is. The form says so, the work factor is 656000 rounds rather
+than the format's 5000, and a password under twelve characters is refused. It
+opens no SSH login: the seed leaves `ssh_pwauth` as the image set it. Unchecked,
+which is the default, nothing is written and the guest's root account stays as
+its image built it.
+
 Verified on the demo cluster on 2026-09-15 before the page offered it: the
 command above, run through node2, answered "Connected to domain 'debian13c1'",
 a guest running on node3.

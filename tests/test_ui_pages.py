@@ -1288,6 +1288,30 @@ def test_the_add_form_separates_what_each_deployment_role_reads(
     assert "the RBD image, the Ceph monitors and the libvirt secret" in body
 
 
+def test_the_add_form_can_give_the_guest_a_root_password_for_the_console(
+    signed_in: TestClient,
+) -> None:
+    # The way in when the network does not come up. Off by default, because a
+    # SEAPATH VM image is reached by key over the network and a password asked
+    # for here leaves a hash in the inventory for as long as the repository
+    # lives.
+    body = signed_in.get("/vms").text
+    script = signed_in.get("/static/vms.js").text
+
+    assert '<input type="checkbox" id="add-root-password">' in body
+    assert '<input type="password" id="add-root-secret"' in body
+    assert "password itself is kept nowhere" in body
+    # The box rather than the field decides whether the section was filled in,
+    # so a box checked over an empty field reaches the refusal.
+    assert 'const root = element("add-root-password").checked;' in script
+    assert 'asked.root_password = root ? element("add-root-secret").value : null;' in (
+        script
+    )
+    # And it is emptied with the name once the guest is declared, where the
+    # rest of the shape is kept for the next guest of the site.
+    assert 'element("add-root-secret").value = "";' in script
+
+
 def test_the_add_form_allows_a_live_migration_unless_it_is_unchecked(
     signed_in: TestClient,
 ) -> None:

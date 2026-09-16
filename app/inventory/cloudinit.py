@@ -58,6 +58,8 @@ from xml.etree import ElementTree
 
 from pydantic import BaseModel, Field
 
+from . import shadow
+
 # The netplan netdef id. It names nothing inside the guest: `match` selects the
 # device, so this is a label in a document an operator reads in a diff.
 NETDEF = "primary"
@@ -75,6 +77,11 @@ _MATCH_NAME = re.compile(r"^[a-z0-9._*?-]{1,15}$", re.IGNORECASE)
 # A Debian package name, optionally pinned to a version the way apt takes it,
 # `name=1.2-3`. Anything wider would be a shell word cloud-init hands to apt.
 _PACKAGE = re.compile(r"^[a-z0-9][a-z0-9+.-]+(=[A-Za-z0-9.+~:-]+)?$")
+
+# The shortest root password this form accepts. The hash lands in a git
+# repository, where an attacker gets to try offline and without a rate limit,
+# and the account is root on a guest of an electrical substation.
+_PASSWORD_LENGTH = 12
 
 # What the entry carries where the form asks to accept the guest's host key.
 #
@@ -182,6 +189,16 @@ class GuestNetwork(BaseModel):
             "`grant_sudo` is set"
         ),
     )
+    root_password: str | None = Field(
+        default=None,
+        description=(
+            "A password for `root` inside the guest, so that somebody at the "
+            "console can log in. Hashed here and written to the entry as the "
+            "`$6$` string `/etc/shadow` holds: the password itself is kept "
+            "nowhere, and never reaches the inventory. It opens no SSH login, "
+            "since the seed leaves `ssh_pwauth` as the image set it"
+        ),
+    )
     grant_sudo: bool = Field(
         default=False,
         description=(
@@ -208,6 +225,7 @@ class GuestNetwork(BaseModel):
             or self.hostname
             or self.packages
             or self.trust_this_node
+            or self.root_password
         )
 
     def completed(self) -> GuestNetwork:
@@ -366,8 +384,13 @@ def variables(
             {"name": network.bridge, "mac_address": network.mac_address}
         ]
     seed = _seed(guest, network)
+    users = []
     if trusted:
-        seed["users"] = [_user(str(account), list(key_lines or []), network.grant_sudo)]
+        users.append(_user(str(account), list(key_lines or []), network.grant_sudo))
+    if network.root_password:
+        users.append(_root(network.root_password))
+    if users:
+        seed["users"] = users
     if seed:
         written["cloud_init"] = seed
     return written
@@ -400,6 +423,31 @@ def _user(account: str, key_lines: list[str], grant_sudo: bool) -> dict[str, Any
         user["sudo"] = PASSWORDLESS_SUDO
     user["ssh_authorized_keys"] = key_lines
     return user
+
+
+def _root(password: str) -> dict[str, Any]:
+    """The `users` entry that gives `root` a password at the console.
+
+    `hashed_passwd` rather than `chpasswd`, which is the same result written
+    two ways: the `users` list is where the other account of this seed already
+    is, and this form is the one every cloud-init a SEAPATH guest might carry
+    has understood. The newer `chpasswd: {users: [...]}` with `type: hash`
+    arrived in 22.3 and would refuse to parse on an older image.
+
+    `lock_passwd` has to be there and has to be false. cloud-init locks every
+    account it touches unless it is told otherwise, and it does that after
+    setting the password, so the entry without this line leaves a guest whose
+    root password is set and refused.
+
+    No `ssh_authorized_keys` and no `sudo`: this password is for somebody
+    holding the console, which is where a guest with no network is answered
+    from. What reaches it over SSH is the account above, by key.
+    """
+    return {
+        "name": "root",
+        "lock_passwd": False,
+        "hashed_passwd": shadow.hash_password(password),
+    }
 
 
 def _seed(guest: str, network: GuestNetwork) -> dict[str, Any]:
@@ -566,6 +614,29 @@ def refusal(
             "dashes, which is what the guest will answer to and what a "
             "certificate for it would name."
         )
+
+    # The password is never quoted back, here or anywhere else: a refusal is
+    # read out loud over a shoulder, and it reaches the browser through a
+    # response somebody may be recording.
+    if network.root_password is not None:
+        if not network.root_password.strip():
+            return (
+                "A root password was asked for and none was typed. Leave the "
+                "box unchecked for a guest whose root account stays as the "
+                "image built it."
+            )
+        if len(network.root_password) < _PASSWORD_LENGTH:
+            return (
+                f"A root password of fewer than {_PASSWORD_LENGTH} characters "
+                "is one that opens the console of a substation guest to "
+                "anybody who tries. Its hash goes into the inventory, and the "
+                "inventory is readable by everybody the repository is."
+            )
+        if any(character in network.root_password for character in "\n\r\x00"):
+            return (
+                "A root password cannot carry a newline or a null character. "
+                "Neither survives the file it ends up in."
+            )
 
     return None
 

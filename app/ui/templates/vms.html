@@ -338,6 +338,31 @@ image and losing its disk. D31 records the bounds.
       Needs an address: a guest on DHCP has no <code>ansible_host</code>.
     </p>
 
+    {# Unchecked by default. A SEAPATH VM image is reached by key over the
+       network and needs none of this, and a password asked for here leaves a
+       hash in the inventory for as long as the repository lives. The guest
+       that wants it is the one whose network does not come up, where the
+       console is the only way in and an account with a locked password
+       answers nothing. #}
+    <label class="switch">
+      <input type="checkbox" id="add-root-password">
+      Set a root password for the console
+    </label>
+    <div id="add-root" hidden>
+      <label for="add-root-secret">Root password</label>
+      <input type="password" id="add-root-secret" autocomplete="new-password"
+        spellcheck="false" placeholder="twelve characters at least">
+      <p class="help">
+        Hashed here, and written to the entry as the <code>$6$</code> string
+        <code>/etc/shadow</code> holds: what goes into git is the hash, and the
+        password itself is kept nowhere. Which also means the hash is readable
+        by everybody the inventory repository is, so it is worth a password
+        that is only this guest's. It opens no SSH login, since the seed leaves
+        <code>ssh_pwauth</code> as the image set it. Changing it later is the
+        guest's own business rather than this form's.
+      </p>
+    </div>
+
     <p class="help">
       All of this is read once, when the guest is created, and never again. The
       image has to carry cloud-init, which is what

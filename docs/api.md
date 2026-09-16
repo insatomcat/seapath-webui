@@ -816,6 +816,10 @@ service's runs because the `ssh_args` they are given name no
 Without an address nothing is written, since there is no `ansible_host` for it
 to go beside. Left false, the host key is accepted by hand once the guest is up.
 
+**`root_password` answers the console.** A guest whose network does not come up is reached at its console, and an account whose password is locked answers nothing there, which is the state a SEAPATH VM image leaves root in. The password is hashed here, as SHA-512 crypt with 656000 rounds, and the entry gains a second `users` member: `root`, `lock_passwd: false` and the `$6$` string `/etc/shadow` holds. The password itself is kept nowhere and never reaches the inventory, the way `grub_password` is a hash by the time it is written. `lock_passwd: false` is required rather than tidy: cloud-init locks every account it touches unless told otherwise, and it does that after setting the password.
+
+The hash is readable by everybody the inventory repository is, and an attacker who has it gets to try offline, so a password under twelve characters is refused and one shared with anything else is a bad idea. No SSH login is opened: the seed leaves `ssh_pwauth` as the image set it, and what reaches the guest over the network is the account above, by key. Absent, nothing is written and the guest's root account stays as its image built it.
+
 **`packages` are installed on the guest's first boot.** Written as the
 cloud-config `packages` key, which `cloud_init_seed` passes through as it is.
 cloud-init refreshes the package lists first, so the guest needs a repository

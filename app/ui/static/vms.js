@@ -1425,6 +1425,10 @@
         .split(/[\s,]+/)
         .filter((name) => name !== ""),
     };
+    // The box rather than the field it reveals, so that a box checked over an
+    // empty field reaches the refusal the API has for it. Read without
+    // trimming: a space at either end of a password is part of it.
+    const root = element("add-root-password").checked;
     const empty =
       !asked.bridge &&
       !asked.mac_address &&
@@ -1433,6 +1437,7 @@
       !asked.hostname &&
       !asked.dns.length &&
       !asked.dhcp &&
+      !root &&
       !asked.packages.length;
     if (empty) {
       return null;
@@ -1444,6 +1449,7 @@
     asked.trust_this_node = element("add-trust").checked;
     asked.grant_sudo = asked.trust_this_node && element("add-grant-sudo").checked;
     asked.accept_host_key = element("add-accept-host-key").checked;
+    asked.root_password = root ? element("add-root-secret").value : null;
     return asked;
   }
 
@@ -1452,6 +1458,15 @@
   // refuses the pair as well, because a page is not where a rule lives.
   element("add-dhcp").addEventListener("change", () => {
     element("add-static").hidden = element("add-dhcp").checked;
+  });
+
+  element("add-root-password").addEventListener("change", (event) => {
+    element("add-root").hidden = !event.target.checked;
+    if (event.target.checked) {
+      element("add-root-secret").focus();
+    } else {
+      element("add-root-secret").value = "";
+    }
   });
 
   // Whether something already answers at the address typed. Asked on the
@@ -1676,6 +1691,13 @@
       element("add-address-answer").hidden = true;
       element("add-mac").value = "";
       element("add-hostname").value = "";
+      // The password goes with them, and the box with it. The rest of the
+      // shape is kept because the next guest of a site is usually the same
+      // shape; a root password is one guest's, and a form holding it after
+      // the guest was declared is a password on a screen nobody is watching.
+      element("add-root-password").checked = false;
+      element("add-root").hidden = true;
+      element("add-root-secret").value = "";
       sent = null;
       showAdd(false);
       RunWatch.open(started.run_id);

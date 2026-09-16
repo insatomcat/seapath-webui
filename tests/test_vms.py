@@ -920,6 +920,53 @@ def test_a_guest_is_given_an_interface_a_seed_and_an_address(
     assert block.index("bridges") < block.index("cloud_init")
 
 
+def test_a_root_password_reaches_the_inventory_as_a_hash(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # The way in when the network does not come up: somebody at the console of
+    # a guest whose root account would otherwise answer nothing. What the file
+    # carries is the `$6$` string /etc/shadow holds, because the file is git
+    # and a password written there is a password in the log forever.
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "network": {"bridge": "br0", "root_password": "an office chair"},
+        },
+    )
+
+    assert response.status_code == 201, response.text
+
+    written = (settings.inventory_dir / "inventory.yaml").read_text()
+    entry = yaml.safe_load(written)["VMs"]["hosts"]["newvm"]
+    assert entry["cloud_init"]["users"] == [
+        {
+            "name": "root",
+            "lock_passwd": False,
+            "hashed_passwd": entry["cloud_init"]["users"][0]["hashed_passwd"],
+        }
+    ]
+    assert entry["cloud_init"]["users"][0]["hashed_passwd"].startswith("$6$rounds=")
+    assert "an office chair" not in written
+
+
+def test_a_root_password_a_guess_would_reach_is_refused(signed_in: TestClient) -> None:
+    response = signed_in.post(
+        "/api/v1/vms",
+        json={
+            "name": "newvm",
+            "network": {"bridge": "br0", "root_password": "swordfish"},
+        },
+    )
+
+    assert response.status_code == 400
+    message = response.json()["error"]["message"]
+    assert "fewer than 12 characters" in message
+    # The refusal travels in a response and is read out loud: it says what is
+    # wrong without quoting the password back.
+    assert "swordfish" not in message
+
+
 def test_the_mac_is_generated_where_a_bridge_is_named_without_one(
     signed_in: TestClient, settings: Settings
 ) -> None:
