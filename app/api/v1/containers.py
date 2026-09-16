@@ -32,7 +32,9 @@ from app.services.containers import (
     ContainerService,
     ContainersView,
     InvalidContainer,
+    QuadletFile,
     UnknownContainer,
+    UnreadableQuadlet,
 )
 
 router = APIRouter(
@@ -181,6 +183,27 @@ def declare(
         playbook=service.upload_playbook(),
         cluster_playbook=service.cluster_playbook if payload.pacemaker else None,
     )
+
+
+@router.get("/{name}/file", response_model=QuadletFile)
+def quadlet_file(request: Request, name: str) -> QuadletFile:
+    """The quadlet behind one container, as the inventory holds it.
+
+    What the page shows in the Quadlet column is the name the file takes under
+    `/etc/containers/systemd`, and this is what is in it. Read through the same
+    reference the column already carries, so a file a run would not find is a
+    refusal here rather than an empty window.
+
+    A path pointing outside the folders a run overlays is refused: this answers
+    for the inventory, not for the filesystem of the machine it happens to be
+    running on.
+    """
+    try:
+        return _service(request).quadlet_file(name)
+    except UnknownContainer as error:
+        raise ApiError("unknown_container", str(error), 404) from error
+    except UnreadableQuadlet as error:
+        raise ApiError("unreadable_quadlet", str(error), 409) from error
 
 
 @router.post("/{name}/start", status_code=202)

@@ -982,10 +982,19 @@ on the same port.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/containers` | Every container the inventory declares. Each carries the `hosts` it is uploaded to, the `scope` the entry is written at, the quadlet `file` and whether a run would find it, `managed` saying whether Pacemaker or systemd owns it, the `resource` where there is one, and `units`, which is what each machine's exporter says about the unit. `undeclared` lists the systemd resources the cluster runs that no quadlet here explains; `scopes` is where a declaration may be written, with the machines each one reaches and the reason the unavailable ones are refused; `upload_playbook` and `cluster_playbook` name the runs that make a declaration real |
+| GET | `/containers` | Every container the inventory declares. Each carries the `hosts` it is uploaded to, the `scope` the entry is written at, `file_name`, which is what the file is called under `/etc/containers/systemd`, the quadlet `file` and whether a run would find it, `readable` saying whether this node can show it, `managed` saying whether Pacemaker or systemd owns it, the `resource` where there is one, and `units`, which is what each machine's exporter says about the unit. A container the cluster holds also carries `placement` (`free`, `kept` or `displaced`), the `constraint` holding it, the `pinned` rule where a site wrote one, and the `destinations` a move may name. `undeclared` lists the systemd resources the cluster runs that no quadlet here explains; `scopes` is where a declaration may be written, with the machines each one reaches and the reason the unavailable ones are refused; `upload_playbook` and `cluster_playbook` name the runs that make a declaration real |
 | POST | `/containers` | Declare one container, one commit, `If-Match` on the commit hash. `scope_kind` and `scope_name` say where the upload entry is written, `src` names the quadlet file, and `pacemaker` appends the primitive. `admin` |
 | POST | `/containers/{name}/start` | Start it. Through Pacemaker where the cluster holds the resource, through systemd on the machine named in `host` where it does not. `202` with the run. `operator` |
 | POST | `/containers/{name}/stop` | Stop it, the same two ways. `202` with the run. `operator` |
+| GET | `/containers/{name}/file` | The quadlet's own text, read where a run would read it. `409` where nothing here holds the file, where the path is templated, where it is too large to be a quadlet, or where it resolves outside the folders a run overlays: this answers for the inventory rather than for the filesystem of the node it runs on |
+
+**Moving one is the Cluster page's act.** A container Pacemaker holds is a
+Pacemaker resource, so Move and Return are `POST /cluster/resources/{id}/move`
+and `/clear`, which write and remove the `cli-prefer` constraint. The reading
+above carries what those two need: `placement` says whether the cluster or a
+constraint decides, and `destinations` says which members a move may name.
+Nothing is written back by a return, because the inventory declares no
+placement for a container. See [D34](decisions.md#d34).
 
 Adding a container is two requests the page makes one gesture: the quadlet to
 `PUT /inventory/files/files/<name>.container`, then this endpoint to declare

@@ -107,6 +107,18 @@ class Quadlet:
     def actionable(self) -> bool:
         return self.kind in ACTIONABLE
 
+    @property
+    def file_name(self) -> str:
+        """What the file is called once it is on the machines.
+
+        The basename of `dest`, which is the name podman's generator reads,
+        the name the unit is derived from, and the one an operator finds by
+        listing `/etc/containers/systemd`. Where the file sits on the control
+        machine is `src`, and that is a fact about the inventory rather than
+        about the container.
+        """
+        return f"{self.name}{self.kind}"
+
 
 def unit_for(dest: str) -> str:
     """The unit podman's generator writes for this file, or an empty string."""

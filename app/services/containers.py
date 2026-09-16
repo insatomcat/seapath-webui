@@ -37,14 +37,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.cluster import systemd
+from app.cluster import ha, systemd
 from app.cluster.exporters import MetricsClient, UrllibMetricsClient, read_all
-from app.cluster.ha import PacemakerResource
+from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResource
 from app.cluster.pool import DEFAULT_PORT
 from app.inventory import quadlets
 from app.inventory.editor import Scope
 from app.inventory.model import Mode
-from app.inventory.references import Reference
+from app.inventory.references import Reference, Where
 from app.inventory.repository import Commit
 from app.inventory.resolve import ROOT, depths, groups, resolve
 from app.inventory.service import InventoryService
@@ -121,6 +121,11 @@ class ContainerView(BaseModel):
     quadlet kinds are dependencies of one of those."""
 
     src: str
+    """Where the control machine keeps the file, which is what the upload
+    entry copies from."""
+    file_name: str = ""
+    """What the file is called under /etc/containers/systemd, which is the name
+    podman's generator reads and the one an operator finds on the machine."""
     dest: str
     mode: str = ""
     scope_kind: str = "host"
@@ -139,6 +144,49 @@ class ContainerView(BaseModel):
     resource: PacemakerResource | None = None
     units: list[NodeUnit] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+    readable: bool = False
+    """The quadlet can be shown: this node holds the file and it is text.
+
+    Read from the reference rather than from the name, because a container
+    whose file the inventory does not carry is the ordinary state of an
+    inventory somebody is still writing.
+    """
+
+    placement: str = ""
+    """What decides which member runs it, for a container Pacemaker holds.
+
+    `free` where no constraint holds it and the cluster places it, `kept` where
+    a constraint names the node it is running on, `displaced` where a
+    constraint names another one, which is the cluster failing to honour a rule
+    it carries. Empty for a container systemd owns, where the machines are the
+    ones the inventory uploads it to and there is nothing to place.
+    """
+    constraint: LocationConstraint | None = None
+    """The `cli-prefer` rule holding it, which a return removes."""
+    pinned: str = ""
+    """The id of the `pin-` constraint holding it, when a site wrote one.
+
+    A pinned resource runs there or nowhere: a move would leave two mandatory
+    rules pulling in opposite directions and a return would not remove this
+    one, so the page offers neither.
+    """
+    destinations: list[str] = Field(default_factory=list)
+    """The members a move may send it to, which is where one can be offered."""
+
+
+class QuadletFile(BaseModel):
+    """One quadlet's own text, read from where a run would read it."""
+
+    name: str
+    file_name: str
+    src: str
+    where: str = ""
+    """Which store holds it: the versioned folder, the artefacts, or the
+    installed collection."""
+    path: str = ""
+    """What this node resolved the reference to."""
+    content: str = ""
 
 
 class ScopeOption(BaseModel):
@@ -177,6 +225,10 @@ class UnknownContainer(Exception):
     """No container of that name is declared here."""
 
 
+class UnreadableQuadlet(Exception):
+    """The file behind a container cannot be shown, and the message says why."""
+
+
 class ContainerService:
     def __init__(
         self,
@@ -212,7 +264,11 @@ class ContainerService:
         )
 
         declared = quadlets.declared(document)
-        resources, note = self._resources()
+        # One reading of the cluster for the whole page: the resources it holds
+        # and the rules placing them come out of the same exposition, and
+        # asking twice would be one fan out per column.
+        cluster = self._cluster.pacemaker()
+        resources, note = self._resources(cluster)
         view.runtime_note = note
         units, warnings = self._units(document, declared, resources)
         view.warnings = warnings
@@ -229,25 +285,28 @@ class ContainerService:
             hosts = [quadlet.host for quadlet in entries]
             resource = resources.get(first.unit)
             scope = self._scope_of(document, hosts)
-            view.containers.append(
-                ContainerView(
-                    name=name,
-                    kind=first.kind,
-                    unit=first.unit,
-                    actionable=first.actionable,
-                    src=first.src,
-                    dest=first.dest,
-                    mode=first.mode,
-                    scope_kind=scope.kind,
-                    scope_name=scope.name,
-                    hosts=hosts,
-                    file=files.get((first.host, first.src)),
-                    managed="pacemaker" if resource else "systemd",
-                    resource=resource,
-                    units=[units[(host, first.unit)] for host in hosts],
-                    warnings=self._container_warnings(first, resource, files),
-                )
+            entry = ContainerView(
+                name=name,
+                kind=first.kind,
+                unit=first.unit,
+                actionable=first.actionable,
+                src=first.src,
+                file_name=first.file_name,
+                dest=first.dest,
+                mode=first.mode,
+                scope_kind=scope.kind,
+                scope_name=scope.name,
+                hosts=hosts,
+                file=files.get((first.host, first.src)),
+                managed="pacemaker" if resource else "systemd",
+                resource=resource,
+                units=[units[(host, first.unit)] for host in hosts],
+                warnings=self._container_warnings(first, resource, files),
+                readable=_readable(files.get((first.host, first.src))),
             )
+            if resource is not None:
+                _place(entry, cluster, resource)
+            view.containers.append(entry)
 
         explained = {quadlet.unit for quadlet in declared}
         view.undeclared = [
@@ -284,9 +343,89 @@ class ContainerService:
     def hosts_of(self, name: str) -> list[str]:
         return quadlets.hosts_of(self._inventory.raw(), name)
 
+    def quadlet_file(self, name: str) -> QuadletFile:
+        """The text of one container's quadlet, read where a run would read it.
+
+        The page names the file the machines receive, and this is what is
+        behind that name: the same bytes `upload_extra_files` would copy,
+        found through the reference that already says which store holds them
+        and whether a convergence would find them at all.
+
+        Bounded in the two ways that matter. A path this inventory names
+        outside the folders a run overlays is refused rather than served, so an
+        entry pointing at `/etc/shadow` cannot turn this page into a reader of
+        the filesystem; and a file too large to be a quadlet is refused with
+        its size, because a few hundred bytes is what one is.
+        """
+        quadlet = self.check_known(name)
+        answer = QuadletFile(name=name, file_name=quadlet.file_name, src=quadlet.src)
+        if "{{" in quadlet.src:
+            raise UnreadableQuadlet(
+                f"{quadlet.src} is templated, so which file it names is "
+                "Ansible's answer while the run is happening rather than this "
+                "service's before it starts."
+            )
+
+        reference = self._reference(quadlet)
+        if reference is None or not reference.found or not reference.resolved:
+            expected = reference.expected if reference else None
+            raise UnreadableQuadlet(
+                f"Nothing this node holds answers to {quadlet.src}, so there "
+                "is no file to show and a convergence would fail on every "
+                "machine at once when it tried to copy it."
+                + (
+                    f" Upload it as {expected} on the Inventory page."
+                    if expected
+                    else ""
+                )
+            )
+        if reference.where is Where.NODE:
+            raise UnreadableQuadlet(
+                f"{quadlet.src} is an absolute path on this machine, outside "
+                "the folders a run overlays. This page shows what the "
+                "inventory carries, and a file beside it is read where it "
+                "lives."
+            )
+
+        path = Path(reference.resolved)
+        try:
+            size = path.stat().st_size
+        except OSError as error:
+            raise UnreadableQuadlet(
+                f"{quadlet.src} could not be read: {error.strerror or error}."
+            ) from error
+        if size > _MAX_QUADLET_BYTES:
+            raise UnreadableQuadlet(
+                f"{quadlet.src} is {size} bytes. A quadlet is a few hundred, "
+                f"so anything past {_MAX_QUADLET_BYTES} is something else and "
+                "the Inventory page is where the folder is read."
+            )
+        try:
+            answer.content = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            raise UnreadableQuadlet(
+                f"{quadlet.src} is not text this page can show: {error}."
+            ) from error
+        answer.where = reference.where.value if reference.where else ""
+        answer.path = reference.resolved
+        return answer
+
+    def _reference(self, quadlet: quadlets.Quadlet) -> Reference | None:
+        """What a run would make of this quadlet's `src`."""
+        return next(
+            (
+                reference
+                for reference in self._inventory.references()
+                if reference.variable == quadlets.UPLOAD_VARIABLE
+                and reference.host == quadlet.host
+                and reference.value == quadlet.src
+            ),
+            None,
+        )
+
     def resource_for(self, unit: str) -> PacemakerResource | None:
         """The Pacemaker resource holding this unit, when the cluster has one."""
-        return self._resources()[0].get(unit)
+        return self._resources(self._cluster.pacemaker())[0].get(unit)
 
     def upload_playbook(self) -> str:
         """The run that uploads the quadlets and reloads systemd.
@@ -544,7 +683,9 @@ class ContainerService:
                 return source
         return Scope("host", hosts[0] if hosts else "")
 
-    def _resources(self) -> tuple[dict[str, PacemakerResource], str]:
+    def _resources(
+        self, cluster: PacemakerCluster
+    ) -> tuple[dict[str, PacemakerResource], str]:
         """Pacemaker's systemd resources, by the unit each one holds.
 
         Keyed on the unit rather than on the resource id, because the id is the
@@ -552,7 +693,6 @@ class ContainerService:
         called `mqtt` holding `mosquitto.service` is the same container as the
         quadlet called `mosquitto`, and matching on names would have missed it.
         """
-        cluster = self._cluster.pacemaker()
         if cluster.error:
             return {}, cluster.error
         found: dict[str, PacemakerResource] = {}
@@ -672,6 +812,72 @@ class ContainerService:
             # A file this service could not read is not a finding about the
             # container. The reference above already says whether it is there.
             return False
+
+
+def _readable(reference: Reference | None) -> bool:
+    """Whether the page can offer to open the quadlet.
+
+    The same three refusals `quadlet_file` raises, asked of the reading rather
+    than of the act: a name that opens a window saying the file is not here is
+    a name an operator clicks once and stops trusting.
+    """
+    if reference is None or not reference.found or not reference.resolved:
+        return False
+    return reference.where is not Where.NODE
+
+
+def _place(
+    view: ContainerView, cluster: PacemakerCluster, resource: PacemakerResource
+) -> None:
+    """What decides where a container runs, and where a move could send it.
+
+    Three states and no fourth, because a container has no `preferred_host`:
+    the inventory says which machines receive the quadlet and never which
+    member runs it, so the only two things to hold against each other are the
+    constraint and the node the resource is on. The cluster places it, a
+    constraint places it and the resource is there, or a constraint places it
+    and the resource is somewhere else, which means the node it names could not
+    take it.
+    """
+    constraint = ha.preference(cluster, resource.id)
+    pinned = ha.pin(cluster, resource.id)
+    view.constraint = constraint
+    view.pinned = pinned.id if pinned else ""
+    if constraint is None:
+        view.placement = "free"
+    elif resource.node and constraint.node == resource.node:
+        view.placement = "kept"
+    else:
+        view.placement = "displaced"
+    # A pinned resource runs where it is pinned or nowhere, and a clone runs
+    # one instance per member: neither has a node to be sent to, and the whole
+    # placement pair is withheld rather than offered and refused.
+    if pinned is None and not resource.clone:
+        view.destinations = _destinations(cluster, resource)
+
+
+def _destinations(cluster: PacemakerCluster, resource: PacemakerResource) -> list[str]:
+    """The members a move may name, which is what makes a Move button honest.
+
+    A member that is online and out of standby, minus the ones this resource is
+    banned from, minus the node it is already running on: Pacemaker refuses a
+    move to the node a resource is active on, and a preference on a banned node
+    is a rule that would change nothing.
+    """
+    banned = {
+        item.node
+        for item in cluster.constraints
+        if item.resource == resource.id and item.id.startswith(ha.BAN_PREFIX)
+    }
+    return [
+        node.name
+        for node in cluster.nodes
+        if node.type != "ping"
+        and node.online
+        and "standby" not in node.flags
+        and node.name not in banned
+        and node.name != resource.node
+    ]
 
 
 def _unit_of(agent: str) -> str:

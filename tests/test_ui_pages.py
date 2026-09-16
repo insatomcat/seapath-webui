@@ -1547,6 +1547,87 @@ def test_the_vms_page_offers_a_return_only_where_there_is_one_to_make(
     assert "It takes the bans on this resource with it: " in cluster
 
 
+def test_the_containers_page_names_the_file_the_machines_receive(
+    signed_in: TestClient,
+) -> None:
+    # The column carried the `src` the inventory keeps the file under, which
+    # answers a question about the control machine. What the row is about is
+    # the file podman reads, and that is the name an operator finds by listing
+    # /etc/containers/systemd.
+    script = signed_in.get("/static/containers.js").text
+
+    assert "open.textContent = container.file_name;" in script
+    assert "name.textContent = container.file_name;" in script
+    # The path is still one hover away, for the day the two have to be told
+    # apart: a `.j2` is rendered per machine and lands under another name.
+    assert 'container.dest + ", uploaded from " + container.src' in script
+
+
+def test_the_containers_page_opens_the_quadlet_it_names(
+    signed_in: TestClient,
+) -> None:
+    """The dozen lines that answer the rest of the row.
+
+    Which image, which ports, and whether an `[Install]` section is about to
+    start the container behind Pacemaker's back. Read only: a write to that
+    file is a commit, and the Inventory page is where a commit has its diff
+    and its validation.
+    """
+    body = signed_in.get("/containers").text
+    script = signed_in.get("/static/containers.js").text
+
+    assert 'id="quadlet"' in body
+    assert '<pre class="diff" id="quadlet-text" hidden></pre>' in body
+    assert '"/containers/" + encodeURIComponent(container.name) + "/file"' in script
+    # A name that opens a window saying the file is not here is a name an
+    # operator clicks once, so only a container this node holds a file for
+    # carries one.
+    assert "if (container.readable) {" in script
+    assert "Nothing this node holds answers to it." in script
+
+
+def test_the_containers_page_says_what_places_a_container_the_cluster_holds(
+    signed_in: TestClient,
+) -> None:
+    """Three states, because a container has no preferred_host.
+
+    The inventory says which machines receive the quadlet and never which
+    member runs it, so there is no declared placement to hold the constraint
+    against: the whole reading is the constraint and the node the resource is
+    on.
+    """
+    body = signed_in.get("/containers").text
+    script = signed_in.get("/static/containers.js").text
+
+    assert 'name.className = "placement " + container.placement;' in script
+    assert "the cluster places it" in body
+    assert "a constraint holds it there" in body
+    assert "not the machine the constraint names" in body
+    # And the key is hidden where nothing on screen carries the colour.
+    assert 'element("placement-key").hidden = !containers.some(' in script
+
+
+def test_the_containers_page_moves_a_container_the_way_the_cluster_page_does(
+    signed_in: TestClient,
+) -> None:
+    # The resource holding the unit is a Pacemaker resource like any other, and
+    # a move writes the same `cli-prefer` constraint. A route of this page's own
+    # would be a second name for one act.
+    script = signed_in.get("/static/containers.js").text
+
+    assert '"/cluster/resources/" + encodeURIComponent(resource.id) + "/move"' in script
+    assert (
+        '"/cluster/resources/" + encodeURIComponent(resource.id) + "/clear"' in script
+    )
+    # Move only where there is a member to send it to, Return only where there
+    # is a constraint to remove.
+    assert "if ((container.destinations || []).length) {" in script
+    assert "if (container.constraint) {" in script
+    # What it costs, which is not what it costs a guest: podman has no live
+    # migration, so the container stops on one member and starts on the other.
+    assert "a container has no live migration" in script
+
+
 def test_the_vms_page_reads_its_two_lists_side_by_side(
     signed_in: TestClient,
 ) -> None:

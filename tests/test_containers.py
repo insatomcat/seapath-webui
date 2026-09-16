@@ -23,8 +23,16 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.cluster import metrics, systemd
+from app.cluster.ha import (
+    LocationConstraint,
+    PacemakerCluster,
+    PacemakerNode,
+    PacemakerResource,
+)
 from app.core.settings import Settings
 from app.inventory import quadlets
+from app.services import containers as containers_service
+from app.services.containers import ContainerView
 
 REAL = Path(__file__).parent / "golden" / "adopted-cluster.yaml"
 
@@ -159,6 +167,167 @@ def test_a_container_whose_file_is_missing_says_so_before_the_run(
     assert container["file"]["found"] is False
     assert container["file"]["expected"] == "files/nginxquadlet.container"
     assert any("not in the inventory" in warning for warning in container["warnings"])
+
+
+# The file, and where the page reads it from
+
+
+def test_the_quadlet_is_named_the_way_the_machines_name_it(
+    signed_in: TestClient,
+) -> None:
+    # The column used to carry `src`, which answers a question about the
+    # control machine. What an operator looking at a container needs is the
+    # name they will find by listing /etc/containers/systemd.
+    _import(signed_in, REAL.read_text())
+
+    exporter = _by_name(_containers(signed_in))["node-exporter"]
+
+    assert exporter["file_name"] == "node-exporter.container"
+    assert exporter["dest"] == "/etc/containers/systemd/node-exporter.container"
+    # And `src` is still there, because the two differ: this one is a template
+    # rendered per machine.
+    assert exporter["src"].endswith("node-exporter.container.j2")
+
+
+def test_the_quadlet_the_inventory_holds_is_shown(signed_in: TestClient) -> None:
+    _import(signed_in, CLUSTER)
+    signed_in.put(
+        "/api/v1/inventory/files/files/nginxquadlet.container",
+        content=b"[Container]\nImage=nginx\n",
+        headers={"Content-Type": "application/octet-stream"},
+    )
+
+    assert _by_name(_containers(signed_in))["nginxquadlet"]["readable"] is True
+    body = signed_in.get("/api/v1/containers/nginxquadlet/file").json()
+
+    assert body["content"] == "[Container]\nImage=nginx\n"
+    assert body["file_name"] == "nginxquadlet.container"
+    assert body["where"] == "inventory"
+
+
+def test_a_quadlet_nothing_here_holds_is_refused_rather_than_shown(
+    signed_in: TestClient,
+) -> None:
+    # The same finding the row already carries, said as a sentence when the
+    # file is asked for: an empty window would read as an empty file.
+    _import(signed_in, CLUSTER)
+
+    assert _by_name(_containers(signed_in))["nginxquadlet"]["readable"] is False
+    response = signed_in.get("/api/v1/containers/nginxquadlet/file")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "unreadable_quadlet"
+    assert "files/nginxquadlet.container" in response.json()["error"]["message"]
+
+
+def test_a_path_outside_the_folders_a_run_overlays_is_not_served(
+    signed_in: TestClient,
+) -> None:
+    """The page answers for the inventory and not for the filesystem.
+
+    An `upload_extra_files` entry can name an absolute path, and that path is
+    read by the run over SSH rather than by anything here. Serving it would
+    turn a reading of the inventory into a reader of this machine's own files,
+    which is a much larger thing than a page showing a quadlet.
+    """
+    _import(
+        signed_in,
+        CLUSTER.replace("src: ../files/nginxquadlet.container", "src: /etc/hosts"),
+    )
+
+    assert _by_name(_containers(signed_in))["nginxquadlet"]["readable"] is False
+    response = signed_in.get("/api/v1/containers/nginxquadlet/file")
+
+    assert response.status_code == 409
+    assert "outside the folders a run overlays" in response.json()["error"]["message"]
+
+
+def test_a_file_asked_for_by_a_name_nothing_declares_is_refused(
+    signed_in: TestClient,
+) -> None:
+    _import(signed_in, CLUSTER)
+
+    response = signed_in.get("/api/v1/containers/not-a-container/file")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "unknown_container"
+
+
+# Where the cluster runs it, and what decides that
+
+
+def test_a_container_no_constraint_holds_is_placed_by_the_cluster(
+    signed_in: TestClient,
+) -> None:
+    _import(signed_in, CLUSTER)
+
+    container = _by_name(_containers(signed_in))["nginxquadlet"]
+
+    assert container["placement"] == "free"
+    assert container["constraint"] is None
+    assert container["pinned"] == ""
+    # Where a move could send it: a member that is online, out of standby, and
+    # not the one it is already running on, since Pacemaker refuses that move.
+    # `elabo2` is in standby and `seapath-machine` is where it runs.
+    assert container["destinations"] == ["elabo1"]
+
+
+def test_a_container_systemd_owns_has_no_placement_at_all(
+    signed_in: TestClient,
+) -> None:
+    # Nothing places a systemd unit: it is a unit on every machine the
+    # inventory uploads the quadlet to, and which of them run it is the
+    # `upload_extra_files` entry rather than a constraint.
+    _import(signed_in, REAL.read_text())
+
+    container = _by_name(_containers(signed_in))["node-exporter"]
+
+    assert container["managed"] == "systemd"
+    assert container["placement"] == ""
+    assert container["destinations"] == []
+
+
+def test_a_constraint_naming_the_node_it_runs_on_holds_the_container() -> None:
+    cluster = _held("seapath-machine", "seapath-machine")
+    view = ContainerView(name="c", unit="c.service", src="", dest="")
+
+    containers_service._place(view, cluster, cluster.resources[0])
+
+    assert view.placement == "kept"
+    assert view.constraint is not None and view.constraint.id == "cli-prefer-c"
+
+
+def test_a_constraint_the_cluster_is_not_honouring_is_a_displaced_container() -> None:
+    # An infinite score the cluster is not honouring: the machine the
+    # constraint names could not take the container, so it is running
+    # elsewhere and the colour says that rather than a disagreement.
+    cluster = _held("elabo1", "seapath-machine")
+    view = ContainerView(name="c", unit="c.service", src="", dest="")
+
+    containers_service._place(view, cluster, cluster.resources[0])
+
+    assert view.placement == "displaced"
+
+
+def _held(preferred: str, running: str) -> PacemakerCluster:
+    """A cluster holding one container on `running` and preferring `preferred`."""
+    return PacemakerCluster(
+        available=True,
+        nodes=[
+            PacemakerNode(name=name, type="member", online=True)
+            for name in ("seapath-machine", "elabo1")
+        ],
+        resources=[
+            PacemakerResource(
+                id="c", node=running, role="started", agent="systemd:c.service"
+            )
+        ],
+        constraints=[
+            LocationConstraint(
+                id="cli-prefer-c", resource="c", node=preferred, score="INFINITY"
+            )
+        ],
+    )
 
 
 def test_a_systemd_resource_no_quadlet_explains_is_listed_on_its_own(

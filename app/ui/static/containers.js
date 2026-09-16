@@ -158,18 +158,79 @@
     return dotted("unknown", resource.role || resource.state || "known");
   }
 
+  // The file, named the way the machines will name it. What was here was the
+  // `src` the inventory keeps it under, which answers a question about the
+  // control machine: what an operator looking at a container wants is the name
+  // they will find by listing /etc/containers/systemd, and the path is on
+  // hover for the day the two have to be told apart.
+  //
+  // It opens the file where this node holds one. A quadlet is a dozen lines
+  // and every question the rest of the row raises is answered in them: which
+  // image, which ports, and whether an [Install] section is about to start the
+  // container behind Pacemaker's back.
   function quadletFile(container) {
     const node = document.createElement("td");
-    const path = document.createElement("code");
-    path.textContent = container.src;
-    node.append(path);
-    if (container.file && !container.file.found) {
-      node.className = "missing";
-      const missing = document.createElement("span");
-      missing.textContent = " (nothing here holds it)";
-      node.append(missing);
+    const missing = container.file && !container.file.found;
+    const where = container.dest + ", uploaded from " + container.src + ".";
+
+    if (container.readable) {
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "quadlet-open";
+      open.textContent = container.file_name;
+      open.title = where + " Opens it.";
+      open.addEventListener("click", () => openQuadlet(container));
+      node.append(open);
+      return node;
     }
+
+    const name = document.createElement("code");
+    name.textContent = container.file_name;
+    node.append(name);
+    if (missing) {
+      node.className = "missing";
+      const said = document.createElement("span");
+      said.textContent = " (nothing here holds it)";
+      node.append(said);
+      node.title = where + " Nothing this node holds answers to it.";
+      return node;
+    }
+    node.title = where + " The file itself is not one this page can show.";
     return node;
+  }
+
+  // The file as the inventory carries it, read only. Editing it is the
+  // Inventory page, where a write is a commit with a diff and the validation
+  // that belongs to one.
+  async function openQuadlet(container) {
+    const text = element("quadlet-text");
+    const error = element("quadlet-error");
+    element("quadlet-title").textContent = container.file_name;
+    element("quadlet-note").textContent =
+      "Uploaded to " +
+      (container.hosts || []).join(", ") +
+      " as " +
+      container.dest +
+      ", and kept in the inventory as " +
+      container.src +
+      ". The Inventory page is where it is edited.";
+    text.hidden = true;
+    text.textContent = "";
+    error.hidden = true;
+    element("quadlet-loading").hidden = false;
+    element("quadlet").hidden = false;
+    try {
+      const file = await API.get(
+        "/containers/" + encodeURIComponent(container.name) + "/file"
+      );
+      text.textContent = file.content;
+      text.hidden = false;
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      element("quadlet-loading").hidden = true;
+    }
   }
 
   function scope(container) {
@@ -185,6 +246,80 @@
     return node;
   }
 
+  // Where a container Pacemaker holds is running, and what put it there. One
+  // cell, because the second answers the question the first raises: a member
+  // is either the cluster's own choice or somebody's move, and the constraint
+  // is the only thing that says which.
+  //
+  // Three states and no fourth. A container has no `preferred_host`: the
+  // inventory says which machines receive the quadlet and never which member
+  // runs it, so there is no declared placement to hold the constraint against
+  // and the whole reading is the constraint and the node.
+  function placedCell(container) {
+    const resource = container.resource || {};
+    const node = document.createElement("td");
+    node.className = "placed";
+    if (!resource.node) {
+      node.textContent = "the cluster chooses";
+      node.title =
+        "Pacemaker holds a resource for this container and is not running " +
+        "it anywhere at the moment.";
+      return node;
+    }
+    const name = document.createElement("span");
+    name.className = "placement " + container.placement;
+    name.textContent = resource.node;
+    name.title = explainPlacement(container, resource.node);
+    node.append(name);
+    return node;
+  }
+
+  // The colour says which of the three states the placement is in, and the
+  // sentence behind it says what to do about that one.
+  function explainPlacement(container, where) {
+    const held = container.constraint;
+    if (container.pinned) {
+      return (
+        container.pinned +
+        " pins this container to that machine: it runs there or nowhere. " +
+        "Nothing short of rebuilding the resource removes that rule, so " +
+        "neither Move nor Return is offered here."
+      );
+    }
+    if (!held) {
+      return (
+        "No constraint holds " +
+        container.name +
+        ", so the cluster places it and moves it where a member fails. Move " +
+        "writes a constraint naming a machine."
+      );
+    }
+    if (held.node !== where) {
+      return (
+        held.id +
+        " names " +
+        held.node +
+        ", and the container is running on " +
+        where +
+        ". A placement carries an infinite score, so the cluster put it here " +
+        "only because " +
+        held.node +
+        " could not take it: offline, in standby, or the container failed " +
+        "there. Return removes the constraint and gives the placement back " +
+        "to the cluster."
+      );
+    }
+    return (
+      held.id +
+      " holds " +
+      container.name +
+      " on " +
+      held.node +
+      ", so the cluster is not free to place it. Return removes the " +
+      "constraint."
+    );
+  }
+
   function actButton(container, host, running) {
     const button = document.createElement("button");
     button.type = "button";
@@ -196,12 +331,35 @@
     return button;
   }
 
+  function action(label, onclick) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "secondary";
+    button.textContent = label;
+    button.addEventListener("click", onclick);
+    return button;
+  }
+
   function acts(container, host, running) {
     const node = document.createElement("td");
+    node.className = "acts";
     if (!canAct || !container.actionable) {
       return node;
     }
     node.append(actButton(container, host, running));
+    // Placement, on the containers the cluster places. It is the Cluster
+    // page's pair of acts on the Cluster page's own object: the resource
+    // holding this unit is a Pacemaker resource like any other, so the two
+    // buttons call `/cluster/resources/{id}` rather than growing a second
+    // route that would write the same constraint by another name.
+    if (container.managed === "pacemaker" && container.resource) {
+      if ((container.destinations || []).length) {
+        node.append(" ", action("Move", () => confirmMove(container)));
+      }
+      if (container.constraint) {
+        node.append(" ", action("Return", () => confirmReturn(container)));
+      }
+    }
     return node;
   }
 
@@ -214,6 +372,9 @@
     element("empty").textContent = payload.note || "";
     element("empty").hidden = !payload.note;
     element("runtime-note").textContent = payload.runtime_note || "";
+    element("placement-key").hidden = !containers.some(
+      (container) => container.managed === "pacemaker"
+    );
 
     const lead = element("lead");
     const warnings = payload.warnings || [];
@@ -227,7 +388,7 @@
         row(body, [
           named(container),
           managedBy(container),
-          cell(resource.node || "the cluster chooses"),
+          placedCell(container),
           resourceState(container.resource),
           quadletFile(container),
           scope(container),
@@ -290,12 +451,28 @@
           "is the version the last convergence uploaded.";
   }
 
-  function confirm({ title, body, note, label, act }) {
+  // `choose` is the destination a move needs. The node is part of the act, so
+  // it is picked in the window that names the disruption rather than in a
+  // control on the row an operator could leave set from last time.
+  function confirm({ title, body, note, label, choose, act }) {
     element("confirm-title").textContent = title;
     element("confirm-disruption").textContent = body;
     element("confirm-note").textContent = note || "";
     element("confirm-note").hidden = !note;
     element("confirm-error").hidden = true;
+
+    const picker = element("confirm-node");
+    element("confirm-choice").hidden = !choose;
+    if (choose) {
+      element("confirm-choice-label").textContent = choose.label;
+      clear(picker);
+      choose.options.forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        picker.append(option);
+      });
+    }
 
     const go = element("confirm-go");
     go.textContent = label;
@@ -304,7 +481,7 @@
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        await act();
+        await act(choose ? picker.value : undefined);
         element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
@@ -316,6 +493,72 @@
       }
     };
     element("confirm").hidden = false;
+  }
+
+  // Moving a container is the Cluster page's act on the Cluster page's object:
+  // `crm resource move` writes the `cli-prefer` constraint, and nothing about
+  // the container is special about it. What it costs is a stop and a start,
+  // because a container does not migrate: podman has no live migration and
+  // Pacemaker's systemd agent stops the unit on one member and starts it on
+  // the other.
+  function confirmMove(container) {
+    const held = container.constraint;
+    const resource = container.resource || {};
+    confirm({
+      title: "Move " + container.name,
+      body:
+        "Writes the cli-prefer constraint naming the machine, and the cluster " +
+        "then runs the container there. It is stopped on " +
+        (resource.node || "the member running it") +
+        " and started on the machine chosen here, so whatever it was serving " +
+        "stops in between: a container has no live migration.",
+      note: held
+        ? held.id +
+          " already holds it on " +
+          held.node +
+          ", and this replaces that rule. Return gives the placement back to " +
+          "the cluster."
+        : "The constraint stays until Return removes it, and while it is " +
+          "there the cluster places this container where it says rather than " +
+          "where it would choose.",
+      choose: { label: "Run it on", options: container.destinations },
+      label: "Move",
+      act: async (node) => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(resource.id) + "/move",
+          { node }
+        );
+        RunWatch.open(started.run_id);
+      },
+    });
+  }
+
+  // And its inverse. `crm resource clear` removes the bans with the
+  // preference, and a ban is how a container is kept off a machine, so the
+  // confirmation names the ones it is about to take with it.
+  function confirmReturn(container) {
+    const held = container.constraint;
+    const resource = container.resource || {};
+    confirm({
+      title: "Return " + container.name + " to the cluster",
+      body:
+        "Removes " +
+        (held ? held.id : "the cli-prefer constraint") +
+        ", so Pacemaker places this container by its own rules again. It may " +
+        "move it as a result, at the same cost the move had: the container " +
+        "is stopped where it runs and started where the cluster puts it.",
+      note:
+        "The inventory declares no placement for a container, so nothing is " +
+        "written back: `upload_extra_files` says which machines receive the " +
+        "quadlet and the cluster decides which of them runs it.",
+      label: "Return",
+      act: async () => {
+        const started = await API.post(
+          "/cluster/resources/" + encodeURIComponent(resource.id) + "/clear"
+        );
+        RunWatch.open(started.run_id);
+      },
+    });
   }
 
   function confirmAct(container, host, action) {
@@ -493,6 +736,9 @@
   element("add-go").addEventListener("click", declare);
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
+  });
+  element("quadlet-close").addEventListener("click", () => {
+    element("quadlet").hidden = true;
   });
 
   async function start() {

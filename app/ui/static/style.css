@@ -3070,3 +3070,30 @@ td.placed {
 #guest-rows td.acts {
   white-space: nowrap;
 }
+
+/* The same pair on the Containers page, where a row Pacemaker places carries
+   Start or Stop beside them. */
+#container-rows td.acts {
+  white-space: nowrap;
+}
+
+/* The quadlet's own name, in the Containers table. It opens the file and
+   changes nothing, so it is drawn as the file name it is rather than as a
+   button among the ones that reach a machine, with the dotted underline that
+   says on this page there is something behind a word. */
+button.quadlet-open {
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: inherit;
+  font-weight: 400;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+}
+
+button.quadlet-open:hover {
+  text-decoration: underline;
+}

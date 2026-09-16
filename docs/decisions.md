@@ -2036,6 +2036,60 @@ is what a site does with an exporter. A clone is the answer where the container
 has to be one instance per node under the cluster's supervision, and nobody has
 asked for it yet.
 
+### The file the row is about, and what is in it
+
+The Quadlet column carried `src`, the path the inventory keeps the file under.
+That answers a question about the control machine, and the question an operator
+opens this page with is about the machines: the file is
+`nginxquadlet.container` under `/etc/containers/systemd`, which is the name
+podman's generator reads and the name `systemctl status` will print. So the
+column names the destination, and the source is on hover for the case where the
+two differ, which is a `.j2` rendered per machine.
+
+Clicking it shows the file. A quadlet is a dozen lines and they answer most of
+what the rest of the row raises: which image, which ports, and whether an
+`[Install]` section is about to start the container behind Pacemaker's back,
+which the row already flags. `GET /containers/{name}/file` reads it through the
+same reference the column carries, so a file a run would not find is a sentence
+here rather than an empty window.
+
+Two bounds on that reading, and they are the reason it is a route of its own
+rather than a link to the inventory folder. A path resolving outside the
+folders a run overlays is refused: an `upload_extra_files` entry may name any
+absolute path on the control machine, and serving one would turn a page that
+answers for the inventory into a reader of this machine's filesystem, for every
+viewer of it. And a file larger than a quadlet is refused with its size, under
+the same 64 KiB cap the `[Install]` check already reads with.
+
+Editing stays on the Inventory page, where a write to that file is a commit
+with a diff, a validation and an author.
+
+### Placement, which is D34's act on a container
+
+A container the cluster holds is a Pacemaker resource, so the pair
+[D34](#d34) settled applies to it unchanged: Move writes the `cli-prefer`
+constraint, Return removes it, and both call `/cluster/resources/{id}`. A route
+of this page's own would be a second name for one act writing one object.
+
+The colour of the node name says what decides where the container runs, and it
+has three states where a guest has four. A guest is read against its
+`preferred_host`; a container has no such field, since `upload_extra_files`
+says which machines receive the quadlet and never which of them runs it. So the
+whole reading is the constraint and the node the resource is on: the cluster
+places it, a constraint places it and the container is there, or a constraint
+places it and the container is elsewhere, which means the machine the
+constraint names could not take it.
+
+What a move costs differs from what it costs a guest, and the confirmation says
+so. A guest whose image allows live migration moves without stopping; podman
+has no live migration, so Pacemaker's systemd agent stops the unit on one
+member and starts it on the other, and whatever the container was serving stops
+in between.
+
+A return writes nothing back, for the same reason there is no fourth colour.
+The inventory declares no placement for a container, so there is nothing to
+restore and `crm resource clear` alone is the whole act.
+
 ## D34 - Settled: a placement can be told to the cluster, and a return puts back what the inventory declares
 
 Moving a guest on purpose is the one act nobody would design a declarative
