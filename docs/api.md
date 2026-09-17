@@ -1050,12 +1050,21 @@ and writing a file on a host is the one thing this service does not do. See
 
 The scripts take every value as an argument, so the seven settings live in the
 inventory on `cluster_machines`, under the conf file's own keys with a
-`backup_` prefix, and a run passes them on the command line. The conf file on
-the machines is untouched.
+`backup_` prefix, and a run passes them on the command line.
+
+`/etc/backup-restore.conf` is read here and written by the role. This node's
+own copy is read through the read only adapter, over the `/etc` the quadlet
+already mounts, so a site that has been driving the whiptail menu is offered
+the seven values it already decided on rather than asked for them again; where
+the file and the inventory disagree, both are shown. Writing it back is
+`backup_restore`'s, which renders the file from these same variables on every
+machine it plays. A site that sets none of them keeps the role's old
+behaviour, where the file is created empty and filled from the menu.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/backup` | `settings` is the seven variables as the cluster members resolve them, each with its label, the conf key it corresponds to and the variable it is written under; `target` is `<server>:<directory>`; `estimate` is `rbd du` summed per guest with the two filters applied, carrying `included` and `excluded`; `catalogue` is what the last listing run found on the backup server, with the run it came from and when; `warnings` names a setting written in more than one place |
+| GET | `/backup` | `settings` is the seven variables as the cluster members resolve them, each with its label, the conf key it corresponds to, the variable it is written under and `on_machine`, which is what this node's own conf file holds for it; `target` is `<server>:<directory>`; `catalogue` is what the last listing run found on the backup server, with the run it came from and when; `conf_path`, `conf_found` and `conf_only` say whether that file was read and whether it holds values the inventory does not; `warnings` names a setting written in more than one place, and a value where the file and the inventory differ |
+| GET | `/backup/estimate` | `rbd du` summed per guest with the two filters applied, carrying `included` and `excluded`. Its own endpoint because it is its own cost: `rbd du` adds up the objects of every image in the pool, which on a real cluster is minutes, so it is never on the path of the page being drawn. A Ceph that does not answer in time is reported in `error` rather than failing the request |
 | PUT | `/backup/settings` | Write the seven on `cluster_machines`, one commit, `If-Match` on the commit hash. `admin` |
 | POST | `/backup/full` | Export every selected guest in full and push it. `202` with the run. `operator` |
 | POST | `/backup/incremental` | Export what changed since each image's latest snapshot. `202` with the run. `operator` |

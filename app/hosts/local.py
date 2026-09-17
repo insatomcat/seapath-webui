@@ -32,6 +32,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.hosts.models import (
+    BackupConf,
     BlockDevice,
     CpuReading,
     CpuTopologyEntry,
@@ -55,6 +56,38 @@ logger = logging.getLogger(__name__)
 _IGNORED_BLOCK_PREFIXES = ("loop", "ram", "zram", "sr", "dm-", "md")
 
 _SECTOR_BYTES = 512
+
+# The file `backup_restore` creates and its menu writes, under the host's /etc.
+# Read so the Backup page can offer a site the values it already decided on
+# rather than asking for them again.
+_BACKUP_CONF = "backup-restore.conf"
+
+# The seven keys the tool has. Every other line of that file belongs to the
+# site and is left alone: what this reads is the tool's configuration.
+_BACKUP_CONF_KEYS = frozenset(
+    {
+        "local_dir",
+        "local_tmp_dir",
+        "remote_serv",
+        "remote_dir",
+        "remote_shell",
+        "include_vm",
+        "exclude_vm",
+    }
+)
+
+
+def _unquoted(value: str) -> str:
+    """A shell scalar as the menu writes it.
+
+    `writeVar` quotes `remote_shell` and nothing else, so this takes one layer
+    of matching quotes off and leaves everything else exactly as it was.
+    """
+    for quote in ('"', "'"):
+        if len(value) >= 2 and value.startswith(quote) and value.endswith(quote):
+            return value[1:-1]
+    return value
+
 
 # The unit file that declares this service on the machine, under the host's
 # /etc. Both the ISO and `deploy_seapath_webui` install it at this path.
@@ -649,6 +682,37 @@ class LocalHostReader:
             )
             for entry in entries
         ]
+
+    # The backup tool's own configuration
+
+    def backup_conf(self) -> BackupConf:
+        """`/etc/backup-restore.conf`, as the `backup_restore` role leaves it.
+
+        A shell fragment of `key=value` lines that the role creates and its
+        whiptail menu writes, sourced by `backup-restore.sh` with `source`. It
+        is parsed rather than sourced here, because sourcing a file from a host
+        is running whatever is in it.
+
+        Only the seven keys the tool has are taken, and only from a line that
+        is exactly `key=value`. Values are unquoted where the menu quoted them,
+        since `writeVar` writes `remote_shell="ssh"` for that one key alone and
+        the quotes are the shell's rather than part of the value.
+
+        A file that is not there is an ordinary answer: the role has not run on
+        this machine yet, or the site has never taken a backup. It is a reading
+        of what the machine is, and the machine may be a new one.
+        """
+        text = self._read_etc(_BACKUP_CONF)
+        if text is None:
+            return BackupConf(path=f"/{_BACKUP_CONF}")
+        values: dict[str, str] = {}
+        for line in text.splitlines():
+            key, separator, value = line.partition("=")
+            key = key.strip()
+            if not separator or key not in _BACKUP_CONF_KEYS:
+                continue
+            values[key] = _unquoted(value.strip())
+        return BackupConf(found=True, values=values, path=f"/{_BACKUP_CONF}")
 
     # Disks
 

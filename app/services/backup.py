@@ -10,11 +10,23 @@ run. The division is the one the rest of this service already holds to:
 
 - **Where a site sends its backups is desired state**, so it lives in the
   inventory, as seven variables named after the seven keys of
-  `/etc/backup-restore.conf`. Editing them is a commit like any other. This
-  service never writes that conf file: the file is the menu's, it is written on
-  a host, and writing on a host is the one thing this service does not do. What
-  a run carries instead is the seven values on the command line, which is the
-  interface the scripts were already written against.
+  `/etc/backup-restore.conf`. Editing them is a commit like any other. What a
+  run carries is the seven values on the command line, which is the interface
+  the scripts were already written against.
+
+  **`/etc/backup-restore.conf` is read here and written by the role.** A site
+  that has been taking backups from the whiptail menu has its values in that
+  file and nowhere else, so the form is offered them rather than asking for
+  them again: this node's own file is read through the read only adapter, the
+  way the inventory form is offered the hardware this machine reports. Where
+  the file and the inventory disagree, the page says so and names both.
+
+  Writing it back is the `backup_restore` role's, which renders the file from
+  these same variables at every convergence. That is the shape D1 requires, and
+  the reason nothing here opens that file for writing: a value
+  committed on this page reaches every machine of the cluster through a run,
+  including the machines an operator is not looking at, which is more than this
+  service could do by writing the one file it can see.
 
 - **What a full backup would weigh is a reading of Ceph**, so it is asked of
   Ceph directly, with `rbd du`, over the client D31 already established. The
@@ -56,6 +68,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 from app.core.errors import ApiError
+from app.hosts.models import BackupConf
 from app.inventory.editor import Scope
 from app.inventory.model import Mode
 from app.inventory.repository import Commit
@@ -123,6 +136,14 @@ class BackupSetting(BaseModel):
     help: str = ""
     source: str | None = None
     """Where the value comes from: `group cluster_machines`, or a machine."""
+    on_machine: str | None = None
+    """What `/etc/backup-restore.conf` on this node holds for it.
+
+    `None` where that file has nothing to say, which is a machine the role has
+    not configured yet or a site that has never taken a backup. It is offered
+    as the form's starting value while the inventory is silent, and shown
+    beside the inventory's value where the two disagree.
+    """
 
 
 class GuestVolume(BaseModel):
@@ -185,7 +206,14 @@ class BackupView(BaseModel):
     settings: list[BackupSetting] = Field(default_factory=list)
     target: str = ""
     """`<server>:<directory>`, the one string that says where backups go."""
-    estimate: Estimate = Field(default_factory=Estimate)
+    cluster: bool = False
+    """This inventory has a cluster, so there is a pool to back up at all."""
+    conf_path: str = "/etc/backup-restore.conf"
+    conf_found: bool = False
+    """This node's own copy of the tool's configuration was read."""
+    conf_only: bool = False
+    """The file holds values the inventory does not, so there is a form to fill
+    in from it and one button that does it."""
     catalogue: BackupCatalogue = Field(default_factory=BackupCatalogue)
     warnings: list[str] = Field(default_factory=list)
     note: str = ""
@@ -265,10 +293,18 @@ _NOT_A_CLUSTER = (
     "images, and there is no RBD pool outside a cluster: `backup_full.sh` "
     "opens with `rbd list`. Form a cluster first."
 )
+_FROM_THE_FILE = (
+    "This inventory does not say where the backups go, and "
+    "/etc/backup-restore.conf on this machine does. Settings opens the form "
+    "with those values already in it: committing them puts the site's own "
+    "backup configuration under the inventory, where a run can pass it to the "
+    "scripts and the role can render the file on every machine from it."
+)
 _NOT_CONFIGURED = (
-    "This inventory does not say where the backups go. Fill in the settings "
-    "below and they are committed with the rest of the desired state, so a "
-    "control machine running the same playbooks reads the same values."
+    "This inventory does not say where the backups go, so there is nothing to "
+    "back up to yet. Settings opens the seven values: they are committed with "
+    "the rest of the desired state, and a run passes them to the scripts on "
+    "the command line."
 )
 
 
@@ -279,20 +315,28 @@ class BackupService:
         runs: RunService,
         rbd,
         collections_path,
+        reader,
     ) -> None:
         self._inventory = inventory
         self._runs = runs
         self._rbd = rbd
         self._collections_path = collections_path
+        self._reader = reader
 
     # Reading
 
     def view(self) -> BackupView:
-        """Everything the page shows, in one answer.
+        """Everything the page draws itself from, in one answer.
 
-        Three readings of three different things, and none of them reaches a
-        machine: the inventory off the disk, Ceph over its own client, and the
-        listing the last listing run brought back.
+        Two readings, both cheap: the inventory off the disk, and the listing
+        the last listing run brought back, which is a file in that run's own
+        directory. Neither reaches a machine.
+
+        The estimate is deliberately absent. `rbd du` walks the objects of
+        every image in the pool, which is minutes on a real cluster, and a page
+        that asked for it on every visit would take those minutes before it
+        drew anything and then report a timeout. It has an endpoint of its own
+        and a button that says what it costs.
         """
         state = self._inventory.state()
         if state.inventory is None:
@@ -300,26 +344,77 @@ class BackupService:
 
         document = self._inventory.raw()
         target, sources = self._read(document)
-        settings = self._settings(document)
+        conf = self._conf()
+        settings = self._settings(document, conf)
         view = BackupView(
             mode=state.inventory.mode.value,
+            cluster=bool(state.inventory.cluster_members),
             configured=self.complete(target),
             settings=settings,
             target=target.destination if target.remote_serv else "",
             catalogue=self.catalogue(),
             commit=state.commit,
+            conf_path=conf.path,
+            conf_found=conf.found,
+            conf_only=any(
+                setting.on_machine and not setting.value for setting in settings
+            ),
         )
-        if not state.inventory.cluster_members:
+        if not view.cluster:
             view.note = _NOT_A_CLUSTER
             return view
         if not view.configured:
-            view.note = _NOT_CONFIGURED
-        view.estimate = self.estimate(target)
-        view.warnings = self._warnings(target, sources)
+            view.note = _FROM_THE_FILE if view.conf_only else _NOT_CONFIGURED
+        view.warnings = self._warnings(target, sources) + self._divergence(target, conf)
         return view
+
+    def _conf(self) -> BackupConf:
+        """This node's own `/etc/backup-restore.conf`, guarded.
+
+        No panel of this service may fail to render because a file under /etc
+        could not be read, and this one is read through the same adapter and
+        the same mount as every other reading of this machine.
+        """
+        try:
+            return self._reader.backup_conf()
+        except Exception as error:
+            logger.warning("The backup configuration could not be read: %s", error)
+            return BackupConf()
+
+    def _divergence(self, target: BackupTarget, conf: BackupConf) -> list[str]:
+        """Where this node's file and the inventory say different things.
+
+        Worth a sentence rather than a silent preference for one of them. The
+        file is what the menu on this machine uses and what the scripts were
+        driven with until now; the inventory is what a run here passes on the
+        command line and what the role will render the file from at the next
+        convergence. An operator who can see both can decide which is right.
+        """
+        if not conf.found:
+            return []
+        differing = [
+            f"{label} ({conf.values.get(key)} on this machine, "
+            f"{getattr(target, key) or 'unset'} in the inventory)"
+            for key, label, *_ in _SETTINGS
+            if conf.values.get(key) and conf.values[key] != getattr(target, key, "")
+        ]
+        if not differing:
+            return []
+        return [
+            f"{conf.path} on this machine differs from the inventory: "
+            + "; ".join(differing)
+            + ". The inventory is what a run here passes to the scripts, and "
+            "what the role renders that file from at the next convergence. "
+            "Until then the whiptail menu on the machines keeps using the file."
+        ]
 
     def estimate(self, target: BackupTarget | None = None) -> Estimate:
         """What a full backup would weigh, per guest, from `rbd du`.
+
+        Asked for, never volunteered. `rbd du` adds up the objects of every
+        image in the pool, so it is minutes of work for Ceph on a cluster
+        holding a dozen guests, and the operator pressing the button is the one
+        who decided to spend them.
 
         The two filters are applied here exactly as the scripts apply them, to
         the guest name and never to the image name, so a guest excluded on this
@@ -578,7 +673,9 @@ class BackupService:
             sources,
         )
 
-    def _settings(self, document: str) -> list[BackupSetting]:
+    def _settings(
+        self, document: str, conf: BackupConf | None = None
+    ) -> list[BackupSetting]:
         """The seven fields the form is drawn from.
 
         A file that says nothing still fills two of them, with `ssh` and `.*`:
@@ -587,6 +684,7 @@ class BackupService:
         be asking an operator to invent a value that already exists.
         """
         target, sources = self._read(document)
+        conf = conf if conf is not None else self._conf()
         held = {key: getattr(target, key, "") for key, *_ in _SETTINGS}
         return [
             BackupSetting(
@@ -598,6 +696,7 @@ class BackupService:
                 placeholder=placeholder,
                 help=help_text,
                 source=sources.get(key),
+                on_machine=conf.values.get(key) or None,
             )
             for key, label, required, placeholder, help_text in _SETTINGS
         ]

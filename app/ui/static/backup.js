@@ -116,11 +116,13 @@
   }
 
   // What a full backup would weigh
+  //
+  // Asked for rather than read with the page. `rbd du` adds up the objects of
+  // every image in the pool, which is minutes on a real cluster, so a panel
+  // that fetched it on every visit held the page up and then showed a timeout.
 
-  function renderEstimate(payload) {
-    const estimate = payload.estimate || {};
+  function renderEstimate(estimate) {
     const guests = estimate.guests || [];
-    element("estimate-card").hidden = !payload.configured && !estimate.error;
     element("estimate-error").textContent = estimate.error || "";
     element("estimate-error").hidden = !estimate.error;
     element("estimate-table").hidden = guests.length === 0;
@@ -142,6 +144,25 @@
     element("estimate-excluded").textContent = excluded.length
       ? "Left out by the filters: " + excluded.join(", ")
       : "";
+  }
+
+  async function measure() {
+    const button = element("estimate-go");
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    element("estimate-loading").hidden = false;
+    element("estimate-error").hidden = true;
+    try {
+      renderEstimate(await API.get("/backup/estimate"));
+    } catch (failure) {
+      const error = element("estimate-error");
+      error.textContent = failure.message;
+      error.hidden = false;
+    } finally {
+      element("estimate-loading").hidden = true;
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
   }
 
   // What the server holds
@@ -250,14 +271,13 @@
   }
 
   function confirmFull() {
-    const estimate = (view && view.estimate) || {};
     confirm({
       title: "Back up every guest, in full",
       body:
         "Exports every selected guest's disks from Ceph as qcow2 and sends " +
         "them to " + view.target + ". The guests keep running throughout. " +
-        "Expect " + size(estimate.used_bytes || 0) + " to cross the network, " +
-        "and the cluster takes no other run until it ends.",
+        "Expect an hour or more on a cluster holding a dozen guests, and the " +
+        "cluster takes no other run until it ends.",
       note:
         "Before it exports an image it removes every snapshot that image " +
         "carries, with `rbd snap purge`, and takes the base snapshot this " +
@@ -338,22 +358,60 @@
     if (!open) {
       return;
     }
+    const settings = view.settings || [];
+    // A field the inventory is silent about starts from what this machine's
+    // own /etc/backup-restore.conf says, because a site that has been driving
+    // the whiptail menu decided that value years ago and retyping it is how it
+    // gets typed wrong. Where the inventory holds a value it wins: it is the
+    // one a run passes, and the one the role renders the file from.
     const fields = clear(element("settings-fields"));
-    (view.settings || []).forEach((setting) => {
+    settings.forEach((setting) => {
       const label = document.createElement("label");
       label.setAttribute("for", "set-" + setting.key);
       label.textContent = setting.label + (setting.required ? "" : " (optional)");
       const input = document.createElement("input");
       input.type = "text";
       input.id = "set-" + setting.key;
-      input.value = setting.value || "";
+      input.value = setting.value || setting.on_machine || "";
       input.placeholder = setting.placeholder || "";
       input.autocomplete = "off";
       input.spellcheck = false;
       const help = document.createElement("p");
       help.className = "help";
       help.textContent = setting.help + " Written as `" + setting.name + "`.";
+      if (setting.on_machine && setting.on_machine !== setting.value) {
+        const said = document.createElement("span");
+        said.className = "assumed";
+        said.textContent =
+          " " + view.conf_path + " on this machine says " + setting.on_machine + ".";
+        help.append(said);
+      }
       fields.append(label, input, help);
+    });
+
+    const fromFile = settings.filter((setting) => setting.on_machine);
+    element("settings-from-file").textContent = view.conf_found
+      ? view.conf_path +
+        " on this machine holds " +
+        fromFile.length +
+        " of the seven, and the fields below start from them where the " +
+        "inventory is silent. Committing puts them under the inventory, which " +
+        "is what reaches the other machines."
+      : "";
+    element("settings-from-file").hidden = !view.conf_found || !fromFile.length;
+    element("settings-take-row").hidden = !fromFile.some(
+      (setting) => setting.on_machine !== setting.value
+    );
+  }
+
+  // Every field back to what the machine's own file says. One button, because
+  // the alternative is seven copies by hand out of a panel the operator cannot
+  // see while the form is open.
+  function takeFromMachine() {
+    (view.settings || []).forEach((setting) => {
+      if (setting.on_machine) {
+        element("set-" + setting.key).value = setting.on_machine;
+      }
     });
   }
 
@@ -394,9 +452,13 @@
   function draw(answer) {
     view = answer;
     renderTarget(answer);
-    renderEstimate(answer);
     renderCatalogue(answer);
     element("settings-open").hidden = !canWrite;
+    // Both panels are about a backup that has somewhere to go. Until the
+    // inventory says where, the page is the form and the sentence that sends
+    // an operator to it.
+    element("estimate-card").hidden = !answer.configured;
+    element("catalogue-card").hidden = !answer.configured;
   }
 
   async function refresh(fresh, pending) {
@@ -407,10 +469,12 @@
 
   element("settings-open").addEventListener("click", () => showSettings(true));
   element("settings-cancel").addEventListener("click", () => showSettings(false));
+  element("settings-take").addEventListener("click", takeFromMachine);
   element("settings-save").addEventListener("click", saveSettings);
   element("act-full").addEventListener("click", confirmFull);
   element("act-inc").addEventListener("click", confirmIncremental);
   element("act-list").addEventListener("click", readServer);
+  element("estimate-go").addEventListener("click", measure);
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });

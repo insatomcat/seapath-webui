@@ -30,6 +30,7 @@ from app.runs.backup import BackupAction
 from app.services.backup import (
     BackupService,
     BackupView,
+    Estimate,
     InvalidBackupSetting,
 )
 
@@ -97,6 +98,22 @@ def backup(request: Request) -> BackupView:
     of the three reaches a machine.
     """
     return _service(request).view()
+
+
+@router.get("/estimate", response_model=Estimate)
+def estimate(request: Request) -> Estimate:
+    """What a full backup would weigh, per guest, from `rbd du`.
+
+    Its own endpoint because it is its own cost. `rbd du` adds up the objects
+    of every image in the pool, which on a real cluster is minutes, so it is
+    never on the path of the page being drawn: `GET /backup` answers at once
+    and this is asked when an operator presses the button.
+
+    A Ceph that does not answer in time is reported in `error` rather than
+    failing the request, because the reading says nothing about whether a
+    backup can be taken.
+    """
+    return _service(request).estimate()
 
 
 @router.put("/settings", response_model=SettingsResponse)

@@ -56,6 +56,18 @@ MAX_VALUE_BYTES = 64 * 1024
 # that a page waiting on it says so rather than hanging.
 TIMEOUT = 10.0
 
+# What `rbd du` is given instead, because it is a different kind of command.
+# Every other call here asks a monitor a question and gets an answer; `du`
+# walks the objects of every image in the pool and adds up what it finds, which
+# on a substation cluster holding a dozen guests is minutes rather than
+# seconds. The upstream menu prints "Estimating backup volume, please wait"
+# ahead of the same command for exactly this reason.
+#
+# So it is never on the path of a page being drawn. The Backup page asks for it
+# when an operator presses the button, and this is the budget that reading is
+# given.
+DU_TIMEOUT = 600.0
+
 
 def image_of(guest: str) -> str:
     """The RBD image holding a guest's system disk, and its metadata."""
@@ -148,7 +160,7 @@ class CommandRbdClient:
         sparse, so what crosses the network is the used size and not the
         provisioned one.
         """
-        result = self._run(["du", "--format", "json"])
+        result = self._run(["du", "--format", "json"], timeout=DU_TIMEOUT)
         try:
             document = json.loads(result or "{}")
         except ValueError as error:
@@ -177,9 +189,9 @@ class CommandRbdClient:
             )
         return usage
 
-    def _run(self, arguments: list[str]) -> str:
+    def _run(self, arguments: list[str], timeout: float = TIMEOUT) -> str:
         result = self._runner.run(
-            ["rbd", "-p", self._pool, *arguments], timeout=TIMEOUT
+            ["rbd", "-p", self._pool, *arguments], timeout=timeout
         )
         if not result.ok:
             # The operator reads this, so it carries what Ceph said rather than

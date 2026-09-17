@@ -3981,11 +3981,45 @@ run record is for.
 The seven values therefore live in the inventory, on `cluster_machines`, under
 the conf file's own keys with a `backup_` prefix: `backup_local_dir`,
 `backup_remote_serv`, `backup_remote_dir`, `backup_local_tmp_dir`,
-`backup_remote_shell`, `backup_include_vm`, `backup_exclude_vm`. The names are
-the conf file's so the two descriptions of one site's backup can be read side
-by side, and so a later role that templates that file from the inventory maps
-onto them one for one. `/etc/backup-restore.conf` is left exactly as it was: a
-site that still drives the menu on a machine keeps whatever it had there.
+`backup_remote_shell`, `backup_include_vm`, `backup_exclude_vm`.
+
+### The conf file is read here and written by the role
+
+The first cut of this left `/etc/backup-restore.conf` alone in both directions,
+and that was wrong in a way worth recording, because the rule that produced it
+is a good rule. A site that has been taking backups has those seven values in
+that file and nowhere else, decided years ago at a terminal. A page that
+ignored it asked an operator to retype all seven, which is how a `local_dir`
+loses its trailing slash, and it left two descriptions of one site's backups
+disagreeing with nothing saying so. One source of truth is the whole point of
+this service, and that arrangement had two.
+
+Both halves are now where they belong, and neither of them is this service
+writing to a host.
+
+**Reading it is a reading of what the machine is**, which is the read only
+adapter's job and costs no new mount: `/etc` is already there read only, as
+`/run/host/etc`, and the parser takes the seven keys out of the `key=value`
+lines. It is parsed rather than sourced, because sourcing a file from a host is
+running whatever is in it. The form starts from those values wherever the
+inventory is silent, the way the inventory form starts from the hardware this
+machine reports, and a single button fills the whole form from them. Where the
+file and the inventory disagree, the page names both values and says which one
+does what: the file is what the menu on that machine uses, the inventory is
+what a run here passes on the command line.
+
+**Writing it is the role's.** `backup_restore` now renders the file from the
+same seven variables, on every machine it plays, at every convergence. That is
+the answer D1 always prescribed, and it is strictly better than what this
+service could have done by opening the file itself: a value committed here
+reaches every member of the cluster, including the machines nobody is looking
+at, and the whiptail menu on each of them then reads what the inventory says.
+
+The role keeps its old behaviour where the inventory says nothing about
+backups, which is every site that has not adopted these variables: the file is
+created empty and filled from the menu, exactly as before. Setting any one of
+the seven is what hands the file over to the inventory, and the role's README
+says so.
 
 ### Three readings, and why each one is where it is
 
@@ -4001,6 +4035,15 @@ same command on a machine and parses its human readable table; this asks for
 JSON and sums the same numbers, with the two filters applied to the guest name
 exactly as the scripts apply them, and an additional disk counted with the
 guest it belongs to. It reaches no machine and costs no run.
+
+It is behind a button, and that correction is worth recording too. `rbd du`
+adds up the objects of every image in the pool, so unlike every other call this
+service makes to Ceph it is minutes of work rather than a question to a
+monitor. Drawn on every visit it took the ten second budget the metadata reads
+share and reported a timeout, on the first real cluster it met. The upstream
+menu prints "Estimating backup volume, please wait" ahead of the same command,
+which was the clue in plain sight. It now has an endpoint of its own, a budget
+of its own, and a button that says what it costs.
 
 **What the backup server holds** is the one reading that cannot happen here at
 all. The SSH trust that reaches that server belongs to the cluster members and

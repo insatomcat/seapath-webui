@@ -473,6 +473,11 @@ def create_app(
         runs=app.state.run_service,
         rbd=rbd_client,
         collections_path=resolve_collections,
+        # This node's own /etc/backup-restore.conf, through the read only
+        # adapter and the /etc the quadlet already mounts. A site that has been
+        # driving the whiptail menu has its seven values in that file and
+        # nowhere else, and the form is offered them rather than asking again.
+        reader=reader,
     )
 
     install_error_handlers(app)

@@ -137,6 +137,26 @@ class DisksReading(Reading):
     devices: list[BlockDevice] = Field(default_factory=list)
 
 
+class BackupConf(Reading):
+    """What `/etc/backup-restore.conf` on this machine says, if anything.
+
+    The `backup_restore` role touches that file at every convergence and its
+    whiptail menu writes it, so on a site that has been taking backups it holds
+    the seven values somebody decided on, years ago, at a terminal. Reading it
+    is how the Backup page offers those values back instead of asking for them
+    again, the way the inventory form is offered the hardware this machine
+    reports rather than a blank page.
+
+    A reading of this node alone, like every other reading here. The file is on
+    every machine the role configures, and this says what the machine serving
+    the page has.
+    """
+
+    found: bool = False
+    values: dict[str, str] = Field(default_factory=dict)
+    path: str = "/etc/backup-restore.conf"
+
+
 class HugepagePool(BaseModel):
     """One hugepage size the kernel exposes, and what is allocated in it."""
 

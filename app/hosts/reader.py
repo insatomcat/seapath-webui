@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from app.hosts.models import (
+    BackupConf,
     CpuReading,
     DisksReading,
     NetworkReading,
@@ -84,3 +85,5 @@ class HostReader(Protocol):
     def ptp_clocks(self) -> list[PtpClock]: ...
 
     def disks(self) -> DisksReading: ...
+
+    def backup_conf(self) -> BackupConf: ...

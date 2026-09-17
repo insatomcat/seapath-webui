@@ -35,7 +35,7 @@ to be erased.
       <h2>Backups</h2>
       <div class="card-acts">
         {{ reread("reread", "the backups") }}
-        <button type="button" id="settings-open" hidden>Where they go</button>
+        <button type="button" id="settings-open" hidden>Settings</button>
       </div>
     </div>
     <p class="lead" id="lead" hidden></p>
@@ -67,17 +67,33 @@ to be erased.
      on a machine: the numbers belong to Ceph and this service already talks to
      Ceph for a guest's metadata. The two filters are applied exactly as the
      scripts apply them, to the guest name, so a guest missing from this table
-     is a guest the run will skip. #}
+     is a guest the run will skip.
+
+     Behind a button, and that is the whole design of this panel. `rbd du` adds
+     up the objects of every image in the pool, which on a real cluster is
+     minutes of work for Ceph. Asked on every visit it would hold the page up
+     and then report a timeout, which is what it did. #}
   <section class="card" id="estimate-card" hidden>
     <div class="card-head">
-      <h2>What a full backup would weigh</h2>
-      <span class="pane-foot-note" id="estimate-total"></span>
+      <h2>Estimated volume</h2>
+      <div class="card-acts">
+        <span class="pane-foot-note" id="estimate-total"></span>
+        <button type="button" id="estimate-go" class="secondary">Measure it</button>
+      </div>
     </div>
     <p class="lead">
       The size every selected guest occupies in Ceph, which is what a full
       backup exports. A qcow2 is sparse, so this is what crosses the network
       rather than what the disks were provisioned at.
     </p>
+    <p class="help">
+      Measuring it runs <code>rbd du</code>, which adds up the objects of every
+      image in the pool. On a cluster holding a dozen guests that is minutes of
+      work for Ceph, so it is asked for rather than read on every visit.
+    </p>
+    <div class="loading" id="estimate-loading" hidden>
+      Adding up the objects of every image
+    </div>
     <p class="error" id="estimate-error" hidden></p>
     <div class="table-scroll" id="estimate-table" hidden>
       <table>
@@ -100,7 +116,7 @@ to be erased.
   {# What the server holds. Drawn from the last listing run, and the panel says
      when that was: a page that showed this as live would be claiming a reading
      this service cannot make. #}
-  <section class="card" id="catalogue-card">
+  <section class="card" id="catalogue-card" hidden>
     <div class="card-head">
       <h2>On the backup server</h2>
       <span class="pane-foot-note" id="catalogue-when"></span>
@@ -139,13 +155,24 @@ to be erased.
    every backup. #}
 <div class="modal" id="settings" data-dismiss="settings-cancel" hidden>
   <div class="modal-body wide">
-    <h2>Where the backups go</h2>
+    <h2>Backup settings</h2>
     <p class="lead">
       Written into the inventory on <code>cluster_machines</code>, as one
       commit, under the names <code>/etc/backup-restore.conf</code> uses with a
-      <code>backup_</code> prefix. Nothing is written on a machine: a run passes
-      these to the scripts as arguments.
+      <code>backup_</code> prefix. A run passes these to the scripts as
+      arguments, and the <code>backup_restore</code> role renders the file on
+      every machine from them at the next convergence.
     </p>
+    {# What this node's own copy of the file says. A site that has been driving
+       the whiptail menu decided these values years ago at a terminal, and
+       asking for them again would be asking an operator to retype what the
+       machine is already telling us. #}
+    <p class="warning" id="settings-from-file" hidden></p>
+    <div class="card-actions" id="settings-take-row" hidden>
+      <button type="button" id="settings-take" class="secondary">
+        Take the values from this machine
+      </button>
+    </div>
     <div id="settings-fields"></div>
     <div class="card-actions">
       <button type="button" id="settings-save">Commit</button>

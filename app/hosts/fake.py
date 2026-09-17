@@ -15,6 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from app.hosts.models import (
+    BackupConf,
     BlockDevice,
     CpuReading,
     CpuTopologyEntry,
@@ -54,6 +55,22 @@ class FakeHostReader:
         # installed machine does and the seed has an unpinned reference to
         # resolve, which is the case worth exercising.
         self.service_image = "docker.io/insatomcat/seapath-webui:latest"
+        # What `/etc/backup-restore.conf` says on this machine. Filled, because
+        # a site that has been taking backups from the menu is the case the
+        # Backup page has to handle: those values are offered back rather than
+        # asked for again. Replace it with `BackupConf()` for a new machine.
+        self.conf = BackupConf(
+            found=True,
+            values={
+                "local_dir": "/var/lib/seapath-backup/",
+                "local_tmp_dir": "/var/lib/seapath-restore/",
+                "remote_serv": "backup@backup.example.org",
+                "remote_dir": "/srv/seapath-backups/",
+                "remote_shell": "ssh",
+                "include_vm": ".*",
+                "exclude_vm": "",
+            },
+        )
 
     def node_identity(self) -> NodeIdentity:
         return NodeIdentity(
@@ -197,6 +214,16 @@ class FakeHostReader:
 
     def ptp_clocks(self) -> list[PtpClock]:
         return [PtpClock(device="ptp0", clock_name="ice-ptp")]
+
+    def backup_conf(self) -> BackupConf:
+        """A machine whose site has been taking backups from the menu.
+
+        The fake answers with a filled conf, because the case worth having in
+        front of a developer is the one a real site is in: values decided years
+        ago at a terminal, which the page has to offer back rather than ask for
+        again. `backup_conf = BackupConf()` on the instance is the new machine.
+        """
+        return self.conf
 
     def disks(self) -> DisksReading:
         return DisksReading(

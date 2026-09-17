@@ -162,6 +162,10 @@ def _argv(play: dict, task: int = 0) -> list[str]:
     return play["tasks"][task]["ansible.builtin.command"]["argv"]
 
 
+def settings_of(client: TestClient) -> Settings:
+    return client.app.state.settings
+
+
 def _wait(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -186,6 +190,108 @@ def _listed(client: TestClient, settings: Settings) -> str:
     results.mkdir(parents=True, exist_ok=True)
     (results / "listing.txt").write_text(LISTING)
     return run_id
+
+
+# What this machine's own /etc/backup-restore.conf contributes
+
+
+def test_the_form_is_offered_the_values_this_machine_already_has(
+    signed_in: TestClient,
+) -> None:
+    """A site that has been driving the whiptail menu has them in that file.
+
+    Asking for them again is asking an operator to retype what the machine is
+    already saying, which is how a `local_dir` loses its trailing slash.
+    """
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    payload = _backup(signed_in)
+
+    assert payload["conf_found"] is True
+    assert payload["conf_path"] == "/etc/backup-restore.conf"
+    held = {setting["key"]: setting["on_machine"] for setting in payload["settings"]}
+    assert held["remote_serv"] == "backup@backup.example.org"
+    assert held["local_dir"] == "/var/lib/seapath-backup/"
+    # The inventory is silent, so the note sends the operator to the form the
+    # file has already filled in.
+    assert "on this machine does" in payload["note"]
+
+
+def test_the_inventory_wins_and_a_difference_is_named(signed_in: TestClient) -> None:
+    """Neither is silently preferred.
+
+    The file is what the menu on that machine uses; the inventory is what a run
+    passes and what the role renders the file from at the next convergence. An
+    operator who can see both decides which is right.
+    """
+    _import(
+        signed_in,
+        CLUSTER.format(
+            settings=CONFIGURED.replace(
+                "backup_remote_dir: /srv/seapath-backups/",
+                "backup_remote_dir: /srv/elsewhere/",
+            )
+        ),
+    )
+
+    payload = _backup(signed_in)
+
+    held = {setting["key"]: setting for setting in payload["settings"]}
+    assert held["remote_dir"]["value"] == "/srv/elsewhere/"
+    assert held["remote_dir"]["on_machine"] == "/srv/seapath-backups/"
+    assert any(
+        "differs from the inventory" in warning and "/srv/elsewhere/" in warning
+        for warning in payload["warnings"]
+    )
+    # And it is the inventory's value that a run carries.
+    run_id = signed_in.post("/api/v1/backup/full").json()["run_id"]
+    assert "/srv/elsewhere/" in " ".join(_argv(_played(settings_of(signed_in), run_id)))
+
+
+def test_a_machine_with_no_such_file_says_so_rather_than_failing(
+    signed_in: TestClient, reader
+) -> None:
+    from app.hosts.models import BackupConf
+
+    reader.conf = BackupConf()
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    payload = _backup(signed_in)
+
+    assert payload["conf_found"] is False
+    assert all(setting["on_machine"] is None for setting in payload["settings"])
+    assert "does not say where the backups go" in payload["note"]
+
+
+def test_the_conf_parser_takes_the_seven_keys_and_unquotes_the_one_that_is_quoted(
+    tmp_path: Path,
+) -> None:
+    """`writeVar` quotes `remote_shell` and nothing else.
+
+    The quotes are the shell's, so they are not part of the value, and the menu
+    also lets a site keep its own lines in that file. Those are left alone.
+    """
+    from app.hosts.local import LocalHostReader
+
+    etc = tmp_path / "etc"
+    etc.mkdir()
+    (etc / "backup-restore.conf").write_text(
+        'remote_shell="ssh -p 2222"\n'
+        "local_dir=/var/lib/seapath-backup/\n"
+        "exclude_vm=vm-test\n"
+        "# a comment the menu never writes\n"
+        "SITE_OWN_SETTING=whatever\n"
+        "not a key value line\n"
+    )
+
+    conf = LocalHostReader(root=tmp_path, etc_root=etc).backup_conf()
+
+    assert conf.found is True
+    assert conf.values == {
+        "remote_shell": "ssh -p 2222",
+        "local_dir": "/var/lib/seapath-backup/",
+        "exclude_vm": "vm-test",
+    }
 
 
 # What the page reads
@@ -286,12 +392,32 @@ def test_a_value_written_twice_is_reported_and_no_act_is_offered(
 # The estimate, which is the port of backup_du.py
 
 
+def _estimate(client: TestClient) -> dict:
+    response = client.get("/api/v1/backup/estimate")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_the_estimate_is_asked_for_rather_than_read_with_the_page(
+    signed_in: TestClient,
+) -> None:
+    """`rbd du` adds up the objects of every image in the pool.
+
+    That is minutes on a real cluster, and a page that asked for it on every
+    visit held the page up and then reported the client's timeout. It has an
+    endpoint of its own and a button that says what it costs.
+    """
+    _configured(signed_in)
+
+    assert "estimate" not in _backup(signed_in)
+
+
 def test_the_estimate_sums_a_guest_and_its_additional_disks(
     signed_in: TestClient,
 ) -> None:
     _configured(signed_in)
 
-    estimate = _backup(signed_in)["estimate"]
+    estimate = _estimate(signed_in)
 
     volumes = {guest["guest"]: guest for guest in estimate["guests"]}
     # `vm-guest1` has a system disk and a data disk, and a backup exports both.
@@ -321,7 +447,7 @@ def test_the_filters_are_applied_to_guest_names_the_way_the_scripts_apply_them(
         ),
     )
 
-    estimate = _backup(signed_in)["estimate"]
+    estimate = _estimate(signed_in)
 
     assert estimate["included"] == ["vm-guest1", "vm-guest2"]
     # Named rather than silently absent: a guest missing from a backup because

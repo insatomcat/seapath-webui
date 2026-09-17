@@ -699,6 +699,10 @@ a real backup server behind it. See [D53](decisions.md#d53).
 | 8 | After the restore, `rbd image-meta list` on the guest's image carries the keys the backup saved, and the Pacemaker resource is back with the placement its metadata declares | The restore of the metadata, which is what makes a restored guest the guest it was | Pending |
 | 9 | A member whose root account has no trust to the backup server fails the run on its first task with ssh's own message | The trust this service neither holds nor installs | Pending |
 | 10 | Exporting the inventory and running the same playbooks from a conventional control machine reports no change on any machine | The acceptance criterion, against the seven variables this page writes | Pending |
+| 11 | On a machine whose `/etc/backup-restore.conf` the menu had filled, the Settings form opens with those seven values already in it, and the page names any that differ from the inventory | The file as a real site left it, against a parser held only against written fixtures | Pending |
+| 12 | After committing them, a convergence renders `/etc/backup-restore.conf` on **every** member from the inventory, and `backup-restore.sh` on each machine shows those values in its settings menu | The role's template landing on machines nobody is looking at, which is the half this service cannot do by itself | Pending |
+| 13 | On a site that sets none of the seven, the same convergence leaves `/etc/backup-restore.conf` exactly as it was | The compatibility guard, against a file the role has been touching for two years | Pending |
+| 14 | **Measure it** on a real pool answers within the ten minutes it is given, and the figure is close to what check 1 transferred | `rbd du` walking a real pool. The first cluster this met timed out at ten seconds, which is what moved it behind a button | Pending |
 
 ### Result
 
