@@ -63,12 +63,14 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
 from app.core.errors import ApiError
 from app.hosts.models import BackupConf
+from app.hosts.remote import RemoteRefused, RemoteRequest, RemoteRunner
 from app.inventory.editor import Scope
 from app.inventory.model import Mode
 from app.inventory.repository import Commit
@@ -78,7 +80,7 @@ from app.runs import backup as plays
 from app.runs.backup import BackupAction, BackupTarget
 from app.runs.catalogue import role_present
 from app.runs.models import RunRecord, RunState
-from app.runs.service import RunService
+from app.runs.service import RunPaths, RunService
 
 logger = logging.getLogger(__name__)
 
@@ -192,12 +194,12 @@ class FullBackup(BaseModel):
 
 
 class BackupCatalogue(BaseModel):
-    """What the backup server held, when it was last asked."""
+    """What the backup server holds, as it answered just now."""
 
     backups: list[FullBackup] = Field(default_factory=list)
-    run_id: str | None = None
+    read_from: str | None = None
+    """The cluster member the server was asked from."""
     read_at: str | None = None
-    state: str | None = None
     note: str = ""
 
 
@@ -217,7 +219,6 @@ class BackupView(BaseModel):
     conf_only: bool = False
     """The file holds values the inventory does not, so there is a form to fill
     in from it and one button that does it."""
-    catalogue: BackupCatalogue = Field(default_factory=BackupCatalogue)
     warnings: list[str] = Field(default_factory=list)
     note: str = ""
     commit: str | None = None
@@ -320,12 +321,22 @@ class BackupService:
         rbd,
         collections_path,
         reader,
+        remote: RemoteRunner,
+        keys: RunPaths,
+        ansible_user: str,
     ) -> None:
         self._inventory = inventory
         self._runs = runs
         self._rbd = rbd
         self._collections_path = collections_path
         self._reader = reader
+        # The connection the backup server is asked over. The same key, the
+        # same `known_hosts` and the same account a run and a console use, so
+        # what this can reach is exactly what the configuration plane already
+        # reaches. See D54.
+        self._remote = remote
+        self._keys = keys
+        self._ansible_user = ansible_user
 
     # Reading
 
@@ -356,7 +367,6 @@ class BackupService:
             configured=self.complete(target),
             settings=settings,
             target=target.destination if target.remote_serv else "",
-            catalogue=self.catalogue(),
             commit=state.commit,
             conf_path=conf.path,
             conf_found=conf.found,
@@ -483,49 +493,98 @@ class BackupService:
         )
 
     def catalogue(self) -> BackupCatalogue:
-        """What the last listing run found on the backup server.
+        """What the backup server holds, asked now, over one SSH connection.
 
-        Read from the run's own results directory at each request rather than
-        remembered, for the reason `latency_results` gives: the record is what
-        the run did and this is what it brought back, so a directory reclaimed
-        for space reads as a listing that is no longer there, which is what it
-        is.
+        A read, so it reads: no run, no lock, no record. This used to be a run,
+        on the reasoning that anything reaching another machine goes through
+        `ansible-runner`, and that reasoning was wrong. The rule is that this
+        service never *configures* a machine; reads already go straight at the
+        thing being read, from the exporters over HTTP to Ceph over `rbd` to
+        the console's own `ssh`. Browsing a directory is a read, and paying the
+        cluster's run lock for one meant no convergence could start while an
+        operator looked at what was there. See D54.
+
+        Two hops, because the trust to the backup server is root's own key on
+        each member and this container has none: this node's own key reaches
+        the `ansible` account of a member, exactly as a run and a console do,
+        and `sudo` there reaches the server.
         """
-        record = self._last_listing()
-        if record is None:
+        target, _ = self._read(self._inventory.raw())
+        missing = self._missing(target)
+        if missing:
             return BackupCatalogue(
                 note=(
-                    "The backup server has not been asked what it holds. "
-                    "Reading it is a short run from a cluster member, over the "
-                    "same SSH the backups are pushed with."
+                    "This inventory does not say "
+                    + _list(missing)
+                    + ", so there is no backup server to ask."
                 )
             )
-        listing = self._listing_text(record)
-        if listing is None:
+        member = self._member()
+        if member is None:
             return BackupCatalogue(
-                run_id=record.id,
-                state=record.state.value,
-                read_at=record.started_at.isoformat() if record.started_at else None,
                 note=(
-                    "The last reading of the backup server brought nothing "
-                    "back. Its log is on the Runs page."
+                    "No machine of this inventory carries an `ansible_host`, "
+                    "so there is nowhere to ask from. The backup server is "
+                    "reached from a cluster member, with the key the backups "
+                    "are pushed with."
+                )
+            )
+        name, address = member
+        try:
+            listing = self._remote.run(
+                RemoteRequest(
+                    address=address,
+                    user=self._ansible_user,
+                    command=plays.listing_shell_command(target),
+                    private_key_file=self._keys.private_key_file,
+                    known_hosts_file=self._keys.known_hosts_file,
+                    extra_key_files=self._keys.extra_key_files(),
+                )
+            )
+        except RemoteRefused as error:
+            return BackupCatalogue(
+                read_from=name,
+                note=(
+                    f"{name} could not be asked what {target.remote_serv} "
+                    f"holds: {error} The backups are pushed with root's own "
+                    "key on that machine, which this service neither holds nor "
+                    "installs."
                 ),
             )
         backups = parse_listing(listing)
         return BackupCatalogue(
             backups=backups,
-            run_id=record.id,
-            state=record.state.value,
-            read_at=record.started_at.isoformat() if record.started_at else None,
+            read_from=name,
+            read_at=datetime.now(tz=UTC).isoformat(),
             note=(
                 ""
                 if backups
                 else (
-                    "The backup server answered, and its directory holds no "
-                    "backup: nothing has been pushed there yet."
+                    f"{target.remote_serv} answered, and {target.remote_dir} "
+                    "holds no backup: nothing has been pushed there yet."
                 )
             ),
         )
+
+    def _member(self) -> tuple[str, str] | None:
+        """The machine the backup server is asked from, and its address.
+
+        This node when the inventory declares it a cluster member, because the
+        shortest path is the one whose failures an operator can see on this
+        very page. Any other member otherwise, since the trust and the backups
+        are the same on all of them.
+        """
+        state = self._inventory.state()
+        if state.inventory is None:
+            return None
+        members = list(state.inventory.cluster_members)
+        ordered = sorted(members, key=lambda name: name != state.this_host)
+        for name in ordered:
+            node = state.inventory.hosts.get(name)
+            address = getattr(node, "ansible_host", None) if node else None
+            if address:
+                return name, str(address)
+        return None
 
     # Writing
 

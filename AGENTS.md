@@ -78,10 +78,14 @@ requirements.txt
 Host access is confined to two adapters, both under `app/hosts/`: an SSH and
 `ansible-runner` adapter for everything that changes a machine, and a read only
 adapter describing what the machine **is**, which is what the seed inventory is
-written from and what the node view reports. What a machine is *doing* is not
-read here at all: every node runs `prometheus-node-exporter`, and D13 in
-[decisions.md](docs/decisions.md) records why that boundary is worth
-defending. Both adapters have a fake
+written from and what the node view reports. `app/hosts/remote.py` is the
+second one reaching a machine that is not this one: one `ssh`, one command, its
+output, for the single reading no exporter can answer, which is what a backup
+server holds. It connects as a run connects and reads only. See D54.
+
+What a machine is *doing* is not read here at all: every node runs
+`prometheus-node-exporter`, and D13 in [decisions.md](docs/decisions.md)
+records why that boundary is worth defending. Every adapter has a fake
 implementation, and the whole test suite runs against the fakes, on a laptop,
 with no cluster and no libvirt.
 

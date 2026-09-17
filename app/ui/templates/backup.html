@@ -54,7 +54,7 @@ to be erased.
     <div class="card-actions" id="acts" hidden>
       <button type="button" id="act-full">Back up everything</button>
       <button type="button" id="act-inc" class="secondary">Back up the changes</button>
-      <button type="button" id="act-list" class="secondary">Read the backup server</button>
+      <button type="button" id="act-list" class="secondary">List the backups</button>
     </div>
     <p class="help" id="acts-help" hidden>
       A backup holds the cluster's run lock for as long as it takes, so no
@@ -121,6 +121,9 @@ to be erased.
       <h2>On the backup server</h2>
       <span class="pane-foot-note" id="catalogue-when"></span>
     </div>
+    <div class="loading" id="catalogue-loading" hidden>
+      Asking the backup server what it holds
+    </div>
     <p class="warning" id="catalogue-note" hidden></p>
     <div class="table-scroll" id="catalogue-table" hidden>
       <table>
@@ -175,7 +178,7 @@ to be erased.
     </div>
     <div id="settings-fields"></div>
     <div class="card-actions">
-      <button type="button" id="settings-save">Commit</button>
+      <button type="button" id="settings-save">Save to the inventory</button>
       <button type="button" id="settings-cancel" class="secondary">Cancel</button>
     </div>
     <p class="error" id="settings-error" hidden></p>

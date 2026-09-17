@@ -1063,12 +1063,12 @@ behaviour, where the file is created empty and filled from the menu.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/backup` | `settings` is the seven variables as the cluster members resolve them, each with its label, the conf key it corresponds to, the variable it is written under and `on_machine`, which is what this node's own conf file holds for it; `target` is `<server>:<directory>`; `catalogue` is what the last listing run found on the backup server, with the run it came from and when; `conf_path`, `conf_found` and `conf_only` say whether that file was read and whether it holds values the inventory does not; `warnings` names a setting written in more than one place, and a value where the file and the inventory differ |
+| GET | `/backup` | `settings` is the seven variables as the cluster members resolve them, each with its label, the conf key it corresponds to, the variable it is written under and `on_machine`, which is what this node's own conf file holds for it; `target` is `<server>:<directory>`; `conf_path`, `conf_found` and `conf_only` say whether that file was read and whether it holds values the inventory does not; `warnings` names a setting written in more than one place, and a value where the file and the inventory differ. Read off the disk, so it answers at once |
+| GET | `/backup/catalogue` | What the backup server holds, asked now: one SSH connection to a cluster member, `sudo` there, and the directory listed. `read_from` names the member and `read_at` says when. A read, so it takes no run and no lock. See [D54](decisions.md#d54) |
 | GET | `/backup/estimate` | `rbd du` summed per guest with the two filters applied, carrying `included` and `excluded`. Its own endpoint because it is its own cost: `rbd du` adds up the objects of every image in the pool, which on a real cluster is minutes, so it is never on the path of the page being drawn. A Ceph that does not answer in time is reported in `error` rather than failing the request |
 | PUT | `/backup/settings` | Write the seven on `cluster_machines`, one commit, `If-Match` on the commit hash. `admin` |
 | POST | `/backup/full` | Export every selected guest in full and push it. `202` with the run. `operator` |
 | POST | `/backup/incremental` | Export what changed since each image's latest snapshot. `202` with the run. `operator` |
-| POST | `/backup/listing` | Ask the backup server what it holds and bring the listing back. `202` with the run. `operator` |
 | POST | `/backup/restore` | Recreate one guest from `full_date`, replaying the diffs up to `date`. `202` with the run. `admin` |
 
 **The two staging directories are checked hardest.** `backup_full.sh` empties
@@ -1079,14 +1079,14 @@ refused with the sentence that says why, and so is a path of fewer than two
 segments. `remote_shell` has to be `ssh` and its options, because the scripts
 expand it unquoted and hand it to `rsync -e`.
 
-**Reading the backup server is a run and cannot be anything else.** The SSH
-trust that reaches it belongs to the cluster members and is the one the backups
-are pushed with; nothing in this container has it. So a member is asked, over
-one POSIX shell command that lists the directory, and the answer is brought
-back into the run's own results directory through the same variable a
-`cyclictest` is told where to fetch its histogram into. `catalogue` is that
-file, parsed, and it says which run and when rather than presenting itself as
-live.
+**Reading the backup server takes two hops and no run.** The SSH trust that
+reaches it is root's own key on each member, the one the backups are pushed
+with, and nothing in this container has it. So this node's key reaches the
+`ansible` account of a member, exactly as a run and a console connect, and
+`sudo` there reaches the server. The second hop carries `BatchMode=yes` and a
+connect timeout on top of the site's own `remote_shell`, because a prompt on a
+connection with no terminal waits for good: that is what the first version did,
+while holding the cluster's run lock. See [D54](decisions.md#d54).
 
 **A restore is checked against that listing before it is launched.** The guest,
 the full backup and the date are all matched against what the server last held,

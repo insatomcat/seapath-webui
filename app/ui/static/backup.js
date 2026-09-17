@@ -167,14 +167,13 @@
 
   // What the server holds
 
-  function renderCatalogue(payload) {
-    const catalogue = payload.catalogue || {};
+  function renderCatalogue(catalogue) {
     const backups = catalogue.backups || [];
     element("catalogue-note").textContent = catalogue.note || "";
     element("catalogue-note").hidden = !catalogue.note;
     element("catalogue-table").hidden = backups.length === 0;
     element("catalogue-when").textContent = catalogue.read_at
-      ? "Read " + whenRead(catalogue.read_at)
+      ? "Read from " + catalogue.read_from + ", " + whenRead(catalogue.read_at)
       : "";
 
     const body = clear(element("catalogue-rows"));
@@ -336,16 +335,22 @@
     });
   }
 
+  // A read, over one SSH connection, so it answers here rather than launching
+  // a run and asking the operator to watch it. It used to be a run, which held
+  // the cluster's lock while somebody browsed.
   async function readServer() {
     const button = element("act-list");
     button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    element("catalogue-loading").hidden = false;
     try {
-      const started = await API.post("/backup/listing");
-      RunWatch.open(started.run_id);
+      renderCatalogue(await API.get("/backup/catalogue"));
     } catch (failure) {
       showBanner(failure.message);
     } finally {
+      element("catalogue-loading").hidden = true;
       button.disabled = false;
+      button.removeAttribute("aria-busy");
     }
   }
 
@@ -434,7 +439,10 @@
         view.commit ? { "If-Match": view.commit } : undefined
       );
       done.textContent = answer.commit
-        ? "Committed as " + answer.commit.slice(0, 8) + ": " + answer.message
+        ? "Saved to the inventory as commit " +
+          answer.commit.slice(0, 8) +
+          ": " +
+          answer.message
         : answer.message;
       done.hidden = false;
       await refresh(true);
@@ -452,7 +460,6 @@
   function draw(answer) {
     view = answer;
     renderTarget(answer);
-    renderCatalogue(answer);
     element("settings-open").hidden = !canWrite;
     // Both panels are about a backup that has somewhere to go. Until the
     // inventory says where, the page is the form and the sentence that sends

@@ -26,7 +26,6 @@ deleting its staging directory.
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -176,20 +175,14 @@ def _wait(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     raise AssertionError(f"Run {run_id} did not finish")
 
 
-def _listed(client: TestClient, settings: Settings) -> str:
-    """A listing run that finished, with what it would have brought back.
+def _listed(remote_runner) -> None:
+    """The backup server, with what it holds.
 
-    The fake adapter replays an event stream rather than reaching a backup
-    server, so the file the second task would have written is written here. The
-    run around it is real: the same lock, the same record, the same results
-    directory the service reads from.
+    One hop away from a cluster member and two from here, so the suite answers
+    for it rather than reaching it. The command the service sends is asserted
+    separately; this is the answer that comes back.
     """
-    run_id = client.post("/api/v1/backup/listing").json()["run_id"]
-    _wait(client, run_id)
-    results = settings.runs_dir / run_id / "results"
-    results.mkdir(parents=True, exist_ok=True)
-    (results / "listing.txt").write_text(LISTING)
-    return run_id
+    remote_runner.answers = {"cd ": LISTING}
 
 
 # What this machine's own /etc/backup-restore.conf contributes
@@ -801,58 +794,61 @@ def test_taking_a_backup_is_an_operator_s_act(client: TestClient) -> None:
 # Reading the backup server
 
 
-def test_the_listing_asks_the_server_and_brings_the_answer_back(
-    signed_in: TestClient, settings: Settings
+def test_the_server_is_asked_from_a_member_over_one_connection(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """A read, so it reads: no run, no lock, no record.
+
+    Two hops, because the trust that reaches the backup server is root's own
+    key on each member: this node's key reaches the `ansible` account of a
+    member, and `sudo` there reaches the server.
+    """
+    _configured(signed_in)
+    _listed(remote_runner)
+
+    response = signed_in.get("/api/v1/backup/catalogue")
+
+    assert response.status_code == 200, response.text
+    assert len(remote_runner.requests) == 1
+    asked = remote_runner.requests[0]
+    assert asked.user == "ansible"
+    # The command run on the member: sudo, then ssh to the backup server.
+    assert asked.command.startswith("sudo -n /bin/sh -c ")
+    assert "backup@backup.example.org" in asked.command
+    assert "cd /srv/seapath-backups/" in asked.command
+
+
+def test_the_second_hop_can_never_sit_on_a_prompt(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """The defect that made an operator watch a page say nothing.
+
+    The ssh from the member to the backup server carried neither `BatchMode`
+    nor a connect timeout, so an unaccepted host key or a refused key ended in
+    a prompt on a connection with no terminal, and the read waited for good.
+    Both are added to whatever `remote_shell` the site wrote, leaving the port
+    and the options it carries in place.
+    """
+    _configured(signed_in)
+    _listed(remote_runner)
+
+    signed_in.get("/api/v1/backup/catalogue")
+
+    command = remote_runner.requests[0].command
+    assert "BatchMode=yes" in command
+    assert "ConnectTimeout=10" in command
+
+
+def test_what_the_server_answered_is_parsed_into_the_backups_it_holds(
+    signed_in: TestClient, remote_runner
 ) -> None:
     _configured(signed_in)
+    _listed(remote_runner)
 
-    response = signed_in.post("/api/v1/backup/listing")
+    catalogue = signed_in.get("/api/v1/backup/catalogue").json()
 
-    assert response.status_code == 202, response.text
-    play = _played(settings, response.json()["run_id"])
-    argv = _argv(play)
-    assert argv[0] == "ssh"
-    assert argv[1] == "backup@backup.example.org"
-    # One shell command the server runs, over the directory the settings name.
-    # The listing is flat, so it needs no `find -printf`, which is GNU's and a
-    # backup server is whatever the site already had.
-    assert argv[2].startswith("cd /srv/seapath-backups/ || exit 1;")
-    assert "printf 'file %s\\n'" in argv[2]
-    # It reads, so it is not counted as a change of the cluster.
-    assert play["tasks"][0]["changed_when"] is False
-    # And the second task puts the answer in the run's own results directory,
-    # which is the only place this container can read it from.
-    copy = play["tasks"][1]["ansible.builtin.copy"]
-    assert copy["content"] == "{{ backup_listing.stdout }}\n"
-    assert copy["dest"] == "{{ backup_listing_dir }}/listing.txt"
-    assert play["tasks"][1]["delegate_to"] == "localhost"
-    assert play["tasks"][1]["become"] is False
-
-
-def test_the_listing_run_is_told_where_to_put_what_it_brings_back(
-    signed_in: TestClient, settings: Settings
-) -> None:
-    _configured(signed_in)
-
-    run_id = signed_in.post("/api/v1/backup/listing").json()["run_id"]
-
-    # Filled by the run service with the run's own directory, never by the
-    # caller, exactly as a cyclictest is told where to fetch its histogram.
-    command = json.loads((settings.runs_dir / run_id / "run.json").read_text())[
-        "command"
-    ]
-    assert f"{run_id}/results" in " ".join(command)
-
-
-def test_what_the_listing_found_is_read_back_off_the_run(
-    signed_in: TestClient, settings: Settings
-) -> None:
-    _configured(signed_in)
-    run_id = _listed(signed_in, settings)
-
-    catalogue = _backup(signed_in)["catalogue"]
-
-    assert catalogue["run_id"] == run_id
+    assert catalogue["read_from"] == "seapath-machine"
+    assert catalogue["read_at"]
     assert [backup["date"] for backup in catalogue["backups"]] == [
         "202602010900",
         "202603110733",
@@ -864,32 +860,56 @@ def test_what_the_listing_found_is_read_back_off_the_run(
         for guest in backup["guests"]
     }
     assert sorted(guests) == ["vm-guest1", "vm-guest2"]
-    # Two disks in the full backup, and two dates it can be restored to: the
-    # full backup itself and the incremental one taken an hour later.
     assert guests["vm-guest1"]["disks"] == 2
     assert guests["vm-guest1"]["dates"] == ["202603110733", "202603110836"]
     assert guests["vm-guest2"]["dates"] == ["202603110733"]
 
 
-def test_a_node_that_has_never_asked_says_so_rather_than_showing_nothing(
-    signed_in: TestClient,
+def test_a_server_that_cannot_be_reached_says_what_ssh_answered(
+    signed_in: TestClient, remote_runner
 ) -> None:
-    _configured(signed_in)
+    """The trust to the backup server is the site's, installed on each member.
 
-    catalogue = _backup(signed_in)["catalogue"]
+    So the repair is on that machine, and the message has to carry what ssh
+    said.
+    """
+    _configured(signed_in)
+    remote_runner.refusal = "Host key verification failed."
+
+    catalogue = signed_in.get("/api/v1/backup/catalogue").json()
 
     assert catalogue["backups"] == []
-    assert "has not been asked" in catalogue["note"]
+    assert "Host key verification failed." in catalogue["note"]
+    assert "root's own key" in catalogue["note"]
+
+
+def test_the_catalogue_is_not_on_the_path_of_the_page(signed_in: TestClient) -> None:
+    # Two hops and a directory listing. `GET /backup` answers off the disk.
+    _configured(signed_in)
+
+    assert "catalogue" not in _backup(signed_in)
+
+
+def test_an_inventory_with_no_backup_server_is_told_so_rather_than_asked(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    catalogue = signed_in.get("/api/v1/backup/catalogue").json()
+
+    assert catalogue["backups"] == []
+    assert "no backup server to ask" in catalogue["note"]
+    assert remote_runner.requests == []
 
 
 # Restoring
 
 
 def test_a_restore_names_the_guest_the_backup_and_the_date_to_replay_to(
-    signed_in: TestClient, settings: Settings
+    signed_in: TestClient, settings: Settings, remote_runner
 ) -> None:
     _configured(signed_in)
-    _listed(signed_in, settings)
+    _listed(remote_runner)
 
     response = signed_in.post(
         "/api/v1/backup/restore",
@@ -916,7 +936,7 @@ def test_a_restore_names_the_guest_the_backup_and_the_date_to_replay_to(
 
 
 def test_a_restore_to_a_date_the_backup_does_not_hold_is_refused(
-    signed_in: TestClient, settings: Settings
+    signed_in: TestClient, remote_runner
 ) -> None:
     """`restore_vm.sh` recreates the guest from the XML of the date it is given.
 
@@ -924,7 +944,7 @@ def test_a_restore_to_a_date_the_backup_does_not_hold_is_refused(
     on the machine, after the confirmation that destroyed the running one.
     """
     _configured(signed_in)
-    _listed(signed_in, settings)
+    _listed(remote_runner)
 
     response = signed_in.post(
         "/api/v1/backup/restore",
@@ -941,10 +961,10 @@ def test_a_restore_to_a_date_the_backup_does_not_hold_is_refused(
 
 
 def test_a_restore_of_a_guest_no_backup_holds_is_refused(
-    signed_in: TestClient, settings: Settings
+    signed_in: TestClient, remote_runner
 ) -> None:
     _configured(signed_in)
-    _listed(signed_in, settings)
+    _listed(remote_runner)
 
     response = signed_in.post(
         "/api/v1/backup/restore",
@@ -1016,8 +1036,13 @@ def test_the_remote_shell_is_several_words_where_a_site_made_it_several() -> Non
 
     command = plays.listing_command(target)
 
-    assert command[:3] == ["ssh", "-p", "2222"]
-    assert command[3] == "backup@server"
+    # The site's own words are kept, after the two options this service adds
+    # so the second hop can never sit on a prompt.
+    assert command[0] == "ssh"
+    assert "BatchMode=yes" in command
+    assert command[-3:-2] == ["-p"] or "-p" in command
+    assert command[command.index("-p") + 1] == "2222"
+    assert command[-2] == "backup@server"
 
 
 # Where this interpreter's own `ansible-playbook` is, the one the requirements
@@ -1036,7 +1061,7 @@ ANSIBLE_PLAYBOOK = shutil.which(
     ANSIBLE_PLAYBOOK is None, reason="ansible-playbook is not installed"
 )
 def test_ansible_parses_every_play_this_service_writes(
-    signed_in: TestClient, settings: Settings, tmp_path: Path
+    signed_in: TestClient, settings: Settings, tmp_path: Path, remote_runner
 ) -> None:
     """The plays are generated, so nothing but Ansible says they are plays.
 
@@ -1045,7 +1070,7 @@ def test_ansible_parses_every_play_this_service_writes(
     operator launched after confirming something destructive.
     """
     _configured(signed_in)
-    _listed(signed_in, settings)
+    _listed(remote_runner)
     inventory = tmp_path / "inventory.yaml"
     inventory.write_text(CLUSTER.format(settings=CONFIGURED))
 
@@ -1062,9 +1087,6 @@ def test_ansible_parses_every_play_this_service_writes(
                 "date": "202603110836",
             },
         ),
-        # Last, because a listing run that brought nothing back becomes the
-        # newest one and a restore is offered out of what the newest found.
-        ("/api/v1/backup/listing", None),
     ]
     for path, payload in acts:
         response = signed_in.post(path, json=payload)

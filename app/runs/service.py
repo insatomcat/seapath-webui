@@ -137,6 +137,17 @@ class RunService:
         # answers with. See `app.runs.seed`.
         self._seeded: set[str] = set()
 
+    @property
+    def paths(self) -> RunPaths:
+        """The key, the record and the account every connection here uses.
+
+        Read by the backup service, which asks a cluster member what the backup
+        server holds over the same key and the same `known_hosts` a run
+        connects with. Exposed rather than passed twice, so there is one answer
+        to "what does this service connect as" and it moves in one place.
+        """
+        return self._paths
+
     def when_finished(self, callback: Callable[[RunRecord], None]) -> None:
         """Call this with the record of every run once it has ended.
 

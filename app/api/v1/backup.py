@@ -28,6 +28,7 @@ from app.core.security import require_role
 from app.inventory.service import RefusedWrite
 from app.runs.backup import BackupAction
 from app.services.backup import (
+    BackupCatalogue,
     BackupService,
     BackupView,
     Estimate,
@@ -92,10 +93,10 @@ class RunResponse(BaseModel):
 def backup(request: Request) -> BackupView:
     """Where the backups go, what a full one would weigh, and what is there.
 
-    `settings` is the seven variables as the cluster members resolve them,
-    `estimate` is `rbd du` summed per guest with the two filters applied, and
-    `catalogue` is what the last listing run found on the backup server. None
-    of the three reaches a machine.
+    `settings` is the seven variables as the cluster members resolve them, and
+    what this node's own conf file holds beside each. Read off the disk, so it
+    answers at once: the estimate and the catalogue are their own endpoints,
+    because each costs a wait an operator has to ask for.
     """
     return _service(request).view()
 
@@ -114,6 +115,21 @@ def estimate(request: Request) -> Estimate:
     backup can be taken.
     """
     return _service(request).estimate()
+
+
+@router.get("/catalogue", response_model=BackupCatalogue)
+def catalogue(request: Request) -> BackupCatalogue:
+    """What the backup server holds, asked now over one SSH connection.
+
+    Its own endpoint because it is its own cost: two hops and a directory
+    listing, a second or two on a server that answers and ten on one that has
+    gone away. `GET /backup` answers off the disk and never waits for this.
+
+    A read, so it takes no run and no lock. It used to be a run, which held the
+    cluster's lock while an operator browsed and could not show an answer until
+    the run had ended. See D54.
+    """
+    return _service(request).catalogue()
 
 
 @router.put("/settings", response_model=SettingsResponse)
@@ -163,18 +179,6 @@ def full(request: Request, user: User = operator) -> RunResponse:
 def incremental(request: Request, user: User = operator) -> RunResponse:
     """Export what changed since each image's latest snapshot."""
     return _launch(request, BackupAction.INCREMENTAL, user)
-
-
-@router.post("/listing", status_code=202)
-def listing(request: Request, user: User = operator) -> RunResponse:
-    """Ask the backup server what it holds, and bring the listing back.
-
-    The only way this service can see the backup server: the SSH trust that
-    reaches it belongs to the cluster members and is the one the backups are
-    pushed with. The run reads and writes nothing, and what it brought back is
-    in `catalogue` on the next `GET /backup`.
-    """
-    return _launch(request, BackupAction.LIST, user)
 
 
 @router.post("/restore", status_code=202)

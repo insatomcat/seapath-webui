@@ -73,19 +73,10 @@ SCRIPTS = "/usr/local/bin"
 # operator types at that prompt.
 CONFIRMATION = "\n"
 
-# Where the listing of the backup server lands, on the controller, which for a
-# run launched here is this container. Filled by the run service with the run's
-# own results directory, exactly as a cyclictest is told where to fetch its
-# histogram, so a listing is kept, listed and deleted with the run that read
-# it.
-LISTING_VARIABLE = "backup_listing_dir"
-LISTING_FILE = "listing.txt"
-
 
 class BackupAction(str, Enum):
     FULL = "full"
     INCREMENTAL = "incremental"
-    LIST = "list"
     RESTORE = "restore"
 
 
@@ -137,7 +128,6 @@ class BackupTarget:
 _TITLES = {
     BackupAction.FULL: "Back up every guest, in full",
     BackupAction.INCREMENTAL: "Back up what changed since the last full backup",
-    BackupAction.LIST: "Read what the backup server holds",
     BackupAction.RESTORE: "Restore {guest} from {date}",
 }
 
@@ -161,11 +151,6 @@ _DISRUPTIONS = {
         "the last full backup has no snapshot to diff against: it is skipped "
         "with a warning in the log and stays out of every incremental backup "
         "until a new full one is made."
-    ),
-    BackupAction.LIST: (
-        "Asks the backup server what it holds, over the same SSH the backups "
-        "are pushed with, and brings the listing back. It reads and changes "
-        "nothing, on the machines or on the server."
     ),
     BackupAction.RESTORE: (
         "Recreates the guest from the backup and starts it. `vm-mgr create "
@@ -217,7 +202,6 @@ def entry(
         reboots=Reboots.NO,
         disruption=_DISRUPTIONS[action],
         requires=requires,
-        results_variable=LISTING_VARIABLE if action is BackupAction.LIST else None,
         reviewed=True,
     )
 
@@ -257,9 +241,6 @@ def _tasks(
     full_date: str,
     incremental_date: str,
 ) -> list[dict]:
-    if action is BackupAction.LIST:
-        return _listing_tasks(target)
-
     if action is BackupAction.RESTORE:
         argv = [
             f"{SCRIPTS}/restore_vm.sh",
@@ -325,51 +306,47 @@ _LISTING_SCRIPT = (
     "done"
 )
 
+# What the second hop is given, whatever the site wrote in `remote_shell`.
+#
+# Neither is a preference. Without `BatchMode` a refused key or an unaccepted
+# host key ends in a prompt on a connection with no terminal behind it, and the
+# read sits there for good: that is what the first version of this did, and an
+# operator watched a page say nothing. Without `ConnectTimeout` a backup server
+# that has gone away costs whatever the operating system's TCP timeout is.
+#
+# They are added to the site's own `remote_shell` rather than replacing it, so
+# the port and the options a site needs still apply, and they are added here
+# alone: the backups themselves are pushed by the scripts with the shell the
+# site wrote, unchanged.
+_LISTING_SSH_OPTIONS = (
+    "-o",
+    "BatchMode=yes",
+    "-o",
+    "ConnectTimeout=10",
+)
+
 
 def listing_command(target: BackupTarget) -> list[str]:
-    """The exact command the listing runs, which is also what a test asserts."""
+    """The exact command that asks the backup server, which a test asserts."""
+    shell = target.shell_argv
     return [
-        *target.shell_argv,
+        shell[0],
+        *_LISTING_SSH_OPTIONS,
+        *shell[1:],
         target.remote_serv,
         _LISTING_SCRIPT.format(directory=shlex.quote(target.remote_dir)),
     ]
 
 
-def _listing_tasks(target: BackupTarget) -> list[dict]:
-    """Ask the server, then put the answer where this service can read it.
+def listing_shell_command(target: BackupTarget) -> str:
+    """The same thing as one string, for the shell of a cluster member.
 
-    Two tasks, and the second is why the listing is a run at all. Nothing in
-    this container can reach the backup server: the SSH trust that reaches it
-    belongs to the cluster machines, and is the one the backups are pushed
-    with. So the machine is asked, and the answer comes back the way a
-    measurement's results come back, into the run's own directory, through the
-    variable the run service filled with it.
+    The member is reached over SSH and runs this as root, because the trust to
+    the backup server is root's own key. `shlex.join` rather than a format
+    string: every value in it has been checked, and this is the second lock on
+    the same door.
     """
-    return [
-        {
-            "name": "Ask the backup server what it holds",
-            "ansible.builtin.command": {"argv": listing_command(target)},
-            "register": "backup_listing",
-            # It reads. Saying so keeps a listing out of the changed count of
-            # the run record, where it would read as a backup having written
-            # something.
-            "changed_when": False,
-        },
-        {
-            "name": "Bring the listing back",
-            "ansible.builtin.copy": {
-                "content": "{{ backup_listing.stdout }}\n",
-                "dest": f"{{{{ {LISTING_VARIABLE} }}}}/{LISTING_FILE}",
-                "mode": "0644",
-            },
-            # The controller, which for a run launched here is this container,
-            # and as this service rather than as root: the play becomes root on
-            # the machines it plays and there is nothing to become here.
-            "delegate_to": "localhost",
-            "become": False,
-            "changed_when": False,
-        },
-    ]
+    return "sudo -n /bin/sh -c " + shlex.quote(shlex.join(listing_command(target)))
 
 
 def _readable(date: str) -> str:
@@ -387,14 +364,13 @@ def _readable(date: str) -> str:
 __all__ = [
     "CONFIRMATION",
     "GENERATOR",
-    "LISTING_FILE",
-    "LISTING_VARIABLE",
     "ROLE",
     "SCRIPTS",
     "BackupAction",
     "BackupTarget",
     "entry",
     "listing_command",
+    "listing_shell_command",
     "play",
     "record",
 ]

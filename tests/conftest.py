@@ -31,6 +31,7 @@ from app.core.auth import Role
 from app.core.security import CookieNames
 from app.core.settings import Settings
 from app.hosts.fake import FakeHostReader
+from app.hosts.remote import FakeRemoteRunner
 from app.inventory.fake import FakePeerTransport
 from app.main import create_app
 from app.runs.fake import FakeRunAdapter
@@ -152,6 +153,16 @@ def tag_source() -> FakeTagSource:
 
 
 @pytest.fixture
+def remote_runner() -> FakeRemoteRunner:
+    """The backup server, which is a second hop this suite never makes.
+
+    It answers the one command this service sends over that path: the listing
+    of the backup directory, run on a cluster member as root.
+    """
+    return FakeRemoteRunner()
+
+
+@pytest.fixture
 def pinger() -> FakePinger:
     """The network, where one address answers and every other is silent."""
     return FakePinger({"192.168.200.1"})
@@ -199,6 +210,7 @@ def client(
     tag_source: FakeTagSource,
     replication_transport: FakePeerTransport,
     pinger: FakePinger,
+    remote_runner: FakeRemoteRunner,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -213,6 +225,7 @@ def client(
         tag_source=tag_source,
         replication_transport=replication_transport,
         pinger=pinger,
+        remote_runner=remote_runner,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client

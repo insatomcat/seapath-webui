@@ -53,6 +53,7 @@ from app.core.tls import ensure_session_secret
 from app.hosts.fake import FakeHostReader
 from app.hosts.local import LocalHostReader, read_hostname
 from app.hosts.reader import HostReader
+from app.hosts.remote import FakeRemoteRunner, RemoteRunner, SshRemoteRunner
 from app.inventory.artefacts import ArtefactStore
 from app.inventory.replication import ReplicationService, SshTransport, Transport
 from app.inventory.repository import InventoryRepository
@@ -201,6 +202,7 @@ def create_app(
     tag_source: TagSource | None = None,
     pinger: Pinger | None = None,
     replication_transport: Transport | None = None,
+    remote_runner: RemoteRunner | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -478,6 +480,14 @@ def create_app(
         # driving the whiptail menu has its seven values in that file and
         # nowhere else, and the form is offered them rather than asking again.
         reader=reader,
+        # The backup server is asked from a cluster member, because the trust
+        # that reaches it is root's own key there. One ssh, one command, its
+        # output: the read only half of what the console already does, over the
+        # same key and the same known_hosts. See D54.
+        remote=remote_runner
+        or (FakeRemoteRunner() if settings.use_fakes else SshRemoteRunner()),
+        keys=app.state.run_service.paths,
+        ansible_user=settings.ansible_user,
     )
 
     install_error_handlers(app)

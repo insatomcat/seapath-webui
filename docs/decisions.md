@@ -4045,18 +4045,12 @@ menu prints "Estimating backup volume, please wait" ahead of the same command,
 which was the clue in plain sight. It now has an endpoint of its own, a budget
 of its own, and a button that says what it costs.
 
-**What the backup server holds** is the one reading that cannot happen here at
-all. The SSH trust that reaches that server belongs to the cluster members and
-is root's own key, the one `rsync` pushes with; this container has no route to
-it and should not have one. So the server is asked by a short run, over one
-POSIX shell command listing the directory, and the answer is brought back into
-the run's own results directory through the same variable a `cyclictest` is
-told where to fetch its histogram into. The page draws that file and says which
-run it came from and when, rather than presenting it as live.
-
-That shape is the honest one. A reading that reaches another machine goes
-through `ansible-runner` like everything else, it takes the lock like
-everything else, and the record of having asked is kept like everything else.
+**What the backup server holds** is read from a cluster member, because the
+SSH trust that reaches that server is root's own key there, the one `rsync`
+pushes with, and this container has no route to it. Two hops: this node's own
+key to the `ansible` account of a member, exactly as a run and a console
+connect, and `sudo` there to the server. [D54](#d54) is that reading, and why
+it stopped being a run.
 
 ### The confirmation, and why the plays answer a prompt
 
@@ -4122,3 +4116,61 @@ the same lock and the same history. Exporting this inventory and running the
 same playbooks from a conventional Ansible control machine produces the same
 machines: the seven variables are read by nothing upstream today, so they
 change no convergence, and the backups themselves were never part of one.
+
+## D54 - Settled: browsing the backups is a read, and a read reaches the thing it reads
+
+The first version asked the backup server through an Ansible run: a generated
+play, one task running `ssh` on a cluster member, and a second task bringing
+the listing back into the run's results directory. The reasoning was that
+anything reaching another machine goes through `ansible-runner`.
+
+That reasoning was wrong, and the first operator to press the button found out
+in the worst way. The rule is [D1](#d1)'s: this service never **configures** a
+machine. Reads have always gone straight at the thing being read, and they were
+each argued for separately: the exporters over HTTP ([D13](#d13), [D26](#d26),
+[D27](#d27), [D29](#d29)), Ceph over `rbd` ([D31](#d31)), and a machine's own
+shell over `ssh` ([D51](#d51)), which even runs `sudo -n vm-mgr console` on it
+([D52](#d52)). Listing a directory is a read. Sending it through a run bought
+an audit record of having looked, and paid for it with the cluster's run lock
+held while an operator browsed, an answer that could not appear until the run
+had ended, and a run record per glance.
+
+### What it cost in practice
+
+Worse than the shape. The `ssh` from the member to the backup server was
+written with no options at all, while the console's own invocation, twenty
+lines away in this codebase, carries `BatchMode=yes` and `ConnectTimeout` and a
+docstring saying exactly why: "without it a refused key ends in a password
+prompt". A prompt on a connection with no terminal behind it waits for good. So
+the first real use of the feature was a page saying `TASK Ask the backup server
+what it holds` and never moving, with the cluster's run lock held by a
+directory listing.
+
+### What it is now
+
+`app/hosts/remote.py`: one `ssh`, one command, its output, and nothing else.
+The read only half of what `app/console/adapter.py` already does, with the same
+option set minus the pseudo terminal, the same key, the same `known_hosts` and
+the same `ansible` account, so what it can reach is exactly what a run can
+reach and no more. The command is built here and never by a caller, and every
+value inside it has been checked before it gets there.
+
+The second hop gets `BatchMode=yes` and `ConnectTimeout=10` added to whatever
+`remote_shell` the site wrote, so its port and its options still apply. They
+are added for this reading alone: the backups themselves are pushed by the
+upstream scripts with the shell the site configured, untouched.
+
+It is behind a button, like the estimate and for the same reason: two hops and
+a directory listing is a wait, so `GET /backup` answers off the disk and the
+operator asks for the rest. A server that cannot be reached is reported with
+what `ssh` said, because a host key that was never accepted, an account that
+refuses the key and a directory that is not there are three different repairs,
+and none of them is this service's to make: the trust to the backup server is
+installed once per member, by the site.
+
+### What it does not change
+
+Nothing about the three acts. A backup and a restore write, they take the lock,
+they are runs of the upstream scripts, and they are recorded. The line this
+moves is the one between reading and writing, which is where this service has
+always drawn it.
