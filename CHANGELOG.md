@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.128 - 2026-09-17
+
+- fix: read the backups over one ssh instead of a run that could hang
+
 ## 0.3.127 - 2026-09-17
 
 - fix: name the backup variables the way ansible-lint requires of the role
