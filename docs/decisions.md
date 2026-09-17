@@ -3762,19 +3762,25 @@ deployment run of its playbook, the same way.
 The record of the run carries `followups`, saved true with its final state and
 set false once the listeners are done. The window that watched the run reads
 the page again when the run ends, as [D43](#d43) has it, and once more when
-`followups` goes false, so the row shows **Delete files** without the
-operator reading it again by hand. A service restarted in between clears the
+`followups` goes false, so the row shows the offer to delete the files without
+the operator reading it again by hand. A service restarted in between clears the
 flag at start, and the window stops waiting after two minutes.
 
 ### Deleting the files
 
-The row of a forgotten guest offers **Delete files** when a file its
+The row of a forgotten guest offers to delete the files when one its
 forgetting commit names is still held here and no entry of the inventory names
 it. The newest forgetting commit of a guest is the one read, so a guest
 declared again under the same name answers for its latest creation. The image
 is deleted from the artefacts and an XML from the versioned folder as its own
 commit. What is offered is read again when the button is pressed, since a guest
 declared from the same image in between makes the image a file somebody names.
+
+The offer is a struck out sheet of paper beside the guest's name, naming the
+paths on hover, rather than a button in the Creation column. The recipe that
+column holds is gone by the time the offer stands, so the two never share a
+row, and a column held open for one button on one row costs width on every
+other row of a table that already fills its card on a laptop.
 
 The history is the only record of which files a guest came from, and that is
 deliberate: this service keeps no database ([D1](#d1)), and a commit body is

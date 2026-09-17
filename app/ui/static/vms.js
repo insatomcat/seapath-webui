@@ -207,9 +207,9 @@
 
   // How the guest is created: the image and the XML its entry names, for as
   // long as it names them. The deployment run that creates the guest takes
-  // those lines out when it ends, and from then on the cell offers to delete
-  // the files it was made from, where this node holds them and no other entry
-  // names them.
+  // those lines out when it ends, and the column has nothing left to say
+  // about that guest. What is left of the creation once the recipe is gone,
+  // the files it was made from, is on the guest's own row: see `nameCell`.
   function creationCell(guest) {
     const node = document.createElement("td");
     if ((guest.creation || []).length || guest.force) {
@@ -236,19 +236,51 @@
       }
       return node;
     }
-    const sources = guest.sources || [];
-    if (canWrite && sources.length) {
-      // Allowed to wrap: the guest table already fills its card on a laptop
-      // screen, and a label held on one line pushed Metadata out of sight.
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "secondary";
-      button.textContent = "Delete files";
-      button.title = sources.map((source) => source.path).join(", ");
-      button.addEventListener("click", () => confirmDeleteSources(guest));
-      node.append(button);
-    }
     return node;
+  }
+
+  // The guest's name, and where the files it was created from are still held
+  // here, the offer to delete them. A mark on the row rather than a column of
+  // its own: the offer stands on one row at a time, for as long as nobody
+  // takes it, and a column open for it is width every other row pays.
+  function nameCell(guest) {
+    const node = document.createElement("td");
+    node.append(guest.name);
+    const sources = guest.sources || [];
+    if (!(canWrite && sources.length)) {
+      return node;
+    }
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "leftover";
+    const label =
+      "Delete the files " +
+      guest.name +
+      " was created from, still held here: " +
+      sources.map((source) => source.path).join(", ");
+    button.title = label;
+    button.setAttribute("aria-label", label);
+    button.append(struckFiles());
+    button.addEventListener("click", () => confirmDeleteSources(guest));
+    node.append(" ", button);
+    return node;
+  }
+
+  // A sheet of paper with a stroke through it: files that are still on this
+  // node and nothing reads any more. Stroked in `currentColor`, like the
+  // glyphs of the top bar, so one drawing works on both grounds.
+  function struckFiles() {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    ["M4 2.4h4.4L11.8 5.8v7.8H4z", "M8.4 2.4v3.4h3.4", "M2.6 13.4 13.4 2.6"].forEach(
+      (drawing) => {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        path.setAttribute("d", drawing);
+        svg.append(path);
+      }
+    );
+    return svg;
   }
 
   // A file the guest names, and whether a deployment would find it. A missing
@@ -1061,12 +1093,12 @@
     rows.replaceChildren();
     const listed = (view.guests || []).filter((guest) => shown(guest.deployment));
     // The Creation column, only where it has something to say about the guests
-    // on screen. Everything it carries belongs to a window: the recipe until
-    // the run that creates the guest takes it out of the entry, `force` for as
-    // long as the entry carries it, and the files to delete until somebody
-    // does. Outside those a converged inventory gives the column nothing, and
-    // an empty column on every row is width this table does not have on a
-    // laptop. It comes back on its own with the next guest declared.
+    // on screen. Both readings belong to a window: the recipe until the run
+    // that creates the guest takes it out of the entry, and `force` for as
+    // long as the entry carries it. Outside those a converged inventory gives
+    // the column nothing, and an empty column on every row is width this table
+    // does not have on a laptop. It comes back on its own with the next guest
+    // declared.
     //
     // Judged against the rows the filter is showing, because the width is what
     // is being spent and the rows are what spend it.
@@ -1074,7 +1106,7 @@
     element("creation-head").hidden = !creation;
     listed.forEach((guest) => {
       row(rows, [
-        cell(guest.name),
+        nameCell(guest),
         deployedBy(guest),
         state(guest),
         nodeCell(guest),
@@ -1090,14 +1122,9 @@
 
   // What `creationCell` would draw for this guest, as a yes or no. The two
   // have to agree: a column shown with nothing in it is the state this hides,
-  // and a column hidden over a row that had something takes an act away. The
-  // files are admin's, so for anybody else that third reading is already no.
+  // and a column hidden over a row that had something takes a reading away.
   function hasCreation(guest) {
-    return Boolean(
-      (guest.creation || []).length ||
-        guest.force ||
-        (canWrite && (guest.sources || []).length)
-    );
+    return Boolean((guest.creation || []).length || guest.force);
   }
 
   // The filter, with how many rows of the table each choice lists. The count

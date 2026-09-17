@@ -238,10 +238,10 @@ guest takes them out of its entry when it ends, as one commit authored by the
 operator who launched the run and naming it, and leaves the variables later
 runs read. Each guest is judged on what the machines report, so a guest the run
 did not manage to create keeps its recipe for the next one. The Creation column
-names the files while the entry still carries them, and afterwards offers
-**Delete files**: the image and the XML the guest was made from, deleted
-from this node when no other entry names them. See D49 and D50 in
-[docs/decisions.md](docs/decisions.md).
+names the files while the entry still carries them. Afterwards a struck out
+sheet of paper beside the guest's name offers to delete them: the image and the
+XML the guest was made from, deleted from this node when no other entry names
+them. See D49 and D50 in [docs/decisions.md](docs/decisions.md).
 
 ![The Containers page: one row per quadlet, who manages it, the machine it is on and the state of its unit](img/7-containers.png)
 

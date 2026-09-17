@@ -1385,11 +1385,10 @@ def test_adding_a_vm_is_its_own_window(signed_in: TestClient) -> None:
 def test_the_creation_column_goes_away_when_it_has_nothing_to_say(
     signed_in: TestClient,
 ) -> None:
-    # Everything that column carries belongs to a window: the recipe until the
-    # run that creates the guest takes it out of the entry, `force` while the
-    # entry carries it, and the files to delete until somebody does. A
-    # converged inventory is outside all three, and an empty column on every
-    # row is width this table does not have on a laptop.
+    # Both readings of that column belong to a window: the recipe until the run
+    # that creates the guest takes it out of the entry, and `force` while the
+    # entry carries it. A converged inventory is outside both, and an empty
+    # column on every row is width this table does not have on a laptop.
     script = signed_in.get("/static/vms.js").text
     body = signed_in.get("/vms").text
 
@@ -1399,10 +1398,28 @@ def test_the_creation_column_goes_away_when_it_has_nothing_to_say(
     # The cell goes with the header, so the row keeps as many cells as the
     # table has visible columns.
     assert "...(creation ? [creationCell(guest)] : [])," in script
-    # And the test of what the cell would hold has to be the cell's own three
-    # readings, the admin only one included.
-    assert "(guest.creation || []).length ||" in script
-    assert "(canWrite && (guest.sources || []).length)" in script
+    # And the test of what the cell would hold has to be the cell's own two
+    # readings and nothing else.
+    assert "return Boolean((guest.creation || []).length || guest.force);" in script
+
+
+def test_the_files_a_guest_came_from_are_offered_on_its_own_row(
+    signed_in: TestClient,
+) -> None:
+    # The offer outlives the recipe it used to sit beside: the run that creates
+    # the guest takes the recipe out of the entry, and the files stay here
+    # until somebody deletes them. A glyph on the guest's row carries it, so
+    # the Creation column is not held open for one button on one row.
+    script = signed_in.get("/static/vms.js").text
+
+    assert "nameCell(guest)," in script
+    assert 'button.className = "leftover";' in script
+    assert "button.append(struckFiles());" in script
+    # Named for what it offers and for the paths it would delete, since a glyph
+    # says neither on its own.
+    assert '"Delete the files " +' in script
+    assert 'button.setAttribute("aria-label", label);' in script
+    assert "confirmDeleteSources(guest)" in script
 
 
 def test_a_forced_guest_says_a_run_recreates_it(signed_in: TestClient) -> None:
