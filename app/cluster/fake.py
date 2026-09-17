@@ -20,6 +20,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+from app.cluster.rbd import ImageUsage
+
 
 def _detail(**labels: str) -> str:
     full = {
@@ -601,3 +603,30 @@ class FakeRbdClient:
         return sorted(
             name[len("system_") :] for name in self.images if name.startswith("system_")
         )
+
+    def disk_usage(self) -> list[ImageUsage]:
+        """What `rbd du` would answer about the images above.
+
+        The numbers are plausible rather than uniform: a guest occupies less
+        than it provisions, which is the whole reason a backup volume is
+        estimated from the used size. `vm-guest1` carries an additional disk,
+        so the estimate has one guest whose volume is the sum of two images and
+        the page is drawn against a row that exercises the sum.
+        """
+        images = {
+            "system_vm-guest1": (32, 6),
+            "data_vm-guest1_0": (64, 11),
+            "system_vm-guest2": (32, 4),
+            "system_vm-guest3": (32, 3),
+            "system_vm-guest4": (32, 2),
+        }
+        gigabyte = 1024 * 1024 * 1024
+        return [
+            ImageUsage(
+                image=name,
+                provisioned_bytes=provisioned * gigabyte,
+                used_bytes=used * gigabyte,
+            )
+            for name, (provisioned, used) in sorted(images.items())
+            if name in self.images or name.startswith("data_")
+        ]

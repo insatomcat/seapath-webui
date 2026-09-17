@@ -257,6 +257,10 @@ def install(app: FastAPI) -> None:
     def containers(request: Request):
         return _page(request, "containers.html", "containers")
 
+    @app.get("/backup", response_class=HTMLResponse, include_in_schema=False)
+    def backup(request: Request):
+        return _page(request, "backup.html", "backup")
+
     @app.get("/cluster", response_class=HTMLResponse, include_in_schema=False)
     def cluster(request: Request):
         return _page(request, "cluster.html", "cluster")

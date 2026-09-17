@@ -61,6 +61,7 @@ from app.runs.adapter import AnsibleRunnerAdapter, RunAdapter
 from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
+from app.services.backup import BackupService
 from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
 from app.services.metadata import MetadataService
@@ -460,6 +461,18 @@ def create_app(
         client=exporters,
         port=settings.node_exporter_port,
         distribution=lambda: reader.node_identity().seapath_distro,
+    )
+
+    # The backups: where the inventory says they go, what `rbd du` says a full
+    # one would weigh, and what the last listing run found on the backup
+    # server. The acts are runs of the scripts the `backup_restore` role
+    # installed, so this needs the run service and the collection the runs will
+    # execute, resolved at each access like everywhere else.
+    app.state.backup_service = BackupService(
+        inventory=app.state.inventory_service,
+        runs=app.state.run_service,
+        rbd=rbd_client,
+        collections_path=resolve_collections,
     )
 
     install_error_handlers(app)

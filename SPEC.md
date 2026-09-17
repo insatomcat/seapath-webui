@@ -85,6 +85,13 @@ Proxmox clone:
   which is what the application in that guest actually waits for. See D24 and
   D41 in [decisions.md](docs/decisions.md).
 - VM runtime operations through `vm_manager`.
+- The backups the `backup_restore` role already takes. Its four scripts take
+  every value as an argument, so the seven settings live in the inventory and a
+  run passes them on the command line; its whiptail menu, which reads and
+  writes `/etc/backup-restore.conf`, stays on the machine. What a full backup
+  would weigh is `rbd du` read here; what the backup server holds is read by a
+  short run, because the trust that reaches that server belongs to the cluster
+  members. See D53 in [decisions.md](docs/decisions.md).
 - The containers a site deploys, which are quadlets: `upload_extra_files` puts
   a `.container` file on the machines, podman's generator makes it a systemd
   unit, and on a cluster `extra_crm_cmd_to_run` hands that unit to Pacemaker.

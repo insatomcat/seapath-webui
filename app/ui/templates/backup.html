@@ -1,0 +1,182 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+The backups, which upstream are a whiptail menu on a machine. `backup_restore`
+installs four programs in /usr/local/bin and a menu over them, and the menu is
+the half that has no place here: it reads and writes /etc/backup-restore.conf,
+which is a file on a host. The four programs take every value as an argument,
+so this page keeps the values in the inventory where desired state belongs and
+passes them on the command line of a run.
+
+Three panels and four acts. Where the backups go is a commit. What a full
+backup would weigh is `rbd du`, asked of Ceph here, which is the port of
+`backup_du.py`. What the backup server holds is the one reading that cannot
+happen here at all: the SSH trust that reaches it belongs to the cluster
+members, so the server is asked by a short run and the listing comes back with
+it.
+
+The confirmation is the point of the two windows at the end. Each script pauses
+on a `read -r` before it deletes anything, which is the terminal's last
+question, and a task's standard input would answer it by accident. The plays
+answer it on purpose and the window asks it here instead, naming what is about
+to be erased.
+#}
+{% extends "base.html" %}
+{% from "_controls.html" import reread %}
+{% block page_title %}Backup{% endblock %}
+
+{% block body %}
+<main class="page single backup">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card" id="card-backup">
+    <div class="card-head">
+      <h2>Backups</h2>
+      <div class="card-acts">
+        {{ reread("reread", "the backups") }}
+        <button type="button" id="settings-open" hidden>Where they go</button>
+      </div>
+    </div>
+    <p class="lead" id="lead" hidden></p>
+    <div class="loading" id="loading">Reading the inventory</div>
+    <p class="warning" id="empty" hidden></p>
+
+    <dl id="target" hidden>
+      <dt>Backup server</dt>
+      <dd id="target-server"></dd>
+      <dt>Guests</dt>
+      <dd id="target-filter"></dd>
+      <dt>Staging</dt>
+      <dd id="target-staging"></dd>
+    </dl>
+
+    <div class="card-actions" id="acts" hidden>
+      <button type="button" id="act-full">Back up everything</button>
+      <button type="button" id="act-inc" class="secondary">Back up the changes</button>
+      <button type="button" id="act-list" class="secondary">Read the backup server</button>
+    </div>
+    <p class="help" id="acts-help" hidden>
+      A backup holds the cluster's run lock for as long as it takes, so no
+      convergence starts while one is going. The guests keep running
+      throughout.
+    </p>
+  </section>
+
+  {# What a full backup would weigh, per guest. `rbd du` read here rather than
+     on a machine: the numbers belong to Ceph and this service already talks to
+     Ceph for a guest's metadata. The two filters are applied exactly as the
+     scripts apply them, to the guest name, so a guest missing from this table
+     is a guest the run will skip. #}
+  <section class="card" id="estimate-card" hidden>
+    <div class="card-head">
+      <h2>What a full backup would weigh</h2>
+      <span class="pane-foot-note" id="estimate-total"></span>
+    </div>
+    <p class="lead">
+      The size every selected guest occupies in Ceph, which is what a full
+      backup exports. A qcow2 is sparse, so this is what crosses the network
+      rather than what the disks were provisioned at.
+    </p>
+    <p class="error" id="estimate-error" hidden></p>
+    <div class="table-scroll" id="estimate-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Guest</th>
+            <th>Disks</th>
+            <th>Occupied</th>
+            <th>Provisioned</th>
+          </tr>
+        </thead>
+        <tbody id="estimate-rows"></tbody>
+      </table>
+    </div>
+    <p class="pane-foot">
+      <span class="pane-foot-note" id="estimate-excluded"></span>
+    </p>
+  </section>
+
+  {# What the server holds. Drawn from the last listing run, and the panel says
+     when that was: a page that showed this as live would be claiming a reading
+     this service cannot make. #}
+  <section class="card" id="catalogue-card">
+    <div class="card-head">
+      <h2>On the backup server</h2>
+      <span class="pane-foot-note" id="catalogue-when"></span>
+    </div>
+    <p class="warning" id="catalogue-note" hidden></p>
+    <div class="table-scroll" id="catalogue-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Full backup</th>
+            <th>Guest</th>
+            <th>Disks</th>
+            <th>Restorable to</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="catalogue-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <p class="hint" id="how">
+    These are the scripts of the upstream <code>backup_restore</code> role,
+    installed in <code>/usr/local/bin</code> by the prerequisites playbook of
+    the machine's distribution. A backup exports every guest's RBD images as
+    qcow2 and rsyncs them to the server; an incremental one exports RBD diffs
+    against the latest snapshot into the same directory. The values below are
+    passed on the command line, so <code>/etc/backup-restore.conf</code> on the
+    machines is untouched and the menu there keeps whatever it was given.
+  </p>
+</main>
+
+{# The seven variables, written on `cluster_machines` as one commit. The two
+   staging directories carry the sentence that says why the trailing slash is
+   checked: `rm -rf "${local_dir}"*` runs against one of them at the start of
+   every backup. #}
+<div class="modal" id="settings" data-dismiss="settings-cancel" hidden>
+  <div class="modal-body wide">
+    <h2>Where the backups go</h2>
+    <p class="lead">
+      Written into the inventory on <code>cluster_machines</code>, as one
+      commit, under the names <code>/etc/backup-restore.conf</code> uses with a
+      <code>backup_</code> prefix. Nothing is written on a machine: a run passes
+      these to the scripts as arguments.
+    </p>
+    <div id="settings-fields"></div>
+    <div class="card-actions">
+      <button type="button" id="settings-save">Commit</button>
+      <button type="button" id="settings-cancel" class="secondary">Cancel</button>
+    </div>
+    <p class="error" id="settings-error" hidden></p>
+    <p class="warning" id="settings-done" hidden></p>
+  </div>
+</div>
+
+{# One window for every act that reaches a machine. It names what the act
+   erases, which for a full backup is the snapshots it purges and for a restore
+   is the guest that is running now. #}
+<div class="modal" id="confirm" data-dismiss="confirm-cancel" hidden>
+  <div class="modal-body">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-disruption"></p>
+    <p class="warning" id="confirm-note" hidden></p>
+    <label id="confirm-choice" hidden>
+      <span id="confirm-choice-label"></span>
+      <select id="confirm-date"></select>
+    </label>
+    <p class="error" id="confirm-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
+      <button type="button" id="confirm-go"></button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ script("backup.js") }}
+{% endblock %}

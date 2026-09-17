@@ -489,6 +489,16 @@ class RunService:
         """The hwlatdetect reports a run fetched, parsed."""
         return hwlatdetect.read(self._store.results_dir(run_id))
 
+    def results(self, run_id: str) -> list[Path]:
+        """The files a run brought back, for a caller that parses its own.
+
+        The two measurements are parsed here because their format is the
+        role's and the run view draws them. A backup listing is the service
+        that asked for it, so what it needs is the files and not a third
+        parser in this module.
+        """
+        return self._store.results(run_id)
+
     def launch(
         self,
         playbook_id: str,
@@ -551,6 +561,33 @@ class RunService:
             variables=None,
             check=False,
             play=actions.play(action, guest, mode, host, node),
+            guest=guest,
+        )
+
+    def launch_generated(
+        self,
+        entry: PlaybookEntry,
+        launched_by: str,
+        play: str,
+        guest: str | None = None,
+    ) -> RunRecord:
+        """A play this service wrote, launched as a run like any other.
+
+        `launch_action` is this with the play built for it, and it stays as it
+        is because a guest's runtime action is one shape with one caller. The
+        backup acts are another: they name a directory on a backup server
+        rather than a machine, and the service that owns them builds the entry
+        and the play together. What is shared is everything around it, which is
+        the part that matters: the same preconditions, the same lock, the same
+        record, the same staged tree, and the play written into it so it is
+        part of the trace afterwards.
+        """
+        return self._launch(
+            entry,
+            launched_by,
+            variables=None,
+            check=False,
+            play=play,
             guest=guest,
         )
 

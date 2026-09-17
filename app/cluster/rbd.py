@@ -30,6 +30,8 @@ import logging
 import re
 from typing import Protocol
 
+from pydantic import BaseModel
+
 from app.hosts.reader import CommandRunner, SubprocessRunner
 
 logger = logging.getLogger(__name__)
@@ -64,6 +66,14 @@ class RbdUnavailable(Exception):
     """Ceph could not be asked, and the message says what it answered."""
 
 
+class ImageUsage(BaseModel):
+    """What one RBD image provisions and what it actually occupies."""
+
+    image: str
+    provisioned_bytes: int = 0
+    used_bytes: int = 0
+
+
 class RbdClient(Protocol):
     """The metadata of one image, listed and changed."""
 
@@ -74,6 +84,8 @@ class RbdClient(Protocol):
     def remove_metadata(self, image: str, key: str) -> None: ...
 
     def list_groups(self) -> list[str]: ...
+
+    def disk_usage(self) -> list[ImageUsage]: ...
 
 
 class CommandRbdClient:
@@ -121,6 +133,49 @@ class CommandRbdClient:
         if not isinstance(document, list):
             raise RbdUnavailable("rbd answered something that is not a list.")
         return [str(name) for name in document]
+
+    def disk_usage(self) -> list[ImageUsage]:
+        """`rbd du`, which is what a backup volume is estimated from.
+
+        The upstream `backup_du.py` parses the human readable table and
+        converts `GiB` and `MiB` back into bytes by hand. This asks for JSON
+        instead, which the same `rbd` has emitted since Nautilus, so the
+        arithmetic that estimate rests on is Ceph's rather than a regular
+        expression's.
+
+        `used_size` is what the image occupies, and it is the figure that
+        matters: a full backup exports every image as a qcow2, and qcow2 is
+        sparse, so what crosses the network is the used size and not the
+        provisioned one.
+        """
+        result = self._run(["du", "--format", "json"])
+        try:
+            document = json.loads(result or "{}")
+        except ValueError as error:
+            raise RbdUnavailable(
+                f"rbd answered something that is not JSON: {error}"
+            ) from error
+        images = document.get("images") if isinstance(document, dict) else None
+        if not isinstance(images, list):
+            raise RbdUnavailable("rbd du answered without a list of images.")
+        usage = []
+        for image in images:
+            if not isinstance(image, dict) or not image.get("name"):
+                continue
+            # A snapshot is listed as a row of its own, carrying the image name
+            # and a `snapshot` key. Counted in with the image it belongs to
+            # would double the estimate, and a backup exports the image rather
+            # than its snapshots, so only the image rows are read.
+            if image.get("snapshot"):
+                continue
+            usage.append(
+                ImageUsage(
+                    image=str(image["name"]),
+                    provisioned_bytes=int(image.get("provisioned_size") or 0),
+                    used_bytes=int(image.get("used_size") or 0),
+                )
+            )
+        return usage
 
     def _run(self, arguments: list[str]) -> str:
         result = self._runner.run(

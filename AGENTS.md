@@ -65,7 +65,7 @@ app/
   trust/             invitations, CSR signing, SSH key provisioning, revocation
   runs/              ansible-runner driver, event stream, artefacts
   services/          node.py, realtime.py, cluster.py, storage.py, vms.py,
-                     containers.py
+                     containers.py, backup.py
   api/v1/            routers, one module per resource
   ui/                Jinja templates and static assets
 packaging/           the PAM service file the image ships
@@ -117,6 +117,10 @@ place, and lets a test replay recorded output.
 - Runs: the exact `ansible-runner` invocation for each exposed playbook, and the
   mapping from Ansible events to the progress model, including a run that is
   interrupted without a final status.
+- Backup: the exact argument list each `backup_restore` script is called with,
+  since that list is the whole of what reaches a machine, and the refusals
+  around the two staging directories, since `backup_full.sh` empties one of
+  them with `rm -rf` and checks nothing itself.
 
 While iterating on a change, run the test files that cover it
 (`pytest tests/test_vms.py`). Run the whole suite once, when the change is

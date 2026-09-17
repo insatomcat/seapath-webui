@@ -12,7 +12,7 @@ from pathlib import Path
 
 from app.core.auth import Role
 from app.hosts.reader import CommandResult
-from app.runs import catalogue
+from app.runs import backup, catalogue
 
 
 def write_fake_collection(
@@ -30,9 +30,10 @@ def write_fake_collection(
     leaves the others out, which is how the version skew case is exercised.
 
     `roles` does the same for the roles the service asks about by name rather
-    than through a playbook, which is `cloud_init_seed`. The default lays it
-    down, because a collection of the version this service is written against
-    carries it; passing `[]` is the older collection.
+    than through a playbook, which are `cloud_init_seed` and `backup_restore`.
+    The default lays both down, because a collection of the version this
+    service is written against carries them; passing `[]` is the older
+    collection.
 
     `MANIFEST.json` and `FILES.json` are written the way `ansible-galaxy`
     writes them, because what a run records about the code it ran is read from
@@ -78,7 +79,10 @@ def write_fake_collection(
     # for a collection released after this service was written.
     for name, body in (extras or {}).items():
         (playbooks / f"{name}.yaml").write_text(body)
-    for role in [catalogue.SEED_ROLE] if roles is None else roles:
+    # The roles this service asks about by name rather than through a
+    # playbook: the cloud-init seed builder, and the one whose scripts the
+    # backup acts call.
+    for role in [catalogue.SEED_ROLE, backup.ROLE] if roles is None else roles:
         tasks = root / "roles" / role / "tasks"
         tasks.mkdir(parents=True, exist_ok=True)
         (tasks / "main.yml").write_text(contents)

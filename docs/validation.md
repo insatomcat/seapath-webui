@@ -677,3 +677,29 @@ port. See [D52](decisions.md#d52).
 | 6b | After that deployment, `git log -p` on the inventory and the working tree both hold no `$6$` string, and the run's own copy of the inventory holds none either once the run has ended | The hash living in the run's staged copy alone, and being wiped from it. The property the whole design is for, and the one a test on a laptop can only half prove | Pending |
 | 7 | The same guest still refuses a password over SSH, and the `ansible` account still gets in by key | `ssh_pwauth` left as the image set it, which is what says this password reaches the console alone | Pending |
 
+
+## Backup and restore
+
+The suite asserts the seven settings, every refusal, the exact command line of
+each act and the parsing of the listing, all against fakes. What it cannot show
+is the scripts themselves running under `ansible-runner` on a real cluster with
+a real backup server behind it. See [D53](decisions.md#d53).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | With the seven settings committed, **Back up everything** ends green, and the backup server holds a directory named for the minute it started, with a qcow2 per image and the libvirt XML and metadata of each guest | `rbd sparsify`, `rbd snap purge`, `qemu-img convert` and rsync end to end, over root's own trust to the backup server | Pending |
+| 2 | The guests stay up throughout, and the Cluster page reports no resource having moved | The claim the confirmation makes about a live substation | Pending |
+| 3 | The `read -r` each script pauses on is answered by the play rather than hanging the run, and the run's log shows the script having gone past it | A task's standard input against a script that reads from it. The suite asserts the `stdin` value and nothing about what bash does with it | Pending |
+| 4 | **Back up the changes** afterwards writes `.diff` files into that same directory and pushes them, and a guest whose disk was added since the full backup is skipped with the warning in the log | The snapshot each diff is taken against, which only a real pool has | Pending |
+| 5 | **Read the backup server** ends green and the page lists what check 1 and check 4 wrote, with the two dates the guest can be restored to | The one POSIX shell command against a real backup server's shell, and the listing coming back through the run's results directory | Pending |
+| 6 | The estimate on the page is within a reasonable margin of what check 1 actually transferred | `rbd du` read here against what a qcow2 export weighs | Pending |
+| 7 | **Restore** on a guest, to the incremental date, ends green, and the guest comes back running with the data it had at that date | `vm-mgr create --force`, the diffs replayed in order, and the metadata put back | Pending |
+| 8 | After the restore, `rbd image-meta list` on the guest's image carries the keys the backup saved, and the Pacemaker resource is back with the placement its metadata declares | The restore of the metadata, which is what makes a restored guest the guest it was | Pending |
+| 9 | A member whose root account has no trust to the backup server fails the run on its first task with ssh's own message | The trust this service neither holds nor installs | Pending |
+| 10 | Exporting the inventory and running the same playbooks from a conventional control machine reports no change on any machine | The acceptance criterion, against the seven variables this page writes | Pending |
+
+### Result
+
+Pending. Nothing in this section has run on hardware yet.

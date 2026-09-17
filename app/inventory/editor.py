@@ -140,10 +140,7 @@ def set_variables(document: str, scope: Scope, variables: dict[str, Any]) -> str
                 f"{scope.name} has no entry of its own in this inventory, so "
                 "there is nowhere to write its variables."
             )
-        splices = [
-            _write(lines, mapping, variable, value)
-            for variable, value in sorted(variables.items())
-        ]
+        splices = _splices(lines, mapping, variables)
 
     return _apply(lines, splices)
 
@@ -161,21 +158,27 @@ def _group_variables(
 
     mapping = body.get("vars")
     if isinstance(mapping, dict) and mapping:
-        return [
-            _write(lines, mapping, variable, value)
-            for variable, value in sorted(variables.items())
-        ]
+        return _splices(lines, mapping, variables)
+
+    written = {
+        variable: value for variable, value in variables.items() if not _gone(value)
+    }
+    if not written:
+        # Every variable of this write is one to remove, and the group carries
+        # none of them. Removing what is not there changes nothing, and writing
+        # an empty `vars:` block to say so would be a change nobody asked for.
+        return []
 
     if "vars" in body:
         # `vars:` with nothing under it. Replaced whole, since there is no
         # first key to take an indentation from.
         key_line, key_column = body.lc.key("vars")
         end = _block_end(lines, key_line + 1, key_column)
-        return [_Splice(key_line, end, _vars_lines(variables, key_column))]
+        return [_Splice(key_line, end, _vars_lines(written, key_column))]
 
     column = _mapping_column(body)
     start = _mapping_end(lines, body)
-    return [_Splice(start, start, _vars_lines(variables, column))]
+    return [_Splice(start, start, _vars_lines(written, column))]
 
 
 def _vars_lines(variables: dict[str, Any], column: int) -> list[str]:
@@ -185,7 +188,35 @@ def _vars_lines(variables: dict[str, Any], column: int) -> list[str]:
     return written
 
 
-def _write(lines: list[str], mapping: Any, variable: str, value: Any) -> _Splice:
+def _splices(
+    lines: list[str], mapping: Any, variables: dict[str, Any]
+) -> list[_Splice]:
+    """One splice per variable, leaving out the ones with nothing to do."""
+    made = [
+        _write(lines, mapping, variable, value)
+        for variable, value in sorted(variables.items())
+    ]
+    return [splice for splice in made if splice is not None]
+
+
+def _gone(value: Any) -> bool:
+    """A value that asks for the variable to go, as `edit` reads one.
+
+    `None`, an empty list and an empty string, which is what
+    `fidelity.unintended_changes` calls wanted gone. The two have to agree: a
+    write that put `exclude_vm: ''` in the file while the intent said the
+    variable should be absent is refused as a change nobody asked for, and
+    rightly, because an inventory carrying an empty pattern says something
+    different from one that is silent.
+    """
+    return value is None or value == [] or value == ""
+
+
+def _write(lines: list[str], mapping: Any, variable: str, value: Any) -> _Splice | None:
+    if _gone(value):
+        # Nothing to remove, so nothing to write. The caller's intent is that
+        # the variable is absent, and it already is.
+        return _delete(lines, mapping, variable) if variable in mapping else None
     if variable in mapping:
         return _replace(lines, mapping, variable, value)
     return _insert(lines, mapping, variable, value)

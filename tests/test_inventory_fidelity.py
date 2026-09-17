@@ -210,6 +210,52 @@ def test_the_blank_line_after_an_edited_variable_stays_where_it_was() -> None:
     assert len(edited.splitlines()) == len(document.splitlines())
 
 
+def test_an_empty_value_removes_a_group_variable_rather_than_writing_it_empty() -> None:
+    """The same rule `edit` holds on a host, held on a group.
+
+    `fidelity.unintended_changes` reads an empty intended value as "this
+    variable is to be absent", so a write that put `exclude_vm: \'\'` in the
+    file while the intent said it should be gone is refused as a change nobody
+    asked for. The two have to agree, and an inventory carrying an empty value
+    says something different from one that is silent about it anyway.
+    """
+    document = """
+all:
+  children:
+    cluster_machines:
+      hosts:
+        node1:
+      vars:
+        backup_exclude_vm: guest9
+        isolcpus: 4-23
+"""
+
+    edited = set_variables(
+        document, Scope("group", "cluster_machines"), {"backup_exclude_vm": ""}
+    )
+
+    assert "backup_exclude_vm" not in resolve(edited)["node1"]
+    assert resolve(edited)["node1"]["isolcpus"] == "4-23"
+
+
+def test_removing_a_group_variable_that_is_not_there_writes_nothing() -> None:
+    document = """
+all:
+  children:
+    cluster_machines:
+      hosts:
+        node1:
+"""
+
+    edited = set_variables(
+        document, Scope("group", "cluster_machines"), {"backup_exclude_vm": ""}
+    )
+
+    # An empty `vars:` block to say a variable is absent would be a change
+    # nobody asked for, in a file this service shares with whoever wrote it.
+    assert edited == document
+
+
 def test_a_variable_is_added_after_a_last_line_with_no_newline() -> None:
     document = "cluster_machines:\n  hosts:\n    node1:\n      ansible_host: 10.0.0.1"
 

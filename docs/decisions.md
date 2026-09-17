@@ -3945,3 +3945,137 @@ Verified on the demo cluster on 2026-09-15 before the page offered it: the
 command above, run through node2, answered "Connected to domain 'debian13c1'",
 a guest running on node3.
 
+
+## D53 - Settled: the backup tool is ported as its four scripts, and its menu is left on the machine
+
+`seapath-ansible` ships a `backup_restore` role, installed on every machine the
+Debian and Oracle Linux prerequisites playbooks configure. It lays down four
+programs in `/usr/local/bin` and a whiptail menu over them:
+
+- `backup_full.sh` exports every guest's RBD images as qcow2 and rsyncs the
+  result to a backup server, after purging the snapshots each image carries and
+  taking the base snapshot the increments will be made against;
+- `backup_inc.sh` exports RBD diffs against the latest snapshot, into the same
+  directory;
+- `restore_vm.sh` brings one guest back from a chosen date, through
+  `vm-mgr create --force`;
+- `backup_du.py` estimates what a full backup would weigh, from `rbd du`;
+- `backup-restore.sh` is the menu, and it reads and writes
+  `/etc/backup-restore.conf`.
+
+### What was ported, and what was not
+
+**Only the four programs.** The menu's whole job is to hold the seven values
+and to ask for a confirmation, and this service can do neither of those the way
+the menu does. The conf file is a file on a host, and writing on a host is the
+thing [D1](#d1) forbids: the answer is a variable in the inventory and a
+playbook, and nothing about a backup earns an exception.
+
+The port stands on the fact that made it cheap: **the four programs take every
+value as an argument.** `backup_full.sh` is given the staging directory, the
+remote shell, `<server>:<directory>` and the two filters, and reads no
+configuration of its own. So the interface is already there, and the run
+carries the whole of what was asked for on one command line, which is what a
+run record is for.
+
+The seven values therefore live in the inventory, on `cluster_machines`, under
+the conf file's own keys with a `backup_` prefix: `backup_local_dir`,
+`backup_remote_serv`, `backup_remote_dir`, `backup_local_tmp_dir`,
+`backup_remote_shell`, `backup_include_vm`, `backup_exclude_vm`. The names are
+the conf file's so the two descriptions of one site's backup can be read side
+by side, and so a later role that templates that file from the inventory maps
+onto them one for one. `/etc/backup-restore.conf` is left exactly as it was: a
+site that still drives the menu on a machine keeps whatever it had there.
+
+### Three readings, and why each one is where it is
+
+**Where the backups go** comes out of the inventory, resolved the way Ansible
+resolves it, per member rather than off the group's own mapping: a value
+written on one machine is the value that machine receives, and a page that read
+the group would show a backup nobody is going to take. A value written in two
+places is reported rather than picked between.
+
+**What a full backup would weigh** is `rbd du`, asked of Ceph here, over the
+client [D31](#d31) established for a guest's metadata. `backup_du.py` runs the
+same command on a machine and parses its human readable table; this asks for
+JSON and sums the same numbers, with the two filters applied to the guest name
+exactly as the scripts apply them, and an additional disk counted with the
+guest it belongs to. It reaches no machine and costs no run.
+
+**What the backup server holds** is the one reading that cannot happen here at
+all. The SSH trust that reaches that server belongs to the cluster members and
+is root's own key, the one `rsync` pushes with; this container has no route to
+it and should not have one. So the server is asked by a short run, over one
+POSIX shell command listing the directory, and the answer is brought back into
+the run's own results directory through the same variable a `cyclictest` is
+told where to fetch its histogram into. The page draws that file and says which
+run it came from and when, rather than presenting it as live.
+
+That shape is the honest one. A reading that reaches another machine goes
+through `ansible-runner` like everything else, it takes the lock like
+everything else, and the record of having asked is kept like everything else.
+
+### The confirmation, and why the plays answer a prompt
+
+Each of the three acting scripts pauses on a bare `read -r` before it deletes
+something: the staging directory a full backup empties, the temporary directory
+a restore empties. That is the menu's last question at a terminal.
+
+A task's standard input is `/dev/null`, so the read would return at once and
+the script would carry on **having asked nobody**. The prompt would be answered
+by accident, which is the worst of the three possibilities: it looks like a
+guard and does the work of none. The generated plays answer it with `stdin` on
+purpose, and the question moves to the window on the page, where the ceremony
+of this service already sits. What that window says is what the script is about
+to do: a full backup purges the snapshots of every image it exports, which
+retires the increments of the previous backup, and a restore replaces a running
+guest with what a directory on another machine holds.
+
+### The refusals that stand in for a check the scripts do not have
+
+`backup_full.sh` empties its staging directory with `rm -rf "${local_dir}"*`,
+and it checks nothing about that value. Without the trailing slash the glob
+reaches every sibling whose name starts the same way; with a short value it
+reaches most of the filesystem. The slash carries meaning beyond style: the
+script builds a path by gluing the date onto the value, so a value without it
+is wrong twice.
+
+So the two staging directories and the remote directory are refused unless they
+are absolute, of at least two segments, made of letters, digits, dots, dashes
+and underscores, and ending with a slash. `remote_shell` is refused unless it
+is `ssh` and ssh options, because the scripts expand it unquoted and hand it to
+`rsync -e`. The two filters are refused unless they compile. Every refusal
+carries the sentence that says which rule it is and why it exists, because
+these are values a site writes once and reads five years later.
+
+A restore is checked against the listing as well: the guest, the full backup
+and the date all have to be in what the server last held. `restore_vm.sh`
+recreates the guest from the libvirt XML of the date it is given, so a date
+with no XML there produces a guest built from a file that is not on the
+machine, minutes after the confirmation destroyed the running one.
+
+### What it costs
+
+**A backup holds the cluster's run lock for as long as it takes**, which for a
+dozen guests is an hour of `qemu-img convert` and rsync. The one run at a time
+rule covers it unchanged. A backup reads every image of the pool and pushes the
+result off the cluster, which is exactly the kind of act that should stay clear
+of a convergence, and an operator who needs the cluster back has Cancel on the
+run.
+
+**The cluster is required**, because the tool exports RBD images and
+`backup_full.sh` opens with `rbd list`. A standalone machine is told so, rather
+than offered a button that fails.
+
+**The trust to the backup server is the site's**, provisioned once on each
+member, outside this service entirely. Nothing here installs it, and a member
+that has not got it fails the run on its first task with ssh's own message.
+
+### Why it keeps the acceptance criterion
+
+Nothing here writes to a machine. The settings are a commit; the four acts are
+runs of scripts the role installed, over the SSH path a convergence uses, with
+the same lock and the same history. Exporting this inventory and running the
+same playbooks from a conventional Ansible control machine produces the same
+machines: the seven variables are read by nothing upstream today, so they
+change no convergence, and the backups themselves were never part of one.
