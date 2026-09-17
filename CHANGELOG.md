@@ -25,6 +25,10 @@ real hardware is in [docs/validation.md](docs/validation.md).
 - fix: leave a window's form fields the width the window gives them
 - docs: say what 0.3.125 actually carried
 
+## 0.3.126 - 2026-09-17
+
+- fix: name the backup variables the way ansible-lint requires of the role
+
 ## 0.3.125 - 2026-09-17
 
 - fix: wait for a run's listeners rather than for its lock, in the tests
