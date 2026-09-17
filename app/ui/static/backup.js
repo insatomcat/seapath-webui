@@ -120,6 +120,11 @@
   // Asked for rather than read with the page. `rbd du` adds up the objects of
   // every image in the pool, which is minutes on a real cluster, so a panel
   // that fetched it on every visit held the page up and then showed a timeout.
+  //
+  // A ceiling, and the page says so in those words. The rows `rbd du` answers
+  // are deltas between snapshots, so a guest is worth its image and its
+  // snapshots added up, and a block rewritten since a snapshot is counted in
+  // both rows. The service bounds the sum by what the disk provisions.
 
   function renderEstimate(estimate) {
     const guests = estimate.guests || [];
@@ -127,7 +132,8 @@
     element("estimate-error").hidden = !estimate.error;
     element("estimate-table").hidden = guests.length === 0;
     element("estimate-total").textContent = guests.length
-      ? size(estimate.used_bytes) + " over " + guests.length + " guests"
+      ? "at most " + size(estimate.used_bytes) + " over " + guests.length +
+        " guests"
       : "";
 
     const body = clear(element("estimate-rows"));

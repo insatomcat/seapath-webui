@@ -4045,6 +4045,37 @@ menu prints "Estimating backup volume, please wait" ahead of the same command,
 which was the clue in plain sight. It now has an endpoint of its own, a budget
 of its own, and a button that says what it costs.
 
+**What `rbd du` actually answers** is the second correction, and it was a wrong
+number rather than a slow one. The command emits a row per snapshot and a row
+for the image, and every row is a delta: Ceph walks each snapshot from the one
+before it, so the image's row holds what was written since the latest snapshot
+and nothing older. The first version read that row and dropped the snapshots,
+on the reasoning that a backup exports the image and not its snapshots. The
+reasoning is true and the arithmetic does not follow from it: taking a snapshot
+moves no data, so the blocks a snapshot holds are the blocks the image still
+reads, and `backup_full.sh` exports them. On a pool whose guests had been
+snapshotted by the previous night's backup, three guests reading some twenty
+four gigabytes were put on the page as three hundred and twenty megabytes, and
+every guest untouched since its snapshot as `0 B`.
+
+An image is therefore worth its rows added up, bounded by what it provisions.
+The sum is never short of what an export writes, because every block the image
+reads is allocated in exactly one row, the row of the snapshot it was last
+written before. It can be long, because a block rewritten since a snapshot is
+counted in both rows and a block discarded since one is counted in a row the
+image no longer reads, which is what the provisioned size bounds. The page
+calls it what it is, a ceiling.
+
+The exact figure is a `rbd diff --whole-object` per image, one walk of the head
+each, and that was weighed and not taken. It is more work than the bound in
+every dimension that matters here: a command per image instead of one for the
+pool, a second entry in the list of commands this service may run, a partial
+answer to define when one image of thirty fails, and the per snapshot rows lost
+just as an incremental estimate would want them. The bound costs nothing on top
+of a `du` already being paid for and errs high, which is the side the operator
+sizing a destination wants. If a site ever needs the exact size, it goes behind
+the same button and refines the images that carry snapshots.
+
 **What the backup server holds** is read from a cluster member, because the
 SSH trust that reaches that server is root's own key there, the one `rsync`
 pushes with, and this container has no route to it. Two hops: this node's own

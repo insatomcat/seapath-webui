@@ -26,6 +26,7 @@ deleting its staging directory.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -37,12 +38,14 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from app.cluster.rbd import CommandRbdClient
 from app.core.settings import Settings
+from app.hosts.reader import CommandResult
 from app.runs import backup as plays
 from app.runs.backup import BackupAction, BackupTarget
 from app.services.backup import parse_listing
 from tests.conftest import sign_in
-from tests.fakes import write_fake_collection
+from tests.fakes import FakeCommandRunner, write_fake_collection
 
 # A cluster of three machines, with the backup settings already on
 # `cluster_machines`. The addresses are the ones the fake exporters answer for,
@@ -477,6 +480,94 @@ def test_the_estimate_is_asked_for_rather_than_read_with_the_page(
     assert "estimate" not in _backup(signed_in)
 
 
+# `rbd du --format json` as a cluster holding snapshotted guests answers it.
+# Recorded rather than invented: `system_ABB15` is an image whose backup
+# snapshot holds all but three hundred megabytes of it, `system_ABB15SSH` has
+# had nothing written to it since its snapshot, `system_ABB` has two snapshots
+# whose rows add up past the disk, and `system_debian14` has no snapshot at
+# all. Sizes in MiB below, bytes in the document.
+DU_WITH_SNAPSHOTS = {
+    "system_ABB15": [("202609171030", 30 * 1024, 18 * 1024), (None, 30 * 1024, 320)],
+    "system_ABB15SSH": [
+        ("202609171030", 30 * 1024, 4915),
+        (None, 30 * 1024, 0),
+    ],
+    "system_ABB": [
+        ("snapshot", 32 * 1024, 16 * 1024),
+        ("202512182144", 32 * 1024, 20 * 1024),
+        (None, 32 * 1024, 0),
+    ],
+    "system_debian14": [(None, 3 * 1024, 1331)],
+}
+
+
+def _du_client() -> tuple[CommandRbdClient, FakeCommandRunner]:
+    mebibyte = 1024 * 1024
+    images = [
+        {
+            "name": name,
+            "provisioned_size": provisioned * mebibyte,
+            "used_size": used * mebibyte,
+            **({"snapshot": snapshot} if snapshot else {}),
+        }
+        for name, rows in DU_WITH_SNAPSHOTS.items()
+        for snapshot, provisioned, used in rows
+    ]
+    document = json.dumps({"images": images, "total_used_size": 0})
+    runner = FakeCommandRunner({"rbd -p rbd du": CommandResult(0, document, "")})
+    return CommandRbdClient(runner=runner), runner
+
+
+def test_an_image_is_worth_its_rows_added_up_rather_than_its_own() -> None:
+    """The rows `rbd du` answers are deltas between snapshots.
+
+    Ceph walks each snapshot from the one before it, so an image's own row
+    carries what was written since the latest snapshot and nothing older. An
+    image snapshotted by last night's backup and untouched since reports `0 B`
+    while a full backup still exports it whole, because the blocks the
+    snapshot holds are the blocks the image reads. Reading that row on its own
+    put a thirty gigabyte guest on the Backup page as three hundred megabytes.
+    """
+    client, runner = _du_client()
+
+    usage = {image.image: image for image in client.disk_usage()}
+
+    mebibyte = 1024 * 1024
+    # The snapshot's 18 GiB plus the 320 MiB written since it was taken.
+    assert usage["system_ABB15"].used_bytes == (18 * 1024 + 320) * mebibyte
+    # Nothing written since the snapshot, and an export that still writes it.
+    assert usage["system_ABB15SSH"].used_bytes == 4915 * mebibyte
+    # An image without a snapshot is its own row, which is the case that was
+    # right before and has to stay right.
+    assert usage["system_debian14"].used_bytes == 1331 * mebibyte
+    assert usage["system_debian14"].provisioned_bytes == 3 * 1024 * mebibyte
+    # One reading of the pool, whatever the snapshots.
+    assert [argument for argument in runner.calls[0] if argument != "-p"] == [
+        "rbd",
+        "rbd",
+        "du",
+        "--format",
+        "json",
+    ]
+
+
+def test_a_volume_is_bounded_by_what_the_disk_provisions() -> None:
+    """The sum is a ceiling, and the disk is a harder one.
+
+    A block rewritten since a snapshot is counted in both rows, so the rows of
+    an image with a long snapshot history add up past what the image can
+    possibly export. The provisioned size bounds it, because no export writes
+    more than the disk holds.
+    """
+    client, _ = _du_client()
+
+    usage = {image.image: image for image in client.disk_usage()}
+
+    # 16 + 20 GiB of rows on a 32 GiB disk.
+    assert usage["system_ABB"].used_bytes == 32 * 1024 * 1024 * 1024
+    assert usage["system_ABB"].provisioned_bytes == 32 * 1024 * 1024 * 1024
+
+
 def test_the_estimate_sums_a_guest_and_its_additional_disks(
     signed_in: TestClient,
 ) -> None:
@@ -492,6 +583,9 @@ def test_the_estimate_sums_a_guest_and_its_additional_disks(
     ]
     gigabyte = 1024 * 1024 * 1024
     assert volumes["vm-guest1"]["used_bytes"] == 17 * gigabyte
+    # `vm-guest2` has been snapshotted and not written to since, so its own
+    # `rbd du` row is `0 B` and the four gigabytes sit in the snapshot. A
+    # backup exports them all the same.
     assert volumes["vm-guest2"]["used_bytes"] == 4 * gigabyte
     # The total is what crosses the network, which is the used size and not
     # what the disks were provisioned at.

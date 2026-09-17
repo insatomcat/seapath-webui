@@ -20,7 +20,7 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from app.cluster.rbd import ImageUsage
+from app.cluster.rbd import ImageUsage, export_volume
 
 
 def _detail(**labels: str) -> str:
@@ -612,21 +612,30 @@ class FakeRbdClient:
         estimated from the used size. `vm-guest1` carries an additional disk,
         so the estimate has one guest whose volume is the sum of two images and
         the page is drawn against a row that exercises the sum.
+
+        Each image carries the rows `rbd du` answers for it, the snapshots
+        first and the image last, because those rows are deltas and the volume
+        is their sum. `vm-guest2` is the case that matters: a full backup
+        snapshotted it and nothing wrote to it since, so its own row is `0 B`
+        and everything it exports sits in the snapshot. `vm-guest3` is the
+        other end, an image whose rows add up past what it provisions.
         """
         images = {
-            "system_vm-guest1": (32, 6),
-            "data_vm-guest1_0": (64, 11),
-            "system_vm-guest2": (32, 4),
-            "system_vm-guest3": (32, 3),
-            "system_vm-guest4": (32, 2),
+            "system_vm-guest1": (32, [4, 2]),
+            "data_vm-guest1_0": (64, [11]),
+            "system_vm-guest2": (32, [4, 0]),
+            "system_vm-guest3": (32, [20, 9, 7]),
+            "system_vm-guest4": (32, [2]),
         }
         gigabyte = 1024 * 1024 * 1024
         return [
             ImageUsage(
                 image=name,
                 provisioned_bytes=provisioned * gigabyte,
-                used_bytes=used * gigabyte,
+                used_bytes=export_volume(
+                    provisioned * gigabyte, [row * gigabyte for row in rows]
+                ),
             )
-            for name, (provisioned, used) in sorted(images.items())
+            for name, (provisioned, rows) in sorted(images.items())
             if name in self.images or name.startswith("data_")
         ]

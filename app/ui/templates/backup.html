@@ -82,14 +82,19 @@ to be erased.
       </div>
     </div>
     <p class="lead">
-      The size every selected guest occupies in Ceph, which is what a full
-      backup exports. A qcow2 is sparse, so this is what crosses the network
-      rather than what the disks were provisioned at.
+      What a full backup exports for every selected guest, at most. A qcow2 is
+      sparse, so this is the data Ceph holds for those disks rather than what
+      they were provisioned at.
     </p>
     <p class="help">
       Measuring it runs <code>rbd du</code>, which adds up the objects of every
       image in the pool. On a cluster holding a dozen guests that is minutes of
-      work for Ceph, so it is asked for rather than read on every visit.
+      work for Ceph, so it is asked for rather than read on every visit. Its
+      figures are deltas, one per snapshot: an image counts what was written
+      since its latest snapshot, so a guest is worth its image and its
+      snapshots added up, bounded by what it provisions. A block rewritten
+      since a snapshot is counted twice there, which is why this is a ceiling
+      and not a measurement.
     </p>
     <div class="loading" id="estimate-loading" hidden>
       Adding up the objects of every image
@@ -101,7 +106,7 @@ to be erased.
           <tr>
             <th>Guest</th>
             <th>Disks</th>
-            <th>Occupied</th>
+            <th>Exports at most</th>
             <th>Provisioned</th>
           </tr>
         </thead>
