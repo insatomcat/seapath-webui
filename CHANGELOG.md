@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.123 - 2026-09-17
+
+- fix: say why the backup server's directory needs its trailing slash
+
 ## 0.3.122 - 2026-09-17
 
 - fix: read /etc/backup-restore.conf, and measure the volume on demand
