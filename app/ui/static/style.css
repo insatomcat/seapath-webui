@@ -806,6 +806,24 @@ td button {
   align-items: start;
 }
 
+/* One column under it. The left column holds its 18rem whatever the window
+   does, so a narrow one left the right column a few dozen pixels wide: the
+   file being edited and the record of a run were drawn in a strip, and both
+   pages scrolled sideways. Stacked, each takes the width the page has, in the
+   order they are read, which on both of these pages is the list first and what
+   it opens second. */
+@media (max-width: 56rem) {
+  .page.split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Its two rows are the folder and the panels beside it, which are now above
+     and below it rather than beside it. */
+  .page.split #editor-card {
+    grid-row: auto;
+  }
+}
+
 .lead {
   margin: 0 0 1rem;
   color: var(--muted);
@@ -895,8 +913,13 @@ td.missing button {
   font-size: 0.85rem;
 }
 
+/* Wrapping, because these rows are as long as the acts a panel offers and the
+   longest of them is six buttons: the inventory editor carries Save, Check,
+   Propose, Discard, Delete and the commit it is at. On one line those ran past
+   the right edge of the page, taking Delete and the commit with them. */
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   align-items: center;
   margin-top: 1rem;
@@ -1157,12 +1180,38 @@ button.secondary {
   z-index: 10;
 }
 
+/* Capped and scrolling, every window and not only the wide ones. A window is
+   centred in a fixed layer that does not scroll, so one taller than the screen
+   overflows it at both ends and the half above the top is unreachable: on a
+   phone that is the heading, and on a phone held sideways it is the buttons.
+   Scrolling inside its own frame keeps all of it reachable at any height. */
 .modal-body {
   width: min(34rem, 92vw);
+  max-height: 88vh;
   padding: 1.5rem;
+  overflow-y: auto;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+/* A phone. The window takes the width the screen has, and the padding it
+   spends on its own edges is room the form no longer has. The controls are
+   drawn at 16px for the same reason the sign in page does it: Safari on an
+   iPhone zooms into a field whose text is any smaller when it takes the
+   focus, and it does not zoom back out afterwards. */
+@media (max-width: 49.6rem) {
+  .modal-body {
+    width: min(34rem, 96vw);
+    padding: 1.1rem;
+  }
+
+  .modal-body input,
+  .modal-body select,
+  .modal-body textarea,
+  .modal-body.tall textarea {
+    font-size: 16px;
+  }
 }
 
 .modal-body h2 {
@@ -1204,17 +1253,37 @@ button.secondary {
 }
 
 /* A window that is shut rather than answered carries its way out where the
-   confirmations carry their Cancel. */
+   confirmations carry their Cancel.
+
+   The row wraps, and the title is what gives way. A run window is titled with
+   a playbook id, which is one unbreakable word of up to forty characters:
+   held on one line beside the state and the way out, it pushed both past the
+   right edge of a window that then scrolled sideways, on a narrow screen and
+   on a laptop with the browser at half width. Below the basis the title takes
+   the line and the way out sits under it, still on the right. */
 .modal-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 1rem;
+  gap: 0.5rem 1rem;
   margin-bottom: 1rem;
 }
 
 .modal-head h2 {
+  flex: 1 1 14rem;
+  min-width: 0;
   margin: 0;
+  /* Narrower than the word itself, which happens on a phone, and the word
+     breaks rather than the window scrolling. */
+  overflow-wrap: anywhere;
+}
+
+/* Whatever ends the row keeps its own width and stays on the right, on the
+   title's line where both fit and on its own line where they do not. */
+.modal-head > :last-child {
+  flex: none;
+  margin-left: auto;
 }
 
 /* The window that follows the run an action just launched. Its state sits
@@ -1288,9 +1357,13 @@ button.secondary {
   color: var(--muted);
 }
 
+/* The play and the task, side by side where they fit. A task name is a
+   sentence an author wrote for a log rather than for a box, so the two wrap
+   onto their own lines rather than the row running past its card. */
 .progress {
   display: flex;
-  gap: 0.75rem;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.75rem;
   margin: 0.75rem 0;
   padding: 0.5rem 0.75rem;
   background: var(--bg);
@@ -1299,6 +1372,12 @@ button.secondary {
 
 .progress .play {
   color: var(--muted);
+}
+
+.progress .play,
+.progress .task {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* The stream is where the detail card's height is taken from: it already
@@ -1476,8 +1555,9 @@ button.secondary {
 
 .editor-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.75rem;
+  gap: 0.4rem 0.75rem;
   padding-bottom: 0.6rem;
   border-bottom: 1px solid var(--line);
 }
@@ -1676,8 +1756,9 @@ button.secondary {
 
 .confirm-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem 0.75rem;
   margin-top: 0.75rem;
   padding: 0.6rem 0.8rem;
   background: var(--warn-wash);
@@ -2859,43 +2940,6 @@ td > button.leftover svg {
   color: var(--accent);
 }
 
-.vms label {
-  display: block;
-  margin-top: 1rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.vms input[type="text"],
-.vms input[type="file"] {
-  width: 100%;
-  max-width: 32rem;
-  margin-top: 0.3rem;
-}
-
-/* A field with the button that asks something about its value, on one line
-   and as wide as the field alone would be. */
-.vms .with-button {
-  display: flex;
-  gap: 0.5rem;
-  align-items: stretch;
-  max-width: 32rem;
-  margin-top: 0.3rem;
-}
-
-.vms .with-button input[type="text"] {
-  flex: 1;
-  min-width: 0;
-  margin-top: 0;
-}
-
-.vms label.switch {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  color: var(--text);
-}
-
 /* Adding a VM is four acts, two of which move a file that can be very large.
    A single spinner would leave an operator watching nothing for ten minutes
    with no way of telling an upload from a hung request, so each act says
@@ -2924,14 +2968,22 @@ td > button.leftover svg {
    stretching the table to the width of the longest one. */
 .modal-body.wide {
   width: min(72rem, 94vw);
-  max-height: 88vh;
-  overflow-y: auto;
+}
+
+@media (max-width: 49.6rem) {
+  .modal-body.wide {
+    width: min(72rem, 96vw);
+  }
 }
 
 /* The editor. A libvirt XML edited in a three line box is how a closing tag
    goes missing, so the field takes the room the window has. */
 .modal-body.tall textarea {
   width: 100%;
+  /* The reading length the other fields are held to is not this one's: a
+     domain is read in columns and lines, and wrapping it at thirty two rems
+     is what the window was widened to avoid. */
+  max-width: none;
   min-height: 22rem;
   margin-top: 0.3rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -2947,18 +2999,67 @@ td > button.leftover svg {
   color: var(--muted);
 }
 
-.modal-body input[type="text"] {
+/* Every field of a window's form, and not the text ones alone: a file picker
+   left at its own intrinsic width is as wide as the name of the file it is
+   given, which on a phone is wider than the window. The cap is a reading
+   length rather than a fitting: in the wide window these forms live in, a
+   field drawn across seventy rems is one nobody can read back. */
+.modal-body input[type="text"],
+.modal-body input[type="password"],
+.modal-body input[type="file"] {
   width: 100%;
+  max-width: 32rem;
   margin-top: 0.3rem;
+}
+
+/* A count keeps the width a count needs, and is held to the window at the
+   size where even that is too much. */
+.modal-body input[type="number"] {
+  max-width: 100%;
+  margin-top: 0.3rem;
+}
+
+.modal-body select {
+  max-width: 100%;
+}
+
+/* A field with the button that asks something about its value, on one line
+   and as wide as the field alone would be. */
+.modal-body .with-button {
+  display: flex;
+  gap: 0.5rem;
+  align-items: stretch;
+  max-width: 32rem;
+  margin-top: 0.3rem;
+}
+
+.modal-body .with-button input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.modal-body .with-button button {
+  flex: none;
+}
+
+/* A box and what it turns on, read as one line. The label rule above draws
+   the fields' own labels, which are lines of their own above them. */
+.modal-body label.switch {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text);
 }
 
 /* A label with a button that fills its field. The row carries the spacing the
    label carries on its own elsewhere, so the fields keep one rhythm. */
 .modal-body .field-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 0.5rem;
+  gap: 0.3rem 0.5rem;
   margin-top: 1rem;
 }
 
@@ -2969,6 +3070,16 @@ td > button.leftover svg {
 .modal-body .field-head button {
   padding: 0.2rem 0.6rem;
   font-size: 0.8rem;
+}
+
+/* The fields written over several lines, the pinning profile among them. They
+   are drawn at the width a browser gives a textarea with no `cols`, which is
+   about twenty characters and narrower than the window at every size, so they
+   take the width the form has instead. `.tall` says its own, taller thing. */
+.modal-body textarea {
+  width: 100%;
+  max-width: 32rem;
+  margin-top: 0.3rem;
 }
 
 td.meta-value {

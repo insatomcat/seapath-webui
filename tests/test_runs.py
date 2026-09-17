@@ -109,14 +109,42 @@ def wait_for_the_lock(store, timeout: float = 5.0):
 
     A run is finished for a reader an instant before it is finished for the
     lock: the record is saved with its final state and the lock released right
-    after, in that order, so that nothing ever reads a run as ended while its
-    listeners have not started. Waiting on the record can therefore land in
-    that window, which on a loaded machine is wide enough to fail a test.
+    after, in that order. Waiting on the record can therefore land in that
+    window, which on a loaded machine is wide enough to fail a test about the
+    lock itself.
+
+    It says nothing about the listeners. They run after the lock is released,
+    outside the `finally` that released it, so a test about what a listener saw
+    wants `wait_for_listeners` below. This helper used to claim it covered
+    them, and a test that believed it failed about once in a hundred runs on a
+    loaded machine and never on a quiet one.
     """
     deadline = time.time() + timeout
     while store.locked() and time.time() < deadline:
         time.sleep(0.01)
     return not store.locked()
+
+
+def wait_for_listeners(service: RunService, run_id: str, timeout: float = 5.0):
+    """Wait until what listens for a run's end has finished acting on it.
+
+    Three moments, in this order, and they are three: the record says the run
+    ended, the lock is released, the listeners run. The first two are inside
+    `_execute`'s `finally` and the third is after it, deliberately, so that
+    nothing can ever read a finished run whose seed copy is still on disk.
+
+    `followups` is the flag the service already keeps for the gap: it is true
+    from the save that ends the run until the last listener has returned, and
+    the VMs page reads itself again when it goes false. A test asserting what a
+    listener did waits on the same flag.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        record = service.get(run_id)
+        if record is not None and record.finished and not record.followups:
+            return record
+        time.sleep(0.01)
+    raise AssertionError(f"The listeners of run {run_id} did not finish")
 
 
 # The invocation

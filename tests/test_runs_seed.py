@@ -30,7 +30,7 @@ from tests.test_runs import (  # noqa: F401
     store,
     trust,
     wait_for,
-    wait_for_the_lock,
+    wait_for_listeners,
 )
 from tests.test_runs import inventory as inventory_fixture  # noqa: F401
 
@@ -308,8 +308,11 @@ def test_the_copy_is_wiped_before_anything_reads_the_run_as_finished(
     record = service.launch(
         "deploy_vms_standalone", "alice", root_passwords={"guest1": PASSWORD}
     )
-    wait_for(service, record.id)
-    assert wait_for_the_lock(store)
+    # For the listeners, rather than for the record or for the lock. Both of
+    # those are released before a listener runs, so waiting on either asserts
+    # `seen` at a moment when it is provably still empty: this failed about
+    # once in a hundred runs on a loaded machine and never on a quiet one.
+    wait_for_listeners(service, record.id)
 
     assert seen and "hashed_passwd" not in seen[0]
 
