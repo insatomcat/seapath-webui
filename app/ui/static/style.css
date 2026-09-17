@@ -2987,10 +2987,6 @@ td > button.leftover svg {
    goes missing, so the field takes the room the window has. */
 .modal-body.tall textarea {
   width: 100%;
-  /* The reading length the other fields are held to is not this one's: a
-     domain is read in columns and lines, and wrapping it at thirty two rems
-     is what the window was widened to avoid. */
-  max-width: none;
   min-height: 22rem;
   margin-top: 0.3rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -3007,15 +3003,13 @@ td > button.leftover svg {
 }
 
 /* Every field of a window's form, and not the text ones alone: a file picker
-   left at its own intrinsic width is as wide as the name of the file it is
-   given, which on a phone is wider than the window. The cap is a reading
-   length rather than a fitting: in the wide window these forms live in, a
-   field drawn across seventy rems is one nobody can read back. */
+   left to itself is as wide as the name of the file it is given, and a
+   password field was drawn at the width a browser happens to pick. Both were
+   wider than the window on a phone. */
 .modal-body input[type="text"],
 .modal-body input[type="password"],
 .modal-body input[type="file"] {
   width: 100%;
-  max-width: 32rem;
   margin-top: 0.3rem;
 }
 
@@ -3030,13 +3024,14 @@ td > button.leftover svg {
   max-width: 100%;
 }
 
-/* A field with the button that asks something about its value, on one line
-   and as wide as the field alone would be. */
+/* A field with the button that asks something about its value, on one line.
+   Written for the VMs page and scoped to it, where it never reached the
+   window this form is in: the window is a sibling of the page rather than a
+   child of it, so the button was drawn under the field it belongs to. */
 .modal-body .with-button {
   display: flex;
   gap: 0.5rem;
   align-items: stretch;
-  max-width: 32rem;
   margin-top: 0.3rem;
 }
 
@@ -3079,13 +3074,13 @@ td > button.leftover svg {
   font-size: 0.8rem;
 }
 
-/* The fields written over several lines, the pinning profile among them. They
-   are drawn at the width a browser gives a textarea with no `cols`, which is
-   about twenty characters and narrower than the window at every size, so they
-   take the width the form has instead. `.tall` says its own, taller thing. */
+/* The fields written over several lines, the pinning profile among them.
+   Left alone they are drawn at the width a browser gives a textarea with no
+   `cols`, which is about twenty characters and narrower than the window at
+   every size, so they take the width the form has instead. `.tall` says its
+   own, taller thing. */
 .modal-body textarea {
   width: 100%;
-  max-width: 32rem;
   margin-top: 0.3rem;
 }
 
