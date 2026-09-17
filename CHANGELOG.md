@@ -22,6 +22,10 @@ real hardware is in [docs/validation.md](docs/validation.md).
 ## 0.3.125 - 2026-09-17
 
 - fix: wait for a run's listeners rather than for its lock, in the tests
+- fix: a responsive pass over the windows and the two page layouts, which
+  the commit above carried without naming: the head of a run window, the
+  rows of buttons, the Inventory and Runs layouts, and the form rules the
+  Add a VM and Add a container windows had never received
 
 ## 0.3.124 - 2026-09-17
 
