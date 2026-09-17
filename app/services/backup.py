@@ -89,9 +89,12 @@ logger = logging.getLogger(__name__)
 GROUP = "cluster_machines"
 
 # What the inventory calls each of them: the key of `/etc/backup-restore.conf`,
-# prefixed. The prefix is what keeps `remote_dir` and `local_dir` from reading
-# as variables about something else in a file that configures a whole site.
-PREFIX = "backup_"
+# prefixed with the role that reads it. The prefix keeps `remote_dir` and
+# `local_dir` from reading as variables about something else in a file that
+# configures a whole site, and it is the role's own name rather than a shorter
+# one because `var-naming[no-role-prefix]` requires exactly that of a variable
+# a role declares, and `ansible-lint` runs on the collection's CI.
+PREFIX = "backup_restore_"
 
 # A guest name, as the scripts and `vm_manager` allow. Checked before it
 # reaches a command line, which is the second lock: the first is that it came
@@ -126,7 +129,7 @@ class BackupSetting(BaseModel):
     """One of the seven, with what it is and what it holds."""
 
     name: str
-    """The inventory variable, `backup_` and the conf file's own key."""
+    """The inventory variable: the role's name and the conf file's own key."""
     key: str
     """The key of `/etc/backup-restore.conf` it corresponds to."""
     label: str

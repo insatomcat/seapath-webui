@@ -1050,7 +1050,7 @@ and writing a file on a host is the one thing this service does not do. See
 
 The scripts take every value as an argument, so the seven settings live in the
 inventory on `cluster_machines`, under the conf file's own keys with a
-`backup_` prefix, and a run passes them on the command line.
+`backup_restore_` prefix, and a run passes them on the command line.
 
 `/etc/backup-restore.conf` is read here and written by the role. This node's
 own copy is read through the read only adapter, over the `/etc` the quadlet

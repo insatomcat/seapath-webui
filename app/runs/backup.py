@@ -94,7 +94,7 @@ class BackupTarget:
     """Everything the scripts are told, in the words the conf file uses.
 
     The names are `/etc/backup-restore.conf`'s own, prefixed in the inventory
-    with `backup_`, so the two descriptions of one site's backup can be read
+    with `backup_restore_`, so the two descriptions of one site's backup can be read
     side by side. `app/services/backup.py` is what refuses a value before it
     gets here: a `local_dir` without its trailing slash makes `backup_full.sh`
     remove `/var/lib/seapath-backup*` rather than the contents of a directory,

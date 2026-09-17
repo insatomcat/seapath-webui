@@ -51,8 +51,8 @@ def _service(request: Request) -> BackupService:
 class BackupSettings(BaseModel):
     """Where a site's backups go, in the terms the scripts take.
 
-    The keys are the conf file's own, with or without the `backup_` prefix the
-    inventory writes them under, so a caller can send either.
+    The keys are the conf file's own, with or without the `backup_restore_`
+    prefix the inventory writes them under, so a caller can send either.
     """
 
     remote_serv: str = Field(default="", description="`[user@]host`")

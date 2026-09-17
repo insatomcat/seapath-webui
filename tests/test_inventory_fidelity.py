@@ -226,15 +226,15 @@ all:
       hosts:
         node1:
       vars:
-        backup_exclude_vm: guest9
+        backup_restore_exclude_vm: guest9
         isolcpus: 4-23
 """
 
     edited = set_variables(
-        document, Scope("group", "cluster_machines"), {"backup_exclude_vm": ""}
+        document, Scope("group", "cluster_machines"), {"backup_restore_exclude_vm": ""}
     )
 
-    assert "backup_exclude_vm" not in resolve(edited)["node1"]
+    assert "backup_restore_exclude_vm" not in resolve(edited)["node1"]
     assert resolve(edited)["node1"]["isolcpus"] == "4-23"
 
 
@@ -248,7 +248,7 @@ all:
 """
 
     edited = set_variables(
-        document, Scope("group", "cluster_machines"), {"backup_exclude_vm": ""}
+        document, Scope("group", "cluster_machines"), {"backup_restore_exclude_vm": ""}
     )
 
     # An empty `vars:` block to say a variable is absent would be a change

@@ -3979,9 +3979,9 @@ carries the whole of what was asked for on one command line, which is what a
 run record is for.
 
 The seven values therefore live in the inventory, on `cluster_machines`, under
-the conf file's own keys with a `backup_` prefix: `backup_local_dir`,
-`backup_remote_serv`, `backup_remote_dir`, `backup_local_tmp_dir`,
-`backup_remote_shell`, `backup_include_vm`, `backup_exclude_vm`.
+the conf file's own keys behind the role's own name: `backup_restore_local_dir`,
+`backup_restore_remote_serv`, `backup_restore_remote_dir`, `backup_restore_local_tmp_dir`,
+`backup_restore_remote_shell`, `backup_restore_include_vm`, `backup_restore_exclude_vm`.
 
 ### The conf file is read here and written by the role
 

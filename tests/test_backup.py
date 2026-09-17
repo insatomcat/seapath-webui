@@ -86,13 +86,13 @@ all:
         cluster_machines:
 """
 
-CONFIGURED = """        backup_remote_serv: backup@backup.example.org
-        backup_remote_dir: /srv/seapath-backups/
-        backup_local_dir: /var/lib/seapath-backup/
-        backup_local_tmp_dir: /var/lib/seapath-restore/
-        backup_remote_shell: ssh
-        backup_include_vm: .*
-        backup_exclude_vm: ''
+CONFIGURED = """        backup_restore_remote_serv: backup@backup.example.org
+        backup_restore_remote_dir: /srv/seapath-backups/
+        backup_restore_local_dir: /var/lib/seapath-backup/
+        backup_restore_local_tmp_dir: /var/lib/seapath-restore/
+        backup_restore_remote_shell: ssh
+        backup_restore_include_vm: .*
+        backup_restore_exclude_vm: ''
 """
 
 # One standalone machine, which is what the backup tool cannot work on: there
@@ -261,7 +261,9 @@ def test_the_scripts_defaults_still_reach_the_command_line(
     _import(
         signed_in,
         CLUSTER.format(
-            settings=CONFIGURED.replace("        backup_remote_shell: ssh\n", "")
+            settings=CONFIGURED.replace(
+                "        backup_restore_remote_shell: ssh\n", ""
+            )
         ),
     )
 
@@ -298,8 +300,8 @@ def test_the_inventory_wins_and_a_difference_is_named(signed_in: TestClient) -> 
         signed_in,
         CLUSTER.format(
             settings=CONFIGURED.replace(
-                "backup_remote_dir: /srv/seapath-backups/",
-                "backup_remote_dir: /srv/elsewhere/",
+                "backup_restore_remote_dir: /srv/seapath-backups/",
+                "backup_restore_remote_dir: /srv/elsewhere/",
             )
         ),
     )
@@ -431,7 +433,7 @@ def test_the_settings_are_read_as_the_cluster_members_resolve_them(
     # And the variable name each one is written under, which is the conf file's
     # own key with the prefix the inventory needs.
     names = {setting["key"]: setting["name"] for setting in payload["settings"]}
-    assert names["remote_serv"] == "backup_remote_serv"
+    assert names["remote_serv"] == "backup_restore_remote_serv"
 
 
 def test_a_value_written_twice_is_reported_and_no_act_is_offered(
@@ -446,7 +448,7 @@ def test_a_value_written_twice_is_reported_and_no_act_is_offered(
     """
     document = CLUSTER.format(settings=CONFIGURED).replace(
         "    elabo1:\n      ansible_host: 192.168.200.126",
-        "    elabo1:\n      backup_local_dir: /srv/other/\n"
+        "    elabo1:\n      backup_restore_local_dir: /srv/other/\n"
         "      ansible_host: 192.168.200.126",
     )
     _import(signed_in, document)
@@ -512,7 +514,7 @@ def test_the_filters_are_applied_to_guest_names_the_way_the_scripts_apply_them(
         signed_in,
         CLUSTER.format(
             settings=CONFIGURED.replace(
-                "backup_exclude_vm: ''", "backup_exclude_vm: guest[34]"
+                "backup_restore_exclude_vm: ''", "backup_restore_exclude_vm: guest[34]"
             )
         ),
     )
@@ -549,8 +551,8 @@ def test_the_settings_are_written_on_the_cluster_group_as_one_commit(
     assert response.status_code == 200, response.text
     assert response.json()["commit"]
     document = signed_in.get("/api/v1/inventory/raw").text
-    assert "backup_remote_serv: backup@backup.example.org" in document
-    assert "backup_remote_shell: ssh -p 2222" in document
+    assert "backup_restore_remote_serv: backup@backup.example.org" in document
+    assert "backup_restore_remote_shell: ssh -p 2222" in document
     assert _backup(signed_in)["configured"] is True
 
 
