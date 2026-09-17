@@ -217,6 +217,76 @@ def test_the_form_is_offered_the_values_this_machine_already_has(
     assert "on this machine does" in payload["note"]
 
 
+def test_a_default_this_service_invents_never_hides_the_machine_s_value(
+    signed_in: TestClient, reader
+) -> None:
+    """The scripts' own defaults belong to a command line, not to the form.
+
+    `remote_shell` used to be read off the target a run is built from, which
+    carries `ssh` wherever the inventory is silent. That invented value won
+    over the machine's own, so a site running `ssh -p 22` was shown `ssh`, and
+    committing the form as shown would have written `ssh` into the inventory
+    and dropped the port from every machine at the next convergence.
+    """
+    from app.hosts.models import BackupConf
+
+    reader.conf = BackupConf(
+        found=True,
+        values={"remote_shell": "ssh -p 22", "include_vm": "vm-.*"},
+    )
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    held = {setting["key"]: setting for setting in _backup(signed_in)["settings"]}
+
+    # Empty, because the inventory says nothing. That emptiness is what lets
+    # the form fall back to the machine.
+    assert held["remote_shell"]["value"] == ""
+    assert held["remote_shell"]["on_machine"] == "ssh -p 22"
+    assert held["include_vm"]["value"] == ""
+    assert held["include_vm"]["on_machine"] == "vm-.*"
+    # And the default is still offered, in the placeholder, where it says
+    # what happens to an empty box rather than filling it in.
+    assert held["remote_shell"]["placeholder"] == "ssh"
+
+
+def test_the_scripts_defaults_still_reach_the_command_line(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    """Keeping them out of the form does not take them out of a run.
+
+    An inventory that names the six that matter and leaves the shell alone
+    launches with `ssh`, which is what the role writes into the conf file and
+    what `backup-restore.sh` would have used.
+    """
+    _import(
+        signed_in,
+        CLUSTER.format(
+            settings=CONFIGURED.replace("        backup_remote_shell: ssh\n", "")
+        ),
+    )
+
+    run_id = signed_in.post("/api/v1/backup/full").json()["run_id"]
+
+    assert _argv(_played(settings, run_id))[2] == "ssh"
+
+
+def test_a_silent_inventory_is_not_reported_as_a_disagreement(
+    signed_in: TestClient,
+) -> None:
+    """A variable the inventory says nothing about has not diverged from anything.
+
+    Listing all seven as differences on a node whose inventory has never
+    mentioned backups buried the one case that matters, and the note at the top
+    of the page already offers to adopt the file's values.
+    """
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    payload = _backup(signed_in)
+
+    assert payload["conf_found"] is True
+    assert not any("differs from the inventory" in w for w in payload["warnings"])
+
+
 def test_the_inventory_wins_and_a_difference_is_named(signed_in: TestClient) -> None:
     """Neither is silently preferred.
 

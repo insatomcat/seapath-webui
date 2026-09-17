@@ -366,7 +366,9 @@ class BackupService:
             return view
         if not view.configured:
             view.note = _FROM_THE_FILE if view.conf_only else _NOT_CONFIGURED
-        view.warnings = self._warnings(target, sources) + self._divergence(target, conf)
+        view.warnings = self._warnings(target, sources) + self._divergence(
+            self._declared(document)[0], conf
+        )
         return view
 
     def _conf(self) -> BackupConf:
@@ -382,7 +384,7 @@ class BackupService:
             logger.warning("The backup configuration could not be read: %s", error)
             return BackupConf()
 
-    def _divergence(self, target: BackupTarget, conf: BackupConf) -> list[str]:
+    def _divergence(self, held: dict[str, str], conf: BackupConf) -> list[str]:
         """Where this node's file and the inventory say different things.
 
         Worth a sentence rather than a silent preference for one of them. The
@@ -390,14 +392,25 @@ class BackupService:
         driven with until now; the inventory is what a run here passes on the
         command line and what the role will render the file from at the next
         convergence. An operator who can see both can decide which is right.
+
+        Against what the inventory says rather than against what a run would
+        send, for the reason `_settings` gives: a variable the file does not
+        carry is silent, and reporting it as `ssh` because that is the default
+        a run falls back to tells an operator their inventory holds a value
+        nobody wrote.
         """
         if not conf.found:
             return []
+        # Only where the inventory carries a value of its own. A variable it
+        # says nothing about is not a disagreement, it is a setting the site
+        # has not moved into the inventory yet, and the note at the top of the
+        # page already offers to do exactly that. Listing all seven as
+        # differences on a fresh node buried the one that matters.
         differing = [
-            f"{label} ({conf.values.get(key)} on this machine, "
-            f"{getattr(target, key) or 'unset'} in the inventory)"
+            f"{label} ({conf.values[key]} on this machine, "
+            f"{held[key]} in the inventory)"
             for key, label, *_ in _SETTINGS
-            if conf.values.get(key) and conf.values[key] != getattr(target, key, "")
+            if conf.values.get(key) and held.get(key) and conf.values[key] != held[key]
         ]
         if not differing:
             return []
@@ -631,21 +644,24 @@ class BackupService:
 
     # Internals
 
-    def _read(self, document: str) -> tuple[BackupTarget, dict[str, str]]:
-        """The seven values as the cluster members resolve them.
+    def _declared(self, document: str) -> tuple[dict[str, str], dict[str, str]]:
+        """What the inventory says, verbatim, and where each value comes from.
+
+        Empty for a variable the file does not carry, and that emptiness has to
+        survive: it is what tells a setting the site decided on from one it has
+        never mentioned. `_read` is where the scripts' own defaults are applied,
+        because those belong to a command line rather than to the file.
 
         Read off the resolved variables of a member rather than off the group's
         own mapping, because a site may have written one of them on a machine
-        and Ansible would hand that machine the other value. What the page shows
-        is what a run would use, and `sources` says where each came from so a
-        value written in two places is visible rather than silently one of them.
+        and Ansible would hand that machine the other value.
         """
         if not document.strip():
-            return BackupTarget(), {}
+            return {}, {}
         table = groups(document)
         hosts = sorted(members(table, GROUP))
         if not hosts:
-            return BackupTarget(), {}
+            return {}, {}
         resolved = resolve(document)
         values: dict[str, str] = {}
         sources: dict[str, str] = {}
@@ -661,6 +677,20 @@ class BackupService:
                 if len(found) == 1
                 else "different values on " + ", ".join(hosts)
             )
+        return values, sources
+
+    def _read(self, document: str) -> tuple[BackupTarget, dict[str, str]]:
+        """What a run would pass the scripts on its command line.
+
+        The inventory's values, with the two defaults the scripts themselves
+        have: `backup-restore.sh` reads `include_vm` as `.*` when it is unset,
+        and the role writes `remote_shell="ssh"`. They are applied here and
+        nowhere else, because a form that showed them would be showing an
+        operator a value nobody wrote, over the one their machine actually has.
+        """
+        values, sources = self._declared(document)
+        if not values:
+            return BackupTarget(), {}
         return (
             BackupTarget(
                 local_dir=values["local_dir"],
@@ -679,14 +709,20 @@ class BackupService:
     ) -> list[BackupSetting]:
         """The seven fields the form is drawn from.
 
-        A file that says nothing still fills two of them, with `ssh` and `.*`:
-        those are the defaults the role writes into the conf file and the ones
-        the scripts behave as if they had, so a form that left them blank would
-        be asking an operator to invent a value that already exists.
+        `value` is what the inventory says and nothing else. A field the file
+        does not carry is empty, which is what lets the form fall back to
+        `on_machine` and what puts the scripts' own default in the placeholder
+        instead of in the box.
+
+        This used to carry the defaulted values `_read` builds for a command
+        line, and the cost of that was not cosmetic. A site whose machine said
+        `remote_shell="ssh -p 22"` was shown `ssh`, because the invented
+        default won over the machine's real value, and committing the form as
+        shown would have written `ssh` into the inventory and dropped the port
+        from every machine at the next convergence.
         """
-        target, sources = self._read(document)
+        held, sources = self._declared(document)
         conf = conf if conf is not None else self._conf()
-        held = {key: getattr(target, key, "") for key, *_ in _SETTINGS}
         return [
             BackupSetting(
                 name=_variable(key),
