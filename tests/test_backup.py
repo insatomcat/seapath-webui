@@ -511,6 +511,58 @@ def test_a_staging_directory_without_its_trailing_slash_is_refused(
     assert "rm -rf" in response.json()["error"]["message"]
 
 
+def test_the_remote_directory_is_refused_for_its_own_reason(
+    signed_in: TestClient,
+) -> None:
+    """Nothing in the scripts ever deletes anything on the backup server.
+
+    The trailing slash is required there too, because `restore_vm.sh` writes
+    the backup date straight after the value, so a refusal that borrowed the
+    `rm -rf` sentence from the staging directories would be telling an operator
+    something false about their backup server.
+    """
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    response = signed_in.put(
+        "/api/v1/backup/settings",
+        json={
+            "remote_serv": "backup@backup.example.org",
+            "remote_dir": "/data/backups",
+            "local_dir": "/var/lib/seapath-backup/",
+            "local_tmp_dir": "/var/lib/seapath-restore/",
+            "remote_shell": "ssh",
+        },
+    )
+
+    assert response.status_code == 400
+    message = response.json()["error"]["message"]
+    assert "restore_vm.sh" in message
+    assert "/data/backups202603110733/" in message
+    assert "rm -rf" not in message
+
+
+def test_a_directory_on_the_server_may_sit_at_the_root(signed_in: TestClient) -> None:
+    """The two segment rule guards the `rm -rf`, which the server never sees.
+
+    `/backups/` is a perfectly ordinary place to keep them, and refusing it
+    would be this service inventing a rule out of a sentence it copied.
+    """
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    response = signed_in.put(
+        "/api/v1/backup/settings",
+        json={
+            "remote_serv": "backup@backup.example.org",
+            "remote_dir": "/backups/",
+            "local_dir": "/var/lib/seapath-backup/",
+            "local_tmp_dir": "/var/lib/seapath-restore/",
+            "remote_shell": "ssh",
+        },
+    )
+
+    assert response.status_code == 200, response.text
+
+
 def test_a_staging_directory_at_the_root_of_the_filesystem_is_refused(
     signed_in: TestClient,
 ) -> None:

@@ -239,7 +239,8 @@ _SETTINGS: tuple[tuple[str, str, bool, str, str], ...] = (
         True,
         "/srv/seapath-backups/",
         "Where the full backup directories live on that server. It ends with a "
-        "slash: the scripts glue the date onto it.",
+        "slash, because a restore writes the backup date straight after it. "
+        "Nothing here ever deletes anything on that server.",
     ),
     (
         "local_dir",
@@ -930,23 +931,40 @@ def _check(key: str, label: str, value: str, required: bool) -> None:
             )
         return
 
-    if key in ("local_dir", "local_tmp_dir", "remote_dir"):
+    # The two on the machines and the one on the backup server share a shape
+    # and are refused for different reasons, which the sentence has to say. The
+    # `rm -rf` is a property of the staging directories alone: nothing in the
+    # scripts ever deletes anything on the backup server.
+    if key in ("local_dir", "local_tmp_dir"):
         if not _PATH.match(value):
             raise InvalidBackupSetting(
                 f"{label} has to be an absolute path of at least two segments, "
                 "ending with a slash, holding letters, digits, dots, dashes "
-                "and underscores. The slash is not a formality: the scripts "
-                "build a path by gluing the date onto this value, and "
-                "`backup_full.sh` empties the staging directory with "
-                f"`rm -rf {value}*`, which without the slash removes every "
-                "sibling whose name starts the same way."
+                "and underscores. The trailing slash is what makes the "
+                f"emptying safe: the scripts run `rm -rf {value.rstrip('/')}*` "
+                "against this directory before they use it, and without the "
+                "slash that reaches every sibling whose name starts the same "
+                "way."
             )
         if len(Path(value).parts) < 3:
             raise InvalidBackupSetting(
                 f"{label} is too close to the root of the filesystem. "
-                f"`rm -rf {value}*` runs against it at the start of every "
-                "backup, so it has to be a directory of its own, such as "
+                f"`rm -rf {value}*` runs against it before every backup, so it "
+                "has to be a directory of its own, such as "
                 "/var/lib/seapath-backup/."
+            )
+        return
+
+    if key == "remote_dir":
+        if not _PATH.match(value):
+            raise InvalidBackupSetting(
+                f"{label} has to be an absolute path ending with a slash, "
+                "holding letters, digits, dots, dashes and underscores. The "
+                "trailing slash is what makes a restore find its files: "
+                "`restore_vm.sh` builds the path it downloads from by writing "
+                f"the backup date straight after this value, so `{value}` "
+                f"without it becomes `{value}202603110733/`. Nothing is ever "
+                "deleted on the backup server."
             )
         return
 
