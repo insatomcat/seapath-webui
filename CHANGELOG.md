@@ -19,6 +19,13 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.130 - 2026-09-18
+
+- fix: run the backups and read the server on one named member
+- feat: show whether the staging directories exist and their room
+- feat: give the staging directories a local volume of their own
+- feat: set up the members' connection to the backup server
+
 ## 0.3.129 - 2026-09-17
 
 - fix: count the snapshots a guest reads in the backup estimate
