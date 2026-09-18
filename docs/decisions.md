@@ -4487,6 +4487,19 @@ upgrade. The playbook now freezes and thaws the file system holding
 `/boot/grub` after `update-grub`, which writes the journal out to its place.
 The page's "installed, not booted" is what showed it.
 
+Why the root was never unmounted cleanly was found next, with a hook
+in `/usr/lib/systemd/system-shutdown` recording the state at the end of a
+plain reboot: `/` still read-write, no process left, and `systemd-shutdown`
+declaring every file system detached without trying one. It took the
+hypervisor for a podman container. The `ha_cluster_exporter` quadlet of
+`deploy_prometheus_exporters` mounted the host's `/var/run` on its own, and
+podman creates the mount point of the container's `/run/.containerenv`
+there, which is the host's `/run`; `systemd-detect-virt -c` answered
+`podman` on the machine itself. The role no longer mounts it, since the
+image's Pacemaker tools `nsenter` into PID 1 and never used it, and it
+removes the empty file left behind. The freeze after `update-grub` stays:
+it costs nothing and does not depend on how the machine goes down.
+
 A collection from before that change is still what some images ship. The page
 reads the installed playbook, and where no play carries `serial: 1` it sends
 one machine per run.
