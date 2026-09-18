@@ -24,6 +24,11 @@
   // and what a full backup would write into it.
   let staged = null;
   let measured = null;
+  // The mounted volume the staging directories could move to.
+  let target = null;
+  // The local volume window: the machine it reads, and what it read there.
+  let disks = null;
+  let nameEdited = false;
 
   function element(id) {
     return document.getElementById(id);
@@ -229,9 +234,37 @@
     });
 
     const missing = directories.some((item) => !item.exists);
-    element("staging-acts").hidden = !canWrite || !missing;
+    element("staging-create").hidden = !missing;
     element("staging-help").hidden = !canWrite || !missing;
+
+    // A volume the inventory declares on that machine, mounted, and not yet
+    // holding the staging directories, is where they were meant to go. One
+    // that is not mounted is not offered: the directories would be created on
+    // the file system below it, and the role would then refuse to mount over
+    // a directory that is not empty.
+    const backup = directories.find((item) => item.purpose === "backup");
+    target = (reading.volumes || []).find(
+      (volume) =>
+        volume.mounted &&
+        backup &&
+        !backup.path.startsWith(volume.mountpoint.replace(/\/$/, "") + "/")
+    );
+    const move = element("staging-move");
+    move.hidden = !target;
+    move.textContent = target ? "Stage them on " + target.mountpoint : "";
+    element("staging-acts").hidden = !canWrite || !reading.host;
     renderRoom();
+  }
+
+  // The settings form, opened with the two staging directories under the
+  // volume. Saving it is the ordinary commit, and the card then offers to
+  // create them there.
+  function stageOn(volume) {
+    const root = volume.mountpoint.replace(/\/$/, "");
+    showSettings(true, {
+      local_dir: root + "/seapath-backup/",
+      local_tmp_dir: root + "/seapath-restore/",
+    });
   }
 
   function renderRoom() {
@@ -300,6 +333,214 @@
         RunWatch.open(started.run_id, readStaging);
       },
     });
+  }
+
+  // A local volume
+  //
+  // One entry in the machine's `configure_local_storage_volumes`, then a run of
+  // `seapath_setup_local_storage` narrowed to that machine. The window reads
+  // the disks first, offers only those the role would accept, and says in its
+  // last sentence which disk is about to be partitioned.
+
+  async function openVolume() {
+    element("volume").hidden = false;
+    element("volume-error").hidden = true;
+    await readVolume(staged && staged.host);
+  }
+
+  async function readVolume(host) {
+    element("volume-loading").hidden = false;
+    element("volume-form").hidden = true;
+    element("volume-go").disabled = true;
+    try {
+      const path = "/storage/local" + (host ? "?host=" + encodeURIComponent(host) : "");
+      renderVolume(await API.get(path));
+    } catch (failure) {
+      renderVolume({ note: failure.message, disks: [], hosts: [] });
+    } finally {
+      element("volume-loading").hidden = true;
+    }
+  }
+
+  function renderVolume(reading) {
+    disks = reading;
+    const hosts = clear(element("volume-host"));
+    (reading.hosts || []).forEach((name) => {
+      const option = document.createElement("option");
+      option.value = name;
+      option.textContent =
+        name + (view && name === view.runs_on ? ", where the backups run" : "");
+      hosts.append(option);
+    });
+    hosts.value = reading.host || "";
+
+    element("volume-note").textContent = reading.note || "";
+    element("volume-note").hidden = !reading.note;
+
+    const declared = reading.declared || [];
+    element("volume-declared-block").hidden = declared.length === 0;
+    const list = clear(element("volume-declared"));
+    declared.forEach((volume) => {
+      const item = document.createElement("li");
+      item.textContent =
+        volume.mountpoint + " (" + volume.name + ", " +
+        (volume.lvm_vg ? "LVM " + volume.lvm_vg + "/" + volume.lvm_lv : "direct") +
+        "), " +
+        (volume.mounted ? "mounted" : "not mounted yet");
+      list.append(item);
+    });
+
+    const body = clear(element("volume-disks"));
+    const usable = (reading.disks || []).filter((disk) => disk.usable);
+    // The system disk first: on a machine from the ISO it is where the room
+    // is, and it is the case this window was written for.
+    const preferred =
+      usable.find((disk) => disk.system) || usable[0] || null;
+    (reading.disks || []).forEach((disk) => {
+      const pick = document.createElement("td");
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "volume-disk";
+      radio.value = disk.path;
+      radio.disabled = !disk.usable;
+      radio.checked = disk === preferred;
+      radio.setAttribute("aria-label", disk.path);
+      radio.addEventListener("change", summarise);
+      pick.append(radio);
+      const notes = [];
+      if (disk.system) {
+        notes.push("holds the running system");
+      }
+      if (disk.reason) {
+        notes.push(disk.reason);
+      }
+      row(body, [
+        pick,
+        cell(disk.path + (disk.model ? " (" + disk.model + ")" : "")),
+        cell(size(disk.size_bytes)),
+        cell(disk.usable ? size(disk.free_bytes) : "none usable"),
+        cell(notes.join(". ")),
+      ]);
+    });
+
+    const groups = clear(element("volume-vg"));
+    const fresh = document.createElement("option");
+    fresh.value = "";
+    fresh.textContent = "A new group";
+    groups.append(fresh);
+    (reading.volume_groups || []).forEach((group) => {
+      const option = document.createElement("option");
+      option.value = group.name;
+      option.textContent =
+        group.name + ", " + size(group.free_bytes) + " free of " +
+        size(group.size_bytes);
+      groups.append(option);
+    });
+
+    // A mount point nothing on this machine declares yet: /data, then /data2.
+    const taken = new Set(declared.map((volume) => volume.mountpoint));
+    const mountpoint = element("volume-mountpoint");
+    let count = 1;
+    while (taken.has(mountpoint.value.trim())) {
+      count += 1;
+      mountpoint.value = "/data" + count;
+    }
+
+    element("volume-form").hidden = !preferred;
+    summarise();
+  }
+
+  function choice(name) {
+    const checked = document.querySelector('input[name="' + name + '"]:checked');
+    return checked ? checked.value : "";
+  }
+
+  // What the window would write, or null when it cannot write anything yet.
+  function volumeEntry() {
+    const disk = choice("volume-disk");
+    if (!disk) {
+      return null;
+    }
+    const lvm = choice("volume-layout") === "lvm";
+    const group = element("volume-vg").value;
+    const gib = parseInt(element("volume-gib").value, 10);
+    return {
+      name: element("volume-name").value.trim(),
+      disk,
+      mountpoint: element("volume-mountpoint").value.trim(),
+      size: choice("volume-size") === "some" && gib > 0 ? gib + "G" : "100%",
+      fstype: element("volume-fstype").value,
+      lvm_vg: lvm ? group || element("volume-vg-name").value.trim() : "",
+      lvm_lv: lvm ? element("volume-lv").value.trim() : "",
+    };
+  }
+
+  function summarise() {
+    const lvm = choice("volume-layout") === "lvm";
+    element("volume-lvm").hidden = !lvm;
+    const group = element("volume-vg").value;
+    element("volume-vg-name").hidden = !lvm || Boolean(group);
+    element("volume-vg-name-label").hidden = !lvm || Boolean(group);
+    element("volume-vg-help").textContent = group
+      ? "The new partition joins " + group + " as another PV, and its other " +
+        "PVs stay where they are. A logical volume of all the free space " +
+        "then takes what the group already had free as well."
+      : "A group of its own, holding the new partition alone.";
+    if (!nameEdited) {
+      const last = element("volume-mountpoint").value.trim().split("/").pop();
+      element("volume-name").value = last || "data";
+    }
+
+    const entry = volumeEntry();
+    const summary = element("volume-summary");
+    element("volume-go").disabled = !entry;
+    if (!entry) {
+      summary.hidden = true;
+      return;
+    }
+    const disk = (disks.disks || []).find((item) => item.path === entry.disk);
+    const free = size(disk ? disk.free_bytes : 0) + " free after its last partition";
+    summary.textContent =
+      "Commits this volume on " + disks.host + ", then partitions " +
+      entry.disk +
+      (disk && disk.system ? ", the disk the system runs from," : "") +
+      " with " +
+      (entry.size === "100%" ? "all of the " + free : entry.size + "iB of the " + free) +
+      ", " +
+      (entry.lvm_vg
+        ? "makes it a PV of " + entry.lvm_vg + " with a logical volume " + entry.lvm_lv + ", "
+        : "") +
+      "formats it " + entry.fstype + " and mounts it on " + entry.mountpoint +
+      " by UUID. The partitions already there are neither moved nor resized.";
+    summary.hidden = false;
+  }
+
+  async function createVolume() {
+    const go = element("volume-go");
+    const error = element("volume-error");
+    const entry = volumeEntry();
+    error.hidden = true;
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    try {
+      await API.post(
+        "/storage/local/" + encodeURIComponent(disks.host) + "/volumes",
+        entry
+      );
+      const started = await API.post("/runs", {
+        playbook: "seapath_setup_local_storage",
+        scope: { hosts: [disks.host] },
+      });
+      element("volume").hidden = true;
+      RunWatch.open(started.run_id, () => refresh(true));
+      await refresh(true);
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      go.disabled = false;
+    } finally {
+      go.removeAttribute("aria-busy");
+    }
   }
 
   // What the server holds
@@ -493,7 +734,7 @@
 
   // Where they go
 
-  function showSettings(open) {
+  function showSettings(open, overrides) {
     element("settings").hidden = !open;
     element("settings-error").hidden = true;
     element("settings-done").hidden = true;
@@ -527,6 +768,9 @@
         said.textContent =
           " " + view.conf_path + " on this machine says " + setting.on_machine + ".";
         help.append(said);
+      }
+      if (overrides && overrides[setting.key]) {
+        input.value = overrides[setting.key];
       }
       fields.append(label, input, help);
     });
@@ -627,6 +871,29 @@
   element("estimate-go").addEventListener("click", measure);
   element("staging-read").addEventListener("click", readStaging);
   element("staging-create").addEventListener("click", confirmCreateStaging);
+  element("staging-move").addEventListener("click", () => stageOn(target));
+  element("staging-volume").addEventListener("click", openVolume);
+  element("volume-cancel").addEventListener("click", () => {
+    element("volume").hidden = true;
+  });
+  element("volume-host").addEventListener("change", (event) =>
+    readVolume(event.target.value)
+  );
+  element("volume-go").addEventListener("click", createVolume);
+  element("volume-name").addEventListener("input", () => {
+    nameEdited = true;
+  });
+  [
+    "volume-vg",
+    "volume-vg-name",
+    "volume-lv",
+    "volume-gib",
+    "volume-fstype",
+    "volume-mountpoint",
+  ].forEach((id) => element(id).addEventListener("input", summarise));
+  document
+    .querySelectorAll('input[name="volume-layout"], input[name="volume-size"]')
+    .forEach((input) => input.addEventListener("change", summarise));
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });

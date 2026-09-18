@@ -4231,3 +4231,63 @@ the file nests its groups, and this service cannot reproduce it faithfully.
 
 The page says which machine it is. The trust and the room a backup needs are
 that machine's, and an operator preparing them has to know where to look.
+
+## D56 - Settled: a local volume is declared in the inventory and partitioned by a role
+
+A full backup writes a qcow2 of every selected guest into its staging directory
+before it sends anything, and the SEAPATH ISO lays out a 50 GiB system
+partition whatever the size of the disk: a root file system of a few tens of
+gigabytes, with most of a 1 TB disk left unallocated beside it. Every site that
+took backups therefore partitioned, formatted and mounted something by hand,
+on each machine, and nothing in the inventory said so.
+
+Partitioning a disk is configuring a machine, so [D1](#d1) decides the shape
+before anything else does: a variable in the inventory and a playbook. The
+variable is `configure_local_storage_volumes`, one list per machine, and the
+role is `configure_local_storage`, written upstream as a role of its own
+rather than as more variables of `backup_restore`. Where a machine's room comes
+from is not a question about backups: a standalone machine wants the same thing
+for its VM images, and the backup role only needs to know the directory.
+
+### What the role does, and what it refuses
+
+It adds a GPT partition after the last partition of the disk it is given,
+either formatted directly or made a PV of a volume group (a new one, or an
+existing one such as the ISO's `vg1`, which keeps its other PVs), and mounts
+the result by UUID. The partition is recognised on later runs by its GPT name,
+so a second run changes nothing.
+
+It only ever adds. Nothing that exists is moved, resized or reformatted, and
+the refusals come before the first write: a disk listed in `ceph_osd_disks`,
+anything but a whole disk, a partition table other than GPT (`parted`
+relabelling a disk is how it erases one), a gap between two partitions, a size
+the free space cannot hold, a mount point that is not empty or holds another
+file system. Those are checked on the machine, against the disk as it is when
+the run starts, which is the only place they can be checked for certain.
+
+### What this service does around it
+
+**Reading the disks is a read**, over the one SSH connection [D54](#d54) gave
+the backup listing, as root because `parted` and `vgs` need it: `lsblk` for the
+tree that says which disk holds the running system, `parted -m print free` for
+the free space after the last partition, `vgs` for the groups a partition can
+join, and the by-path links for the stable names the inventory uses. The page
+offers only the disks the role would accept and says why for the others, so a
+refusal is a sentence on the page rather than a failed run.
+
+**Declaring a volume is a commit** on the machine and never on a group. A disk
+path means one machine: written on a group, it would partition whatever
+answers to that name on every member.
+
+**Creating it is a run** of `seapath_setup_local_storage`, narrowed to that
+machine, through the ordinary path, with the lock, the record and a
+confirmation that names the disk and says when it is the one the system runs
+from.
+
+The Backup page chains the three: its staging card offers a volume of their own
+to directories sitting on the root file system, and once one is mounted it
+offers to move the staging directories under it, which is the ordinary
+settings commit followed by a run of `seapath_setup_backup_restore`. A volume
+that is declared but not mounted is not offered, because the directories would
+be created on the file system below it and the role would then refuse to mount
+over a directory that is not empty.

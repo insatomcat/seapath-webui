@@ -1109,6 +1109,20 @@ carved out of the one run at a time rule: a backup reads every image of the
 pool and pushes the result off the cluster, which is exactly the kind of act
 that should not overlap a convergence. Cancel on the run is the way out.
 
+### Local volumes
+
+The room a machine has beyond what its installer laid out. The SEAPATH ISO
+writes a 50 GiB system partition whatever the size of the disk, so the staging
+directory of a backup usually needs a volume of its own. Declaring one is a
+commit to the machine's `configure_local_storage_volumes`; creating it is a run
+of `seapath_setup_local_storage` narrowed to that machine, launched with
+`POST /runs`. Nothing here writes to a disk. See [D56](decisions.md#d56).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/storage/local?host=` | One machine's disks, read now over one SSH connection as root: each disk with its stable by-path name, its size, its partition table, the free space after its last partition, whether it holds the running system or was given to Ceph, and whether a volume can go on it with the reason when it cannot; the volume groups with their free space; and `declared`, the volumes the inventory already holds for that machine, each with whether it is mounted. This node by default |
+| POST | `/storage/local/{host}/volumes` | Append one volume (`name`, `disk`, `mountpoint`, `size`, `fstype`, `lvm_vg`, `lvm_lv`) to that machine's `configure_local_storage_volumes`, as one commit, on the host and never on a group. Checked the way the role checks it, with the sentence that says why. `admin` |
+
 ## Internal
 
 Under `/api/v1/internal`, mutual TLS with a certificate issued by the cluster

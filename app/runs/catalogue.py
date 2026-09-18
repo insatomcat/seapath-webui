@@ -581,6 +581,35 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         ],
     ),
     PlaybookEntry(
+        id="seapath_setup_local_storage",
+        playbook=f"{COLLECTION}.seapath_setup_local_storage",
+        title="Create the local volumes",
+        targets=list(_MACHINE_TARGETS),
+        # `parted`, `lvg`, `lvol`, `filesystem` and `mount` all report in
+        # check mode. The commands in the role read the disk and run anyway.
+        preview=Preview.PARTIAL,
+        reboots=Reboots.NO,
+        disruption=(
+            "Partitions the disks the inventory names in "
+            "configure_local_storage_volumes, in the free space after their "
+            "last partition, then formats and mounts each new volume by UUID. "
+            "On a machine installed from the ISO that disk is the one the "
+            "system runs from: the new partition is added beside the running "
+            "ones, which are neither moved nor resized. Nothing that exists is "
+            "reformatted, no service restarts and no guest is touched."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
+        notes=(
+            "The role refuses, before writing anything, a disk given to Ceph, a "
+            "disk whose partition table it would have to rewrite, a size the "
+            "free space cannot hold and a mount point that is in use."
+        ),
+    ),
+    PlaybookEntry(
         id="seapath_setup_deploy_seapath_alloc",
         playbook=f"{COLLECTION}.seapath_setup_deploy_seapath_alloc",
         title="Apply the dynamic CPU pinning",

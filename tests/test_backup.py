@@ -1083,6 +1083,42 @@ def test_the_staging_directories_are_read_on_the_member_the_backups_run_on(
     ]
 
 
+def test_the_volumes_declared_on_that_member_are_asked_whether_mounted(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """Where the staging directories could move, and whether they can yet.
+
+    A directory moved under a volume that is not mounted would be created on
+    the file system below it, and the role would then refuse to mount over a
+    directory that is not empty.
+    """
+    document = CLUSTER.format(settings=CONFIGURED).replace(
+        """    elabo1:
+      ansible_host: 192.168.200.126
+""",
+        """    elabo1:
+      ansible_host: 192.168.200.126
+      configure_local_storage_volumes:
+        - name: data
+          disk: /dev/sda
+          mountpoint: /data
+        - name: later
+          disk: /dev/sda
+          mountpoint: /later
+""",
+    )
+    _import(signed_in, document)
+    remote_runner.answers = {"df -B1": STAGED + "mnt yes /data\nmnt no /later\n"}
+
+    reading = signed_in.get("/api/v1/backup/staging").json()
+
+    assert "/data /later" in remote_runner.requests[0].command
+    assert reading["volumes"] == [
+        {"mountpoint": "/data", "mounted": True},
+        {"mountpoint": "/later", "mounted": False},
+    ]
+
+
 def test_a_directory_the_machine_said_nothing_about_is_reported_missing() -> None:
     directories = parse_staging(
         "dir present /a/b/\n", [("/a/b/", "backup"), ("/c/d/", "restore")]

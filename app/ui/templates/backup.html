@@ -99,7 +99,11 @@ to be erased.
     </div>
     <p class="warning" id="staging-room" hidden></p>
     <div class="card-actions" id="staging-acts" hidden>
-      <button type="button" id="staging-create">Create them</button>
+      <button type="button" id="staging-create" hidden>Create them</button>
+      <button type="button" id="staging-move" class="secondary" hidden></button>
+      <button type="button" id="staging-volume" class="secondary">
+        Give them a volume of their own
+      </button>
     </div>
     <p class="help" id="staging-help" hidden>
       Creating them is a run of <code>seapath_setup_backup_restore</code>, the
@@ -234,6 +238,101 @@ to be erased.
     </div>
     <p class="error" id="settings-error" hidden></p>
     <p class="warning" id="settings-done" hidden></p>
+  </div>
+</div>
+
+{# A local volume, which is what a staging directory on a root file system of a
+   few tens of gigabytes needs. The page writes one entry in the machine's
+   `configure_local_storage_volumes` and runs `seapath_setup_local_storage` on
+   that machine alone: the role partitions, formats and mounts, and refuses
+   before writing anything a disk it would have to erase. #}
+<div class="modal" id="volume" data-dismiss="volume-cancel" hidden>
+  <div class="modal-body wide">
+    <h2>A local volume</h2>
+    <p class="lead">
+      A new partition in the free space after the last partition of a disk,
+      formatted directly or through LVM, and mounted by UUID. Written into the
+      machine's <code>configure_local_storage_volumes</code> as one commit, then
+      created by a run of <code>seapath_setup_local_storage</code> on that
+      machine alone. Nothing that exists is moved, resized or reformatted.
+    </p>
+    <label for="volume-host">Machine</label>
+    <select id="volume-host"></select>
+    <div class="loading" id="volume-loading" hidden>Reading the disks</div>
+    <p class="warning" id="volume-note" hidden></p>
+    <div id="volume-declared-block" hidden>
+      <label>Already declared on this machine</label>
+      <ul id="volume-declared"></ul>
+    </div>
+
+    <div id="volume-form" hidden>
+      <label>Disk</label>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Disk</th>
+              <th>Size</th>
+              <th>Free after its last partition</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="volume-disks"></tbody>
+        </table>
+      </div>
+
+      <label>Layout</label>
+      <label class="switch">
+        <input type="radio" name="volume-layout" value="direct" checked>
+        A file system directly on the partition
+      </label>
+      <label class="switch">
+        <input type="radio" name="volume-layout" value="lvm">
+        An LVM logical volume on it
+      </label>
+      <div id="volume-lvm" hidden>
+        <label for="volume-vg">Volume group</label>
+        <select id="volume-vg"></select>
+        <p class="help" id="volume-vg-help"></p>
+        <label for="volume-vg-name" id="volume-vg-name-label">New group name</label>
+        <input type="text" id="volume-vg-name" value="vgdata" autocomplete="off" spellcheck="false">
+        <label for="volume-lv">Logical volume name</label>
+        <input type="text" id="volume-lv" value="data" autocomplete="off" spellcheck="false">
+      </div>
+
+      <label>Size</label>
+      <label class="switch">
+        <input type="radio" name="volume-size" value="all" checked>
+        All of the free space
+      </label>
+      <label class="switch">
+        <input type="radio" name="volume-size" value="some">
+        <input type="number" id="volume-gib" min="1" step="1" value="100"> GiB
+      </label>
+
+      <label for="volume-fstype">File system</label>
+      <select id="volume-fstype">
+        <option value="ext4">ext4</option>
+        <option value="xfs">xfs, which needs xfsprogs on the machine</option>
+      </select>
+
+      <label for="volume-mountpoint">Mount point</label>
+      <input type="text" id="volume-mountpoint" value="/data" autocomplete="off" spellcheck="false">
+      <label for="volume-name">Name</label>
+      <input type="text" id="volume-name" value="data" autocomplete="off" spellcheck="false">
+      <p class="help">
+        The GPT name of the partition, which is how the role finds it again on
+        the next run. Derived from the mount point until it is edited.
+      </p>
+    </div>
+
+    <p class="warning" id="volume-summary" hidden></p>
+    <p class="error" id="volume-error" hidden></p>
+    <div class="card-actions">
+      <button type="button" id="volume-go" disabled>Declare and create it</button>
+      <button type="button" id="volume-cancel" class="secondary">Cancel</button>
+    </div>
   </div>
 </div>
 

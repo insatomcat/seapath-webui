@@ -372,18 +372,30 @@ _STAGING_SCRIPT = (
     "while read -r t z a; do "
     'printf \'df %s %s %s %s\\n\' "$d" "$t" "$z" "$a"; '
     "done; "
+    "done; "
+    "for m in {mountpoints}; do "
+    'if mountpoint -q "$m"; then s=yes; else s=no; fi; '
+    'printf \'mnt %s %s\\n\' "$s" "$m"; '
     "done"
 )
 
 
-def staging_shell_command(directories: list[str]) -> str:
+def staging_shell_command(
+    directories: list[str], mountpoints: list[str] | None = None
+) -> str:
     """The reading of the staging directories, as one command for a member.
 
     Run as root, like the listing: the role creates both directories readable
     by root only, and the parents of one may be too.
+
+    `mountpoints` are the local volumes the inventory declares on that member,
+    each asked whether it is mounted. A staging directory moved under one that
+    is not would be created on the file system below it, and the role would
+    then refuse to mount over a directory that is not empty.
     """
     script = _STAGING_SCRIPT.format(
-        directories=" ".join(shlex.quote(item) for item in directories)
+        directories=" ".join(shlex.quote(item) for item in directories),
+        mountpoints=" ".join(shlex.quote(item) for item in mountpoints or []),
     )
     return "sudo -n /bin/sh -c " + shlex.quote(script)
 

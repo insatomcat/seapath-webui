@@ -13,6 +13,7 @@ from app.api.v1 import (
     console,
     containers,
     inventory,
+    local_storage,
     node,
     realtime,
     runs,
@@ -28,6 +29,7 @@ router.include_router(backup.router)
 router.include_router(cluster.router)
 router.include_router(containers.router)
 router.include_router(storage.router)
+router.include_router(local_storage.router)
 router.include_router(console.router)
 router.include_router(collection.router)
 router.include_router(inventory.router)

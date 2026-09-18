@@ -65,6 +65,7 @@ from app.runs.store import RunStore
 from app.services.backup import BackupService
 from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
+from app.services.local_storage import LocalStorageService
 from app.services.metadata import MetadataService
 from app.services.node import NodeService
 from app.services.ping import FakePinger, IcmpPinger, Pinger
@@ -470,6 +471,9 @@ def create_app(
     # server. The acts are runs of the scripts the `backup_restore` role
     # installed, so this needs the run service and the collection the runs will
     # execute, resolved at each access like everywhere else.
+    remote = remote_runner or (
+        FakeRemoteRunner() if settings.use_fakes else SshRemoteRunner()
+    )
     app.state.backup_service = BackupService(
         inventory=app.state.inventory_service,
         runs=app.state.run_service,
@@ -484,8 +488,17 @@ def create_app(
         # that reaches it is root's own key there. One ssh, one command, its
         # output: the read only half of what the console already does, over the
         # same key and the same known_hosts. See D54.
-        remote=remote_runner
-        or (FakeRemoteRunner() if settings.use_fakes else SshRemoteRunner()),
+        remote=remote,
+        keys=app.state.run_service.paths,
+        ansible_user=settings.ansible_user,
+    )
+
+    # The local volumes of a machine: what its disks have room for, read over
+    # the same one SSH connection, and a new one declared in its host
+    # variables. The partitioning is a run of `configure_local_storage`.
+    app.state.local_storage_service = LocalStorageService(
+        inventory=app.state.inventory_service,
+        remote=remote,
         keys=app.state.run_service.paths,
         ansible_user=settings.ansible_user,
     )

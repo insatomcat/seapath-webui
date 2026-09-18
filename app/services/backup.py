@@ -113,6 +113,10 @@ DATE = re.compile(r"^[0-9]{12}$")
 # somewhere else.
 _PATH = re.compile(r"^(/[A-Za-z0-9._-]+)+/$")
 
+# A mount point the inventory declares, as `configure_local_storage` checks it.
+# Checked again here because it reaches a command line.
+_MOUNTPOINT = re.compile(r"^(/[A-Za-z0-9._-]+)+$")
+
 # `[user@]host`, which is what rsync and ssh take before the colon. An address
 # is allowed, and so is a name out of the site's `ssh_config`.
 _SERVER = re.compile(r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$")
@@ -216,11 +220,22 @@ class StagingDirectory(BaseModel):
     free_bytes: int | None = None
 
 
+class StagedVolume(BaseModel):
+    """A local volume the inventory declares on the member the backups run on."""
+
+    mountpoint: str
+    mounted: bool = False
+
+
 class StagingReading(BaseModel):
     """The two staging directories, as the machine answered just now."""
 
     host: str | None = None
     directories: list[StagingDirectory] = Field(default_factory=list)
+    volumes: list[StagedVolume] = Field(default_factory=list)
+    """Where the staging directories could move to: the local volumes
+    `configure_local_storage_volumes` declares on that member, and whether each
+    is mounted there now."""
     read_at: str | None = None
     note: str = ""
 
@@ -629,13 +644,14 @@ class BackupService:
                 ),
             )
         name, address = member
+        mountpoints = self._volumes(name)
         try:
             answer = self._remote.run(
                 RemoteRequest(
                     address=address,
                     user=self._ansible_user,
                     command=plays.staging_shell_command(
-                        [path for path, _ in directories]
+                        [path for path, _ in directories], mountpoints
                     ),
                     private_key_file=self._keys.private_key_file,
                     known_hosts_file=self._keys.known_hosts_file,
@@ -648,11 +664,35 @@ class BackupService:
                 note=f"{name} could not be asked about its staging directories: "
                 f"{error}",
             )
+        mounted = {
+            line.split(" ", 2)[2]
+            for line in answer.splitlines()
+            if line.startswith("mnt yes ")
+        }
         return StagingReading(
             host=name,
             directories=parse_staging(answer, directories),
+            volumes=[
+                StagedVolume(mountpoint=item, mounted=item in mounted)
+                for item in mountpoints
+            ],
             read_at=datetime.now(tz=UTC).isoformat(),
         )
+
+    def _volumes(self, host: str) -> list[str]:
+        """The mount points of the local volumes declared on one machine."""
+        document = self._inventory.raw()
+        if not document.strip():
+            return []
+        declared = (
+            resolve(document).get(host, {}).get("configure_local_storage_volumes")
+        )
+        return [
+            str(entry["mountpoint"])
+            for entry in declared or []
+            if isinstance(entry, dict)
+            and _MOUNTPOINT.match(str(entry.get("mountpoint", "")))
+        ]
 
     def runner(self) -> str | None:
         """The member the backups run on, and the one every reading here asks.
@@ -1242,6 +1282,7 @@ __all__ = [
     "GuestBackup",
     "GuestVolume",
     "InvalidBackupSetting",
+    "StagedVolume",
     "StagingDirectory",
     "StagingReading",
     "parse_listing",
