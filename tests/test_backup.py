@@ -43,7 +43,7 @@ from app.core.settings import Settings
 from app.hosts.reader import CommandResult
 from app.runs import backup as plays
 from app.runs.backup import BackupAction, BackupTarget
-from app.services.backup import parse_listing
+from app.services.backup import parse_listing, parse_staging
 from tests.conftest import sign_in
 from tests.fakes import FakeCommandRunner, write_fake_collection
 
@@ -1035,6 +1035,105 @@ def test_an_inventory_with_no_backup_server_is_told_so_rather_than_asked(
     assert catalogue["backups"] == []
     assert "no backup server to ask" in catalogue["note"]
     assert remote_runner.requests == []
+
+
+# The staging directories
+
+STAGED = """dir present /var/lib/seapath-backup/
+df /var/lib/seapath-backup/ /data 1000000000000 900000000000
+dir absent /var/lib/seapath-restore/
+df /var/lib/seapath-restore/ / 16000000000 9000000000
+"""
+
+
+def test_the_staging_directories_are_read_on_the_member_the_backups_run_on(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """The room that matters is where `backup_full.sh` writes the qcow2s."""
+    _configured(signed_in)
+    remote_runner.answers = {"df -B1": STAGED}
+
+    reading = signed_in.get("/api/v1/backup/staging").json()
+
+    asked = remote_runner.requests[0]
+    assert asked.address == "192.168.200.126"
+    assert asked.user == "ansible"
+    # Root, because the role creates both directories readable by root only.
+    assert asked.command.startswith("sudo -n /bin/sh -c ")
+    assert "/var/lib/seapath-backup/ /var/lib/seapath-restore/" in asked.command
+    assert reading["host"] == "elabo1"
+    assert reading["read_at"]
+    assert reading["directories"] == [
+        {
+            "path": "/var/lib/seapath-backup/",
+            "purpose": "backup",
+            "exists": True,
+            "mountpoint": "/data",
+            "size_bytes": 1000000000000,
+            "free_bytes": 900000000000,
+        },
+        {
+            "path": "/var/lib/seapath-restore/",
+            "purpose": "restore",
+            "exists": False,
+            "mountpoint": "/",
+            "size_bytes": 16000000000,
+            "free_bytes": 9000000000,
+        },
+    ]
+
+
+def test_a_directory_the_machine_said_nothing_about_is_reported_missing() -> None:
+    directories = parse_staging(
+        "dir present /a/b/\n", [("/a/b/", "backup"), ("/c/d/", "restore")]
+    )
+
+    assert [item.exists for item in directories] == [True, False]
+    assert directories[1].free_bytes is None
+
+
+def test_a_machine_that_cannot_be_asked_about_its_staging_says_why(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _configured(signed_in)
+    remote_runner.refusal = "Connection timed out"
+
+    reading = signed_in.get("/api/v1/backup/staging").json()
+
+    assert reading["directories"] == []
+    assert "Connection timed out" in reading["note"]
+    assert reading["host"] == "elabo1"
+
+
+def test_no_staging_directory_is_asked_about_before_one_is_named(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _import(signed_in, CLUSTER.format(settings=""))
+
+    reading = signed_in.get("/api/v1/backup/staging").json()
+
+    assert "names no staging directory" in reading["note"]
+    assert remote_runner.requests == []
+
+
+def test_the_staging_directories_are_created_by_the_role_alone(
+    signed_in: TestClient,
+) -> None:
+    """Creating them is a convergence of `backup_restore`, never a mkdir here.
+
+    The page launches `seapath_setup_backup_restore` through the ordinary run
+    path, so the entry has to be in the catalogue, reviewed, and say what it
+    does to the machines.
+    """
+    catalogue = {
+        item["entry"]["id"]: item for item in signed_in.get("/api/v1/playbooks").json()
+    }
+
+    entry = catalogue["seapath_setup_backup_restore"]["entry"]
+    assert entry["reviewed"] is True
+    assert entry["targets"] == ["cluster_machines"]
+    assert "staging directories" in entry["disruption"]
+    assert "cluster" in entry["requires"]
 
 
 # Restoring

@@ -353,6 +353,41 @@ def listing_shell_command(target: BackupTarget) -> str:
     return "sudo -n /bin/sh -c " + shlex.quote(shlex.join(listing_command(target)))
 
 
+# What the member the backups run on is asked about its two staging
+# directories: whether each one is there, and the file system that holds it or,
+# for one that is not there yet, the file system it would be created on. One
+# line of each per directory, so a directory on a volume of its own and one on
+# the root file system read differently.
+#
+# `df -B1 --output` rather than `stat -f`, because the mount point is what an
+# operator recognises and `stat -f` does not print it. The values have been
+# checked against `_PATH` before they get here, and they are quoted all the
+# same.
+_STAGING_SCRIPT = (
+    "for d in {directories}; do "
+    'if [ -d "$d" ]; then s=present; else s=absent; fi; '
+    'printf \'dir %s %s\\n\' "$s" "$d"; '
+    'p="$d"; while [ ! -e "$p" ]; do p=$(dirname "$p"); done; '
+    'df -B1 --output=target,size,avail "$p" | tail -n 1 | '
+    "while read -r t z a; do "
+    'printf \'df %s %s %s %s\\n\' "$d" "$t" "$z" "$a"; '
+    "done; "
+    "done"
+)
+
+
+def staging_shell_command(directories: list[str]) -> str:
+    """The reading of the staging directories, as one command for a member.
+
+    Run as root, like the listing: the role creates both directories readable
+    by root only, and the parents of one may be too.
+    """
+    script = _STAGING_SCRIPT.format(
+        directories=" ".join(shlex.quote(item) for item in directories)
+    )
+    return "sudo -n /bin/sh -c " + shlex.quote(script)
+
+
 def _readable(date: str) -> str:
     """`202203110836` as `2022-03-11 08:36`, which is what a title carries.
 

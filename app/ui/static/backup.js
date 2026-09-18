@@ -20,6 +20,10 @@
   let canAct = false;
   let canWrite = false;
   let view = null;
+  // The last two readings the staging card compares: the room on the machine
+  // and what a full backup would write into it.
+  let staged = null;
+  let measured = null;
 
   function element(id) {
     return document.getElementById(id);
@@ -132,6 +136,8 @@
   // both rows. The service bounds the sum by what the disk provisions.
 
   function renderEstimate(estimate) {
+    measured = estimate.error ? null : estimate;
+    renderRoom();
     const guests = estimate.guests || [];
     element("estimate-error").textContent = estimate.error || "";
     element("estimate-error").hidden = !estimate.error;
@@ -174,6 +180,126 @@
       button.disabled = false;
       button.removeAttribute("aria-busy");
     }
+  }
+
+  // The staging directories
+  //
+  // Read on the member the backups run on, since that is where a full backup
+  // writes a qcow2 of every guest before sending anything. The root file
+  // system of a machine installed from the ISO is a few tens of gigabytes, so
+  // the room is the finding, and the estimate, once measured, is what it is
+  // held against.
+
+  const PURPOSES = { backup: "a full backup", restore: "a restore" };
+
+  function renderStaging(reading) {
+    staged = reading;
+    element("staging-host").textContent = reading.host || "the cluster";
+    element("staging-when").textContent = reading.read_at
+      ? "read " + whenRead(reading.read_at)
+      : "";
+    element("staging-note").textContent = reading.note || "";
+    element("staging-note").hidden = !reading.note;
+
+    const directories = reading.directories || [];
+    element("staging-table").hidden = directories.length === 0;
+    const body = clear(element("staging-rows"));
+    directories.forEach((item) => {
+      const state = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = RunStream.stateClass(item.exists ? "success" : "failed");
+      badge.textContent = item.exists ? "present" : "missing";
+      state.append(badge);
+      row(body, [
+        cell(item.path),
+        cell(PURPOSES[item.purpose] || item.purpose),
+        state,
+        cell(
+          item.mountpoint
+            ? item.mountpoint +
+                (item.exists ? "" : " (where it would be created)")
+            : "unknown"
+        ),
+        cell(
+          item.free_bytes === null || item.free_bytes === undefined
+            ? "unknown"
+            : size(item.free_bytes) + " of " + size(item.size_bytes)
+        ),
+      ]);
+    });
+
+    const missing = directories.some((item) => !item.exists);
+    element("staging-acts").hidden = !canWrite || !missing;
+    element("staging-help").hidden = !canWrite || !missing;
+    renderRoom();
+  }
+
+  function renderRoom() {
+    const note = element("staging-room");
+    const backup = ((staged && staged.directories) || []).find(
+      (item) => item.purpose === "backup"
+    );
+    let text = "";
+    if (backup && typeof backup.free_bytes === "number") {
+      const where =
+        backup.mountpoint === "/"
+          ? "the root file system"
+          : "the file system mounted on " + backup.mountpoint;
+      if (measured && measured.used_bytes > backup.free_bytes) {
+        text =
+          "A full backup of the selected guests writes up to " +
+          size(measured.used_bytes) + " into " + backup.path + ", and " +
+          where + " has " + size(backup.free_bytes) + " free. It would " +
+          "fail before anything reaches the backup server.";
+      } else if (!measured && backup.mountpoint === "/") {
+        text =
+          backup.path + " is on the root file system, with " +
+          size(backup.free_bytes) + " free. A full backup writes a qcow2 " +
+          "of every selected guest there first: measure the estimated " +
+          "volume below to compare.";
+      }
+    }
+    note.textContent = text;
+    note.hidden = !text;
+  }
+
+  async function readStaging() {
+    const button = element("staging-read");
+    button.disabled = true;
+    element("staging-loading").hidden = false;
+    try {
+      renderStaging(await API.get("/backup/staging"));
+    } catch (failure) {
+      renderStaging({ note: failure.message, directories: [] });
+    } finally {
+      element("staging-loading").hidden = true;
+      button.disabled = false;
+    }
+  }
+
+  function confirmCreateStaging() {
+    const missing = ((staged && staged.directories) || [])
+      .filter((item) => !item.exists)
+      .map((item) => item.path);
+    confirm({
+      title: "Create the staging directories",
+      body:
+        "Runs seapath_setup_backup_restore on every cluster member. It creates " +
+        missing.join(" and ") + ", readable by root only, installs the " +
+        "backup scripts and renders /etc/backup-restore.conf from the " +
+        "inventory. No service restarts and no guest is touched.",
+      note:
+        "The directories are created on the file system that holds them " +
+        "today. If that is the root file system and a full backup needs " +
+        "more room than it has, give them a volume of their own first.",
+      label: "Create them",
+      act: async () => {
+        const started = await API.post("/runs", {
+          playbook: "seapath_setup_backup_restore",
+        });
+        RunWatch.open(started.run_id, readStaging);
+      },
+    });
   }
 
   // What the server holds
@@ -477,12 +603,18 @@
     // an operator to it.
     element("estimate-card").hidden = !answer.configured;
     element("catalogue-card").hidden = !answer.configured;
+    element("staging-card").hidden = !answer.configured;
   }
 
   async function refresh(fresh, pending) {
     draw(await (pending || API.get(API.reading("/backup", fresh))));
     Kept.keep(KEPT, view);
     Kept.release();
+    // One SSH connection, a second on a machine that answers. Not awaited:
+    // the rest of the page is drawn off the disk and should not wait for it.
+    if (view.configured) {
+      readStaging();
+    }
   }
 
   element("settings-open").addEventListener("click", () => showSettings(true));
@@ -493,6 +625,8 @@
   element("act-inc").addEventListener("click", confirmIncremental);
   element("act-list").addEventListener("click", readServer);
   element("estimate-go").addEventListener("click", measure);
+  element("staging-read").addEventListener("click", readStaging);
+  element("staging-create").addEventListener("click", confirmCreateStaging);
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });
@@ -517,7 +651,7 @@
     const age = Kept.paint(KEPT, draw);
     if (age !== null) {
       Kept.rereading(["loading"], age);
-      Kept.hold(["card-backup", "estimate-card", "catalogue-card"]);
+      Kept.hold(["card-backup", "estimate-card", "catalogue-card", "staging-card"]);
     }
     await refresh(false, pending);
   }

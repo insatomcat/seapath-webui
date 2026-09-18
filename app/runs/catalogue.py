@@ -557,6 +557,30 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         ],
     ),
     PlaybookEntry(
+        id="seapath_setup_backup_restore",
+        playbook=f"{COLLECTION}.seapath_setup_backup_restore",
+        title="Apply the backup configuration",
+        targets=["cluster_machines"],
+        # `ssh-keygen` is a command guarded by `creates`, which check mode
+        # skips. The rest is `synchronize`, templates and files.
+        preview=Preview.PARTIAL,
+        reboots=Reboots.NO,
+        disruption=(
+            "Installs the backup scripts in /usr/local/bin, renders "
+            "/etc/backup-restore.conf from the inventory, and creates the two "
+            "staging directories, readable by root only. Where the inventory "
+            "names them, it also generates the key the backups are pushed "
+            "with, once, and adds the backup server's host key to root's "
+            "known_hosts. No service restarts and no guest is touched."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+            Precondition.CLUSTER,
+        ],
+    ),
+    PlaybookEntry(
         id="seapath_setup_deploy_seapath_alloc",
         playbook=f"{COLLECTION}.seapath_setup_deploy_seapath_alloc",
         title="Apply the dynamic CPU pinning",

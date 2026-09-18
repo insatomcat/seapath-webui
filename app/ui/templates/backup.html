@@ -65,6 +65,50 @@ to be erased.
     </p>
   </section>
 
+  {# The two staging directories, on the member the backups run on. A full
+     backup writes a qcow2 of every selected guest there before it sends
+     anything, and on a machine installed from the ISO the root file system is
+     a few tens of gigabytes: this is where a first backup fails, an hour in,
+     unless somebody looked first. Read over one SSH connection, like the
+     listing, and read again once a run that could change it has ended. #}
+  <section class="card" id="staging-card" hidden>
+    <div class="card-head">
+      <h2>Staging on <span id="staging-host"></span></h2>
+      <div class="card-acts">
+        <span class="pane-foot-note" id="staging-when"></span>
+        <button type="button" id="staging-read" class="secondary">Read again</button>
+      </div>
+    </div>
+    <div class="loading" id="staging-loading" hidden>
+      Asking the machine about its staging directories
+    </div>
+    <p class="warning" id="staging-note" hidden></p>
+    <div class="table-scroll" id="staging-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Directory</th>
+            <th>For</th>
+            <th>State</th>
+            <th>File system</th>
+            <th>Free</th>
+          </tr>
+        </thead>
+        <tbody id="staging-rows"></tbody>
+      </table>
+    </div>
+    <p class="warning" id="staging-room" hidden></p>
+    <div class="card-actions" id="staging-acts" hidden>
+      <button type="button" id="staging-create">Create them</button>
+    </div>
+    <p class="help" id="staging-help" hidden>
+      Creating them is a run of <code>seapath_setup_backup_restore</code>, the
+      playbook that applies the <code>backup_restore</code> role alone: it
+      creates both directories on every cluster member, readable by root only,
+      and renders <code>/etc/backup-restore.conf</code> from the inventory.
+    </p>
+  </section>
+
   {# What a full backup would weigh, per guest. `rbd du` read here rather than
      on a machine: the numbers belong to Ceph and this service already talks to
      Ceph for a guest's metadata. The two filters are applied exactly as the

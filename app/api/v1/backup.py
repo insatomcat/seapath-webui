@@ -33,6 +33,7 @@ from app.services.backup import (
     BackupView,
     Estimate,
     InvalidBackupSetting,
+    StagingReading,
 )
 
 router = APIRouter(
@@ -130,6 +131,18 @@ def catalogue(request: Request) -> BackupCatalogue:
     the run had ended. See D54.
     """
     return _service(request).catalogue()
+
+
+@router.get("/staging", response_model=StagingReading)
+def staging(request: Request) -> StagingReading:
+    """Whether the two staging directories exist, and the room they have.
+
+    Asked of the member the backups run on, over one SSH connection, because
+    that is where `backup_full.sh` writes a qcow2 of every guest before it
+    sends anything. A directory that is not there yet comes with the file
+    system it would be created on.
+    """
+    return _service(request).staging()
 
 
 @router.put("/settings", response_model=SettingsResponse)

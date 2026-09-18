@@ -203,6 +203,28 @@ class BackupCatalogue(BaseModel):
     note: str = ""
 
 
+class StagingDirectory(BaseModel):
+    """One staging directory on the member the backups run on."""
+
+    path: str
+    purpose: str
+    """`backup` for `local_dir`, `restore` for `local_tmp_dir`."""
+    exists: bool = False
+    mountpoint: str | None = None
+    """The file system that holds it, or would hold it once created."""
+    size_bytes: int | None = None
+    free_bytes: int | None = None
+
+
+class StagingReading(BaseModel):
+    """The two staging directories, as the machine answered just now."""
+
+    host: str | None = None
+    directories: list[StagingDirectory] = Field(default_factory=list)
+    read_at: str | None = None
+    note: str = ""
+
+
 class BackupView(BaseModel):
     """The whole page, in one answer."""
 
@@ -567,6 +589,69 @@ class BackupService:
                     "holds no backup: nothing has been pushed there yet."
                 )
             ),
+        )
+
+    def staging(self) -> StagingReading:
+        """Whether the two staging directories are there, and how much room.
+
+        Read on the member the backups run on, over the same one SSH
+        connection the listing uses, because that is the machine
+        `backup_full.sh` assembles a full backup on. A qcow2 of every selected
+        guest is written there before anything is sent, so the free space of
+        the file system holding `local_dir` is what decides whether a full
+        backup can finish, and on a machine installed from the ISO that file
+        system is a root of a few tens of gigabytes.
+
+        A directory that is not there yet is reported with the file system it
+        would be created on, which is the room it would have.
+        """
+        target, _ = self._read(self._inventory.raw())
+        directories = [
+            (path, purpose)
+            for path, purpose in (
+                (target.local_dir, "backup"),
+                (target.local_tmp_dir, "restore"),
+            )
+            if path
+        ]
+        if not directories:
+            return StagingReading(
+                host=self.runner(),
+                note="This inventory names no staging directory yet.",
+            )
+        member = self._member()
+        if member is None:
+            return StagingReading(
+                host=self.runner(),
+                note=(
+                    "The member the backups run on carries no `ansible_host`, "
+                    "so there is no machine to ask."
+                ),
+            )
+        name, address = member
+        try:
+            answer = self._remote.run(
+                RemoteRequest(
+                    address=address,
+                    user=self._ansible_user,
+                    command=plays.staging_shell_command(
+                        [path for path, _ in directories]
+                    ),
+                    private_key_file=self._keys.private_key_file,
+                    known_hosts_file=self._keys.known_hosts_file,
+                    extra_key_files=self._keys.extra_key_files(),
+                )
+            )
+        except RemoteRefused as error:
+            return StagingReading(
+                host=name,
+                note=f"{name} could not be asked about its staging directories: "
+                f"{error}",
+            )
+        return StagingReading(
+            host=name,
+            directories=parse_staging(answer, directories),
+            read_at=datetime.now(tz=UTC).isoformat(),
         )
 
     def runner(self) -> str | None:
@@ -1027,6 +1112,38 @@ def parse_listing(text: str) -> list[FullBackup]:
     return sorted(backups.values(), key=lambda item: item.date)
 
 
+def parse_staging(
+    text: str, directories: list[tuple[str, str]]
+) -> list[StagingDirectory]:
+    """What `staging_shell_command` printed, one entry per directory asked.
+
+    `dir <present|absent> <path>` and `df <path> <mount point> <size> <free>`.
+    A directory the answer says nothing about is reported absent with no
+    figures, rather than dropped: the page is about both of them.
+    """
+    found = {
+        path: StagingDirectory(path=path, purpose=purpose)
+        for path, purpose in directories
+    }
+    for line in text.splitlines():
+        kind, _, rest = line.strip().partition(" ")
+        if kind == "dir":
+            state, _, path = rest.partition(" ")
+            if path in found:
+                found[path].exists = state == "present"
+        elif kind == "df":
+            path, _, figures = rest.partition(" ")
+            parts = figures.rsplit(None, 2)
+            if path not in found or len(parts) != 3:
+                continue
+            mountpoint, size, free = parts
+            if size.isdigit() and free.isdigit():
+                found[path].mountpoint = mountpoint
+                found[path].size_bytes = int(size)
+                found[path].free_bytes = int(free)
+    return [found[path] for path, _ in directories]
+
+
 def _guest(
     guests: dict[tuple[str, str], GuestBackup],
     backups: dict[str, FullBackup],
@@ -1125,5 +1242,8 @@ __all__ = [
     "GuestBackup",
     "GuestVolume",
     "InvalidBackupSetting",
+    "StagingDirectory",
+    "StagingReading",
     "parse_listing",
+    "parse_staging",
 ]
