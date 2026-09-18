@@ -25,8 +25,6 @@
   // and what a full backup would write into it.
   let staged = null;
   let measured = null;
-  // The mounted volume the staging directories could move to.
-  let target = null;
   // The local volume window: the machine it reads, and what it read there.
   let disks = null;
   let nameEdited = false;
@@ -152,6 +150,7 @@
   function renderEstimate(estimate) {
     measured = estimate.error ? null : estimate;
     renderRoom();
+    renderPlaces();
     const guests = estimate.guests || [];
     element("estimate-error").textContent = estimate.error || "";
     element("estimate-error").hidden = !estimate.error;
@@ -258,53 +257,154 @@
     element("staging-create").hidden = !missing;
     element("staging-help").hidden = !canWrite || !missing;
 
-    // Where the staging directories could go instead: a volume the inventory
-    // declares on that machine, or a file system already mounted there, such
-    // as a /data made by hand, which needs nothing partitioned. The declared
-    // one first, since it is the one they were meant for, then the one with
-    // the most room. One that is not mounted is not offered: the directories
-    // would be created on the file system below it, and the role would then
-    // refuse to mount over a directory that is not empty.
-    const backup = directories.find((item) => item.purpose === "backup");
-    // And only a place with more room than the staging has where it is: a
-    // move to less room is no answer to a staging directory short of it.
-    const places = (reading.volumes || []).filter(
-      (volume) =>
-        volume.mounted &&
-        backup &&
-        !backup.path.startsWith(volume.mountpoint.replace(/\/$/, "") + "/") &&
-        !(
-          typeof volume.free_bytes === "number" &&
-          typeof backup.free_bytes === "number" &&
-          volume.free_bytes <= backup.free_bytes
-        )
-    );
-    places.sort(
-      (a, b) =>
-        Number(b.declared) - Number(a.declared) ||
-        (b.free_bytes || 0) - (a.free_bytes || 0)
-    );
-    target = places[0];
-    const move = element("staging-move");
-    move.hidden = !target;
-    move.textContent = target
-      ? "Stage them on " + target.mountpoint +
-        (typeof target.free_bytes === "number"
-          ? ", " + size(target.free_bytes) + " free"
-          : "")
-      : "";
     element("staging-acts").hidden = !canWrite || !reading.host;
+    renderPlaces();
     renderRoom();
   }
 
-  // The settings form, opened with the two staging directories under the
-  // volume. Saving it is the ordinary commit, and the card then offers to
-  // create them there.
-  function stageOn(volume) {
-    const root = volume.mountpoint.replace(/\/$/, "");
-    showSettings(true, {
-      local_dir: root + "/seapath-backup/",
-      local_tmp_dir: root + "/seapath-restore/",
+  // Where the staging can go: every local file system mounted on the member,
+  // the one holding the staging now first, then the most room. A volume the
+  // inventory declares but that is not mounted is listed without a choice:
+  // the directories would be created on the file system below it, and the
+  // role would then refuse to mount over a directory that is not empty.
+  function renderPlaces() {
+    const reading = staged || {};
+    const backup = (reading.directories || []).find(
+      (item) => item.purpose === "backup"
+    );
+    const places = (reading.volumes || []).slice();
+    const holds = (place) =>
+      backup && backup.path.startsWith(place.mountpoint.replace(/\/$/, "") + "/");
+    // Where the staging is now, when that is a file system the list leaves
+    // out, which on a machine from the ISO is the root: it is what every
+    // other row is compared with.
+    if (
+      backup &&
+      backup.mountpoint &&
+      typeof backup.free_bytes === "number" &&
+      !places.some((place) => place.mountpoint === backup.mountpoint)
+    ) {
+      places.push({
+        mountpoint: backup.mountpoint,
+        mounted: true,
+        device: backup.mountpoint === "/" ? "the root file system" : "",
+        free_bytes: backup.free_bytes,
+        size_bytes: backup.size_bytes,
+        current: true,
+      });
+    }
+    places.forEach((place) => {
+      place.current = place.current || holds(place);
+    });
+    places.sort(
+      (a, b) =>
+        Number(b.current) - Number(a.current) ||
+        (b.free_bytes || 0) - (a.free_bytes || 0)
+    );
+
+    element("places").hidden = !reading.host || places.length === 0;
+    const body = clear(element("places-rows"));
+    places.forEach((place) => {
+      const room = document.createElement("td");
+      const known = typeof place.free_bytes === "number";
+      room.textContent = known
+        ? size(place.free_bytes) +
+          (place.size_bytes ? " of " + size(place.size_bytes) : "")
+        : place.mounted
+          ? "unknown"
+          : "not mounted";
+      const verdict = document.createElement("td");
+      if (!known) {
+        verdict.textContent = "";
+      } else if (!measured) {
+        verdict.textContent = "measure the estimate to know";
+        verdict.className = "pane-foot-note";
+      } else {
+        const badge = document.createElement("span");
+        const fits = place.free_bytes >= measured.used_bytes;
+        badge.className = RunStream.stateClass(fits ? "success" : "failed");
+        badge.textContent = fits ? "fits" : "does not fit";
+        verdict.append(badge);
+      }
+      const acts = document.createElement("td");
+      acts.className = "acts";
+      if (place.current) {
+        const here = document.createElement("span");
+        here.className = "pane-foot-note";
+        here.textContent = "the staging is here";
+        acts.append(here);
+      } else if (canWrite && place.mounted) {
+        const use = document.createElement("button");
+        use.type = "button";
+        use.className = "secondary";
+        use.textContent = "Use it";
+        use.addEventListener("click", () => confirmStageOn(place));
+        acts.append(use);
+      }
+      row(body, [
+        cell(place.mountpoint),
+        cell(
+          place.device ||
+            (place.mounted ? "" : "declared in the inventory, not mounted")
+        ),
+        room,
+        verdict,
+        acts,
+      ]);
+    });
+    element("places-help").textContent =
+      "The local file systems mounted on " + reading.host + ", where the " +
+      "backups run. A file system mounted from Ceph, such as an RBD image " +
+      "under /mnt/rbd, is not room on the machine and is not listed. None " +
+      "has enough room? Give them a volume of their own below.";
+  }
+
+  // The two staging directories under a chosen file system, in one window:
+  // the ordinary settings commit, with every other setting as the inventory
+  // holds it, then the run that creates the directories there.
+  function confirmStageOn(place) {
+    const root = place.mountpoint.replace(/\/$/, "");
+    const local = root + "/seapath-backup/";
+    const restore = root + "/seapath-restore/";
+    const before = settingsByKey(view);
+    confirm({
+      title: "Stage the backups on " + place.mountpoint,
+      body:
+        "Commits backup_restore_local_dir " + local + " and " +
+        "backup_restore_local_tmp_dir " + restore + " on cluster_machines, " +
+        "then runs seapath_setup_backup_restore on every cluster member, " +
+        "which creates both directories, readable by root only, and renders " +
+        "/etc/backup-restore.conf. No service restarts and no guest is " +
+        "touched.",
+      note:
+        place.mountpoint + " is " + staged.host + "'s, where the backups " +
+        "run. On a member without it the directories are created on the " +
+        "file system below, which only matters if the backups move there. " +
+        (before.local_dir
+          ? before.local_dir + " is left as it is, with whatever it holds."
+          : ""),
+      label: "Stage them there",
+      act: async () => {
+        const payload = {};
+        (view.settings || []).forEach((setting) => {
+          payload[setting.key] = setting.value || "";
+        });
+        payload.local_dir = local;
+        payload.local_tmp_dir = restore;
+        await API.put(
+          "/backup/settings",
+          payload,
+          view.commit ? { "If-Match": view.commit } : undefined
+        );
+        // Drawn again before the run, so a run refused here leaves the page
+        // on the commit that landed, and trying again does not send the one
+        // before it.
+        await refresh(true);
+        const started = await API.post("/runs", {
+          playbook: "seapath_setup_backup_restore",
+        });
+        RunWatch.open(started.run_id, () => refresh(true));
+      },
     });
   }
 
@@ -1363,7 +1463,6 @@
   element("estimate-go").addEventListener("click", measure);
   element("staging-read").addEventListener("click", readStaging);
   element("staging-create").addEventListener("click", confirmCreateStaging);
-  element("staging-move").addEventListener("click", () => stageOn(target));
   element("staging-volume").addEventListener("click", openVolume);
   element("volume-cancel").addEventListener("click", () => {
     element("volume").hidden = true;

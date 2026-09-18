@@ -245,6 +245,8 @@ class StagedVolume(BaseModel):
     mountpoint: str
     mounted: bool = False
     declared: bool = True
+    device: str = ""
+    """What it is mounted from, which is how an operator recognises it."""
     size_bytes: int | None = None
     free_bytes: int | None = None
 
@@ -1276,6 +1278,7 @@ def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
     """
     mounted: set[str] = set()
     room: dict[str, tuple[int, int]] = {}
+    devices: dict[str, str] = {}
     for line in text.splitlines():
         if line.startswith("mnt yes "):
             mounted.add(line.split(" ", 2)[2])
@@ -1288,6 +1291,7 @@ def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
                 and parts[4].isdigit()
             ):
                 room[parts[2]] = (int(parts[3]), int(parts[4]))
+                devices[parts[2]] = parts[1]
     places = []
     for item in declared:
         size, free = room.get(item, (None, None)) if item in mounted else (None, None)
@@ -1295,6 +1299,7 @@ def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
             StagedVolume(
                 mountpoint=item,
                 mounted=item in mounted,
+                device=devices.get(item, "") if item in mounted else "",
                 size_bytes=size,
                 free_bytes=free,
             )
@@ -1314,6 +1319,7 @@ def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
                 mountpoint=path,
                 mounted=True,
                 declared=False,
+                device=devices[path],
                 size_bytes=size,
                 free_bytes=free,
             )

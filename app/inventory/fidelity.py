@@ -116,8 +116,14 @@ def unintended_changes(
             continue
         asked = intended.get(host, {})
         for change in _compare(host, variables, resolved_after[host]):
-            _, variable, _, _, produced = change
+            kind, variable, _, _, produced = change
             if variable in asked and _equivalent(variable, produced, asked[variable]):
+                continue
+            # Asked gone and gone. An empty value is how a caller asks for a
+            # variable to be removed, and the loop below holds it to that;
+            # reporting the removal as lost refused every save of a form whose
+            # optional field was left empty over a variable written as ''.
+            if kind == "lost" and variable in asked and _wanted_gone(asked[variable]):
                 continue
             raw.append(change)
 

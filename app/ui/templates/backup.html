@@ -108,9 +108,33 @@ to be erased.
       </table>
     </div>
     <p class="warning" id="staging-room" hidden></p>
+
+    {# Where the staging can go, chosen from what the machine has rather than
+       typed: every local file system mounted on the member the backups run
+       on, with its device and its room, and whether a full backup fits once
+       it is measured. Choosing one is the ordinary settings commit of the two
+       directories under it, then the run that creates them. #}
+    <div id="places" hidden>
+      <h3>Where the staging can go</h3>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Mount point</th>
+              <th>Device</th>
+              <th>Free</th>
+              <th>A full backup</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="places-rows"></tbody>
+        </table>
+      </div>
+      <p class="help" id="places-help"></p>
+    </div>
+
     <div class="card-actions" id="staging-acts" hidden>
       <button type="button" id="staging-create" hidden>Create them</button>
-      <button type="button" id="staging-move" class="secondary" hidden></button>
       <button type="button" id="staging-volume" class="secondary">
         Give them a volume of their own
       </button>

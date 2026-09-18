@@ -680,6 +680,33 @@ def test_the_filters_are_applied_to_guest_names_the_way_the_scripts_apply_them(
 # Writing the settings
 
 
+def test_an_empty_optional_setting_over_an_empty_value_is_saved(
+    signed_in: TestClient,
+) -> None:
+    """`backup_restore_exclude_vm: ''` in the file, and the field left empty.
+
+    An empty value asks for the variable to be removed, and the save used to
+    be refused because the removal was then reported as a variable lost, so a
+    form that changed only the staging directories could not be saved.
+    """
+    _configured(signed_in)
+    payload = {
+        setting["key"]: setting["value"] or ""
+        for setting in _backup(signed_in)["settings"]
+    }
+    payload["local_dir"] = "/data/seapath-backup/"
+    payload["local_tmp_dir"] = "/data/seapath-restore/"
+
+    response = signed_in.put("/api/v1/backup/settings", json=payload)
+
+    assert response.status_code == 200, response.text
+    held = {
+        setting["key"]: setting["value"] for setting in _backup(signed_in)["settings"]
+    }
+    assert held["local_dir"] == "/data/seapath-backup/"
+    assert held["exclude_vm"] in ("", None)
+
+
 def test_the_settings_are_written_on_the_cluster_group_as_one_commit(
     signed_in: TestClient,
 ) -> None:
@@ -1180,6 +1207,7 @@ def test_the_volumes_declared_on_that_member_are_asked_whether_mounted(
             "mountpoint": "/data",
             "mounted": True,
             "declared": True,
+            "device": "",
             "size_bytes": None,
             "free_bytes": None,
         },
@@ -1187,6 +1215,7 @@ def test_the_volumes_declared_on_that_member_are_asked_whether_mounted(
             "mountpoint": "/later",
             "mounted": False,
             "declared": True,
+            "device": "",
             "size_bytes": None,
             "free_bytes": None,
         },
@@ -1218,9 +1247,12 @@ def test_a_file_system_mounted_by_hand_is_offered_for_the_staging() -> None:
 
     places = parse_places(answer, ["/backup"])
 
-    assert [(item.mountpoint, item.declared, item.free_bytes) for item in places] == [
-        ("/backup", True, 290000000000),
-        ("/data", False, 538000000000),
+    assert [
+        (item.mountpoint, item.declared, item.device, item.free_bytes)
+        for item in places
+    ] == [
+        ("/backup", True, "/dev/sda3", 290000000000),
+        ("/data", False, "/dev/mapper/vg_data-lv_data", 538000000000),
     ]
 
 
