@@ -63,6 +63,7 @@ from app.runs.install import CollectionInstaller
 from app.runs.service import RunPaths, RunService
 from app.runs.store import RunStore
 from app.services.backup import BackupService
+from app.services.backup_trust import BackupTrustService
 from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
 from app.services.local_storage import LocalStorageService
@@ -74,6 +75,7 @@ from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
 from app.services.storage import StorageService
 from app.services.update import UpdateService
 from app.services.vms import DEPLOY_PLAYBOOK, VmService
+from app.trust.backup_server import FakeKeyInstaller, KeyInstaller, SshKeyInstaller
 from app.trust.service import TrustService
 from app.ui import routes as ui_routes
 
@@ -204,6 +206,7 @@ def create_app(
     pinger: Pinger | None = None,
     replication_transport: Transport | None = None,
     remote_runner: RemoteRunner | None = None,
+    key_installer: KeyInstaller | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -491,6 +494,20 @@ def create_app(
         remote=remote,
         keys=app.state.run_service.paths,
         ansible_user=settings.ansible_user,
+    )
+
+    # The connection from the cluster members to the backup server: read over
+    # the same one SSH connection, prepared by the role, and completed by
+    # installing the members' keys on the server with a password typed once.
+    # See D57.
+    app.state.backup_trust_service = BackupTrustService(
+        inventory=app.state.inventory_service,
+        backup=app.state.backup_service,
+        remote=remote,
+        keys=app.state.run_service.paths,
+        ansible_user=settings.ansible_user,
+        installer=key_installer
+        or (FakeKeyInstaller() if settings.use_fakes else SshKeyInstaller()),
     )
 
     # The local volumes of a machine: what its disks have room for, read over

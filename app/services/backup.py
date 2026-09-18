@@ -272,9 +272,9 @@ _SETTINGS: tuple[tuple[str, str, bool, str, str], ...] = (
         True,
         "backup@backup.example.org",
         "The account the backups are pushed to, as ssh and rsync take it. The "
-        "cluster members reach it with root's own SSH key, which this service "
-        "neither holds nor installs: the trust to the backup server is the "
-        "site's to provision, once, on each member.",
+        "cluster members reach it as root, with no password: the connection "
+        "panel of this page gives them a key of their own and installs it "
+        "there with this account's password, typed once.",
     ),
     (
         "remote_dir",
@@ -586,9 +586,9 @@ class BackupService:
                 read_from=name,
                 note=(
                     f"{name} could not be asked what {target.remote_serv} "
-                    f"holds: {error} The backups are pushed with root's own "
-                    "key on that machine, which this service neither holds nor "
-                    "installs."
+                    f"holds: {error} The backups are pushed as root from that "
+                    "machine, and the connection panel of this page says which "
+                    "members reach the server and sets up the key they need."
                 ),
             )
         backups = parse_listing(listing)
@@ -693,6 +693,10 @@ class BackupService:
             if isinstance(entry, dict)
             and _MOUNTPOINT.match(str(entry.get("mountpoint", "")))
         ]
+
+    def target(self) -> BackupTarget:
+        """What a run would pass the scripts, as the inventory says it now."""
+        return self._read(self._inventory.raw())[0]
 
     def runner(self) -> str | None:
         """The member the backups run on, and the one every reading here asks.

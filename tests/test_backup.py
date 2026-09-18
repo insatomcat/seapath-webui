@@ -1003,10 +1003,9 @@ def test_an_observer_is_not_where_the_backups_run(signed_in: TestClient) -> None
 def test_a_server_that_cannot_be_reached_says_what_ssh_answered(
     signed_in: TestClient, remote_runner
 ) -> None:
-    """The trust to the backup server is the site's, installed on each member.
+    """A host key never accepted, a refused key and a missing directory.
 
-    So the repair is on that machine, and the message has to carry what ssh
-    said.
+    Three different repairs, so the message has to carry what ssh said.
     """
     _configured(signed_in)
     remote_runner.refusal = "Host key verification failed."
@@ -1015,7 +1014,7 @@ def test_a_server_that_cannot_be_reached_says_what_ssh_answered(
 
     assert catalogue["backups"] == []
     assert "Host key verification failed." in catalogue["note"]
-    assert "root's own key" in catalogue["note"]
+    assert "connection panel" in catalogue["note"]
 
 
 def test_the_catalogue_is_not_on_the_path_of_the_page(signed_in: TestClient) -> None:

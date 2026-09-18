@@ -4291,3 +4291,71 @@ settings commit followed by a run of `seapath_setup_backup_restore`. A volume
 that is declared but not mounted is not offered, because the directories would
 be created on the file system below it and the role would then refuse to mount
 over a directory that is not empty.
+
+## D57 - Settled: the members' backup keys reach the backup server with a password typed once
+
+Supersedes the last paragraph of [D53](#d53)'s "What it costs", which said the
+trust to the backup server is the site's, provisioned once on each member,
+outside this service entirely.
+
+That paragraph was a correct reading of [D1](#d1) and a poor experience. The
+backups are pushed by root on a cluster member, over SSH, with no password, so
+each member needs a key the server accepts and the server's host key in root's
+`known_hosts`. Leaving it to the site meant an operator at three terminals
+running `ssh-keygen`, `ssh-copy-id` and a first `ssh` to accept a host key,
+and a member that had missed one step failing its first backup on a prompt
+nobody answered. The page could say what was wrong and could not help.
+
+### Two halves, on the two sides of the line
+
+**The members' half is the role's.** `backup_restore` gained two variables:
+`backup_restore_ssh_key`, a path where it generates an ed25519 key dedicated to
+the backups, once and never replaced, and `backup_restore_remote_host_keys`,
+the server's host keys it adds to root's `known_hosts`. Committing them is a
+settings commit like any other, with a `remote_shell` that gains `-i` and that
+key, keeping every option the site gave it; applying them is a run of
+`seapath_setup_backup_restore`. Nothing here writes to a cluster member.
+
+A dedicated key rather than root's own default one, because the server trusts
+exactly what it was given, and a key that only pushes backups is a key that can
+be revoked on the server without touching anything else root can reach.
+
+**The server's half is this service's, and it is the exception.** The server is
+not a SEAPATH machine and not in the inventory, so no playbook reaches it, and
+the only way a key gets into its `authorized_keys` without somebody at a
+terminal is a connection that already has a password. So the page asks for the
+password of the account the backups are pushed to, once, and does what
+`ssh-copy-id` does, for the keys of every member at once:
+
+- the public keys are read from the members over the connection [D54](#d54)
+  gave the listing, and only ed25519 keys carrying the role's own comment are
+  sent, so nothing a browser typed becomes a line on the server;
+- the connection trusts the host keys the inventory holds and nothing else, so
+  a server answering with another key is refused before the password is sent;
+- password authentication only, attempted once, the password handed to `ssh`
+  through `SSH_ASKPASS` in that one process's environment, never logged, never
+  written to disk, never in an error;
+- the keys are appended, after a newline when the file did not end with one,
+  and a key already present is left alone. Nothing is removed and nothing else
+  on that server is touched.
+
+Every member is then asked to connect the way a backup connects, with
+`BatchMode`, and the page shows which can.
+
+### The host key, which is where the trust actually starts
+
+`ssh-keyscan` from this container reads the server's host keys, and the page
+shows their fingerprints with the command that prints them on the server. What
+the operator confirms is what is committed, and it is the only thing both the
+members and the installing connection will accept. A key read over the network
+comes from whoever answered, and this is the step that turns it into trust,
+exactly as the host keys of the cluster's own machines are accepted in Reaching
+the other machines.
+
+### Why it keeps the acceptance criterion
+
+The two variables are read by the role and by nothing else, so exporting this
+inventory and running the same playbooks from a conventional control machine
+generates the same key and trusts the same host key. The server's
+`authorized_keys` was never part of a convergence: a site that installed the
+keys by hand ends in the same state, and the page reads it the same way.

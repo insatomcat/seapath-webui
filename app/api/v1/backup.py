@@ -35,6 +35,11 @@ from app.services.backup import (
     InvalidBackupSetting,
     StagingReading,
 )
+from app.services.backup_trust import (
+    BackupConnection,
+    BackupTrustService,
+    ServerHostKey,
+)
 
 router = APIRouter(
     prefix="/backup",
@@ -48,6 +53,10 @@ operator = Depends(require_role(Role.OPERATOR))
 
 def _service(request: Request) -> BackupService:
     return request.app.state.backup_service
+
+
+def _trust(request: Request) -> BackupTrustService:
+    return request.app.state.backup_trust_service
 
 
 class BackupSettings(BaseModel):
@@ -79,6 +88,19 @@ class RestoreRequest(BaseModel):
     guest: str
     full_date: str = Field(description="The full backup directory, twelve digits")
     date: str = Field(description="The date inside it to replay up to")
+
+
+class HostKeysRequest(BaseModel):
+    host_keys: list[str] = Field(
+        description="The server's host keys, as known_hosts lines, confirmed"
+    )
+
+
+class InstallKeysRequest(BaseModel):
+    password: str = Field(
+        description="The password of the account the backups are pushed to. "
+        "Used for one connection and never stored or logged."
+    )
 
 
 class RunResponse(BaseModel):
@@ -143,6 +165,72 @@ def staging(request: Request) -> StagingReading:
     system it would be created on.
     """
     return _service(request).staging()
+
+
+@router.get("/connection", response_model=BackupConnection)
+def connection(request: Request) -> BackupConnection:
+    """Whether each cluster member can push to the backup server.
+
+    Every member asked at once, over one SSH connection each: the public half
+    of its backup key, and a connection to the server made the way a backup
+    makes it, with `BatchMode`. `host_keys` is what the inventory holds of the
+    server's own keys, confirmed by an operator.
+    """
+    return _trust(request).read()
+
+
+@router.post("/connection/scan", response_model=list[ServerHostKey])
+def scan(request: Request, user: User = admin) -> list[ServerHostKey]:
+    """The backup server's host keys, read over the network, to be compared.
+
+    Nothing is written. What comes back is shown with its fingerprint so an
+    operator can compare it against the server before confirming it.
+    """
+    return _trust(request).scan()
+
+
+@router.put("/connection/key", response_model=SettingsResponse)
+def prepare(
+    request: Request,
+    payload: HostKeysRequest,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> SettingsResponse:
+    """Commit the confirmed host keys, a dedicated key and a shell using it.
+
+    One commit on `cluster_machines`. A run of `seapath_setup_backup_restore`
+    then generates the key on every member and trusts the host key there.
+    """
+    try:
+        commit = _trust(request).prepare(payload.host_keys, user.username, if_match)
+    except InvalidBackupSetting as error:
+        raise ApiError("invalid_backup_setting", str(error), 400) from error
+    except RefusedWrite as error:
+        raise ApiError(
+            "refused_write",
+            str(error),
+            409,
+            {"divergences": [item.model_dump() for item in error.divergences]},
+        ) from error
+    return SettingsResponse(
+        commit=commit.hash if commit else None,
+        message=commit.message if commit else "Nothing changed.",
+    )
+
+
+@router.post("/connection/install", response_model=BackupConnection)
+def install(
+    request: Request, payload: InstallKeysRequest, user: User = admin
+) -> BackupConnection:
+    """Append every member's backup key to the server's `authorized_keys`.
+
+    `ssh-copy-id`, for all the members at once: one connection with the
+    password typed here, which is used for that connection alone. The server's
+    host key must have been confirmed first, and the connection refuses a
+    server that answers with another one before the password is sent. Every
+    member is then asked again. See D57.
+    """
+    return _trust(request).install(payload.password, user.username)
 
 
 @router.put("/settings", response_model=SettingsResponse)

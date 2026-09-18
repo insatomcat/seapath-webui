@@ -16,14 +16,21 @@ certificates under `/etc/seapath/webui/` plus the `authorized_keys` of the
 `ansible` account. Everything else on a host is changed by an Ansible run,
 through the upstream roles, unchanged.
 
-There is exactly one exception, and it is bounded: at first boot the service
-appends its own key to the `ansible` account's `authorized_keys`, provisioning
-the trust it needs to reach even its own machine. Without it nothing can
-converge at all, not even a standalone node. Append, never rewrite: that file
-arrives from the ISO carrying the site key, and clobbering it locks out any
-conventional Ansible control machine. Do not grow this exception. Anything else
+There is exactly one exception on a SEAPATH machine, and it is bounded: at
+first boot the service appends its own key to the `ansible` account's
+`authorized_keys`, provisioning the trust it needs to reach even its own
+machine. Without it nothing can converge at all, not even a standalone node.
+Append, never rewrite: that file arrives from the ISO carrying the site key,
+and clobbering it locks out any conventional Ansible control machine. Do not grow this exception. Anything else
 that tempts you to write to a host is a variable in the inventory and a
 playbook.
+
+The second one sits outside SEAPATH altogether and is bounded the same way:
+the cluster members' backup keys are appended to the `authorized_keys` of the
+account on the backup server, with that account's password typed once by an
+operator, after the server's host key was confirmed. No playbook reaches that
+server, since it is not in the inventory, and it is trust material. Append,
+never rewrite, and nothing else on that server. D57 records it.
 
 If you find yourself writing `/etc/corosync/corosync.conf`, calling
 `corosync-keygen`, running `cephadm`, or restarting a host service from Python,

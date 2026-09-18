@@ -113,6 +113,50 @@ to be erased.
     </p>
   </section>
 
+  {# Whether each cluster member can push to the backup server, asked the way
+     a backup connects, with `BatchMode`. The backups are pushed by root with
+     no password, so each member needs a key the server accepts and the
+     server's host key in root's known_hosts. The role does the machines' half
+     from the inventory; the keys reach the server with the password of the
+     account the backups are pushed to, typed once. See D57. #}
+  <section class="card" id="connection-card" hidden>
+    <div class="card-head">
+      <h2>Connection to the backup server</h2>
+      <div class="card-acts">
+        <span class="pane-foot-note" id="connection-when"></span>
+        <button type="button" id="connection-read" class="secondary">Check again</button>
+      </div>
+    </div>
+    <div class="loading" id="connection-loading" hidden>
+      Asking every cluster member to reach the backup server
+    </div>
+    <p class="warning" id="connection-note" hidden></p>
+    <dl id="connection-facts" hidden>
+      <dt>Server host key</dt>
+      <dd id="connection-hostkey"></dd>
+      <dt>Key</dt>
+      <dd id="connection-key"></dd>
+    </dl>
+    <div class="table-scroll" id="connection-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Member</th>
+            <th>Backup key</th>
+            <th>Reaches the server</th>
+          </tr>
+        </thead>
+        <tbody id="connection-rows"></tbody>
+      </table>
+    </div>
+    <div class="card-actions" id="connection-acts" hidden>
+      <button type="button" id="connection-prepare" hidden>Use a dedicated key</button>
+      <button type="button" id="connection-generate" hidden>Generate the keys</button>
+      <button type="button" id="connection-install" hidden>Install the keys on the server</button>
+    </div>
+    <p class="help" id="connection-help" hidden></p>
+  </section>
+
   {# What a full backup would weigh, per guest. `rbd du` read here rather than
      on a machine: the numbers belong to Ceph and this service already talks to
      Ceph for a guest's metadata. The two filters are applied exactly as the
@@ -332,6 +376,54 @@ to be erased.
     <div class="card-actions">
       <button type="button" id="volume-go" disabled>Declare and create it</button>
       <button type="button" id="volume-cancel" class="secondary">Cancel</button>
+    </div>
+  </div>
+</div>
+
+{# The server's host key, read over the network and shown to be compared. A
+   key learned that way comes from whoever answered, and only the operator's
+   comparison against the server itself makes it trust. #}
+<div class="modal" id="trust" data-dismiss="trust-cancel" hidden>
+  <div class="modal-body wide">
+    <h2>A dedicated key for the backups</h2>
+    <p class="lead">
+      Commits three things on <code>cluster_machines</code>: the backup
+      server's host key, a key dedicated to the backups at
+      <code>/root/.ssh/backup_restore_ed25519</code>, and a remote shell that
+      uses it. A run of <code>seapath_setup_backup_restore</code> then
+      generates that key on every member, once, and adds the host key to
+      root's <code>known_hosts</code>.
+    </p>
+    <div class="loading" id="trust-loading" hidden>Reading the server's host keys</div>
+    <p class="warning" id="trust-compare" hidden></p>
+    <div id="trust-keys"></div>
+    <p class="error" id="trust-error" hidden></p>
+    <div class="card-actions">
+      <button type="button" id="trust-go" disabled>Trust it and create the keys</button>
+      <button type="button" id="trust-cancel" class="secondary">Cancel</button>
+    </div>
+  </div>
+</div>
+
+{# ssh-copy-id, for every member at once. The password is sent with this
+   request, used for one connection to the server, and neither stored nor
+   logged. #}
+<div class="modal" id="install" data-dismiss="install-cancel" hidden>
+  <div class="modal-body">
+    <h2>Install the keys on the backup server</h2>
+    <p id="install-what"></p>
+    <label for="install-password" id="install-label">Password</label>
+    <input type="password" id="install-password" autocomplete="off">
+    <p class="help">
+      Used for this one connection, with password authentication only, and
+      neither stored nor logged. The connection is refused before the password
+      is sent if the server answers with another host key than the one
+      confirmed.
+    </p>
+    <p class="error" id="install-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="install-cancel" class="secondary">Cancel</button>
+      <button type="button" id="install-go">Install them</button>
     </div>
   </div>
 </div>

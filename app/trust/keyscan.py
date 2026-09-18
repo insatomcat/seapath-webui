@@ -43,7 +43,7 @@ class ScanFailed(Exception):
     """No key could be read from that address."""
 
 
-def scan(addresses: list[str]) -> list[ScannedKey]:
+def scan(addresses: list[str], port: int = 22) -> list[ScannedKey]:
     binary = shutil.which("ssh-keyscan")
     if binary is None:
         raise ScanFailed(
@@ -54,7 +54,15 @@ def scan(addresses: list[str]) -> list[ScannedKey]:
     found: list[ScannedKey] = []
     for address in addresses:
         completed = subprocess.run(
-            [binary, "-T", str(_TIMEOUT_SECONDS), "-t", _TYPES, address],
+            [
+                binary,
+                "-T",
+                str(_TIMEOUT_SECONDS),
+                "-t",
+                _TYPES,
+                *(["-p", str(port)] if port != 22 else []),
+                address,
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -76,7 +84,8 @@ def scan(addresses: list[str]) -> list[ScannedKey]:
         raise ScanFailed(
             "No host key answered at "
             + ", ".join(addresses)
-            + ". The machines have to be up and reachable on port 22 from here."
+            + f". The machines have to be up and reachable on port {port} from "
+            "here."
         )
     return found
 

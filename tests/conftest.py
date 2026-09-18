@@ -37,6 +37,7 @@ from app.main import create_app
 from app.runs.fake import FakeRunAdapter
 from app.services.ping import FakePinger
 from app.services.registry import FakeTagSource
+from app.trust.backup_server import FakeKeyInstaller
 from tests.fakes import FakeAuthenticator, FakeRoleDirectory, write_fake_collection
 
 # The service is HTTPS only and sets its cookies `Secure`, so a test client on
@@ -163,6 +164,12 @@ def remote_runner() -> FakeRemoteRunner:
 
 
 @pytest.fixture
+def key_installer() -> FakeKeyInstaller:
+    """The backup server, as far as installing a key on it goes."""
+    return FakeKeyInstaller()
+
+
+@pytest.fixture
 def pinger() -> FakePinger:
     """The network, where one address answers and every other is silent."""
     return FakePinger({"192.168.200.1"})
@@ -211,6 +218,7 @@ def client(
     replication_transport: FakePeerTransport,
     pinger: FakePinger,
     remote_runner: FakeRemoteRunner,
+    key_installer: FakeKeyInstaller,
 ) -> Iterator[TestClient]:
     application = create_app(
         settings=settings,
@@ -226,6 +234,7 @@ def client(
         replication_transport=replication_transport,
         pinger=pinger,
         remote_runner=remote_runner,
+        key_installer=key_installer,
     )
     with TestClient(application, base_url=BASE_URL) as test_client:
         yield test_client
