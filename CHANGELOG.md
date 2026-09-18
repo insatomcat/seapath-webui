@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.132 - 2026-09-18
+
+- fix: hold the reading guard to its new wording in the tests
+
 ## 0.3.131 - 2026-09-18
 
 - fix: keep the Backup page off the automatic reading
