@@ -171,6 +171,14 @@
         box.append(span("new kernel", "tag warn"));
       }
     }
+    // The room for the snapshot the update takes of root. The update refuses
+    // too little before it touches anything, and this says so before the
+    // run; it is as old as the check, so it warns rather than blocks.
+    const room = reading.snapshot;
+    if (room && room.note) {
+      box.append(document.createElement("br"));
+      box.append(span(room.note, room.enough ? "warning-text" : "state-failed"));
+    }
     if (reading.refresh_error) {
       box.append(document.createElement("br"));
       box.append(
@@ -398,10 +406,22 @@
       .map((machine) => machine.host)
       .filter((host) => selected.has(host));
     const entry = view.update.entry;
+    const cramped = view.machines
+      .filter((machine) => selected.has(machine.host))
+      .filter((machine) =>
+        machine.reading && machine.reading.snapshot &&
+          !machine.reading.snapshot.enough && !machine.stale
+      )
+      .map((machine) => machine.host);
     confirm({
       title: "Update " + hosts.join(", "),
       body: entry.disruption,
-      note: entry.notes,
+      note:
+        (cramped.length
+          ? "At the last check, " + cramped.join(", ") +
+            " had no room for the snapshot, and the update stops there " +
+            "before changing anything unless that was fixed since. "
+          : "") + entry.notes,
       label: hosts.length === 1 ? "Update and reboot it" : "Update and reboot them",
       act: async () => {
         const launched = await API.post("/software/update", { hosts });

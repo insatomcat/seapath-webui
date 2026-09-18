@@ -116,6 +116,10 @@ def _answer(**overrides) -> str:
             "/boot/vmlinuz-6.12.9+deb13-rt-amd64",
         ],
         "reboot_required": False,
+        "vg": "vg1",
+        "volumes": ["root,16106127360", "swap,524288000", "varlog,5368709120"],
+        "vg_free": "30064771072",
+        "vg_message": "",
     }
     answer.update(overrides)
     return json.dumps(answer)
@@ -261,6 +265,50 @@ def test_a_simulation_that_failed_says_why_and_lists_nothing() -> None:
     assert reading.simulation.upgrades == []
 
 
+def test_a_volume_group_with_room_for_root_is_enough() -> None:
+    room = software.parse_reading("elabo1", _answer()).snapshot
+
+    assert room.enough is True
+    assert room.note is None
+    assert room.free_bytes == 30064771072
+    assert room.root_bytes == 16106127360
+
+
+def test_a_volume_group_with_too_little_room_is_refused_before_the_run() -> None:
+    """What stopped the first real update: a local volume had taken the room."""
+    room = software.parse_reading("elabo1", _answer(vg_free="1073741824")).snapshot
+
+    assert room.enough is False
+    assert "1.0 GiB free" in room.note
+
+
+def test_less_room_than_root_is_accepted_and_said() -> None:
+    room = software.parse_reading("elabo1", _answer(vg_free="8589934592")).snapshot
+
+    assert room.enough is True
+    assert "less than root" in room.note
+
+
+def test_a_snapshot_left_by_an_earlier_update_is_refused() -> None:
+    reading = software.parse_reading(
+        "elabo1",
+        _answer(volumes=["root,16106127360", "root-snap,16106127360"]),
+    )
+
+    assert reading.snapshot.leftover is True
+    assert reading.snapshot.enough is False
+
+
+def test_a_volume_group_that_could_not_be_read_says_why() -> None:
+    room = software.parse_reading(
+        "elabo1",
+        _answer(vg_free="", vg_message='Volume group "vg1" not found'),
+    ).snapshot
+
+    assert room.enough is False
+    assert room.note == 'Volume group "vg1" not found'
+
+
 def test_an_unreadable_answer_is_an_error_and_not_a_crash() -> None:
     assert software.parse_reading("elabo1", "{not json").error
 
@@ -288,6 +336,11 @@ def test_the_check_refreshes_simulates_and_writes_nothing_on_a_machine(
         "dist-upgrade",
     ]
     assert tasks[2]["ansible.builtin.command"]["argv"] == ["uname", "-r"]
+    # The volume group the update snapshots root in, named the way the
+    # playbook names it.
+    lvm = [task["ansible.builtin.command"]["argv"] for task in tasks[5:7]]
+    assert [argv[0] for argv in lvm] == ["lvs", "vgs"]
+    assert all(argv[-1] == "{{ vg_name | default('vg1') }}" for argv in lvm)
     # The one task that writes is the last, and it writes on the controller,
     # into this run's own results directory.
     writes = [task for task in tasks if "ansible.builtin.copy" in task]

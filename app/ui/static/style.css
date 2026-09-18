@@ -803,6 +803,10 @@ td button {
 
 /* The Updates page: a kernel release is one word an operator compares with
    the one below it, and it reads badly broken across two lines. */
+.page.updates .warning-text {
+  color: var(--warn);
+}
+
 .page.updates #rows td:nth-child(2),
 .page.updates #rows td:nth-child(3) {
   white-space: nowrap;

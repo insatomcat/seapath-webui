@@ -4464,6 +4464,20 @@ machine running the same playbook needs them as much:
   while it reboots, and puts it back online afterwards. A rolled back machine
   fails the run, so the next machine is not touched.
 
+The first run on a real cluster found a third one. The snapshot asked for
+21 GiB, more than root itself, and the volume group had less than that free
+once a local volume had been created in it. The snapshot was also taken after
+the standby and `noout`, so its failure left the member in standby with
+`noout` set. The snapshot is now taken first, sized to root when the volume
+group has the room and to what is free otherwise, since a snapshot never needs
+more than its origin. Less than 2 GiB free, or a `root-snap` left by an
+earlier update, stops the run before anything changes. And every step before
+the reboot sits in a `block` whose `rescue` disarms the boot counter, restores
+the GRUB password, puts the member back online, clears `noout`, and removes
+the snapshot unless packages may have changed, in which case it is kept as the
+way back. The check reads the same volume group, so the page says before the
+run which machine the update would refuse.
+
 A collection from before that change is still what some images ship. The page
 reads the installed playbook, and where no play carries `serial: 1` it sends
 one machine per run.

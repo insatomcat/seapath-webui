@@ -715,9 +715,13 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "The root volume is snapshotted before the upgrade and the GRUB "
             "boot counter armed: a machine that fails to boot its new system "
             "is rolled back to the snapshot, and the run then stops before "
-            "the next machine. A failure before the reboot leaves the member "
-            "in standby, with Ceph's noout flag set, for someone to look at. "
-            "The machine this service runs on is updated from another member."
+            "the next machine. The snapshot is taken first, sized to root or "
+            "to what the volume group has free, and too little room or a "
+            "snapshot left by an earlier update stops the run before anything "
+            "changes. A failure before the reboot puts the member back online "
+            "and clears noout, and keeps the snapshot only if packages may "
+            "have changed. The machine this service runs on is updated from "
+            "another member."
         ),
     ),
     # Cluster entries. Listed so an operator can see what exists and why it is

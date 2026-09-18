@@ -66,6 +66,17 @@ _FILE = re.compile(r"^software_(?P<host>.+)\.json$")
 # the error messages an operator reads would not be the ones a search finds.
 _ENVIRONMENT = {"LC_ALL": "C"}
 
+# The volume group `seapath_update_debian` snapshots root in, as it names it.
+_VG = "{{ vg_name | default('vg1') }}"
+
+SNAPSHOT_MIN_BYTES = 2 * 1024**3
+"""The least room the update accepts for its snapshot.
+
+The playbook's own default for `snapshot_min_size_gib`, repeated here so the
+page can say before the run what the run would refuse. Below it the snapshot
+would fill up during the upgrade and could not be rolled back to.
+"""
+
 
 # What the check keeps of each machine, as one Jinja mapping serialised by
 # `to_json`, which keeps a boolean a boolean and a list a list. Every value
@@ -82,7 +93,11 @@ _READING = (
     "'running_kernel': (software_kernel.stdout | default('')), "
     "'kernels': (software_kernels.stdout_lines | default([])), "
     "'reboot_required': "
-    "((software_reboot.stat | default({})).exists | default(false))"
+    "((software_reboot.stat | default({})).exists | default(false)), "
+    "'vg': (vg_name | default('vg1')), "
+    "'volumes': (software_volumes.stdout_lines | default([])), "
+    "'vg_free': (software_vg.stdout | default('')), "
+    "'vg_message': (software_vg.stderr | default(software_vg.msg | default('')))"
     "}"
 )
 
@@ -190,6 +205,49 @@ def check_play() -> str:
                     "ignore_errors": True,
                 },
                 {
+                    # What the update's snapshot is sized from, and a snapshot an
+                    # update left behind, which it refuses.
+                    "name": "Read the root volume group",
+                    "ansible.builtin.command": {
+                        "argv": [
+                            "lvs",
+                            "--noheadings",
+                            "--nosuffix",
+                            "--units",
+                            "b",
+                            "--separator",
+                            ",",
+                            "-o",
+                            "lv_name,lv_size",
+                            _VG,
+                        ],
+                    },
+                    "register": "software_volumes",
+                    "ignore_errors": True,
+                    "changed_when": False,
+                },
+                {
+                    # The room the snapshot is taken from.
+                    "name": "Read the room left in the root volume group",
+                    "ansible.builtin.command": {
+                        "argv": [
+                            "vgs",
+                            "--noheadings",
+                            "--nosuffix",
+                            "--units",
+                            "b",
+                            "--separator",
+                            ",",
+                            "-o",
+                            "vg_free",
+                            _VG,
+                        ],
+                    },
+                    "register": "software_vg",
+                    "ignore_errors": True,
+                    "changed_when": False,
+                },
+                {
                     "name": "Keep what the machine answered",
                     "ansible.builtin.copy": {
                         "content": "{{ " + _READING + " | to_json }}",
@@ -253,6 +311,22 @@ class Simulation(BaseModel):
     removals: list[Package] = Field(default_factory=list)
 
 
+class SnapshotRoom(BaseModel):
+    """What the update's snapshot of root will find in the volume group."""
+
+    vg: str
+    free_bytes: int | None = None
+    root_bytes: int | None = None
+    leftover: bool = Field(
+        default=False,
+        description="A root-snap an earlier update left, which the update refuses",
+    )
+    enough: bool = Field(
+        default=True, description="Whether the update would accept the room"
+    )
+    note: str | None = None
+
+
 class MachineReading(BaseModel):
     """What one machine answered to the check."""
 
@@ -275,6 +349,10 @@ class MachineReading(BaseModel):
         description="A newer kernel is installed than the one the machine booted",
     )
     reboot_required: bool = False
+    snapshot: SnapshotRoom | None = Field(
+        default=None,
+        description="Whether the update has room for its snapshot of root",
+    )
 
 
 # `Inst <name> [<installed>] (<candidate> <origins> [<arch>])`, the installed
@@ -377,7 +455,55 @@ def parse_reading(host: str, raw: str) -> MachineReading:
         running and reading.newest_kernel and reading.newest_kernel != running
     )
     reading.reboot_required = bool(data.get("reboot_required"))
+    reading.snapshot = parse_room(data)
     return reading
+
+
+def parse_room(data: dict) -> SnapshotRoom | None:
+    """The room for the snapshot, and whether the update would refuse it.
+
+    The same two refusals the playbook makes before it touches anything, so
+    the page can say them before the run: a `root-snap` left by an update that
+    never finished, and less room than `SNAPSHOT_MIN_BYTES`. Absent from an
+    answer written before the check read the volume group.
+    """
+    if "vg" not in data:
+        return None
+    room = SnapshotRoom(vg=str(data.get("vg") or "vg1"))
+    free = str(data.get("vg_free") or "").strip()
+    if not free.isdigit():
+        message = str(data.get("vg_message") or "").strip()
+        room.note = message or f"The volume group {room.vg} could not be read."
+        room.enough = False
+        return room
+    room.free_bytes = int(free)
+    for line in data.get("volumes") or []:
+        name, _, size = str(line).strip().partition(",")
+        if name == "root" and size.strip().isdigit():
+            room.root_bytes = int(size)
+        elif name == "root-snap":
+            room.leftover = True
+    if room.leftover:
+        room.enough = False
+        room.note = (
+            f"{room.vg}/root-snap is left from an update that did not finish. "
+            "The update refuses to run until it is removed."
+        )
+    elif room.free_bytes < SNAPSHOT_MIN_BYTES:
+        room.enough = False
+        room.note = (
+            f"{room.vg} has {room.free_bytes / 1024**3:.1f} GiB free, and the "
+            f"snapshot the update takes of root needs at least "
+            f"{SNAPSHOT_MIN_BYTES // 1024**3} GiB."
+        )
+    elif room.root_bytes is not None and room.free_bytes < room.root_bytes:
+        room.note = (
+            f"{room.vg} has {room.free_bytes / 1024**3:.1f} GiB free, less than "
+            f"root's {room.root_bytes / 1024**3:.1f} GiB. The snapshot takes "
+            "what is free, and an upgrade writing more than that could not be "
+            "rolled back."
+        )
+    return room
 
 
 def read(files: list[Path]) -> dict[str, MachineReading]:
