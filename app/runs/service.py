@@ -676,6 +676,8 @@ class RunService:
                 400,
                 {"guests": plan.hosts or []},
             )
+        if entry.spares_controller:
+            self._check_spared(entry, plan)
         blocking = self._blocking(
             entry,
             self._unmet_preconditions(plan.hosts),
@@ -893,6 +895,35 @@ class RunService:
             else:
                 supplied[name] = _checked_value(entry, spec, value)
         return dict(supplied)
+
+    def _check_spared(self, entry: PlaybookEntry, plan: Scope) -> None:
+        """Refuse a run that would reboot the machine driving it midway.
+
+        The default scope of such an entry holds this machine too, so the
+        refusal names the others: sending the run to them is the way out, and
+        updating this one is the business of another member.
+        """
+        this_host = self._inventory.state().this_host
+        if this_host is None or plan.hosts is None or this_host not in plan.hosts:
+            return
+        others = [host for host in plan.hosts if host != this_host]
+        raise ApiError(
+            "controller_in_scope",
+            (
+                f"{entry.title} reboots each machine and finishes its work once "
+                f"the machine is back. {this_host} is the machine driving this "
+                "run, so it would go down with the reboot and leave the rest "
+                "undone. "
+                + (
+                    f"Send it to {', '.join(others)}, and update {this_host} "
+                    "from one of them."
+                    if others
+                    else "It has to be launched from another machine."
+                )
+            ),
+            409,
+            {"this_host": this_host, "others": others},
+        )
 
     def _check_machine(
         self,

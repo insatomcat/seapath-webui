@@ -237,6 +237,16 @@ class PlaybookEntry(BaseModel):
     from, the way a reboot does, and the record says so rather than calling it
     a failure. See D23.
     """
+    spares_controller: bool = False
+    """This playbook refuses to be sent to the machine driving the run.
+
+    `seapath_update_debian` reboots each machine halfway through and finishes
+    once it is back: the snapshot is removed, the GRUB password restored, the
+    cluster member put back online and Ceph allowed to rebalance again. Sent
+    to the machine this service runs on, the controller goes down with the
+    reboot and none of that happens, so the machine is left in standby with a
+    snapshot filling up under its root. It is updated from another member.
+    """
     results_variable: str | None = None
     """The variable naming where this playbook fetches what it measured.
 
@@ -677,6 +687,39 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "the SSH trust targets the `ansible` account and not root."
         ),
     ),
+    PlaybookEntry(
+        id="seapath_update_debian",
+        playbook=f"{COLLECTION}.seapath_update_debian",
+        title="Update the software of the Debian machines",
+        targets=["all"],
+        # The simulation it would need is the Updates page's check. Check mode
+        # snapshots nothing, skips the upgrade and the reboot, and the task
+        # after the reboot reads the `.stdout` of an `lvs` it skipped.
+        preview=Preview.NONE,
+        reboots=Reboots.YES,
+        spares_controller=True,
+        disruption=(
+            "Upgrades every package of each machine with `apt-get "
+            "dist-upgrade`, writes the boot menu and reboots it, one machine "
+            "at a time. A cluster member is put in standby first, so its "
+            "guests move to the other members and come back only when "
+            "Pacemaker moves them, and Ceph is kept from rebalancing while it "
+            "reboots. A standalone machine's guests stop with it."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
+        notes=(
+            "The root volume is snapshotted before the upgrade and the GRUB "
+            "boot counter armed: a machine that fails to boot its new system "
+            "is rolled back to the snapshot, and the run then stops before "
+            "the next machine. A failure before the reboot leaves the member "
+            "in standby, with Ceph's noout flag set, for someone to look at. "
+            "The machine this service runs on is updated from another member."
+        ),
+    ),
     # Cluster entries. Listed so an operator can see what exists and why it is
     # not offered yet, and unavailable until this node is part of a cluster.
     PlaybookEntry(
@@ -1091,6 +1134,7 @@ BY_ID = {entry.id: entry for entry in CATALOGUE}
 
 # Where ansible-galaxy lays a collection out under a collections path.
 _COLLECTION_DIRECTORY = ("ansible_collections", "seapath", "ansible", "playbooks")
+COLLECTION_PLAYBOOKS = _COLLECTION_DIRECTORY
 
 # The cloud-init seed of a guest: the role that builds it, the tool that role
 # runs on the control machine, and the Debian package carrying that tool. The

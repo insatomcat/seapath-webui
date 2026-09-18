@@ -78,7 +78,7 @@ app/
   trust/             invitations, CSR signing, SSH key provisioning, revocation
   runs/              ansible-runner driver, event stream, artefacts
   services/          node.py, realtime.py, cluster.py, storage.py, vms.py,
-                     containers.py, backup.py
+                     containers.py, backup.py, software.py
   api/v1/            routers, one module per resource
   ui/                Jinja templates and static assets
 packaging/           the PAM service file the image ships

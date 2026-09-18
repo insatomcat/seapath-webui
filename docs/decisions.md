@@ -4438,3 +4438,58 @@ created for the purpose.
 is where the role adds one. A free stretch between two partitions is reported
 with its size and not offered: using it is a judgement about the disk that
 belongs to whoever laid it out, and the role declines to make it.
+
+## D59 - Settled: a software update is the upstream playbook, sent from another machine, and checking is a simulation
+
+An operator wants two answers about the software of the machines: what an
+upgrade would bring, and the upgrade. Neither is desired state. An upgrade is
+an act made once, like a backup ([D53](#d53)) or a new volume ([D58](#d58)),
+and the inventory keeps nothing of it: the run record is its trace.
+
+**The upgrade is `seapath_update_debian.yaml`, unchanged here.** It snapshots
+the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`,
+writes the boot menu, reboots, and removes the snapshot once the machine is
+back; a machine that fails to boot its new system is rolled back to the
+snapshot by the initramfs. Two things were missing from it and were fixed
+upstream rather than worked around here, because a conventional control
+machine running the same playbook needs them as much:
+
+- `update-grub` ran only to lift and restore the GRUB password, and only where
+  there was one. Installing a kernel does not regenerate `grub.cfg` on every
+  SEAPATH machine, so the reboot booted the previous kernel. It now runs after
+  every upgrade, before the reboot.
+- The play updated and rebooted every machine at once, and moved no guest
+  first. It now takes one machine at a time (`serial: 1`), puts a cluster
+  member in standby and waits for its guests to leave, sets Ceph's `noout`
+  while it reboots, and puts it back online afterwards. A rolled back machine
+  fails the run, so the next machine is not touched.
+
+A collection from before that change is still what some images ship. The page
+reads the installed playbook, and where no play carries `serial: 1` it sends
+one machine per run.
+
+**The machine driving the run is never in it.** The playbook finishes its work
+after the reboot, and the controller is this service: sent to its own machine
+it would go down with the reboot and leave the member in standby, `noout` set,
+the GRUB password lifted and a snapshot filling up under the root. The catalogue
+entry carries `spares_controller`, and the run service refuses such a run from
+any page, naming the other machines. Every machine runs this service, so this
+one is updated from another member's page. A standalone machine has no other
+member: it is updated from a control machine, and the page says so.
+
+**Checking is a generated play, and it installs nothing.** No playbook upstream
+answers the question, so it is the shape [D30](#d30) allows: ordinary modules
+and commands given as `argv`, on the ordinary run path. It refreshes the
+package lists, which is a cache, runs `apt-get --simulate dist-upgrade`, which
+is what the upgrade runs and simulated, and reads the kernel booted beside the
+kernels in `/boot`, since a kernel installed and not booted is a machine behind
+with nothing pending. The controller writes what each machine answered into
+the run's results directory, so nothing is left on the machine and the answer
+is kept with the run that produced it. Reading `apt` over the SSH path of
+[D54](#d54) instead was weighed and set aside: without the refresh the answer
+is as old as the machine's last `apt-get update`, and the refresh is a write
+that belongs in a run.
+
+The page draws the last check and says when it was taken. A machine updated
+after that check is marked as such rather than listed with the packages it has
+already installed.

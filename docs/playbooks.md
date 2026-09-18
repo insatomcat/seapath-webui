@@ -374,6 +374,27 @@ run then ends green having created the guest with no seed at all. The refusal
 names the guests and, for the first case, the package. See
 [D48](decisions.md#d48).
 
+### Software updates
+
+| Playbook | Targets | Preview | Reboots | Notes |
+|---|---|---|---|---|
+| `seapath_update_debian.yaml` | `all` | none | yes | Snapshots the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`, writes the boot menu and reboots, one machine at a time. A cluster member is put in standby first and Ceph's `noout` is set while it reboots. Refused on the machine driving the run. See [D59](decisions.md#d59). |
+
+It has a screen of its own, the Updates page, which checks first what an
+upgrade would bring with a simulation and sends the playbook to the machines
+ticked there. Two things about it are stated where an operator reads them.
+
+**Preview is `none`.** The simulation the page runs is the preview. Check mode
+would take no snapshot, skip the upgrade and the reboot, and the task after the
+reboot reads the `.stdout` of an `lvs` it skipped.
+
+**The machine driving the run is left out, from every page.** The playbook
+finishes after the reboot: it removes the snapshot, restores the GRUB password,
+puts the member back online and clears `noout`. Run from the machine it
+reboots, the controller goes down with it. The entry carries
+`spares_controller`, and the run service refuses a scope holding this node,
+naming the others. A standalone machine is updated from a control machine.
+
 ### Not reviewed, and offered as such
 
 Every other playbook of the collection is read off the disk and listed under
@@ -381,9 +402,6 @@ its own heading. They are launchable, described by what the reader counted, and
 carry no sentence a human wrote. Several deserve a reviewed entry and have not
 had one yet:
 
-- `seapath_update_debian.yaml`. It snapshots the root LVM, temporarily disables
-  the GRUB password, arms a boot counter and reboots. That sequence deserves
-  its own screen with its own rollback story.
 - `seapath_revert_hardening.yaml`. Sitting next to `seapath_setup_hardening` in
   the list, which is where an operator looks for it.
 - `seapath_setup_vmmgrapi.yaml`. Deprecated by this service, and the entry that

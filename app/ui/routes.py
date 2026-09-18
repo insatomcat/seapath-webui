@@ -265,6 +265,10 @@ def install(app: FastAPI) -> None:
     def cluster(request: Request):
         return _page(request, "cluster.html", "cluster")
 
+    @app.get("/updates", response_class=HTMLResponse, include_in_schema=False)
+    def updates(request: Request):
+        return _page(request, "updates.html", "updates")
+
     @app.get("/realtime", response_class=HTMLResponse, include_in_schema=False)
     def realtime(request: Request):
         return _page(request, "realtime.html", "realtime")

@@ -1,0 +1,448 @@
+// Copyright (C) 2026, RTE (http://www.rte-france.com)
+// SPDX-License-Identifier: Apache-2.0
+
+// The Updates page: what an upgrade would bring to each machine, and the
+// upgrade.
+//
+// Everything drawn here comes out of the run history. What a machine would
+// install is what it answered to the last check, which is a run, and the page
+// says how old that answer is. A machine updated since then is marked, rather
+// than listed with packages it has already installed.
+//
+// The machine serving the page is never offered. The playbook reboots each
+// machine and finishes its work once the machine is back, and the controller
+// is this service: it would go down with the reboot and leave the machine in
+// standby with its snapshot still in place.
+
+(function () {
+  let canCheck = false;
+  let canUpdate = false;
+  let view = null;
+  const selected = new Set();
+
+  function element(id) {
+    return document.getElementById(id);
+  }
+
+  function showBanner(message) {
+    const banner = element("banner");
+    banner.textContent = message;
+    banner.hidden = !message;
+  }
+
+  function cell(content) {
+    const node = document.createElement("td");
+    if (content instanceof Node) {
+      node.append(content);
+    } else {
+      node.textContent = content;
+    }
+    return node;
+  }
+
+  function span(text, className) {
+    const node = document.createElement("span");
+    node.textContent = text;
+    if (className) {
+      node.className = className;
+    }
+    return node;
+  }
+
+  function when(iso) {
+    if (!iso) {
+      return "";
+    }
+    return new Date(iso).toLocaleString();
+  }
+
+  function plural(count, one, many) {
+    return count + " " + (count === 1 ? one : many);
+  }
+
+  function ended(state) {
+    return {
+      success: "succeeded",
+      failed: "failed",
+      interrupted: "was interrupted",
+      cancelled: "was cancelled",
+    }[state] || state;
+  }
+
+  function runLink(run, text) {
+    const link = document.createElement("a");
+    link.href = "runs?run=" + encodeURIComponent(run.id);
+    link.textContent = text;
+    return link;
+  }
+
+  // The lead says which check the table is drawn from, and whether a newer
+  // one is going. A table without a date would read as the machines now.
+  function renderLead() {
+    const lead = element("lead");
+    lead.replaceChildren();
+    if (view.check && ["pending", "running"].includes(view.check.state)) {
+      lead.append("A check is running, ");
+      lead.append(runLink(view.check, "launched by " + view.check.launched_by));
+      lead.append(". ");
+    }
+    if (view.checked) {
+      lead.append(
+        "Checked " + when(view.checked.started_at) + " by " +
+          view.checked.launched_by + ": "
+      );
+      const run = runLink(view.checked, "the run " + ended(view.checked.state));
+      run.className = RunStream.stateClass(view.checked.state);
+      lead.append(run);
+      lead.append(".");
+    } else if (!view.check) {
+      lead.append(
+        "No check has been run yet. A check refreshes the package lists of " +
+          "every machine and asks apt what an upgrade would do; it installs " +
+          "nothing."
+      );
+    }
+    if (view.updating) {
+      lead.append(" An update is running, ");
+      lead.append(runLink(view.updating, "launched by " + view.updating.launched_by));
+      lead.append(".");
+    }
+  }
+
+  function kernelCell(reading) {
+    if (!reading || !reading.running_kernel) {
+      return cell("");
+    }
+    const box = document.createElement("div");
+    box.append(span(reading.running_kernel));
+    if (reading.kernel_pending) {
+      box.append(document.createElement("br"));
+      box.append(
+        span("installed, not booted: " + reading.newest_kernel, "tag warn")
+      );
+    }
+    return cell(box);
+  }
+
+  function pendingCell(machine) {
+    const reading = machine.reading;
+    if (machine.stale) {
+      return cell(span("updated since this check, check again", "tag"));
+    }
+    if (!reading) {
+      return cell(
+        view.checked
+          ? span("no answer to the last check", "state-failed")
+          : ""
+      );
+    }
+    if (reading.error) {
+      return cell(span(reading.error, "state-failed"));
+    }
+    const simulation = reading.simulation;
+    const upgrades = simulation.upgrades.length;
+    const installs = simulation.installs.length;
+    const removals = simulation.removals.length;
+    const box = document.createElement("div");
+    if (upgrades + installs + removals === 0) {
+      box.append(span("up to date", "state-success"));
+    } else {
+      const parts = [];
+      if (upgrades) {
+        parts.push(plural(upgrades, "upgrade", "upgrades"));
+      }
+      if (installs) {
+        parts.push(plural(installs, "new package", "new packages"));
+      }
+      if (removals) {
+        parts.push(plural(removals, "removal", "removals"));
+      }
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "inline-link";
+      open.textContent = parts.join(", ");
+      open.addEventListener("click", () => showPackages(machine));
+      box.append(open);
+      const kernel = simulation.upgrades
+        .concat(simulation.installs)
+        .some((item) => item.kernel);
+      if (kernel) {
+        box.append(" ");
+        box.append(span("new kernel", "tag warn"));
+      }
+    }
+    if (reading.refresh_error) {
+      box.append(document.createElement("br"));
+      box.append(
+        span(
+          "the package lists could not be refreshed: " + reading.refresh_error,
+          "state-failed"
+        )
+      );
+    }
+    return cell(box);
+  }
+
+  function lastUpdateCell(machine) {
+    const run = machine.last_update;
+    if (!run) {
+      return cell("");
+    }
+    const box = document.createElement("div");
+    box.append(when(run.started_at) + " ");
+    const link = runLink(run, run.state);
+    link.className = RunStream.stateClass(run.state);
+    box.append(link);
+    return cell(box);
+  }
+
+  function selectCell(machine) {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = selected.has(machine.host);
+    // This machine drives the run, and a run cannot outlive the reboot of
+    // the machine driving it.
+    box.disabled = !canUpdate || machine.this_node || !updateAvailable();
+    if (machine.this_node) {
+      box.title = "Updated from another member: this machine drives the run.";
+    }
+    box.addEventListener("change", () => {
+      if (box.checked && !view.one_at_a_time) {
+        // An older playbook reboots every machine it is sent to at once.
+        selected.clear();
+        selected.add(machine.host);
+        renderRows();
+      } else if (box.checked) {
+        selected.add(machine.host);
+      } else {
+        selected.delete(machine.host);
+      }
+      renderActs();
+    });
+    return cell(box);
+  }
+
+  function renderRows() {
+    const rows = element("rows");
+    rows.replaceChildren();
+    view.machines.forEach((machine) => {
+      const line = document.createElement("tr");
+      const name = document.createElement("div");
+      name.append(span(machine.host));
+      if (machine.this_node) {
+        name.append(" ");
+        name.append(span("this machine", "tag"));
+      }
+      line.append(
+        selectCell(machine),
+        cell(name),
+        kernelCell(machine.reading),
+        pendingCell(machine),
+        lastUpdateCell(machine)
+      );
+      rows.append(line);
+    });
+  }
+
+  // The reasons that stop an update of the machines ticked. An unreachable
+  // machine stops a run of all of them and not one narrowed to the others, so
+  // the server is left to decide that one when the run is launched.
+  function refusals() {
+    const update = view.update;
+    if (!update) {
+      return [];
+    }
+    return update.unmet.filter(
+      (_, index) => update.unmet_codes[index] !== "peer_reachable"
+    );
+  }
+
+  function updateAvailable() {
+    return Boolean(view.update) && refusals().length === 0 && !view.updating;
+  }
+
+  function renderActs() {
+    element("acts").hidden = !canUpdate;
+    const go = element("update");
+    go.disabled = selected.size === 0 || !updateAvailable();
+    const others = view.machines.filter((machine) => !machine.this_node);
+    const note = element("acts-note");
+    if (view.updating) {
+      note.textContent = "An update is already running.";
+    } else if (!view.one_at_a_time) {
+      note.textContent =
+        "The collection this image ships updates every machine it is sent " +
+        "to at once, without moving their guests first, so one machine is " +
+        "updated per run.";
+    } else if (view.this_host && others.length === 0) {
+      note.textContent =
+        "This machine is the only one, and it drives the run, so it cannot " +
+        "update itself: the run has to outlive the reboot. Run " +
+        "seapath_update_debian from a control machine.";
+    } else if (view.this_host) {
+      note.textContent =
+        view.this_host + " is updated from another member, since it drives " +
+        "the run and the run has to outlive its reboot.";
+    } else {
+      note.textContent = "";
+    }
+  }
+
+  function renderUnavailable() {
+    const box = element("unavailable");
+    const reasons = refusals();
+    box.textContent = reasons.join(" ");
+    box.hidden = reasons.length === 0;
+  }
+
+  function draw(answer) {
+    view = answer;
+    // A machine the inventory no longer declares cannot stay ticked.
+    const hosts = new Set(view.machines.map((machine) => machine.host));
+    Array.from(selected).forEach((host) => {
+      if (!hosts.has(host)) {
+        selected.delete(host);
+      }
+    });
+    element("loading").hidden = true;
+    element("note").textContent = view.note || "";
+    element("note").hidden = !view.note;
+    element("table").hidden = view.machines.length === 0;
+    element("check").hidden = !canCheck || view.machines.length === 0;
+    renderLead();
+    renderUnavailable();
+    renderRows();
+    renderActs();
+  }
+
+  function showPackages(machine) {
+    const simulation = machine.reading.simulation;
+    element("packages-host").textContent = machine.host;
+    const rows = element("packages-rows");
+    rows.replaceChildren();
+    const add = (item, after, className) => {
+      const line = document.createElement("tr");
+      const name = document.createElement("div");
+      name.append(span(item.name, className));
+      if (item.kernel) {
+        name.append(" ");
+        name.append(span("kernel", "tag warn"));
+      }
+      line.append(
+        cell(name),
+        cell(item.current || ""),
+        cell(after),
+        cell(item.origin || "")
+      );
+      rows.append(line);
+    };
+    simulation.upgrades.forEach((item) => add(item, item.candidate));
+    simulation.installs.forEach((item) => add(item, item.candidate + " (new)"));
+    simulation.removals.forEach((item) => add(item, "removed", "state-failed"));
+    const note = element("packages-note");
+    note.textContent = machine.reading.refresh_error
+      ? "The package lists could not be refreshed, so this is measured " +
+        "against the lists the machine already had."
+      : "";
+    note.hidden = !note.textContent;
+    element("packages-card").hidden = false;
+    element("packages-card").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+
+  function confirm({ title, body, note, label, act }) {
+    element("confirm-title").textContent = title;
+    element("confirm-disruption").textContent = body;
+    element("confirm-note").textContent = note || "";
+    element("confirm-note").hidden = !note;
+    element("confirm-error").hidden = true;
+
+    const go = element("confirm-go");
+    go.textContent = label;
+    go.disabled = false;
+    go.onclick = async () => {
+      go.disabled = true;
+      go.setAttribute("aria-busy", "true");
+      try {
+        await act();
+        element("confirm").hidden = true;
+      } catch (failure) {
+        const error = element("confirm-error");
+        error.textContent = failure.message;
+        error.hidden = false;
+        go.disabled = false;
+      } finally {
+        go.removeAttribute("aria-busy");
+      }
+    };
+    element("confirm").hidden = false;
+  }
+
+  function confirmCheck() {
+    confirm({
+      title: "Check the machines for software updates",
+      body:
+        "Refreshes the package lists of " +
+        view.machines.map((machine) => machine.host).join(", ") +
+        " from the sources each one is configured with, and asks apt what " +
+        "an upgrade would install, replace and remove. Nothing is installed " +
+        "and nothing restarts.",
+      label: "Check",
+      act: async () => {
+        RunWatch.open((await API.post("/software/check")).run_id, refresh);
+      },
+    });
+  }
+
+  function confirmUpdate() {
+    const hosts = view.machines
+      .map((machine) => machine.host)
+      .filter((host) => selected.has(host));
+    const entry = view.update.entry;
+    confirm({
+      title: "Update " + hosts.join(", "),
+      body: entry.disruption,
+      note: entry.notes,
+      label: hosts.length === 1 ? "Update and reboot it" : "Update and reboot them",
+      act: async () => {
+        const launched = await API.post("/software/update", { hosts });
+        selected.clear();
+        RunWatch.open(launched.run_id, refresh);
+      },
+    });
+  }
+
+  async function refresh() {
+    draw(await API.get("/software"));
+  }
+
+  element("check").addEventListener("click", confirmCheck);
+  element("update").addEventListener("click", confirmUpdate);
+  element("packages-close").addEventListener("click", () => {
+    element("packages-card").hidden = true;
+  });
+  element("confirm-cancel").addEventListener("click", () => {
+    element("confirm").hidden = true;
+  });
+
+  async function start() {
+    const me = Chrome.current();
+    // A check installs nothing, so it is the operator's; an update installs
+    // packages and reboots machines, so it is the administrator's.
+    canCheck = me.role === "operator" || Chrome.isAdmin(me);
+    canUpdate = Chrome.isAdmin(me);
+    Reread.attach(
+      element("reread"),
+      async () => {
+        showBanner("");
+        await refresh();
+      },
+      (failure) => showBanner(failure.message)
+    );
+    await refresh();
+  }
+
+  start().catch((failure) => {
+    showBanner(failure.message);
+    element("loading").hidden = true;
+  });
+})();

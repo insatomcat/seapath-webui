@@ -801,6 +801,13 @@ td button {
   justify-content: center;
 }
 
+/* The Updates page: a kernel release is one word an operator compares with
+   the one below it, and it reads badly broken across two lines. */
+.page.updates #rows td:nth-child(2),
+.page.updates #rows td:nth-child(3) {
+  white-space: nowrap;
+}
+
 /* The Backup page in two columns wherever they fit: four cards of a few
    lines each stacked in a 62rem column left most of a wide screen empty and
    made the page scroll for no reason. Each card starts at the top of its row

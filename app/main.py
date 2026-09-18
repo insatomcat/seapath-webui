@@ -72,6 +72,7 @@ from app.services.node import NodeService
 from app.services.ping import FakePinger, IcmpPinger, Pinger
 from app.services.realtime import RealtimeService
 from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
+from app.services.software import SoftwareService
 from app.services.storage import StorageService
 from app.services.update import UpdateService
 from app.services.vms import DEPLOY_PLAYBOOK, VmService
@@ -476,6 +477,11 @@ def create_app(
     # execute, resolved at each access like everywhere else.
     remote = remote_runner or (
         FakeRemoteRunner(rbd_answers()) if settings.use_fakes else SshRemoteRunner()
+    )
+    # The software updates: the check is a run generated here, the update the
+    # upstream playbook, and what the page shows is the history of both.
+    app.state.software_service = SoftwareService(
+        inventory=app.state.inventory_service, runs=app.state.run_service
     )
     app.state.backup_service = BackupService(
         inventory=app.state.inventory_service,

@@ -1,0 +1,104 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+The software updates of the machines. Two acts and one table. Checking is a run
+that refreshes the package lists and asks apt to simulate the upgrade; what
+each machine answered is kept with that run and drawn here. Updating is the
+upstream `seapath_update_debian` playbook, sent to the machines ticked in the
+table, which it upgrades and reboots one at a time.
+
+The machine serving this page is never ticked. The playbook finishes its work
+after the reboot, and the controller is this service, so it is updated from
+another member.
+#}
+{% extends "base.html" %}
+{% from "_controls.html" import reread %}
+{% block page_title %}Updates{% endblock %}
+
+{% block body %}
+<main class="page single updates">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card" id="card-updates">
+    <div class="card-head">
+      <h2>Software updates</h2>
+      <div class="card-acts">
+        {{ reread("reread", "the updates") }}
+        <button type="button" id="check" class="secondary" hidden>Check for updates</button>
+      </div>
+    </div>
+    <p class="lead" id="lead"></p>
+    <div class="loading" id="loading">Reading the run history</div>
+    <p class="warning" id="note" hidden></p>
+    <p class="warning" id="unavailable" hidden></p>
+
+    <div class="table-scroll" id="table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Machine</th>
+            <th>Kernel</th>
+            <th>Pending</th>
+            <th>Updated</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <div class="card-actions" id="acts" hidden>
+      <button type="button" id="update" disabled>Update the selected machines</button>
+      <p class="legend" id="acts-note"></p>
+    </div>
+    <p class="help">
+      An update runs <code>apt-get dist-upgrade</code>, writes the boot menu and
+      reboots, one machine at a time. The root volume is snapshotted first, and a
+      machine that fails to boot its new system is rolled back to it. A cluster
+      member is put in standby before anything changes, so its guests move to
+      the other members.
+    </p>
+  </section>
+
+  <section class="card" id="packages-card" hidden>
+    <div class="card-head">
+      <h2>Pending on <span id="packages-host"></span></h2>
+      <div class="card-acts">
+        <button type="button" id="packages-close" class="secondary">Close</button>
+      </div>
+    </div>
+    <p class="warning" id="packages-note" hidden></p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Package</th>
+            <th>Installed</th>
+            <th>After the upgrade</th>
+            <th>From</th>
+          </tr>
+        </thead>
+        <tbody id="packages-rows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<div class="modal" id="confirm" data-dismiss="confirm-cancel" hidden>
+  <div class="modal-body">
+    <h2 id="confirm-title"></h2>
+    <p id="confirm-disruption"></p>
+    <p class="warning" id="confirm-note" hidden></p>
+    <p class="error" id="confirm-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="confirm-cancel" class="secondary">Cancel</button>
+      <button type="button" id="confirm-go"></button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{{ script("updates.js") }}
+{% endblock %}

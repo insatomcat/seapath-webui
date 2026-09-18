@@ -17,6 +17,7 @@ from app.api.v1 import (
     node,
     realtime,
     runs,
+    software,
     storage,
     trust,
     vms,
@@ -35,5 +36,6 @@ router.include_router(collection.router)
 router.include_router(inventory.router)
 router.include_router(realtime.router)
 router.include_router(runs.router)
+router.include_router(software.router)
 router.include_router(trust.router)
 router.include_router(vms.router)
