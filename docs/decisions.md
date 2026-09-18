@@ -4205,3 +4205,29 @@ Nothing about the three acts. A backup and a restore write, they take the lock,
 they are runs of the upstream scripts, and they are recorded. The line this
 moves is the one between reading and writing, which is where this service has
 always drawn it.
+
+## D55 - Settled: the backups run on one named member, and every reading asks that one
+
+[D53](#d53) sent the backup plays to `{{ groups['cluster_machines'][0] }}`, the
+way `cluster_vm` is called on one member and answers for the cluster, and
+[D54](#d54) read the backup server from this node first. Those were two
+machines as soon as the page was served by any member but the first, and the
+difference mattered: a listing that worked said nothing about the key a backup
+would push with, from a different machine.
+
+It matters more now that the page reads the machine itself. The staging
+directory has to exist and have room on the machine that runs `backup_full.sh`,
+and the key to the backup server has to work from there. A page that checked
+this node while the run landed elsewhere would be reassuring about the wrong
+machine.
+
+So the member is chosen here, by name, and the play names it: the first
+hypervisor of the cluster in name order, and the first member when the cluster
+has no hypervisor. A hypervisor, because an observer is a small machine whose
+job is a vote and has no disk to stage a dozen guests on. Name order, because
+every node serves this page and each of them must give the same answer.
+`groups['cluster_machines'][0]` is Ansible's own order, which depends on how
+the file nests its groups, and this service cannot reproduce it faithfully.
+
+The page says which machine it is. The trust and the room a backup needs are
+that machine's, and an operator preparing them has to know where to look.

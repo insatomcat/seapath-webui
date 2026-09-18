@@ -801,9 +801,9 @@ def test_a_full_backup_runs_the_script_with_the_settings_as_arguments(
 
     assert response.status_code == 202, response.text
     play = _played(settings, response.json()["run_id"])
-    # One member drives, the way `cluster_vm` is called on one member and
-    # answers for the cluster.
-    assert play["hosts"] == "{{ groups['cluster_machines'][0] }}"
+    # One member drives, named: the first hypervisor of the cluster by name,
+    # which every node of the cluster agrees on.
+    assert play["hosts"] == "elabo1"
     assert play["become"] is True
     assert _argv(play) == [
         "/usr/local/bin/backup_full.sh",
@@ -941,7 +941,7 @@ def test_what_the_server_answered_is_parsed_into_the_backups_it_holds(
 
     catalogue = signed_in.get("/api/v1/backup/catalogue").json()
 
-    assert catalogue["read_from"] == "seapath-machine"
+    assert catalogue["read_from"] == "elabo1"
     assert catalogue["read_at"]
     assert [backup["date"] for backup in catalogue["backups"]] == [
         "202602010900",
@@ -957,6 +957,47 @@ def test_what_the_server_answered_is_parsed_into_the_backups_it_holds(
     assert guests["vm-guest1"]["disks"] == 2
     assert guests["vm-guest1"]["dates"] == ["202603110733", "202603110836"]
     assert guests["vm-guest2"]["dates"] == ["202603110733"]
+
+
+def test_the_backups_run_where_the_server_is_read_from(
+    signed_in: TestClient, settings: Settings, remote_runner
+) -> None:
+    """One member for the backups and for every reading about them.
+
+    The listing used to be read from this node and the backup to run on
+    `groups['cluster_machines'][0]`, so a listing that worked said nothing
+    about the key a backup would push with.
+    """
+    _configured(signed_in)
+    _listed(remote_runner)
+
+    assert _backup(signed_in)["runs_on"] == "elabo1"
+    signed_in.get("/api/v1/backup/catalogue")
+    response = signed_in.post("/api/v1/backup/full")
+
+    assert remote_runner.requests[0].address == "192.168.200.126"
+    assert _played(settings, response.json()["run_id"])["hosts"] == "elabo1"
+
+
+def test_an_observer_is_not_where_the_backups_run(signed_in: TestClient) -> None:
+    """An observer votes and holds no disk worth staging a backup on."""
+    document = CLUSTER.format(settings=CONFIGURED).replace(
+        """    hypervisors:
+      children:
+        cluster_machines:
+""",
+        """    hypervisors:
+      hosts:
+        seapath-machine:
+        elabo2:
+    observers:
+      hosts:
+        elabo1:
+""",
+    )
+    _import(signed_in, document)
+
+    assert _backup(signed_in)["runs_on"] == "elabo2"
 
 
 def test_a_server_that_cannot_be_reached_says_what_ssh_answered(
@@ -1210,9 +1251,9 @@ def test_ansible_parses_every_play_this_service_writes(
 
 def test_every_backup_act_plays_one_cluster_member_and_previews_nothing() -> None:
     for action in BackupAction:
-        entry = plays.entry(action, "vm-guest1", "202603110836")
+        entry = plays.entry(action, "vm-guest1", "202603110836", "elabo1")
 
-        assert entry.targets == ["cluster_machines[0]"]
+        assert entry.targets == ["elabo1"]
         assert entry.preview.value == "none"
         assert entry.reboots.value == "no"
         # A backup is a cluster act: `backup_full.sh` opens with `rbd list`.

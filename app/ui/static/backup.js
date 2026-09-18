@@ -105,6 +105,11 @@
       (held.exclude_vm ? ", except " + held.exclude_vm : "");
     element("target-staging").textContent =
       held.local_dir + " for a backup, " + held.local_tmp_dir + " for a restore";
+    // One member runs every backup and answers every reading on this page,
+    // so the staging room and the key that matter are that machine's.
+    element("target-runner").textContent = payload.runs_on
+      ? payload.runs_on + ", the first hypervisor of the cluster by name"
+      : "no cluster member";
   }
 
   function settingsByKey(payload) {

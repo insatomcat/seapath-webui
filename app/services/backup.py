@@ -219,6 +219,8 @@ class BackupView(BaseModel):
     conf_only: bool = False
     """The file holds values the inventory does not, so there is a form to fill
     in from it and one button that does it."""
+    runs_on: str | None = None
+    """The cluster member the backups run on, and every reading here asks."""
     warnings: list[str] = Field(default_factory=list)
     note: str = ""
     commit: str | None = None
@@ -373,6 +375,7 @@ class BackupService:
             conf_only=any(
                 setting.on_machine and not setting.value for setting in settings
             ),
+            runs_on=self.runner(),
         )
         if not view.cluster:
             view.note = _NOT_A_CLUSTER
@@ -523,10 +526,10 @@ class BackupService:
         if member is None:
             return BackupCatalogue(
                 note=(
-                    "No machine of this inventory carries an `ansible_host`, "
-                    "so there is nowhere to ask from. The backup server is "
-                    "reached from a cluster member, with the key the backups "
-                    "are pushed with."
+                    f"{self.runner() or 'The member the backups run on'} "
+                    "carries no `ansible_host`, so there is nowhere to ask "
+                    "from. The backup server is read from the member the "
+                    "backups run on, with the key they are pushed with."
                 )
             )
         name, address = member
@@ -566,25 +569,40 @@ class BackupService:
             ),
         )
 
-    def _member(self) -> tuple[str, str] | None:
-        """The machine the backup server is asked from, and its address.
+    def runner(self) -> str | None:
+        """The member the backups run on, and the one every reading here asks.
 
-        This node when the inventory declares it a cluster member, because the
-        shortest path is the one whose failures an operator can see on this
-        very page. Any other member otherwise, since the trust and the backups
-        are the same on all of them.
+        The first hypervisor of the cluster, by name, and the first member when
+        the cluster has no hypervisor at all. A hypervisor because it is the
+        machine with a real disk behind it, where an observer is a small box
+        whose only job is a vote. By name because every node of the cluster
+        has to give the same answer: this page is served by all of them, and a
+        backup whose staging directory was prepared on the machine that
+        happened to serve the page would fail on the one the next page picked.
+
+        It used to be `groups['cluster_machines'][0]`, evaluated by Ansible,
+        while the backup server was read from this node. The two could be
+        different machines, so a listing that worked said nothing about the
+        key a backup would push with, and that order is Ansible's own, which
+        this service cannot reproduce faithfully.
         """
         state = self._inventory.state()
         if state.inventory is None:
             return None
-        members = list(state.inventory.cluster_members)
-        ordered = sorted(members, key=lambda name: name != state.this_host)
-        for name in ordered:
-            node = state.inventory.hosts.get(name)
-            address = getattr(node, "ansible_host", None) if node else None
-            if address:
-                return name, str(address)
-        return None
+        members = state.inventory.placement_hosts() or list(
+            state.inventory.cluster_members
+        )
+        return members[0] if members else None
+
+    def _member(self) -> tuple[str, str] | None:
+        """The runner, with the address it is reached at."""
+        state = self._inventory.state()
+        name = self.runner()
+        if state.inventory is None or name is None:
+            return None
+        node = state.inventory.hosts.get(name)
+        address = getattr(node, "ansible_host", None) if node else None
+        return (name, str(address)) if address else None
 
     # Writing
 
@@ -697,10 +715,13 @@ class BackupService:
         if action is BackupAction.RESTORE:
             self._check_restore(guest, full_date, incremental_date)
 
+        host = self.runner()
+        if host is None:
+            raise ApiError("not_a_cluster", _NOT_A_CLUSTER, 409)
         return self._runs.launch_generated(
-            plays.entry(action, guest, incremental_date or full_date),
+            plays.entry(action, guest, incremental_date or full_date, host),
             author,
-            plays.play(action, target, guest, full_date, incremental_date),
+            plays.play(action, target, host, guest, full_date, incremental_date),
             guest=guest or None,
         )
 

@@ -173,6 +173,7 @@ def entry(
     action: BackupAction,
     guest: str = "",
     date: str = "",
+    host: str = "",
 ) -> PlaybookEntry:
     """The catalogue shape of one backup act.
 
@@ -195,7 +196,7 @@ def entry(
         id=identifier,
         playbook=f"{GENERATOR}.{identifier}",
         title=_TITLES[action].format(guest=guest, date=_readable(date)),
-        targets=["cluster_machines[0]"],
+        targets=[host],
         # There is nothing to preview. The play runs a shell script, and what
         # it does is what the script does.
         preview=Preview.NONE,
@@ -209,6 +210,7 @@ def entry(
 def play(
     action: BackupAction,
     target: BackupTarget,
+    host: str,
     guest: str = "",
     full_date: str = "",
     incremental_date: str = "",
@@ -222,10 +224,12 @@ def play(
     document = [
         {
             "name": entry(action, guest, incremental_date or full_date).title,
-            # `cluster_vm` is called on one member and answers for the cluster;
-            # the backup scripts read the pool from one member and answer for
-            # all of it, so they run in the same place and for the same reason.
-            "hosts": "{{ groups['cluster_machines'][0] }}",
+            # The scripts read the pool from one member and answer for all of
+            # it. Which one is named rather than left to
+            # `groups['cluster_machines'][0]`, because that member is also where
+            # the staging directory has to have room and where the key to the
+            # backup server has to work, and the page says which one it is.
+            "hosts": host,
             "gather_facts": False,
             "become": True,
             "tasks": _tasks(action, target, guest, full_date, incremental_date),
