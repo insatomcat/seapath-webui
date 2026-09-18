@@ -10,19 +10,21 @@ room, a backup staging directory first of all, used to mean partitioning,
 formatting and mounting by hand, on each machine, with nothing in the inventory
 saying it had been done.
 
-`configure_local_storage` is the upstream role that does it from the
-inventory, and this module is the two halves around it that belong here:
+`configure_local_storage` is the upstream role that does it, and this module is
+the two halves around it that belong here:
 
 - **Reading what a machine has**, over the same one SSH connection the backup
   listing uses: its disks, the free space after the last partition of each,
   its volume groups, and the stable name of every disk. A read, like
   [D54](../../docs/decisions.md)'s, and for the same reason: nothing about it
   changes the machine.
-- **Declaring a new volume**, which is one entry appended to that machine's
-  `configure_local_storage_volumes`, as one commit. What creates the partition
-  is a run of `seapath_setup_local_storage` narrowed to that machine, through
-  the ordinary run path. This service writes no partition table, and the rule
-  it would be breaking is the first one it has.
+- **Creating a new volume**, which is a run of that role on that machine alone,
+  given the one volume as a play variable, through the ordinary run path with
+  its lock and its record. Nothing is written to the inventory: a partition is
+  made once, and an entry left behind in the desired state would only be a
+  second account of the disk, free to drift from the first. D58 has the
+  reasoning. This service writes no partition table, and the rule it would be
+  breaking is the first one it has.
 
 The checks below mirror the role's, so a value the role would refuse is
 refused here with a sentence, before a commit and a run. The role checks again
@@ -39,23 +41,39 @@ import shlex
 from datetime import UTC, datetime
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, Field
 
+from app.core.errors import ApiError
 from app.hosts.remote import RemoteRefused, RemoteRequest, RemoteRunner
 from app.inventory.editor import Scope
 from app.inventory.repository import Commit
 from app.inventory.resolve import resolve
 from app.inventory.service import ImportRefused, InventoryService
-from app.runs.service import RunPaths
+from app.runs.backup import GENERATOR
+from app.runs.catalogue import (
+    COLLECTION,
+    PlaybookEntry,
+    Precondition,
+    Preview,
+    Reboots,
+    role_present,
+)
+from app.runs.models import RunRecord
+from app.runs.service import RunPaths, RunService
 
 logger = logging.getLogger(__name__)
 
 # The role's own variable.
 VARIABLE = "configure_local_storage_volumes"
 
-# The playbook that applies it, on every machine of the inventory unless the
-# run is narrowed. The page always narrows it to the machine it declared on.
+# The playbook that applies what the inventory declares, on every machine
+# unless the run is narrowed. This page no longer declares anything, but a site
+# may, and the entries an earlier version of this page wrote are still read.
 PLAYBOOK = "seapath_setup_local_storage"
+
+# The role itself, which the generated play applies to one machine.
+ROLE = "configure_local_storage"
 
 # The role refuses a partition smaller than this, and a disk with less free
 # space than this after its last partition is not offered.
@@ -92,14 +110,17 @@ _RESERVED = frozenset(
 # What the machine is asked, as root: `parted` and `vgs` need it. Four sections,
 # each marked, so one tool missing or failing leaves the others readable.
 #
-# `lsblk` gives the tree, which is what says a disk holds the running system.
+# `lsblk` gives the tree, which is what says a disk holds the running system,
+# and the GPT name of each partition, which is how the role recognises the one
+# it created for a volume.
 # `parted -m print free` gives the free space after the last partition, which
 # no other tool reports. `vgs` gives the groups a new partition can join. The
 # by-path links are the stable names the inventory uses for disks, the way
 # `ceph_osd_disks` already names them.
 _SCRIPT = (
     "echo @@lsblk; "
-    "lsblk -J -b -o NAME,PATH,TYPE,SIZE,FSTYPE,MOUNTPOINT,MODEL 2>/dev/null; "
+    "lsblk -J -b -o NAME,PATH,TYPE,SIZE,FSTYPE,MOUNTPOINT,MODEL,PARTLABEL "
+    "2>/dev/null; "
     "echo @@parted; "
     "lsblk -dnpo NAME,TYPE | while read -r n t; do "
     '[ "$t" = disk ] || continue; '
@@ -140,6 +161,10 @@ class LocalDisk(BaseModel):
     written on the disk itself."""
     free_bytes: int = 0
     """The free space after the last partition, which is all the role uses."""
+    gap_bytes: int = 0
+    """The largest free stretch between two partitions, which the role never
+    uses: finding one is a judgement about the disk that belongs to whoever
+    laid it out. Reported so a disk with room in a gap is not called full."""
     system: bool = False
     """Something on it is mounted: on a machine from the ISO, the system."""
     ceph: bool = False
@@ -165,7 +190,15 @@ class LocalVolume(BaseModel):
     lvm_vg: str = ""
     lvm_lv: str = ""
     mounted: bool | None = None
-    """Whether the machine has it mounted there now. `None` before a reading."""
+    """Whether this volume is what is mounted there now. `None` before a
+    reading."""
+    state: str = ""
+    """`mounted`, `created` (its partition exists, not mounted there),
+    `pending` (no partition yet, and the mount point is free), `blocked`
+    (the role refuses the entry, which fails a convergence of the machine),
+    or empty before a reading."""
+    detail: str = ""
+    """The state in a sentence."""
 
 
 class LocalStorage(BaseModel):
@@ -177,6 +210,9 @@ class LocalStorage(BaseModel):
     disks: list[LocalDisk] = Field(default_factory=list)
     volume_groups: list[VolumeGroup] = Field(default_factory=list)
     declared: list[LocalVolume] = Field(default_factory=list)
+    mounts: list[str] = Field(default_factory=list)
+    """Every mount point the machine has, so a new volume is offered one that
+    is free."""
     read_at: str | None = None
     note: str = ""
 
@@ -188,11 +224,15 @@ class LocalStorageService:
         remote: RemoteRunner,
         keys: RunPaths,
         ansible_user: str,
+        runs: RunService | None = None,
+        collections_path=None,
     ) -> None:
         self._inventory = inventory
         self._remote = remote
         self._keys = keys
         self._ansible_user = ansible_user
+        self._runs = runs
+        self._collections_path = collections_path
 
     # Reading
 
@@ -247,64 +287,86 @@ class LocalStorageService:
 
         ceph = [str(item) for item in self._variable(host, "ceph_osd_disks") or []]
         disks, groups, mounts = parse_reading(answer, ceph)
+        view.mounts = sorted(mounts)
         view.disks = disks
         view.volume_groups = groups
         view.read_at = datetime.now(tz=UTC).isoformat()
-        for volume in view.declared:
-            volume.mounted = volume.mountpoint in mounts
+        describe_volumes(answer, view.declared)
         if not any(disk.usable for disk in disks):
             view.note = (
-                f"No disk of {host} has room for a new partition: every one is "
-                "full after its last partition, given to Ceph, or carries a "
-                "table the role would have to rewrite."
+                f"No disk of {host} has free space after its last partition, "
+                "which is the only place the role adds one. The table below "
+                "says why for each disk."
             )
         return view
 
     # Writing
 
-    def declare(
-        self,
-        host: str,
-        volume: LocalVolume,
-        author: str,
-        expected_head: str | None = None,
-    ) -> Commit | None:
-        """Append one volume to the machine's list, as one commit.
+    def create(self, host: str, volume: LocalVolume, author: str) -> RunRecord:
+        """Create one volume on one machine: a run, and nothing written.
 
-        On the machine and never on a group: disks differ from one machine to
-        the next, and a by-path name written on a group would partition
-        whatever answers to that name on every member.
+        The play applies `configure_local_storage` to that machine alone, with
+        the volume as a play variable. A play variable outranks what the
+        inventory says for the host, so an entry the inventory still declares
+        there, one the role would refuse included, plays no part in this run.
+
+        The run record keeps the play, the volume in it and who asked, which
+        is the trace of an act made once. The inventory keeps nothing: an entry
+        there would be a second description of the disk, true on the day it
+        was written and free to drift from the machine afterwards.
         """
         if host not in self.hosts():
             raise InvalidVolume(f"{host} is not a machine of this inventory.")
         check(volume)
+        if self._runs is None:
+            raise InvalidVolume("This service has no run path to create it with.")
+        if self._collections_path is not None and not role_present(
+            self._collections_path(), ROLE
+        ):
+            raise ApiError(
+                "role_missing",
+                f"The SEAPATH collection this image ships has no `{ROLE}` role, "
+                "so there is nothing to create the volume with.",
+                409,
+            )
+        return self._runs.launch_generated(
+            volume_entry(host, volume), author, volume_play(host, volume)
+        )
+
+    def forget(
+        self,
+        host: str,
+        name: str,
+        author: str,
+        expected_head: str | None = None,
+    ) -> Commit | None:
+        """Remove one volume from the machine's list, as one commit.
+
+        The inventory only: the role never removes a partition, a file system
+        or a mount, so what an earlier run created stays on the machine as it
+        is. What changes is that later runs no longer apply the entry, which is
+        how an entry the role refuses stops failing every run after it.
+        """
+        if host not in self.hosts():
+            raise InvalidVolume(f"{host} is not a machine of this inventory.")
         existing = self._variable(host, VARIABLE) or []
         if not isinstance(existing, list):
             raise InvalidVolume(
-                f"{VARIABLE} on {host} is not a list, so there is no entry to "
-                "add this one beside. The Inventory page shows what it holds."
+                f"{VARIABLE} on {host} is not a list. The Inventory page shows "
+                "what it holds."
             )
-        for entry in existing:
-            if not isinstance(entry, dict):
-                continue
-            if entry.get("name") == volume.name:
-                raise InvalidVolume(
-                    f"{host} already declares a volume called {volume.name}. "
-                    "The name is how the role finds its partition again, so "
-                    "two entries cannot share it."
-                )
-            if entry.get("mountpoint") == volume.mountpoint:
-                raise InvalidVolume(
-                    f"{host} already mounts a volume on {volume.mountpoint}."
-                )
-        entries = [*existing, entry_of(volume)]
+        entries = [
+            entry
+            for entry in existing
+            if not (isinstance(entry, dict) and entry.get("name") == name)
+        ]
+        if len(entries) == len(existing):
+            raise InvalidVolume(f"{host} declares no volume called {name}.")
         try:
             return self._inventory.write_variables(
                 writes=[(Scope("host", host), {VARIABLE: entries})],
                 intended={host: {VARIABLE: entries}},
-                message=(
-                    f"webui: mount a local volume on {volume.mountpoint} " f"of {host}"
-                ),
+                message=f"webui: forget the local volume {name} of {host}",
                 author=author,
                 expected_head=expected_head,
             )
@@ -337,6 +399,57 @@ class LocalStorageService:
                 )
             )
         return volumes
+
+
+def volume_entry(host: str, volume: LocalVolume) -> PlaybookEntry:
+    """The catalogue shape of creating one volume, for the lock and the record.
+
+    Never in the catalogue: it names one disk of one machine, and the
+    Deployment page's convergence of `seapath_setup_local_storage` is the
+    other act, the one that applies what the inventory declares.
+    """
+    return PlaybookEntry(
+        id="local_volume",
+        playbook=f"{GENERATOR}.local_volume",
+        title=f"Create the local volume {volume.mountpoint} on {host}",
+        targets=[host],
+        # The role reads the disk with commands that run in check mode too,
+        # and the partition it would add is exactly what the window said.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        disruption=(
+            f"Adds a partition to {volume.disk} of {host}, in the free space "
+            "after its last partition, then formats it and mounts it on "
+            f"{volume.mountpoint} by UUID. The partitions already there are "
+            "neither moved nor resized, nothing that exists is reformatted, "
+            "no service restarts and no guest is touched."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+        ],
+        reviewed=True,
+    )
+
+
+def volume_play(host: str, volume: LocalVolume) -> str:
+    """The play, as YAML: the role, one machine, one volume.
+
+    Dumped rather than templated, so no value a form carried can become YAML
+    of its own. The machine is named in `hosts`, so the volume, whose disk is
+    one machine's by-path name, can reach no other.
+    """
+    document = [
+        {
+            "name": f"Create the local volume {volume.mountpoint} on {host}",
+            "hosts": host,
+            "become": True,
+            "vars": {VARIABLE: [entry_of(volume)]},
+            "roles": [f"{COLLECTION}.{ROLE}"],
+        }
+    ]
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
 def entry_of(volume: LocalVolume) -> dict[str, Any]:
@@ -394,10 +507,7 @@ def check(volume: LocalVolume) -> None:
             )
 
 
-def parse_reading(
-    text: str, ceph_disks: list[str]
-) -> tuple[list[LocalDisk], list[VolumeGroup], set[str]]:
-    """The four sections of the answer: disks, groups, and what is mounted."""
+def _sections(text: str) -> dict[str, list[str]]:
     sections: dict[str, list[str]] = {}
     current = None
     for line in text.splitlines():
@@ -406,12 +516,25 @@ def parse_reading(
             sections[current] = []
         elif current is not None:
             sections[current].append(line)
+    return sections
 
+
+def _links(sections: dict[str, list[str]]) -> dict[str, str]:
+    """Each disk's device, to the by-path link naming it."""
     links: dict[str, str] = {}
     for line in sections.get("links", []):
         link, _, device = line.strip().partition(" ")
         if link and device:
             links.setdefault(device, link)
+    return links
+
+
+def parse_reading(
+    text: str, ceph_disks: list[str]
+) -> tuple[list[LocalDisk], list[VolumeGroup], set[str]]:
+    """The four sections of the answer: disks, groups, and what is mounted."""
+    sections = _sections(text)
+    links = _links(sections)
     ceph = {links_target(item, links) for item in ceph_disks}
 
     tree = _json("\n".join(sections.get("lsblk", [])))
@@ -426,7 +549,7 @@ def parse_reading(
             device["_mounted"] = bool(found)
             whole[str(device.get("path") or "/dev/" + str(device.get("name")))] = device
 
-    tables, free = _parted(sections.get("parted", []))
+    tables, free, gaps = _parted(sections.get("parted", []))
     disks = []
     for path, device in sorted(whole.items()):
         size = _int(device.get("size"))
@@ -448,6 +571,7 @@ def parse_reading(
             free_bytes=(
                 size if table == "none" and not children else free.get(path, 0)
             ),
+            gap_bytes=gaps.get(path, 0),
             system=bool(device.get("_mounted")),
             ceph=path in ceph,
         )
@@ -489,29 +613,131 @@ def _usable(disk: LocalDisk, children: list) -> tuple[bool, str]:
     if disk.table == "none" and children:
         return False, "It carries no partition table but is in use."
     if disk.free_bytes < MINIMUM_BYTES:
+        if disk.gap_bytes >= MINIMUM_BYTES:
+            return False, (
+                f"It has no free space after its last partition. "
+                f"{_size(disk.gap_bytes)} are free between two of its "
+                "partitions, and the role only ever adds one after the last."
+            )
         return False, "It has no free space after its last partition."
     return True, ""
 
 
-def _parted(lines: list[str]) -> tuple[dict[str, str], dict[str, int]]:
-    """The table of each disk, and the free space after its last partition.
+def _size(value: int) -> str:
+    units = ["B", "KiB", "MiB", "GiB", "TiB"]
+    amount = float(value)
+    unit = 0
+    while amount >= 1024 and unit < len(units) - 1:
+        amount /= 1024
+        unit += 1
+    return (
+        f"{amount:.0f} {units[unit]}"
+        if amount >= 100
+        else f"{amount:.1f} {units[unit]}"
+    )
+
+
+def describe_volumes(text: str, declared: list[LocalVolume]) -> None:
+    """Each declared volume's state on the machine, from the same answer.
+
+    The role finds its partition again by GPT name, on the disk the entry
+    names, and refuses the entry when another file system is mounted where it
+    would mount: that refusal fails the host, so in a convergence every entry
+    after it is left undone too. A mount point in use is therefore only this
+    volume's when the partition carrying its name is what is mounted there.
+    """
+    sections = _sections(text)
+    links = _links(sections)
+    tree = _json("\n".join(sections.get("lsblk", [])))
+    devices = [
+        device
+        for device in (tree.get("blockdevices", []) if isinstance(tree, dict) else [])
+        if isinstance(device, dict)
+    ]
+    mounts: set[str] = set()
+    for device in devices:
+        mounts |= set(_mountpoints(device))
+    for volume in declared:
+        disk_path = links_target(volume.disk, links)
+        disk = next(
+            (
+                device
+                for device in devices
+                if str(device.get("path") or "/dev/" + str(device.get("name")))
+                == disk_path
+            ),
+            None,
+        )
+        partition = next(
+            (
+                child
+                for child in (disk or {}).get("children") or []
+                if isinstance(child, dict)
+                and child.get("type") == "part"
+                and str(child.get("partlabel") or "") == volume.name
+            ),
+            None,
+        )
+        ours = partition is not None and volume.mountpoint in set(
+            _mountpoints(partition)
+        )
+        volume.mounted = ours
+        if ours:
+            volume.state = "mounted"
+            volume.detail = f"Created and mounted on {volume.mountpoint}."
+        elif volume.mountpoint in mounts:
+            volume.state = "blocked"
+            volume.detail = (
+                f"Another file system is mounted on {volume.mountpoint}, so the "
+                "role refuses this entry, and a convergence of "
+                "seapath_setup_local_storage fails the machine there."
+            )
+        elif partition is not None:
+            volume.state = "created"
+            volume.detail = (
+                f"Its partition {partition.get('path')} exists, and is not "
+                f"mounted on {volume.mountpoint} yet."
+            )
+        elif disk is None:
+            volume.state = "blocked"
+            volume.detail = (
+                f"{volume.disk} is not a disk this machine reports, so the role "
+                "fails on this entry, and a convergence of "
+                "seapath_setup_local_storage fails the machine there."
+            )
+        else:
+            volume.state = "pending"
+            volume.detail = (
+                "Not created: a convergence of seapath_setup_local_storage "
+                "would create it."
+            )
+
+
+def _parted(
+    lines: list[str],
+) -> tuple[dict[str, str], dict[str, int], dict[str, int]]:
+    """Each disk's table, its free space after the last partition, and its
+    largest free stretch between two partitions.
 
     `parted -m print free` answers one line for the disk, then one per
     partition and one per stretch of free space, in disk order. The last line
-    counts only when it is free space and comes after every partition.
+    counts only when it is free space and comes after every partition. A free
+    stretch a partition follows is a gap.
     """
     tables: dict[str, str] = {}
     free: dict[str, int] = {}
+    gaps: dict[str, int] = {}
     disk = None
     last_end = 0
     trailing = 0
+    pending = 0
     for raw in lines:
         line = raw.strip().rstrip(";")
         if line.startswith("@disk "):
             if disk is not None:
                 free[disk] = trailing
             disk = line[len("@disk ") :].strip()
-            last_end, trailing = 0, 0
+            last_end, trailing, pending = 0, 0, 0
             continue
         if disk is None or not line or line == "BYT":
             continue
@@ -524,12 +750,16 @@ def _parted(lines: list[str]) -> tuple[dict[str, str], dict[str, int]]:
         start, end = _bytes(fields[1]), _bytes(fields[2])
         if fields[4] == "free":
             trailing = end - start + 1 if start > last_end else trailing
+            pending = end - start + 1
         else:
+            if last_end:
+                gaps[disk] = max(gaps.get(disk, 0), pending)
             last_end = max(last_end, end)
             trailing = 0
+            pending = 0
     if disk is not None:
         free[disk] = trailing
-    return tables, free
+    return tables, free, gaps
 
 
 def _mountpoints(device: dict[str, Any]):
@@ -568,7 +798,10 @@ __all__ = [
     "LocalVolume",
     "VolumeGroup",
     "check",
+    "describe_volumes",
     "entry_of",
+    "volume_entry",
+    "volume_play",
     "parse_reading",
     "reading_command",
 ]

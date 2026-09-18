@@ -377,6 +377,10 @@ _STAGING_SCRIPT = (
     "for m in {mountpoints}; do "
     'if mountpoint -q "$m"; then s=yes; else s=no; fi; '
     'printf \'mnt %s %s\\n\' "$s" "$m"; '
+    "done; "
+    "findmnt -rn -b -o TARGET,SIZE,AVAIL -t ext4,xfs,btrfs 2>/dev/null | "
+    "while read -r t z a; do "
+    'printf \'fs %s %s %s\\n\' "$t" "$z" "$a"; '
     "done"
 )
 
@@ -393,6 +397,10 @@ def staging_shell_command(
     each asked whether it is mounted. A staging directory moved under one that
     is not would be created on the file system below it, and the role would
     then refuse to mount over a directory that is not empty.
+
+    Every ext4, xfs and btrfs file system mounted there is listed too, with
+    its room: a machine whose `/data` was made by hand already has the place a
+    staging directory needs, and nothing has to be partitioned to use it.
     """
     script = _STAGING_SCRIPT.format(
         directories=" ".join(shlex.quote(item) for item in directories),

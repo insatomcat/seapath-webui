@@ -52,7 +52,10 @@ to be erased.
       <dt>Runs on</dt>
       <dd id="target-runner"></dd>
       <dt id="target-connection-label" hidden>Connection</dt>
-      <dd id="target-connection" hidden></dd>
+      <dd id="target-connection" hidden>
+        <span id="target-connection-text"></span>
+        <button type="button" id="connection-toggle" class="inline-link">Details and keys</button>
+      </dd>
     </dl>
 
     {# Whether a full backup fits, on the two file systems it fills: the
@@ -271,27 +274,46 @@ to be erased.
 </div>
 
 {# A local volume, which is what a staging directory on a root file system of a
-   few tens of gigabytes needs. The page writes one entry in the machine's
-   `configure_local_storage_volumes` and runs `seapath_setup_local_storage` on
-   that machine alone: the role partitions, formats and mounts, and refuses
-   before writing anything a disk it would have to erase. #}
+   few tens of gigabytes needs. The page runs `configure_local_storage` on that
+   machine alone, given the one volume, and writes nothing to the inventory
+   (D58): the role partitions, formats and mounts, and refuses before writing
+   anything a disk it would have to erase. #}
 <div class="modal" id="volume" data-dismiss="volume-cancel" hidden>
   <div class="modal-body wide">
     <h2>A local volume</h2>
     <p class="lead">
       A new partition in the free space after the last partition of a disk,
-      formatted directly or through LVM, and mounted by UUID. Written into the
-      machine's <code>configure_local_storage_volumes</code> as one commit, then
-      created by a run of <code>seapath_setup_local_storage</code> on that
-      machine alone. Nothing that exists is moved, resized or reformatted.
+      formatted directly or through LVM, and mounted by UUID, by a run of the
+      <code>configure_local_storage</code> role on that machine alone. The run
+      is recorded with the volume it was given; the inventory keeps nothing,
+      since a partition is made once. Nothing that exists is moved, resized
+      or reformatted.
     </p>
     <label for="volume-host">Machine</label>
     <select id="volume-host"></select>
     <div class="loading" id="volume-loading" hidden>Reading the disks</div>
     <p class="warning" id="volume-note" hidden></p>
+    {# What the inventory still declares there, written by a site or by an
+       earlier version of this page, each with its state on the disk as read
+       just now. An entry the role would refuse fails every convergence of the
+       machine, so it can be removed here: from the inventory only, since the
+       role never removes what exists on a disk. #}
     <div id="volume-declared-block" hidden>
-      <label>Already declared on this machine</label>
-      <ul id="volume-declared"></ul>
+      <label>Still declared in the inventory</label>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Mount point</th>
+              <th>Volume</th>
+              <th>State</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="volume-declared"></tbody>
+        </table>
+      </div>
+      <p class="warning" id="volume-blocked" hidden></p>
     </div>
 
     <div id="volume-form" hidden>
@@ -359,7 +381,7 @@ to be erased.
     <p class="warning" id="volume-summary" hidden></p>
     <p class="error" id="volume-error" hidden></p>
     <div class="card-actions">
-      <button type="button" id="volume-go" disabled>Declare and create it</button>
+      <button type="button" id="volume-go" disabled>Create it</button>
       <button type="button" id="volume-cancel" class="secondary">Cancel</button>
     </div>
   </div>

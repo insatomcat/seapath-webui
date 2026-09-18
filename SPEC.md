@@ -92,10 +92,11 @@ Proxmox clone:
   would weigh is `rbd du` read here; what the backup server holds, and whether
   the staging directories exist and have room, is read over one SSH connection
   to the member the backups run on. A staging directory short of room gets a
-  local volume, declared in the inventory and partitioned by the
-  `configure_local_storage` role. The members' keys reach the backup server
+  local volume, created by a run of the `configure_local_storage` role on
+  that machine alone and recorded with that run rather than in the
+  inventory (D58). The members' keys reach the backup server
   with a password typed once, which is the one write this service makes on a
-  machine outside SEAPATH. See D53 to D57 in
+  machine outside SEAPATH. See D53 to D58 in
   [decisions.md](docs/decisions.md).
 - The containers a site deploys, which are quadlets: `upload_extra_files` puts
   a `.container` file on the machines, podman's generator makes it a systemd

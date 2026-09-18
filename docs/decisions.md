@@ -4255,6 +4255,10 @@ that machine's, and an operator preparing them has to know where to look.
 
 ## D56 - Settled: a local volume is declared in the inventory and partitioned by a role
 
+Where the volume is declared is superseded by [D58](#d58): it is given to the
+run that creates it, and the inventory keeps nothing. The role, what it
+refuses and the reading of the disks below still hold.
+
 A full backup writes a qcow2 of every selected guest into its staging directory
 before it sends anything, and the SEAPATH ISO lays out a 50 GiB system
 partition whatever the size of the disk: a root file system of a few tens of
@@ -4380,3 +4384,54 @@ inventory and running the same playbooks from a conventional control machine
 generates the same key and trusts the same host key. The server's
 `authorized_keys` was never part of a convergence: a site that installed the
 keys by hand ends in the same state, and the page reads it the same way.
+
+## D58 - Settled: a local volume is given to the run that creates it, and the inventory keeps nothing
+
+[D56](#d56) declared each volume in the machine's
+`configure_local_storage_volumes`, as desired state, then ran the playbook that
+applies it. A partition is made once. Its entry was never applied again to any
+effect, and what it did was describe the disk: true on the day it was written,
+and free to drift from the machine afterwards. The first cluster it met showed
+both ways it drifts. A `/data` mounted by hand from an unnamed partition made
+the role refuse the page's own `/data` entry, the refusal failed the machine,
+and every volume declared after it was left undone while the inventory
+collected `/data2` and `/data3` beside it. On another machine, a `/data` built
+by hand was already all the backups needed, and the inventory had no way to
+say so short of a process reading the disks back into it, which would be a
+second writer of the desired state.
+
+So creating a volume is an act, the way a backup is ([D53](#d53)): a run of the
+upstream `configure_local_storage` role, unchanged, on that machine alone,
+with the one volume as a play variable. The play names the machine in `hosts`,
+so a by-path disk name reaches no other machine. A play variable outranks what
+the inventory says for the host, so an entry a site declared there, refused
+or not, plays no part in that run. The run goes through the ordinary path: the
+lock, the preconditions, and the record, which keeps the play, the volume in it
+and the user who asked. That record is the trace of the act.
+
+What still holds from D56 is the role and its refusals, the reading of the
+disks, and the rule that nothing here writes a partition table.
+
+The acceptance criterion of D1 is unaffected, and is simpler to meet: the
+exported inventory declares no volume, so the same playbooks from a
+conventional control machine change nothing on any disk. A site that wants
+its volumes as desired state can still declare them, and the Deployment
+page's run of `seapath_setup_local_storage` applies them as before.
+
+**The entries already declared** are read against the disk, each with its
+state: mounted, its partition created but not mounted, not created yet, or
+refused by the role, which is when another file system is mounted where it
+would mount or its disk does not exist. Each can be removed from the
+inventory, as a commit; the role never removes a partition, a file system or a
+mount, so the machine is left as it is.
+
+**The staging directories** are offered every ext4, xfs or btrfs file system
+mounted on the member the backups run on, outside the system's own trees, with
+its room. A `/data` made by hand is a place a staging directory can go without
+anything being partitioned, and the page offers it first when no volume was
+created for the purpose.
+
+**The room a disk has** is still counted after its last partition only, which
+is where the role adds one. A free stretch between two partitions is reported
+with its size and not offered: using it is a judgement about the disk that
+belongs to whoever laid it out, and the role declines to make it.

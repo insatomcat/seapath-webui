@@ -1117,15 +1117,16 @@ that should not overlap a convergence. Cancel on the run is the way out.
 
 The room a machine has beyond what its installer laid out. The SEAPATH ISO
 writes a 50 GiB system partition whatever the size of the disk, so the staging
-directory of a backup usually needs a volume of its own. Declaring one is a
-commit to the machine's `configure_local_storage_volumes`; creating it is a run
-of `seapath_setup_local_storage` narrowed to that machine, launched with
-`POST /runs`. Nothing here writes to a disk. See [D56](decisions.md#d56).
+directory of a backup usually needs a volume of its own. Creating one is a run
+of the `configure_local_storage` role on that machine alone, given the one
+volume, and nothing is written to the inventory. Nothing here writes to a
+disk. See [D56](decisions.md#d56) and [D58](decisions.md#d58).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/storage/local?host=` | One machine's disks, read now over one SSH connection as root: each disk with its stable by-path name, its size, its partition table, the free space after its last partition, whether it holds the running system or was given to Ceph, and whether a volume can go on it with the reason when it cannot; the volume groups with their free space; and `declared`, the volumes the inventory already holds for that machine, each with whether it is mounted. This node by default |
-| POST | `/storage/local/{host}/volumes` | Append one volume (`name`, `disk`, `mountpoint`, `size`, `fstype`, `lvm_vg`, `lvm_lv`) to that machine's `configure_local_storage_volumes`, as one commit, on the host and never on a group. Checked the way the role checks it, with the sentence that says why. `admin` |
+| GET | `/storage/local?host=` | One machine's disks, read now over one SSH connection as root: each disk with its stable by-path name, its size, its partition table, the free space after its last partition, whether it holds the running system or was given to Ceph, and whether a volume can go on it with the reason when it cannot; the volume groups with their free space; and `declared`, the volumes the inventory still declares for that machine, each with its `state` on the disk (`mounted`, `created`, `pending`, or `blocked` when the role refuses it) and the `detail` sentence. A disk with no free space after its last partition carries `gap_bytes`, its largest free stretch between two partitions, which the role does not use. This node by default |
+| POST | `/storage/local/{host}/volumes` | Create one volume (`name`, `disk`, `mountpoint`, `size`, `fstype`, `lvm_vg`, `lvm_lv`) on that machine: a generated play applying `configure_local_storage` to that machine alone, with the volume as a play variable, launched through the ordinary run path and answering `run_id`. Checked the way the role checks it, with the sentence that says why. Nothing is written to the inventory. `admin` |
+| DELETE | `/storage/local/{host}/volumes/{name}` | Remove one entry from that machine's `configure_local_storage_volumes`, as one commit. The inventory only: the role never removes what exists on a disk. `admin` |
 
 ## Internal
 

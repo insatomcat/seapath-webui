@@ -510,13 +510,15 @@ def create_app(
     )
 
     # The local volumes of a machine: what its disks have room for, read over
-    # the same one SSH connection, and a new one declared in its host
-    # variables. The partitioning is a run of `configure_local_storage`.
+    # the same one SSH connection, and a new one created by a run of
+    # `configure_local_storage` on that machine alone. See D58.
     app.state.local_storage_service = LocalStorageService(
         inventory=app.state.inventory_service,
         remote=remote,
         keys=app.state.run_service.paths,
         ansible_user=settings.ansible_user,
+        runs=app.state.run_service,
+        collections_path=resolve_collections,
     )
 
     install_error_handlers(app)

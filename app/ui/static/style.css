@@ -801,6 +801,32 @@ td button {
   justify-content: center;
 }
 
+/* The Backup page in two columns wherever they fit: four cards of a few
+   lines each stacked in a 62rem column left most of a wide screen empty and
+   made the page scroll for no reason. Each card starts at the top of its row
+   rather than stretching to its neighbour's height. */
+.page.backup {
+  grid-template-columns: repeat(auto-fit, minmax(min(36rem, 100%), 1fr));
+  align-items: start;
+}
+
+.page.backup > .hint {
+  grid-column: 1 / -1;
+}
+
+/* A control inside a sentence: it opens something and changes nothing. */
+button.inline-link {
+  margin-left: 0.5rem;
+  padding: 0;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .page.split {
   grid-template-columns: minmax(min(18rem, 100%), 24rem) minmax(0, 1fr);
   align-items: start;

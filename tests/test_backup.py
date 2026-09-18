@@ -44,7 +44,7 @@ from app.cluster.rbd import DU_TIMEOUT, parse_disk_usage
 from app.core.settings import Settings
 from app.runs import backup as plays
 from app.runs.backup import BackupAction, BackupTarget
-from app.services.backup import parse_listing, parse_staging
+from app.services.backup import parse_listing, parse_places, parse_staging
 from tests.conftest import sign_in
 from tests.fakes import write_fake_collection
 
@@ -1176,8 +1176,45 @@ def test_the_volumes_declared_on_that_member_are_asked_whether_mounted(
 
     assert "/data /later" in remote_runner.requests[0].command
     assert reading["volumes"] == [
-        {"mountpoint": "/data", "mounted": True},
-        {"mountpoint": "/later", "mounted": False},
+        {
+            "mountpoint": "/data",
+            "mounted": True,
+            "declared": True,
+            "size_bytes": None,
+            "free_bytes": None,
+        },
+        {
+            "mountpoint": "/later",
+            "mounted": False,
+            "declared": True,
+            "size_bytes": None,
+            "free_bytes": None,
+        },
+    ]
+
+
+def test_a_file_system_mounted_by_hand_is_offered_for_the_staging() -> None:
+    """A `/data` made by hand is already the place a staging needs.
+
+    Nothing has to be partitioned to use it. The system's own trees and the
+    root file system are never offered, and a declared volume keeps its row.
+    """
+    answer = (
+        "mnt yes /backup\n"
+        "fs / 21000000000 9000000000\n"
+        "fs /var/lib/containers/storage/overlay 21000000000 9000000000\n"
+        "fs /var/log 5000000000 4000000000\n"
+        "fs /boot/efi 536000000 500000000\n"
+        "fs /backup 300000000000 290000000000\n"
+        "fs /data 584000000000 538000000000\n"
+        "fs /mnt/with\\x20space 1000000000 1000000000\n"
+    )
+
+    places = parse_places(answer, ["/backup"])
+
+    assert [(item.mountpoint, item.declared, item.free_bytes) for item in places] == [
+        ("/backup", True, 290000000000),
+        ("/data", False, 538000000000),
     ]
 
 

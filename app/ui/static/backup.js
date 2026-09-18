@@ -30,6 +30,8 @@
   // The local volume window: the machine it reads, and what it read there.
   let disks = null;
   let nameEdited = false;
+  // The connection panel, opened by hand once there is nothing left to fix.
+  let connectionOpen = false;
   // The last reading of the connection to the backup server.
   let connection = null;
 
@@ -256,21 +258,34 @@
     element("staging-create").hidden = !missing;
     element("staging-help").hidden = !canWrite || !missing;
 
-    // A volume the inventory declares on that machine, mounted, and not yet
-    // holding the staging directories, is where they were meant to go. One
-    // that is not mounted is not offered: the directories would be created on
-    // the file system below it, and the role would then refuse to mount over
-    // a directory that is not empty.
+    // Where the staging directories could go instead: a volume the inventory
+    // declares on that machine, or a file system already mounted there, such
+    // as a /data made by hand, which needs nothing partitioned. The declared
+    // one first, since it is the one they were meant for, then the one with
+    // the most room. One that is not mounted is not offered: the directories
+    // would be created on the file system below it, and the role would then
+    // refuse to mount over a directory that is not empty.
     const backup = directories.find((item) => item.purpose === "backup");
-    target = (reading.volumes || []).find(
+    const places = (reading.volumes || []).filter(
       (volume) =>
         volume.mounted &&
         backup &&
         !backup.path.startsWith(volume.mountpoint.replace(/\/$/, "") + "/")
     );
+    places.sort(
+      (a, b) =>
+        Number(b.declared) - Number(a.declared) ||
+        (b.free_bytes || 0) - (a.free_bytes || 0)
+    );
+    target = places[0];
     const move = element("staging-move");
     move.hidden = !target;
-    move.textContent = target ? "Stage them on " + target.mountpoint : "";
+    move.textContent = target
+      ? "Stage them on " + target.mountpoint +
+        (typeof target.free_bytes === "number"
+          ? ", " + size(target.free_bytes) + " free"
+          : "")
+      : "";
     element("staging-acts").hidden = !canWrite || !reading.host;
     renderRoom();
   }
@@ -413,9 +428,9 @@
 
   // A local volume
   //
-  // One entry in the machine's `configure_local_storage_volumes`, then a run of
-  // `seapath_setup_local_storage` narrowed to that machine. The window reads
-  // the disks first, offers only those the role would accept, and says in its
+  // A run of `configure_local_storage` on that machine alone, given the one
+  // volume, with nothing written to the inventory (D58). The window reads the
+  // disks first, offers only those the role would accept, and says in its
   // last sentence which disk is about to be partitioned.
 
   async function openVolume() {
@@ -455,16 +470,62 @@
 
     const declared = reading.declared || [];
     element("volume-declared-block").hidden = declared.length === 0;
-    const list = clear(element("volume-declared"));
+    const entries = clear(element("volume-declared"));
     declared.forEach((volume) => {
-      const item = document.createElement("li");
-      item.textContent =
-        volume.mountpoint + " (" + volume.name + ", " +
-        (volume.lvm_vg ? "LVM " + volume.lvm_vg + "/" + volume.lvm_lv : "direct") +
-        "), " +
-        (volume.mounted ? "mounted" : "not mounted yet");
-      list.append(item);
+      const state = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = RunStream.stateClass(
+        { mounted: "success", blocked: "failed", created: "interrupted" }[
+          volume.state
+        ] || "cancelled"
+      );
+      badge.textContent =
+        {
+          mounted: "mounted",
+          blocked: "refused by the role",
+          created: "not mounted",
+          pending: "to create",
+        }[volume.state] || "unknown";
+      state.append(badge);
+      if (volume.detail) {
+        const why = document.createElement("div");
+        why.className = "pane-foot-note";
+        why.textContent = volume.detail;
+        state.append(why);
+      }
+      const acts = document.createElement("td");
+      acts.className = "acts";
+      const forget = document.createElement("button");
+      forget.type = "button";
+      forget.className = "secondary";
+      forget.textContent = "Remove";
+      forget.title = "Remove this entry from the inventory";
+      forget.addEventListener("click", () => forgetVolume(volume, forget));
+      acts.append(forget);
+      row(entries, [
+        cell(volume.mountpoint),
+        cell(
+          volume.name + ", " +
+          (volume.lvm_vg ? "LVM " + volume.lvm_vg + "/" + volume.lvm_lv : "direct")
+        ),
+        state,
+        acts,
+      ]);
     });
+    // Entries the inventory still declares, written by a site or by an
+    // earlier version of this page. A volume created here does not depend on
+    // them, since its run is given its own volume; a convergence of
+    // seapath_setup_local_storage from the Deployment page still applies them
+    // in order and fails the machine on the first one the role refuses.
+    const blocked = declared.filter((volume) => volume.state === "blocked");
+    element("volume-blocked").textContent = blocked.length
+      ? "A run of seapath_setup_local_storage from the Deployment page " +
+        "applies these entries in order and fails " + reading.host +
+        " at " + blocked.map((volume) => volume.mountpoint).join(" and ") +
+        ". Removing an entry changes the inventory only: the role never " +
+        "removes what exists on the disk."
+      : "";
+    element("volume-blocked").hidden = !blocked.length;
 
     const body = clear(element("volume-disks"));
     const usable = (reading.disks || []).filter((disk) => disk.usable);
@@ -513,10 +574,15 @@
       groups.append(option);
     });
 
-    // A mount point nothing on this machine declares yet: /data, then /data2.
-    const taken = new Set(declared.map((volume) => volume.mountpoint));
+    // A mount point nothing on this machine uses or declares yet: /data, then
+    // /data2.
+    const taken = new Set([
+      ...declared.map((volume) => volume.mountpoint),
+      ...(reading.mounts || []),
+    ]);
     const mountpoint = element("volume-mountpoint");
     let count = 1;
+    mountpoint.value = "/data";
     while (taken.has(mountpoint.value.trim())) {
       count += 1;
       mountpoint.value = "/data" + count;
@@ -577,8 +643,8 @@
     const disk = (disks.disks || []).find((item) => item.path === entry.disk);
     const free = size(disk ? disk.free_bytes : 0) + " free after its last partition";
     summary.textContent =
-      "Commits this volume on " + disks.host + ", then partitions " +
-      entry.disk +
+      "Runs configure_local_storage on " + disks.host + " alone, which " +
+      "partitions " + entry.disk +
       (disk && disk.system ? ", the disk the system runs from," : "") +
       " with " +
       (entry.size === "100%" ? "all of the " + free : entry.size + "iB of the " + free) +
@@ -587,8 +653,30 @@
         ? "makes it a PV of " + entry.lvm_vg + " with a logical volume " + entry.lvm_lv + ", "
         : "") +
       "formats it " + entry.fstype + " and mounts it on " + entry.mountpoint +
-      " by UUID. The partitions already there are neither moved nor resized.";
+      " by UUID. The partitions already there are neither moved nor " +
+      "resized, and nothing is written to the inventory.";
     summary.hidden = false;
+  }
+
+  // The entry only. The role never removes a partition, a file system or a
+  // mount, so the machine is left exactly as it is, and later runs stop
+  // applying the entry.
+  async function forgetVolume(volume, button) {
+    const error = element("volume-error");
+    error.hidden = true;
+    button.disabled = true;
+    try {
+      await API.del(
+        "/storage/local/" + encodeURIComponent(disks.host) + "/volumes/" +
+          encodeURIComponent(volume.name)
+      );
+      await readVolume(disks.host);
+      await refresh(true);
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      button.disabled = false;
+    }
   }
 
   async function createVolume() {
@@ -599,17 +687,12 @@
     go.disabled = true;
     go.setAttribute("aria-busy", "true");
     try {
-      await API.post(
+      const started = await API.post(
         "/storage/local/" + encodeURIComponent(disks.host) + "/volumes",
         entry
       );
-      const started = await API.post("/runs", {
-        playbook: "seapath_setup_local_storage",
-        scope: { hosts: [disks.host] },
-      });
       element("volume").hidden = true;
       RunWatch.open(started.run_id, () => refresh(true));
-      await refresh(true);
     } catch (failure) {
       error.textContent = failure.message;
       error.hidden = false;
@@ -701,11 +784,18 @@
     const generate = dedicated && keyless;
     const install =
       dedicated && refused && members.some((member) => member.key);
-    element("connection-prepare").hidden = !prepare;
+    // Once everything reaches the server the panel is only open because it was
+    // asked for, and what it then offers is the first step again: the
+    // server's host key read and confirmed, for a server that was reinstalled
+    // or moved.
+    const again = !prepare && !generate && !install;
+    element("connection-prepare").hidden = !prepare && !again;
+    element("connection-prepare").textContent = again
+      ? "Confirm the server's host key again"
+      : "Use a dedicated key";
     element("connection-generate").hidden = !generate;
     element("connection-install").hidden = !install;
-    element("connection-acts").hidden =
-      !canWrite || !reading.server || !(prepare || generate || install);
+    element("connection-acts").hidden = !canWrite || !reading.server;
 
     // Every member through and nothing left to offer: the panel has done its
     // job, and what it found is one line in the card above. It comes back the
@@ -715,10 +805,14 @@
       members.length > 0 &&
       members.every((member) => member.reaches === true) &&
       !(prepare || generate || install);
-    element("connection-card").hidden = !view || !view.configured || settled;
+    element("connection-card").hidden =
+      !view || !view.configured || (settled && !connectionOpen);
     element("target-connection-label").hidden = !settled;
     element("target-connection").hidden = !settled;
-    element("target-connection").textContent = settled
+    element("connection-toggle").textContent = connectionOpen
+      ? "Hide the details"
+      : "Details and keys";
+    element("target-connection-text").textContent = settled
       ? (members.length === 1
           ? members[0].host + " reaches the server"
           : "all " + members.length + " members reach the server") +
@@ -742,7 +836,10 @@
           ? "Installing the keys is what ssh-copy-id does, for every member at " +
             "once: one connection to " + reading.server + " with its password, " +
             "and each member's public key appended to authorized_keys there."
-          : "";
+          : "Every member reaches the server. Confirming its host key again " +
+            "is for a server that was reinstalled or moved. The role " +
+            "generates each member's backup key once and never replaces it, " +
+            "since the server trusts it, so a key is not changed from here.";
     help.hidden = !canWrite || !help.textContent;
   }
 
@@ -1269,6 +1366,12 @@
   );
   element("volume-go").addEventListener("click", createVolume);
   element("connection-read").addEventListener("click", readConnection);
+  element("connection-toggle").addEventListener("click", () => {
+    connectionOpen = !connectionOpen;
+    if (connection) {
+      renderConnection(connection);
+    }
+  });
   element("connection-prepare").addEventListener("click", openTrust);
   element("connection-generate").addEventListener("click", confirmGenerate);
   element("connection-install").addEventListener("click", openInstall);

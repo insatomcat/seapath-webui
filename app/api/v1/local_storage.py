@@ -3,11 +3,11 @@
 
 """The local volumes of a machine: what its disks have room for, and a new one.
 
-Reading is a viewer's, like every reading. Declaring a volume is a commit to
-the machine's `configure_local_storage_volumes`, which is desired state and so
-an administrator's. What partitions the disk is a run of
-`seapath_setup_local_storage` narrowed to that machine, launched through
-`POST /runs` like any other: nothing in this module reaches a disk.
+Reading is a viewer's, like every reading. Creating a volume partitions a disk,
+which is an administrator's: a run of `configure_local_storage` on that machine
+alone, given the one volume, and nothing written to the inventory (D58). The
+entries the inventory may still declare can be removed, which is a commit.
+Nothing in this module reaches a disk.
 """
 
 from __future__ import annotations
@@ -44,6 +44,13 @@ class DeclareResponse(BaseModel):
     message: str = ""
 
 
+class CreateResponse(BaseModel):
+    """The run that creates the volume, watched like any other."""
+
+    run_id: str
+    state: str
+
+
 @router.get("", response_model=LocalStorage)
 def local_storage(
     request: Request, host: str | None = Query(default=None)
@@ -60,22 +67,45 @@ def local_storage(
         raise ApiError("unknown_host", str(error), 404) from error
 
 
-@router.post("/{host}/volumes", response_model=DeclareResponse)
-def declare(
+@router.post("/{host}/volumes", response_model=CreateResponse)
+def create(
     request: Request,
     host: str,
     payload: LocalVolume,
+    user: User = admin,
+) -> CreateResponse:
+    """Create one volume on that machine: a run, and nothing written.
+
+    Checked the way the role checks it, so a value the role would refuse is
+    refused here rather than a run later. The run applies
+    `configure_local_storage` to that machine alone, with this volume as a
+    play variable; the role checks again on the machine, against the disk as
+    it is then.
+    """
+    try:
+        record = _service(request).create(host, payload, user.username)
+    except InvalidVolume as error:
+        raise ApiError("invalid_volume", str(error), 400) from error
+    return CreateResponse(run_id=record.id, state=record.state.value)
+
+
+@router.delete("/{host}/volumes/{name}", response_model=DeclareResponse)
+def forget(
+    request: Request,
+    host: str,
+    name: str,
     if_match: str | None = Header(default=None, alias="If-Match"),
     user: User = admin,
 ) -> DeclareResponse:
-    """Append one volume to the machine's `configure_local_storage_volumes`.
+    """Remove one volume from the machine's `configure_local_storage_volumes`.
 
-    Checked the way the role checks it, so a value the role would refuse is
-    refused here rather than a run later. The role checks again on the machine,
-    against the disk as it is then.
+    The inventory only. The role never removes a partition, a file system or
+    a mount, so what an earlier run created stays as it is; later runs stop
+    applying the entry, which is how one the role refuses stops failing every
+    run after it.
     """
     try:
-        commit = _service(request).declare(host, payload, user.username, if_match)
+        commit = _service(request).forget(host, name, user.username, if_match)
     except InvalidVolume as error:
         raise ApiError("invalid_volume", str(error), 400) from error
     except RefusedWrite as error:

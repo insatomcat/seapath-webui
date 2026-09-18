@@ -358,10 +358,10 @@ def test_a_machine_outside_the_inventory_is_refused(signed_in: TestClient) -> No
     assert response.status_code == 404
 
 
-# Declaring
+# Creating
 
 
-def _declare(client: TestClient, host: str, **fields) -> object:
+def _create(client: TestClient, host: str, **fields) -> object:
     body = {"name": "data", "disk": "/dev/disk/by-path/pci-0000:00:17.0-ata-1"}
     body.update(mountpoint="/data")
     body.update(fields)
@@ -373,106 +373,69 @@ def _volumes(client: TestClient, host: str) -> object:
     return resolve(document)[host].get("configure_local_storage_volumes")
 
 
-def test_a_volume_is_one_entry_in_the_machine_s_own_variables(
+def _played(client: TestClient, run_id: str) -> dict:
+    root = (
+        client.app.state.settings.runs_dir
+        / run_id
+        / "collections/ansible_collections/seapath/ansible/playbooks"
+    )
+    return yaml.safe_load((root / "local_volume.yaml").read_text())[0]
+
+
+def test_a_volume_is_created_by_a_run_and_nothing_is_written(
     signed_in: TestClient,
 ) -> None:
-    """On the host and never on a group: a disk path means one machine."""
+    """A partition is made once, and the inventory does not keep an account of it.
+
+    An entry left in the desired state would be a second description of the
+    disk, true on the day it was written and free to drift afterwards. The run
+    record keeps the play, the volume in it and who asked.
+    """
     _import(signed_in)
+    before = signed_in.get("/api/v1/inventory/raw").text
 
-    response = _declare(signed_in, "elabo1", lvm_vg="vgdata", lvm_lv="data")
-
-    assert response.status_code == 200, response.text
-    assert response.json()["commit"]
-    assert _volumes(signed_in, "elabo1") == [
-        {
-            "name": "data",
-            "disk": "/dev/disk/by-path/pci-0000:00:17.0-ata-1",
-            "lvm": {"vg": "vgdata", "lv": "data"},
-            "mountpoint": "/data",
-        }
-    ]
-    assert _volumes(signed_in, "elabo2") is None
-    document = signed_in.get("/api/v1/inventory/raw").text
-    group = yaml.safe_load(document)["all"]["children"]["cluster_machines"]
-    assert "configure_local_storage_volumes" not in group["vars"]
-
-
-def test_a_second_volume_is_added_beside_the_first(signed_in: TestClient) -> None:
-    _import(signed_in)
-    _declare(signed_in, "elabo1")
-
-    response = _declare(
-        signed_in,
-        "elabo1",
-        name="scratch",
-        disk="/dev/disk/by-path/pci-0000:00:17.0-ata-3",
-        mountpoint="/scratch",
-        size="100G",
-        fstype="xfs",
+    response = _create(
+        signed_in, "seapath-machine", lvm_vg="vgdata", lvm_lv="data", size="500G"
     )
 
     assert response.status_code == 200, response.text
-    assert [entry["name"] for entry in _volumes(signed_in, "elabo1")] == [
-        "data",
-        "scratch",
-    ]
-    assert _volumes(signed_in, "elabo1")[1] == {
-        "name": "scratch",
-        "disk": "/dev/disk/by-path/pci-0000:00:17.0-ata-3",
-        "size": "100G",
-        "fstype": "xfs",
-        "mountpoint": "/scratch",
+    play = _played(signed_in, response.json()["run_id"])
+    # One machine, named in the play, so a by-path disk reaches no other.
+    assert play["hosts"] == "seapath-machine"
+    assert play["become"] is True
+    assert play["roles"] == ["seapath.ansible.configure_local_storage"]
+    assert play["vars"] == {
+        "configure_local_storage_volumes": [
+            {
+                "name": "data",
+                "disk": "/dev/disk/by-path/pci-0000:00:17.0-ata-1",
+                "size": "500G",
+                "lvm": {"vg": "vgdata", "lv": "data"},
+                "mountpoint": "/data",
+            }
+        ]
     }
+    assert signed_in.get("/api/v1/inventory/raw").text == before
 
 
-def test_a_name_or_a_mount_point_already_declared_is_refused(
+def test_a_volume_the_role_would_refuse_starts_no_run(
     signed_in: TestClient,
 ) -> None:
     _import(signed_in)
-    _declare(signed_in, "elabo1")
 
-    same_name = _declare(signed_in, "elabo1", mountpoint="/other")
-    same_place = _declare(signed_in, "elabo1", name="other")
+    response = _create(signed_in, "seapath-machine", mountpoint="/var")
 
-    assert same_name.status_code == 400
-    assert "finds its partition again" in same_name.json()["error"]["message"]
-    assert same_place.status_code == 400
-    assert "/data" in same_place.json()["error"]["message"]
+    assert response.status_code == 400
+    assert "belongs to the system" in response.json()["error"]["message"]
+    assert signed_in.get("/api/v1/runs").json() == []
 
 
-def test_a_declared_volume_says_whether_the_machine_has_it_mounted(
-    signed_in: TestClient, remote_runner
-) -> None:
-    _import(signed_in)
-    _declare(signed_in, "elabo1")
-    _declare(signed_in, "elabo1", name="later", mountpoint="/later")
-    remote_runner.answers = {
-        "@@lsblk": _answer(
-            {
-                "name": "sda3",
-                "path": "/dev/sda3",
-                "type": "part",
-                "size": 900 * GIB,
-                "fstype": "ext4",
-                "mountpoint": "/data",
-            }
-        )
-    }
-
-    declared = _read(signed_in, "elabo1")["declared"]
-
-    assert [(item["mountpoint"], item["mounted"]) for item in declared] == [
-        ("/data", True),
-        ("/later", False),
-    ]
-
-
-def test_declaring_a_volume_is_an_administrator_s_act(client: TestClient) -> None:
+def test_creating_a_volume_is_an_administrator_s_act(client: TestClient) -> None:
     sign_in(client, "admin")
     _import(client)
     sign_in(client, "operator")
 
-    assert _declare(client, "elabo1").status_code == 403
+    assert _create(client, "seapath-machine").status_code == 403
 
 
 def test_a_volume_on_a_machine_outside_the_inventory_is_refused(
@@ -480,7 +443,176 @@ def test_a_volume_on_a_machine_outside_the_inventory_is_refused(
 ) -> None:
     _import(signed_in)
 
-    assert _declare(signed_in, "somewhere").status_code == 400
+    assert _create(signed_in, "somewhere").status_code == 400
+
+
+# What the inventory may still declare: entries a site wrote, or an earlier
+# version of this page. Each is read against the disk, and each can be removed.
+
+
+def _declared(client: TestClient, *entries: dict) -> None:
+    system_disk = "/dev/disk/by-path/pci-0000:00:17.0-ata-1"
+    lines = "".join(
+        f"        - {{name: {entry['name']}, "
+        f"disk: {entry.get('disk', system_disk)}, "
+        f"mountpoint: {entry['mountpoint']}}}\n"
+        for entry in entries
+    )
+    _import(
+        client,
+        CLUSTER.replace(
+            "    elabo1:\n      ansible_host: 192.168.200.126\n",
+            "    elabo1:\n      ansible_host: 192.168.200.126\n"
+            "      configure_local_storage_volumes:\n" + lines,
+        ),
+    )
+
+
+def _partition(number: int, label: str, mountpoint: str | None) -> dict:
+    return {
+        "name": f"sda{number}",
+        "path": f"/dev/sda{number}",
+        "type": "part",
+        "size": 300 * GIB,
+        "fstype": "ext4",
+        "mountpoint": mountpoint,
+        "partlabel": label,
+    }
+
+
+def _states(client: TestClient, remote_runner, *partitions: dict) -> dict:
+    tree = _answer()
+    document = json.loads(tree.split("@@lsblk\n", 1)[1].split("\n@@parted", 1)[0])
+    document["blockdevices"][0]["children"].extend(partitions)
+    remote_runner.answers = {
+        "@@lsblk": "@@lsblk\n"
+        + json.dumps(document)
+        + "\n@@parted\n"
+        + tree.split("\n@@parted\n", 1)[1]
+    }
+    declared = _read(client, "elabo1")["declared"]
+    return {item["name"]: item for item in declared}
+
+
+def test_a_volume_is_mounted_when_its_own_partition_is(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """The role finds its partition again by GPT name, and so does the page."""
+    _declared(signed_in, {"name": "data", "mountpoint": "/data"})
+
+    data = _states(signed_in, remote_runner, _partition(3, "data", "/data"))["data"]
+
+    assert data["state"] == "mounted"
+    assert data["mounted"] is True
+
+
+def test_another_file_system_on_the_mount_point_blocks_the_run(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """The role refuses the entry, and a convergence fails the host there.
+
+    Every entry declared after it is then left undone, which is how a machine
+    collected `/data2` and `/data3` without either being created. The page
+    says so instead of calling `/data` mounted.
+    """
+    _declared(
+        signed_in,
+        {"name": "data", "mountpoint": "/data"},
+        {"name": "data2", "mountpoint": "/data2"},
+    )
+
+    states = _states(signed_in, remote_runner, _partition(4, "", "/data"))
+
+    assert states["data"]["state"] == "blocked"
+    assert states["data"]["mounted"] is False
+    assert "fails the machine there" in states["data"]["detail"]
+    assert states["data2"]["state"] == "pending"
+
+
+def test_a_partition_created_but_not_mounted_is_said(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _declared(signed_in, {"name": "data", "mountpoint": "/data"})
+
+    data = _states(signed_in, remote_runner, _partition(3, "data", None))["data"]
+
+    assert data["state"] == "created"
+    assert "/dev/sda3" in data["detail"]
+
+
+def test_a_disk_the_machine_does_not_have_blocks_the_run(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _declared(signed_in, {"name": "data", "disk": "/dev/sdz", "mountpoint": "/data"})
+
+    data = _states(signed_in, remote_runner)["data"]
+
+    assert data["state"] == "blocked"
+
+
+def test_room_between_two_partitions_is_reported_and_not_offered() -> None:
+    """The role only adds after the last partition, and a gap is not full.
+
+    A disk whose third partition was deleted has hundreds of gigabytes between
+    its second and fourth. Calling it full was untrue; offering the gap would
+    be a judgement about the disk that belongs to whoever laid it out.
+    """
+    parted = f"""@disk /dev/sda
+BYT;
+/dev/sda:{TB}B:scsi:512:4096:gpt:ATA HFS960G3H2X069N:;
+1:1048576B:537919487B:536870912B:fat32::boot, esp;
+2:537919488B:{54 * GIB}B:{53 * GIB}B:::lvm;
+1:{54 * GIB + 1}B:{350 * GIB}B:{296 * GIB}B:free;
+4:{350 * GIB + 1}B:{TB - 16896}B:{TB - 16896 - 350 * GIB}B:::lvm;
+"""
+    answer = _answer().split("@@parted\n", 1)
+    rest = answer[1].split("@@vgs\n", 1)[1]
+
+    disks, _, _ = parse_reading(
+        answer[0] + "@@parted\n" + parted + "@@vgs\n" + rest, []
+    )
+
+    system = next(disk for disk in disks if disk.device == "/dev/sda")
+    assert system.usable is False
+    assert system.gap_bytes == 296 * GIB
+    assert "only ever adds one after the last" in system.reason
+    assert "296 GiB" in system.reason
+
+
+def test_an_entry_is_forgotten_and_the_others_kept(signed_in: TestClient) -> None:
+    """The inventory only: the role never removes what it created."""
+    _declared(
+        signed_in,
+        {"name": "data", "mountpoint": "/data"},
+        {"name": "data2", "mountpoint": "/data2"},
+    )
+
+    response = signed_in.delete("/api/v1/storage/local/elabo1/volumes/data")
+
+    assert response.status_code == 200, response.text
+    assert "forget the local volume data of elabo1" in response.json()["message"]
+    assert [entry["name"] for entry in _volumes(signed_in, "elabo1")] == ["data2"]
+
+
+def test_forgetting_an_entry_nobody_declared_is_refused(
+    signed_in: TestClient,
+) -> None:
+    _declared(signed_in, {"name": "data", "mountpoint": "/data"})
+
+    response = signed_in.delete("/api/v1/storage/local/elabo1/volumes/other")
+
+    assert response.status_code == 400
+    assert _volumes(signed_in, "elabo1")[0]["name"] == "data"
+
+
+def test_forgetting_an_entry_is_an_administrator_s_act(client: TestClient) -> None:
+    sign_in(client, "admin")
+    _declared(client, {"name": "data", "mountpoint": "/data"})
+    sign_in(client, "operator")
+
+    response = client.delete("/api/v1/storage/local/elabo1/volumes/data")
+
+    assert response.status_code == 403
 
 
 # The rules, each with the case it accepts and the one it refuses. They are the

@@ -39,6 +39,12 @@ stylistic preference: it is the property that makes SEAPATH infrastructure as
 code, and it is why the roles you would be duplicating are the ones the CI
 tests.
 
+An act made once rather than a state kept is still a run of an upstream role
+or script, but its values are given to that run and recorded with it rather
+than committed as desired state: a backup, a restore, a new partition. An
+inventory entry for something that is never applied again only describes the
+machine, and drifts from it. D53 and D58 record the two cases.
+
 ## Consequences to keep in mind
 
 - The target machines are live electrical substation hypervisors. An apply can

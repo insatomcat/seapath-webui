@@ -235,10 +235,18 @@ class StagingDirectory(BaseModel):
 
 
 class StagedVolume(BaseModel):
-    """A local volume the inventory declares on the member the backups run on."""
+    """A place on the member the backups run on that could hold the staging.
+
+    A local volume the inventory declares there, mounted or not yet, or a file
+    system already mounted there that nothing declares, such as a `/data` made
+    by hand.
+    """
 
     mountpoint: str
     mounted: bool = False
+    declared: bool = True
+    size_bytes: int | None = None
+    free_bytes: int | None = None
 
 
 class StagingReading(BaseModel):
@@ -249,7 +257,8 @@ class StagingReading(BaseModel):
     volumes: list[StagedVolume] = Field(default_factory=list)
     """Where the staging directories could move to: the local volumes
     `configure_local_storage_volumes` declares on that member, and whether each
-    is mounted there now."""
+    is mounted there now, then the other file systems mounted there outside
+    the system's own directories."""
     read_at: str | None = None
     note: str = ""
 
@@ -713,18 +722,10 @@ class BackupService:
                 note=f"{name} could not be asked about its staging directories: "
                 f"{error}",
             )
-        mounted = {
-            line.split(" ", 2)[2]
-            for line in answer.splitlines()
-            if line.startswith("mnt yes ")
-        }
         return StagingReading(
             host=name,
             directories=parse_staging(answer, directories),
-            volumes=[
-                StagedVolume(mountpoint=item, mounted=item in mounted)
-                for item in mountpoints
-            ],
+            volumes=parse_places(answer, mountpoints),
             read_at=datetime.now(tz=UTC).isoformat(),
         )
 
@@ -1235,6 +1236,74 @@ def parse_staging(
                 found[path].size_bytes = int(size)
                 found[path].free_bytes = int(free)
     return [found[path] for path, _ in directories]
+
+
+# Where a staging directory has no business, whatever room the file system
+# there has: the system's own trees, and the root file system, which the
+# staging card already says is too small on a machine from the ISO.
+_SYSTEM_TREES = (
+    "/boot",
+    "/dev",
+    "/etc",
+    "/home",
+    "/proc",
+    "/root",
+    "/run",
+    "/sys",
+    "/tmp",
+    "/usr",
+    "/var",
+)
+
+
+def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
+    """The `mnt` and `fs` lines: declared volumes first, then the others.
+
+    `mnt yes|no <path>` says whether a declared volume is mounted, and
+    `fs <path> <size> <free>` is every ext4, xfs and btrfs file system
+    mounted, as `findmnt -r` prints it. A path `findmnt` had to escape carries
+    a backslash and is left out rather than unescaped.
+    """
+    mounted: set[str] = set()
+    room: dict[str, tuple[int, int]] = {}
+    for line in text.splitlines():
+        if line.startswith("mnt yes "):
+            mounted.add(line.split(" ", 2)[2])
+        elif line.startswith("fs "):
+            parts = line.split()
+            if len(parts) == 4 and parts[2].isdigit() and parts[3].isdigit():
+                room[parts[1]] = (int(parts[2]), int(parts[3]))
+    places = []
+    for item in declared:
+        size, free = room.get(item, (None, None)) if item in mounted else (None, None)
+        places.append(
+            StagedVolume(
+                mountpoint=item,
+                mounted=item in mounted,
+                size_bytes=size,
+                free_bytes=free,
+            )
+        )
+    for path, (size, free) in sorted(room.items()):
+        if (
+            path in declared
+            or path == "/"
+            or "\\" in path
+            or any(
+                path == tree or path.startswith(tree + "/") for tree in _SYSTEM_TREES
+            )
+        ):
+            continue
+        places.append(
+            StagedVolume(
+                mountpoint=path,
+                mounted=True,
+                declared=False,
+                size_bytes=size,
+                free_bytes=free,
+            )
+        )
+    return places
 
 
 def _guest(
