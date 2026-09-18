@@ -1197,17 +1197,23 @@ def test_a_file_system_mounted_by_hand_is_offered_for_the_staging() -> None:
     """A `/data` made by hand is already the place a staging needs.
 
     Nothing has to be partitioned to use it. The system's own trees and the
-    root file system are never offered, and a declared volume keeps its row.
+    root file system are never offered, nor a file system that is not on a
+    local disk: an RBD image a quadlet mapped under /mnt/rbd lives in Ceph.
+    A declared volume keeps its row.
     """
     answer = (
         "mnt yes /backup\n"
-        "fs / 21000000000 9000000000\n"
-        "fs /var/lib/containers/storage/overlay 21000000000 9000000000\n"
-        "fs /var/log 5000000000 4000000000\n"
-        "fs /boot/efi 536000000 500000000\n"
-        "fs /backup 300000000000 290000000000\n"
-        "fs /data 584000000000 538000000000\n"
-        "fs /mnt/with\\x20space 1000000000 1000000000\n"
+        "fs /dev/mapper/vg1-root / 21000000000 9000000000\n"
+        "fs /dev/mapper/vg1-root /var/lib/containers/storage/overlay "
+        "21000000000 9000000000\n"
+        "fs /dev/mapper/vg1-varlog /var/log 5000000000 4000000000\n"
+        "fs /dev/sdb1 /boot/efi 536000000 500000000\n"
+        "fs /dev/sda3 /backup 300000000000 290000000000\n"
+        "fs /dev/mapper/vg_data-lv_data /data 584000000000 538000000000\n"
+        "fs /dev/sda5 /mnt/with\\x20space 1000000000 1000000000\n"
+        # A quadlet's RBD image, which lives in Ceph and is no room here.
+        "fs /dev/rbd0 /mnt/rbd/nginxquadlet 1000000000 950000000\n"
+        "fs /dev/nbd0 /mnt/nbd 1000000000 950000000\n"
     )
 
     places = parse_places(answer, ["/backup"])

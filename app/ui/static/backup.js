@@ -266,11 +266,18 @@
     // would be created on the file system below it, and the role would then
     // refuse to mount over a directory that is not empty.
     const backup = directories.find((item) => item.purpose === "backup");
+    // And only a place with more room than the staging has where it is: a
+    // move to less room is no answer to a staging directory short of it.
     const places = (reading.volumes || []).filter(
       (volume) =>
         volume.mounted &&
         backup &&
-        !backup.path.startsWith(volume.mountpoint.replace(/\/$/, "") + "/")
+        !backup.path.startsWith(volume.mountpoint.replace(/\/$/, "") + "/") &&
+        !(
+          typeof volume.free_bytes === "number" &&
+          typeof backup.free_bytes === "number" &&
+          volume.free_bytes <= backup.free_bytes
+        )
     );
     places.sort(
       (a, b) =>

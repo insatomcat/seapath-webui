@@ -378,9 +378,9 @@ _STAGING_SCRIPT = (
     'if mountpoint -q "$m"; then s=yes; else s=no; fi; '
     'printf \'mnt %s %s\\n\' "$s" "$m"; '
     "done; "
-    "findmnt -rn -b -o TARGET,SIZE,AVAIL -t ext4,xfs,btrfs 2>/dev/null | "
-    "while read -r t z a; do "
-    'printf \'fs %s %s %s\\n\' "$t" "$z" "$a"; '
+    "findmnt -rn -b -o SOURCE,TARGET,SIZE,AVAIL -t ext4,xfs,btrfs 2>/dev/null | "
+    "while read -r s t z a; do "
+    'printf \'fs %s %s %s %s\\n\' "$s" "$t" "$z" "$a"; '
     "done"
 )
 
@@ -399,8 +399,10 @@ def staging_shell_command(
     then refuse to mount over a directory that is not empty.
 
     Every ext4, xfs and btrfs file system mounted there is listed too, with
-    its room: a machine whose `/data` was made by hand already has the place a
-    staging directory needs, and nothing has to be partitioned to use it.
+    the device it comes from and its room: a machine whose `/data` was made by
+    hand already has the place a staging directory needs, and nothing has to
+    be partitioned to use it. The device is what tells a local disk from an
+    RBD image a guest or a quadlet mapped there.
     """
     script = _STAGING_SCRIPT.format(
         directories=" ".join(shlex.quote(item) for item in directories),

@@ -4426,8 +4426,11 @@ inventory, as a commit; the role never removes a partition, a file system or a
 mount, so the machine is left as it is.
 
 **The staging directories** are offered every ext4, xfs or btrfs file system
-mounted on the member the backups run on, outside the system's own trees, with
-its room. A `/data` made by hand is a place a staging directory can go without
+mounted from a local disk of the member the backups run on, outside the
+system's own trees, with its room, when it has more than the staging has
+where it is. The device is checked: an RBD image a quadlet mapped under
+`/mnt/rbd` lives in Ceph, on the pool the backups export, and is no room on
+the machine. A `/data` made by hand is a place a staging directory can go without
 anything being partitioned, and the page offers it first when no volume was
 created for the purpose.
 

@@ -1256,13 +1256,23 @@ _SYSTEM_TREES = (
 )
 
 
+# The devices a local disk's file system is mounted from: a partition of a
+# SCSI, virtio, Xen, IDE, NVMe or MMC disk, a software RAID, or a device mapper
+# volume, which is how LVM appears. What is left out is the point: an RBD
+# image mapped with `rbd map` lives in Ceph, on the pool the backups export,
+# and `nbd` and loop devices are someone else's files. None of them is room
+# on this machine.
+_LOCAL_DEVICE = re.compile(r"^/dev/(sd|vd|xvd|hd|nvme|mmcblk|md|mapper/|dm-)")
+
+
 def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
     """The `mnt` and `fs` lines: declared volumes first, then the others.
 
     `mnt yes|no <path>` says whether a declared volume is mounted, and
-    `fs <path> <size> <free>` is every ext4, xfs and btrfs file system
-    mounted, as `findmnt -r` prints it. A path `findmnt` had to escape carries
-    a backslash and is left out rather than unescaped.
+    `fs <device> <path> <size> <free>` is every ext4, xfs and btrfs file
+    system mounted, as `findmnt -r` prints it. Only one mounted from a local
+    disk is offered. A path `findmnt` had to escape carries a backslash and is
+    left out rather than unescaped.
     """
     mounted: set[str] = set()
     room: dict[str, tuple[int, int]] = {}
@@ -1271,8 +1281,13 @@ def parse_places(text: str, declared: list[str]) -> list[StagedVolume]:
             mounted.add(line.split(" ", 2)[2])
         elif line.startswith("fs "):
             parts = line.split()
-            if len(parts) == 4 and parts[2].isdigit() and parts[3].isdigit():
-                room[parts[1]] = (int(parts[2]), int(parts[3]))
+            if (
+                len(parts) == 5
+                and _LOCAL_DEVICE.match(parts[1])
+                and parts[3].isdigit()
+                and parts[4].isdigit()
+            ):
+                room[parts[2]] = (int(parts[3]), int(parts[4]))
     places = []
     for item in declared:
         size, free = room.get(item, (None, None)) if item in mounted else (None, None)
