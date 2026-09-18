@@ -2315,7 +2315,22 @@ def test_a_page_with_no_panel_to_read_again_arms_no_timer(
     """
     control = signed_in.get("/static/reread.js").text
 
-    assert "if (!controls.length) {" in control
+    # A page whose only controls are kept off the timer arms nothing either.
+    assert "if (!controls.some((control) => control.timed)) {" in control
+
+
+def test_the_backup_page_is_never_read_on_the_timer(signed_in: TestClient) -> None:
+    """Reading it again asks every cluster member over SSH.
+
+    Its button still reads it, and the timer's rounds skip it whatever position
+    the switch is in.
+    """
+    control = signed_in.get("/static/reread.js").text
+    page = signed_in.get("/static/backup.js").text
+
+    assert "timed: !options || options.timer !== false," in control
+    assert "if (control.timed && due(control)) {" in control
+    assert "{ timer: false }" in page
 
 
 def test_the_automatic_reading_is_remembered_by_this_browser(
