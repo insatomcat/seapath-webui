@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.137 - 2026-09-18
+
+- feat: create a local volume by a run, and keep nothing in the inventory
+
 ## 0.3.136 - 2026-09-18
 
 - fix: list the pool's images through sh, the one command sudo allows
