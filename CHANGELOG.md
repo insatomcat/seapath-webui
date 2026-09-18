@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.145 - 2026-09-18
+
+- fix: say before an update whether a machine has room for its snapshot
+
 ## 0.3.144 - 2026-09-18
 
 - feat: check the machines for software updates, and update them
