@@ -39,6 +39,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+from app.cluster.fake import rbd_answers
 from app.cluster.rbd import DU_TIMEOUT, parse_disk_usage
 from app.core.settings import Settings
 from app.runs import backup as plays
@@ -578,7 +579,13 @@ def test_only_the_images_a_backup_exports_are_measured(
 
     listing, measure = remote_runner.requests
     assert {listing.address, measure.address} == {"192.168.200.126"}
-    assert listing.command == "sudo -n rbd -p rbd ls --format json"
+    assert shlex.split(listing.command) == [
+        "sudo",
+        "-n",
+        "/bin/sh",
+        "-c",
+        "rbd -p rbd ls --format json",
+    ]
     script = shlex.split(measure.command)
     assert script[:4] == ["sudo", "-n", "/bin/sh", "-c"]
     assert script[4] == (
@@ -586,6 +593,28 @@ def test_only_the_images_a_backup_exports_are_measured(
         'do rbd -p rbd du --format json "$image" || exit 1; echo; done'
     )
     assert measure.timeout == DU_TIMEOUT
+
+
+def test_every_command_sent_to_a_member_is_run_through_sh(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """The ISO grants `ansible` two commands without a password.
+
+    `/bin/sh` and `rsync`, and nothing else: `sudo -n rbd` is refused with
+    "a password is required", which is how the first version of the estimate
+    met a real member. Every reading this page makes goes through `sh`.
+    """
+    _configured(signed_in)
+    _listed(remote_runner)
+    remote_runner.answers.update(rbd_answers())
+
+    _estimate(signed_in)
+    signed_in.get("/api/v1/backup/catalogue")
+    signed_in.get("/api/v1/backup/staging")
+
+    assert len(remote_runner.requests) == 4
+    for request in remote_runner.requests:
+        assert request.command.startswith("sudo -n /bin/sh -c "), request.command
 
 
 def test_a_pool_that_cannot_be_measured_says_why(

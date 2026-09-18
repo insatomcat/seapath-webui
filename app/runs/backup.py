@@ -405,9 +405,14 @@ def images_shell_command() -> str:
     """`rbd ls`, as one command for the member the backups run on.
 
     Run as root, which is how the member's own shell reaches the Ceph admin
-    keyring. A question for a monitor, answered at once.
+    keyring, and through `/bin/sh` like every command sent to a member: the
+    ISO grants the `ansible` account `/bin/sh` and `rsync` without a password
+    and nothing else, so `sudo -n rbd` is refused. A question for a monitor,
+    answered at once.
     """
-    return "sudo -n " + shlex.join(["rbd", "-p", POOL, "ls", "--format", "json"])
+    return "sudo -n /bin/sh -c " + shlex.quote(
+        shlex.join(["rbd", "-p", POOL, "ls", "--format", "json"])
+    )
 
 
 def du_shell_command(images: list[str]) -> str:
