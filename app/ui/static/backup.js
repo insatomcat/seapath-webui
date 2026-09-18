@@ -1477,6 +1477,13 @@
     if (connection) {
       renderConnection(connection);
     }
+    // The panel sits below the other cards, out of sight on a short screen.
+    if (connectionOpen) {
+      element("connection-card").scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+      });
+    }
   });
   element("connection-prepare").addEventListener("click", openTrust);
   element("connection-generate").addEventListener("click", confirmGenerate);

@@ -147,56 +147,6 @@ to be erased.
     </p>
   </section>
 
-  {# Whether each cluster member can push to the backup server, asked the way
-     a backup connects, with `BatchMode`. The backups are pushed by root with
-     no password, so each member needs a key the server accepts and the
-     server's host key in root's known_hosts. The role does the machines' half
-     from the inventory; the keys reach the server with the password of the
-     account the backups are pushed to, typed once. See D57.
-
-     Shown while there is something to do about it. Once every member reaches
-     the server with a confirmed host key, the finding is one line in the card
-     above and this panel stays out of the way. #}
-  <section class="card" id="connection-card" hidden>
-    <div class="card-head">
-      <h2>Connection to the backup server</h2>
-      <div class="card-acts">
-        <span class="pane-foot-note" id="connection-when"></span>
-        <button type="button" id="connection-read" class="secondary">Check again</button>
-      </div>
-    </div>
-    <div class="loading" id="connection-loading" hidden>
-      Asking every cluster member to reach the backup server
-    </div>
-    <p class="warning" id="connection-note" hidden></p>
-    <dl id="connection-facts" hidden>
-      <dt>Server host key</dt>
-      <dd id="connection-hostkey"></dd>
-      <dt>Key</dt>
-      <dd id="connection-key"></dd>
-      <dt>Free on the server</dt>
-      <dd id="connection-space"></dd>
-    </dl>
-    <div class="table-scroll" id="connection-table" hidden>
-      <table>
-        <thead>
-          <tr>
-            <th>Member</th>
-            <th>Backup key</th>
-            <th>Reaches the server</th>
-          </tr>
-        </thead>
-        <tbody id="connection-rows"></tbody>
-      </table>
-    </div>
-    <div class="card-actions" id="connection-acts" hidden>
-      <button type="button" id="connection-prepare" hidden>Use a dedicated key</button>
-      <button type="button" id="connection-generate" hidden>Generate the keys</button>
-      <button type="button" id="connection-install" hidden>Install the keys on the server</button>
-    </div>
-    <p class="help" id="connection-help" hidden></p>
-  </section>
-
   {# What a full backup would weigh, per guest. `rbd du` on the member the
      backups run on, of the images the filters select and no other. The two
      filters are applied exactly as the scripts apply them, to the guest name,
@@ -250,6 +200,57 @@ to be erased.
     <p class="pane-foot">
       <span class="pane-foot-note" id="estimate-excluded"></span>
     </p>
+  </section>
+
+  {# Whether each cluster member can push to the backup server, asked the way
+     a backup connects, with `BatchMode`. The backups are pushed by root with
+     no password, so each member needs a key the server accepts and the
+     server's host key in root's known_hosts. The role does the machines' half
+     from the inventory; the keys reach the server with the password of the
+     account the backups are pushed to, typed once. See D57.
+
+     Shown while there is something to do about it. Once every member reaches
+     the server with a confirmed host key, the finding is one line in the
+     Backups card and this panel stays out of the way. It comes last and spans
+     the page, so opening it from that line moves none of the other cards. #}
+  <section class="card" id="connection-card" hidden>
+    <div class="card-head">
+      <h2>Connection to the backup server</h2>
+      <div class="card-acts">
+        <span class="pane-foot-note" id="connection-when"></span>
+        <button type="button" id="connection-read" class="secondary">Check again</button>
+      </div>
+    </div>
+    <div class="loading" id="connection-loading" hidden>
+      Asking every cluster member to reach the backup server
+    </div>
+    <p class="warning" id="connection-note" hidden></p>
+    <dl id="connection-facts" hidden>
+      <dt>Server host key</dt>
+      <dd id="connection-hostkey"></dd>
+      <dt>Key</dt>
+      <dd id="connection-key"></dd>
+      <dt>Free on the server</dt>
+      <dd id="connection-space"></dd>
+    </dl>
+    <div class="table-scroll" id="connection-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Member</th>
+            <th>Backup key</th>
+            <th>Reaches the server</th>
+          </tr>
+        </thead>
+        <tbody id="connection-rows"></tbody>
+      </table>
+    </div>
+    <div class="card-actions" id="connection-acts" hidden>
+      <button type="button" id="connection-prepare" hidden>Use a dedicated key</button>
+      <button type="button" id="connection-generate" hidden>Generate the keys</button>
+      <button type="button" id="connection-install" hidden>Install the keys on the server</button>
+    </div>
+    <p class="help" id="connection-help" hidden></p>
   </section>
 
   <p class="hint" id="how">

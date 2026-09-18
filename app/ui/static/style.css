@@ -810,7 +810,8 @@ td button {
   align-items: start;
 }
 
-.page.backup > .hint {
+.page.backup > .hint,
+.page.backup > #connection-card {
   grid-column: 1 / -1;
 }
 
