@@ -13,8 +13,8 @@ Three panels and four acts. Where the backups go is a commit. What a full
 backup would weigh is `rbd du`, asked of Ceph here, which is the port of
 `backup_du.py`. What the backup server holds is the one reading that cannot
 happen here at all: the SSH trust that reaches it belongs to the cluster
-members, so the server is asked by a short run and the listing comes back with
-it.
+members, so the server is asked through one of them, and the listing opens in
+a window, which is where a restore starts.
 
 The confirmation is the point of the two windows at the end. Each script pauses
 on a `read -r` before it deletes anything, which is the terminal's last
@@ -51,6 +51,8 @@ to be erased.
       <dd id="target-staging"></dd>
       <dt>Runs on</dt>
       <dd id="target-runner"></dd>
+      <dt id="target-connection-label" hidden>Connection</dt>
+      <dd id="target-connection" hidden></dd>
     </dl>
 
     {# Whether a full backup fits, on the two file systems it fills: the
@@ -61,7 +63,7 @@ to be erased.
     <div class="card-actions" id="acts" hidden>
       <button type="button" id="act-full">Back up everything</button>
       <button type="button" id="act-inc" class="secondary">Back up the changes</button>
-      <button type="button" id="act-list" class="secondary">List the backups</button>
+      <button type="button" id="act-list" class="secondary">Show the backups</button>
     </div>
     <p class="help" id="acts-help" hidden>
       A backup holds the cluster's run lock for as long as it takes, so no
@@ -123,7 +125,11 @@ to be erased.
      no password, so each member needs a key the server accepts and the
      server's host key in root's known_hosts. The role does the machines' half
      from the inventory; the keys reach the server with the password of the
-     account the backups are pushed to, typed once. See D57. #}
+     account the backups are pushed to, typed once. See D57.
+
+     Shown while there is something to do about it. Once every member reaches
+     the server with a confirmed host key, the finding is one line in the card
+     above and this panel stays out of the way. #}
   <section class="card" id="connection-card" hidden>
     <div class="card-head">
       <h2>Connection to the backup server</h2>
@@ -217,34 +223,6 @@ to be erased.
     <p class="pane-foot">
       <span class="pane-foot-note" id="estimate-excluded"></span>
     </p>
-  </section>
-
-  {# What the server holds. Drawn from the last listing run, and the panel says
-     when that was: a page that showed this as live would be claiming a reading
-     this service cannot make. #}
-  <section class="card" id="catalogue-card" hidden>
-    <div class="card-head">
-      <h2>On the backup server</h2>
-      <span class="pane-foot-note" id="catalogue-when"></span>
-    </div>
-    <div class="loading" id="catalogue-loading" hidden>
-      Asking the backup server what it holds
-    </div>
-    <p class="warning" id="catalogue-note" hidden></p>
-    <div class="table-scroll" id="catalogue-table" hidden>
-      <table>
-        <thead>
-          <tr>
-            <th>Full backup</th>
-            <th>Guest</th>
-            <th>Disks</th>
-            <th>Restorable to</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="catalogue-rows"></tbody>
-      </table>
-    </div>
   </section>
 
   <p class="hint" id="how">
@@ -435,18 +413,67 @@ to be erased.
   </div>
 </div>
 
+{# What the server holds, and the restore of one guest out of it. A restore
+   starts from a row of this list, so both are one window: choosing a row
+   turns the window into its confirmation, which names the guest that is
+   about to be replaced, and going back returns to the same list without
+   asking the server again. The window says when the list was read: a page
+   that showed it as live would be claiming a reading this service cannot
+   make. #}
+<div class="modal" id="catalogue" data-dismiss="catalogue-close" hidden>
+  <div class="modal-body wide">
+    <div id="catalogue-list">
+      <div class="modal-head">
+        <h2>On the backup server</h2>
+        <button type="button" id="catalogue-close" class="secondary">Close</button>
+      </div>
+      <p class="help" id="catalogue-when" hidden></p>
+      <div class="loading" id="catalogue-loading" hidden>
+        Asking the backup server what it holds
+      </div>
+      <p class="warning" id="catalogue-note" hidden></p>
+      <div class="table-scroll" id="catalogue-table" hidden>
+        <table>
+          <thead>
+            <tr>
+              <th>Full backup</th>
+              <th>Guest</th>
+              <th>Disks</th>
+              <th>Restorable to</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="catalogue-rows"></tbody>
+        </table>
+      </div>
+      <div class="card-actions">
+        <button type="button" id="catalogue-read" class="secondary">Read again</button>
+      </div>
+    </div>
+
+    <div id="restore" hidden>
+      <h2 id="restore-title"></h2>
+      <p id="restore-disruption"></p>
+      <p class="warning" id="restore-note"></p>
+      <label for="restore-date">Replay the changes up to</label>
+      <select id="restore-date"></select>
+      <p class="error" id="restore-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="restore-back" class="secondary">Back to the list</button>
+        <button type="button" id="restore-go">Restore it</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 {# One window for every act that reaches a machine. It names what the act
-   erases, which for a full backup is the snapshots it purges and for a restore
-   is the guest that is running now. #}
+   erases, which for a full backup is the snapshots it purges. A restore has
+   its own, in the window listing the backups. #}
 <div class="modal" id="confirm" data-dismiss="confirm-cancel" hidden>
   <div class="modal-body">
     <h2 id="confirm-title"></h2>
     <p id="confirm-disruption"></p>
     <p class="warning" id="confirm-note" hidden></p>
-    <label id="confirm-choice" hidden>
-      <span id="confirm-choice-label"></span>
-      <select id="confirm-date"></select>
-    </label>
     <p class="error" id="confirm-error" hidden></p>
     <div class="actions">
       <button type="button" id="confirm-cancel" class="secondary">Cancel</button>

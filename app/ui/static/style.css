@@ -2920,6 +2920,14 @@ td > button.leftover svg {
   gap: 0.5rem;
 }
 
+/* A button's label is one line. Squeezed by a long note beside it, "Check
+   again" broke into two words stacked in a tall button; the note is what
+   wraps instead. */
+.card-head .card-acts button {
+  flex: none;
+  white-space: nowrap;
+}
+
 /* Three buttons read as one control: which guests the table lists. */
 .segmented {
   display: inline-flex;

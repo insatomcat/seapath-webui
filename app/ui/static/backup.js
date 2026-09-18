@@ -5,7 +5,7 @@
 //
 // Three readings and four acts. Where the backups go comes out of the
 // inventory, what a full backup would weigh comes out of `rbd du`, and what
-// the backup server holds comes out of the last listing run, because nothing
+// the backup server holds is read through a cluster member, because nothing
 // in this container can reach that server: the SSH trust to it belongs to the
 // cluster members and is the one the backups are pushed with.
 //
@@ -214,8 +214,18 @@
     directories.forEach((item) => {
       const state = document.createElement("td");
       const badge = document.createElement("span");
-      badge.className = RunStream.stateClass(item.exists ? "success" : "failed");
-      badge.textContent = item.exists ? "present" : "missing";
+      // The restore directory is absent between restores, which is its
+      // ordinary state rather than a fault: the restore creates it and
+      // empties it. Only the backup directory missing needs a run.
+      const idle = !item.exists && item.purpose === "restore";
+      badge.className = RunStream.stateClass(
+        item.exists ? "success" : idle ? "cancelled" : "failed"
+      );
+      badge.textContent = item.exists
+        ? "present"
+        : idle
+          ? "created by a restore"
+          : "missing";
       state.append(badge);
       row(body, [
         cell(item.path),
@@ -235,7 +245,9 @@
       ]);
     });
 
-    const missing = directories.some((item) => !item.exists);
+    const missing = directories.some(
+      (item) => !item.exists && item.purpose === "backup"
+    );
     element("staging-create").hidden = !missing;
     element("staging-help").hidden = !canWrite || !missing;
 
@@ -690,6 +702,27 @@
     element("connection-acts").hidden =
       !canWrite || !reading.server || !(prepare || generate || install);
 
+    // Every member through and nothing left to offer: the panel has done its
+    // job, and what it found is one line in the card above. It comes back the
+    // first time a reading finds something to do.
+    const settled =
+      !reading.note &&
+      members.length > 0 &&
+      members.every((member) => member.reaches === true) &&
+      !(prepare || generate || install);
+    element("connection-card").hidden = !view || !view.configured || settled;
+    element("target-connection-label").hidden = !settled;
+    element("target-connection").hidden = !settled;
+    element("target-connection").textContent = settled
+      ? (members.length === 1
+          ? members[0].host + " reaches the server"
+          : "all " + members.length + " members reach the server") +
+        (space && typeof space.free_bytes === "number"
+          ? ", " + size(space.free_bytes) + " free in " + space.directory
+          : "") +
+        (reading.read_at ? ", checked " + whenRead(reading.read_at) : "")
+      : "";
+
     const help = element("connection-help");
     help.textContent = prepare
       ? "The backups are pushed by root on the member that runs them, with no " +
@@ -851,7 +884,11 @@
     }
   }
 
-  // What the server holds
+  // What the server holds, and a restore out of it
+  //
+  // One window. The list is its first face, and choosing a row turns it into
+  // the confirmation of that restore, so the operator never loses the list
+  // they chose from and going back does not ask the server again.
 
   function renderCatalogue(catalogue) {
     const backups = catalogue.backups || [];
@@ -861,6 +898,7 @@
     element("catalogue-when").textContent = catalogue.read_at
       ? "Read from " + catalogue.read_from + ", " + whenRead(catalogue.read_at)
       : "";
+    element("catalogue-when").hidden = !catalogue.read_at;
 
     const body = clear(element("catalogue-rows"));
     backups.forEach((backup) => {
@@ -904,35 +942,19 @@
     button.type = "button";
     button.className = "secondary";
     button.textContent = "Restore";
-    button.addEventListener("click", () => confirmRestore(backup, guest));
+    button.addEventListener("click", () => showRestore(backup, guest));
     node.append(button);
     return node;
   }
 
   // The confirmations
 
-  function confirm({ title, body, note, label, choose, act }) {
+  function confirm({ title, body, note, label, act }) {
     element("confirm-title").textContent = title;
     element("confirm-disruption").textContent = body;
     element("confirm-note").textContent = note || "";
     element("confirm-note").hidden = !note;
     element("confirm-error").hidden = true;
-
-    const picker = element("confirm-date");
-    element("confirm-choice").hidden = !choose;
-    if (choose) {
-      element("confirm-choice-label").textContent = choose.label;
-      clear(picker);
-      choose.options.forEach((value) => {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = readable(value);
-        picker.append(option);
-      });
-      // The newest is what an operator almost always wants, and the list is
-      // oldest first because that is the order the diffs are replayed in.
-      picker.value = choose.options[choose.options.length - 1];
-    }
 
     const go = element("confirm-go");
     go.textContent = label;
@@ -941,7 +963,7 @@
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        await act(choose ? picker.value : undefined);
+        await act();
         element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
@@ -997,49 +1019,91 @@
     });
   }
 
-  function confirmRestore(backup, guest) {
-    confirm({
-      title: "Restore " + guest.guest + " from " + readable(backup.date),
-      body:
-        "Recreates " + guest.guest + " from the backup and starts it. " +
-        "`vm-mgr create --force` replaces whatever is there under that name: " +
-        "the disks it has now, its Pacemaker resource and the metadata on its " +
-        "image are all overwritten by what the backup carries.",
-      note:
-        "Everything written to " + guest.guest + " since the date chosen here " +
-        "is gone, and nothing on this page brings it back. If it is running " +
-        "now, the running guest is destroyed. The restore staging directory " +
-        "on the machine is emptied first.",
-      choose: { label: "Replay the changes up to", options: guest.dates },
-      label: "Restore it",
-      act: async (date) => {
-        const started = await API.post("/backup/restore", {
-          guest: guest.guest,
-          full_date: backup.date,
-          date,
-        });
-        RunWatch.open(started.run_id);
-      },
+  function showRestore(backup, guest) {
+    element("restore-title").textContent =
+      "Restore " + guest.guest + " from " + readable(backup.date);
+    element("restore-disruption").textContent =
+      "Recreates " + guest.guest + " from the backup and starts it. " +
+      "`vm-mgr create --force` replaces whatever is there under that name: " +
+      "the disks it has now, its Pacemaker resource and the metadata on its " +
+      "image are all overwritten by what the backup carries.";
+    element("restore-note").textContent =
+      "Everything written to " + guest.guest + " since the date chosen here " +
+      "is gone, and nothing on this page brings it back. If it is running " +
+      "now, the running guest is destroyed. The restore staging directory " +
+      "on the machine is emptied first.";
+    const picker = clear(element("restore-date"));
+    guest.dates.forEach((value) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = readable(value);
+      picker.append(option);
     });
+    // The newest is what an operator almost always wants, and the list is
+    // oldest first because that is the order the diffs are replayed in.
+    picker.value = guest.dates[guest.dates.length - 1];
+    element("restore-error").hidden = true;
+    const go = element("restore-go");
+    go.disabled = false;
+    go.onclick = () => restore(backup, guest);
+    element("catalogue-list").hidden = true;
+    element("restore").hidden = false;
+    go.focus();
+  }
+
+  function showList() {
+    element("restore").hidden = true;
+    element("catalogue-list").hidden = false;
+  }
+
+  async function restore(backup, guest) {
+    const go = element("restore-go");
+    const error = element("restore-error");
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    error.hidden = true;
+    try {
+      const started = await API.post("/backup/restore", {
+        guest: guest.guest,
+        full_date: backup.date,
+        date: element("restore-date").value,
+      });
+      element("catalogue").hidden = true;
+      showList();
+      RunWatch.open(started.run_id);
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      go.disabled = false;
+    } finally {
+      go.removeAttribute("aria-busy");
+    }
   }
 
   // A read, over one SSH connection, so it answers here rather than launching
   // a run and asking the operator to watch it. It used to be a run, which held
   // the cluster's lock while somebody browsed.
   async function readServer() {
-    const button = element("act-list");
+    const button = element("catalogue-read");
     button.disabled = true;
     button.setAttribute("aria-busy", "true");
     element("catalogue-loading").hidden = false;
+    element("catalogue-note").hidden = true;
     try {
       renderCatalogue(await API.get("/backup/catalogue"));
     } catch (failure) {
-      showBanner(failure.message);
+      renderCatalogue({ note: failure.message, backups: [] });
     } finally {
       element("catalogue-loading").hidden = true;
       button.disabled = false;
       button.removeAttribute("aria-busy");
     }
+  }
+
+  function openCatalogue() {
+    showList();
+    element("catalogue").hidden = false;
+    readServer();
   }
 
   // Where they go
@@ -1156,9 +1220,11 @@
     // inventory says where, the page is the form and the sentence that sends
     // an operator to it.
     element("estimate-card").hidden = !answer.configured;
-    element("catalogue-card").hidden = !answer.configured;
     element("staging-card").hidden = !answer.configured;
-    element("connection-card").hidden = !answer.configured;
+    // Shown by its own reading, and only when it finds something to do.
+    if (!answer.configured) {
+      element("connection-card").hidden = true;
+    }
   }
 
   async function refresh(fresh, pending) {
@@ -1179,7 +1245,12 @@
   element("settings-save").addEventListener("click", saveSettings);
   element("act-full").addEventListener("click", confirmFull);
   element("act-inc").addEventListener("click", confirmIncremental);
-  element("act-list").addEventListener("click", readServer);
+  element("act-list").addEventListener("click", openCatalogue);
+  element("catalogue-read").addEventListener("click", readServer);
+  element("catalogue-close").addEventListener("click", () => {
+    element("catalogue").hidden = true;
+  });
+  element("restore-back").addEventListener("click", showList);
   element("estimate-go").addEventListener("click", measure);
   element("staging-read").addEventListener("click", readStaging);
   element("staging-create").addEventListener("click", confirmCreateStaging);
@@ -1250,7 +1321,6 @@
       Kept.hold([
         "card-backup",
         "estimate-card",
-        "catalogue-card",
         "staging-card",
         "connection-card",
       ]);
