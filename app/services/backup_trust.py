@@ -89,6 +89,24 @@ class ServerHostKey(BaseModel):
     """The `known_hosts` line, under the name the members connect to."""
 
 
+class ServerSpace(BaseModel):
+    """What the file system holding `remote_dir` on the backup server has free.
+
+    Read by the connection a member makes to the server anyway, with `df -Pk`
+    in place of `true`, so it costs nothing more than the check itself. A full
+    backup lands there as a new directory beside the ones already kept, so this
+    is what the next one has to fit in.
+    """
+
+    read_from: str
+    directory: str
+    mountpoint: str | None = None
+    size_bytes: int | None = None
+    free_bytes: int | None = None
+    note: str = ""
+    """What the server said when it could not measure the directory."""
+
+
 class BackupConnection(BaseModel):
     """The trust between the cluster members and the backup server."""
 
@@ -101,6 +119,9 @@ class BackupConnection(BaseModel):
     uses_key: bool = False
     """`remote_shell` names that key, so the backups are pushed with it."""
     members: list[MemberConnection] = Field(default_factory=list)
+    space: ServerSpace | None = None
+    """The room on the server, as the member the backups run on saw it, or the
+    first member that reached it."""
     read_at: str | None = None
     note: str = ""
 
@@ -139,12 +160,19 @@ class BackupTrustService:
             view.note = "This inventory has no cluster member to ask."
             return view
         with ThreadPoolExecutor(max_workers=len(addresses)) as pool:
-            view.members = list(
+            answers = list(
                 pool.map(
                     lambda item: self._ask(item[0], item[1], target, view.key_path),
                     addresses,
                 )
             )
+        view.members = [member for member, _ in answers]
+        runner = self._backup.runner()
+        spaces = sorted(
+            (space for _, space in answers if space is not None),
+            key=lambda space: space.read_from != runner,
+        )
+        view.space = spaces[0] if spaces else None
         view.read_at = datetime.now(tz=UTC).isoformat()
         return view
 
@@ -331,7 +359,7 @@ class BackupTrustService:
 
     def _ask(
         self, host: str, address: str, target: BackupTarget, key_path: str
-    ) -> MemberConnection:
+    ) -> tuple[MemberConnection, ServerSpace | None]:
         try:
             answer = self._remote.run(
                 RemoteRequest(
@@ -344,11 +372,18 @@ class BackupTrustService:
                 )
             )
         except RemoteRefused as error:
-            return MemberConnection(
-                host=host, message=f"{host} could not be asked: {error}"
+            return (
+                MemberConnection(
+                    host=host, message=f"{host} could not be asked: {error}"
+                ),
+                None,
             )
         member = MemberConnection(host=host)
+        space = None
         for line in answer.splitlines():
+            if line.startswith("space "):
+                space = parse_space(line[len("space ") :], host, target.remote_dir)
+                continue
             if line.startswith("pub "):
                 key = line[len("pub ") :].strip()
                 member.key = key if PUBLIC_KEY.match(key) else None
@@ -357,19 +392,27 @@ class BackupTrustService:
             elif line.startswith("reach failed"):
                 member.reaches = False
                 member.message = line[len("reach failed") :].strip()
-        return member
+        return member, space if member.reaches else None
 
 
 def probe_command(target: BackupTarget, key_path: str) -> str:
     """What each member is asked: its public key, and a connection like a backup's.
 
-    Root, because the key and the trust are root's. The connection runs `true`
-    on the server with the site's own `remote_shell` and the listing's two
-    options, so it succeeds exactly when a backup's `rsync -e` would connect.
+    Root, because the key and the trust are root's. The connection is made with
+    the site's own `remote_shell` and the listing's two options, so it succeeds
+    exactly when a backup's `rsync -e` would connect. What it runs there is
+    `df -Pk` on the directory the backups land in, POSIX, because a backup
+    server is whatever the site already had: the room comes back with the
+    answer to whether the member gets in at all.
+
+    `ssh` exits 255 on its own failures and passes the remote status through
+    otherwise, and the pipe ends in `tail`, so a connection that got in says
+    so even when `df` could not read the directory.
     """
     shell = target.shell_argv
+    measure = "df -Pk " + shlex.quote(target.remote_dir or ".") + " | tail -n 1"
     connect = shlex.join(
-        [shell[0], *_PROBE_OPTIONS, *shell[1:], target.remote_serv, "true"]
+        [shell[0], *_PROBE_OPTIONS, *shell[1:], target.remote_serv, measure]
     )
     parts = []
     if key_path:
@@ -378,10 +421,33 @@ def probe_command(target: BackupTarget, key_path: str) -> str:
             f"if [ -r {public} ]; then printf 'pub %s\\n' \"$(cat {public})\"; fi"
         )
     parts.append(
-        f"if e=$({connect} 2>&1 >/dev/null); then echo 'reach ok'; "
-        "else printf 'reach failed %s\\n' \"$(printf %s \"$e\" | tr '\\n' ' ')\"; fi"
+        f"if o=$({connect} 2>&1); then echo 'reach ok'; "
+        "printf 'space %s\\n' \"$(printf '%s\\n' \"$o\" | tail -n 1)\"; "
+        "else printf 'reach failed %s\\n' \"$(printf %s \"$o\" | tr '\\n' ' ')\"; fi"
     )
     return "sudo -n /bin/sh -c " + shlex.quote("; ".join(parts))
+
+
+def parse_space(line: str, host: str, directory: str) -> ServerSpace:
+    """One line of `df -Pk`: file system, blocks, used, available, capacity, mount.
+
+    Anything else is what `df` said instead, a directory that does not exist
+    above all, and it is kept as the note.
+    """
+    fields = line.split()
+    if len(fields) >= 6 and all(item.isdigit() for item in fields[1:4]):
+        return ServerSpace(
+            read_from=host,
+            directory=directory,
+            mountpoint=" ".join(fields[5:]),
+            size_bytes=int(fields[1]) * 1024,
+            free_bytes=int(fields[3]) * 1024,
+        )
+    return ServerSpace(
+        read_from=host,
+        directory=directory,
+        note=line.strip() or "df printed nothing.",
+    )
 
 
 def with_identity(shell: str, key_path: str) -> str:
@@ -420,6 +486,8 @@ __all__ = [
     "BackupTrustService",
     "MemberConnection",
     "ServerHostKey",
+    "ServerSpace",
+    "parse_space",
     "probe_command",
     "with_identity",
 ]

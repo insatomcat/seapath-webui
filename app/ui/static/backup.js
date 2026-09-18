@@ -269,7 +269,68 @@
     });
   }
 
+  // Whether a full backup fits, in one sentence per file system it fills.
+  // Returns the sentence and whether anything is known not to fit, which is
+  // what the confirmation of a full backup repeats.
+  function fit() {
+    const backup = ((staged && staged.directories) || []).find(
+      (item) => item.purpose === "backup"
+    );
+    const space = connection && connection.space;
+    const places = [];
+    if (backup && typeof backup.free_bytes === "number") {
+      places.push({
+        where: "the staging directory on " + staged.host,
+        free: backup.free_bytes,
+      });
+    }
+    if (space && typeof space.free_bytes === "number") {
+      places.push({
+        where: space.directory + " on the backup server",
+        free: space.free_bytes,
+      });
+    }
+    if (!places.length) {
+      return { text: "", short: false };
+    }
+    if (!measured) {
+      return {
+        text:
+          places.map((place) => size(place.free) + " free in " + place.where).join(
+            ", "
+          ) +
+          ". Measure the estimated volume below to know whether a full backup " +
+          "fits.",
+        short: false,
+      };
+    }
+    const needed = measured.used_bytes;
+    const short = places.filter((place) => place.free < needed);
+    return {
+      text:
+        "A full backup of the selected guests writes up to " + size(needed) +
+        ". " +
+        places
+          .map(
+            (place) =>
+              (place.free < needed ? "It does not fit in " : "It fits in ") +
+              place.where + ", " + size(place.free) + " free."
+          )
+          .join(" "),
+      short: short.length > 0,
+    };
+  }
+
+  function renderFit() {
+    const answer = fit();
+    const node = element("fit");
+    node.textContent = answer.text;
+    node.className = answer.short ? "warning" : "help";
+    node.hidden = !answer.text;
+  }
+
   function renderRoom() {
+    renderFit();
     const note = element("staging-room");
     const backup = ((staged && staged.directories) || []).find(
       (item) => item.purpose === "backup"
@@ -280,18 +341,14 @@
         backup.mountpoint === "/"
           ? "the root file system"
           : "the file system mounted on " + backup.mountpoint;
-      if (measured && measured.used_bytes > backup.free_bytes) {
+      // Whether it fits is said once, above the button that takes the
+      // backup. What this card adds is where the room comes from.
+      if (backup.mountpoint === "/") {
         text =
-          "A full backup of the selected guests writes up to " +
-          size(measured.used_bytes) + " into " + backup.path + ", and " +
-          where + " has " + size(backup.free_bytes) + " free. It would " +
-          "fail before anything reaches the backup server.";
-      } else if (!measured && backup.mountpoint === "/") {
-        text =
-          backup.path + " is on the root file system, with " +
+          backup.path + " is on " + where + ", with " +
           size(backup.free_bytes) + " free. A full backup writes a qcow2 " +
-          "of every selected guest there first: measure the estimated " +
-          "volume below to compare.";
+          "of every selected guest there before sending anything, so a " +
+          "volume of its own is usually what it needs.";
       }
     }
     note.textContent = text;
@@ -575,6 +632,16 @@
           ? ", which the remote shell uses"
           : ", which the remote shell does not name yet")
       : "root's default key on each member";
+    const space = reading.space;
+    element("connection-space").textContent = !space
+      ? "unknown until a member reaches the server"
+      : typeof space.free_bytes === "number"
+        ? size(space.free_bytes) + " of " + size(space.size_bytes) + " in " +
+          space.directory + ", on " + space.mountpoint + ", read from " +
+          space.read_from
+        : space.directory + " could not be measured from " + space.read_from +
+          ": " + space.note;
+    renderFit();
 
     element("connection-table").hidden = members.length === 0;
     const body = clear(element("connection-rows"));
@@ -889,13 +956,15 @@
   }
 
   function confirmFull() {
+    const room = fit();
     confirm({
       title: "Back up every guest, in full",
       body:
         "Exports every selected guest's disks from Ceph as qcow2 and sends " +
         "them to " + view.target + ". The guests keep running throughout. " +
         "Expect an hour or more on a cluster holding a dozen guests, and the " +
-        "cluster takes no other run until it ends.",
+        "cluster takes no other run until it ends." +
+        (room.text ? " " + room.text : ""),
       note:
         "Before it exports an image it removes every snapshot that image " +
         "carries, with `rbd snap purge`, and takes the base snapshot this " +

@@ -16,6 +16,7 @@ in the one connection it was typed for.
 from __future__ import annotations
 
 import logging
+import shlex
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,12 @@ from fastapi.testclient import TestClient
 
 from app.inventory.resolve import resolve
 from app.runs.backup import BackupTarget
-from app.services.backup_trust import KEY_PATH, probe_command, with_identity
+from app.services.backup_trust import (
+    KEY_PATH,
+    parse_space,
+    probe_command,
+    with_identity,
+)
 from app.trust.backup_server import (
     InstallRefused,
     InstallRequest,
@@ -101,7 +107,8 @@ def test_every_member_is_asked_for_its_key_and_to_reach_the_server(
     _members_answer(
         remote_runner,
         {
-            "elabo1": f"pub {KEY1}\nreach ok\n",
+            "elabo1": f"pub {KEY1}\nreach ok\n"
+            "space /dev/sdb1 976284628 12 931000000 1% /srv\n",
             "elabo2": f"pub {KEY2}\nreach failed Permission denied (publickey).\n",
             "seapath-machine": "reach failed No such file or directory\n",
         },
@@ -118,7 +125,11 @@ def test_every_member_is_asked_for_its_key_and_to_reach_the_server(
     assert command.startswith("sudo -n /bin/sh -c ")
     assert f"{KEY_PATH}.pub" in command
     assert "BatchMode=yes" in command
-    assert "backup@backup.example.org true" in command
+    # The connection a backup makes, measuring where the backups land.
+    script = shlex.split(command)[-1]
+    assert "backup@backup.example.org 'df -Pk /srv/seapath-backups/ | tail -n 1'" in (
+        script
+    )
     members = {member["host"]: member for member in view["members"]}
     assert members["elabo1"] == {
         "host": "elabo1",
@@ -133,6 +144,48 @@ def test_every_member_is_asked_for_its_key_and_to_reach_the_server(
     assert view["uses_key"] is True
     assert view["host_keys"][0]["line"] == HOST_KEY
     assert view["host_keys"][0]["fingerprint"].startswith("SHA256:")
+    assert view["space"] == {
+        "read_from": "elabo1",
+        "directory": "/srv/seapath-backups/",
+        "mountpoint": "/srv",
+        "size_bytes": 976284628 * 1024,
+        "free_bytes": 931000000 * 1024,
+        "note": "",
+    }
+
+
+def test_the_room_on_the_server_is_read_from_the_member_the_backups_run_on(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _import(signed_in, PREPARED)
+    _members_answer(
+        remote_runner,
+        {
+            "seapath-machine": "reach ok\nspace /dev/x 100 0 7 0% /a\n",
+            "elabo1": "reach ok\nspace /dev/x 100 0 42 0% /b\n",
+        },
+    )
+
+    space = signed_in.get("/api/v1/backup/connection").json()["space"]
+
+    assert space["read_from"] == "elabo1"
+    assert space["free_bytes"] == 42 * 1024
+
+
+def test_a_directory_the_server_cannot_measure_is_said_with_df_s_words() -> None:
+    space = parse_space(
+        "df: /srv/seapath-backups/: No such file or directory",
+        "elabo1",
+        "/srv/seapath-backups/",
+    )
+
+    assert space.free_bytes is None
+    assert "No such file or directory" in space.note
+
+
+def test_df_answers_in_kibibytes() -> None:
+    """`-k` is the one unit POSIX `df -P` guarantees, whatever the server is."""
+    assert parse_space("/dev/sdb1 10 1 9 10% /srv", "h", "/srv/").free_bytes == 9216
 
 
 def test_a_member_that_cannot_be_asked_is_not_reported_as_refused(
@@ -155,7 +208,7 @@ def test_a_site_pushing_with_root_s_own_key_is_probed_as_it_pushes() -> None:
     )
 
     assert ".pub" not in command
-    assert "ssh -o BatchMode=yes -o ConnectTimeout=10 -p 2222 backup@server true" in (
+    assert "ssh -o BatchMode=yes -o ConnectTimeout=10 -p 2222 backup@server" in (
         command
     )
 

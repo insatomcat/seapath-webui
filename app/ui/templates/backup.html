@@ -53,6 +53,11 @@ to be erased.
       <dd id="target-runner"></dd>
     </dl>
 
+    {# Whether a full backup fits, on the two file systems it fills: the
+       staging directory on the member, where every qcow2 is written first, and
+       the directory on the server, where it lands beside the backups already
+       kept. Drawn from the three readings below as they arrive. #}
+    <p class="help" id="fit" hidden></p>
     <div class="card-actions" id="acts" hidden>
       <button type="button" id="act-full">Back up everything</button>
       <button type="button" id="act-inc" class="secondary">Back up the changes</button>
@@ -136,6 +141,8 @@ to be erased.
       <dd id="connection-hostkey"></dd>
       <dt>Key</dt>
       <dd id="connection-key"></dd>
+      <dt>Free on the server</dt>
+      <dd id="connection-space"></dd>
     </dl>
     <div class="table-scroll" id="connection-table" hidden>
       <table>
