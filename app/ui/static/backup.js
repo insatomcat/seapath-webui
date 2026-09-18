@@ -845,7 +845,7 @@
       : typeof space.free_bytes === "number"
         ? size(space.free_bytes) + " of " + size(space.size_bytes) + " in " +
           space.directory + ", on " + space.mountpoint + ", read from " +
-          space.read_from
+          space.read_from + missingText(space)
         : space.directory + " could not be measured from " + space.read_from +
           ": " + space.note;
     renderFit();
@@ -906,11 +906,13 @@
 
     // Every member through and nothing left to offer: the panel has done its
     // job, and what it found is one line in the card above. It comes back the
-    // first time a reading finds something to do.
+    // first time a reading finds something to do, a directory on the server
+    // no backup could land in included.
     const settled =
       !reading.note &&
       members.length > 0 &&
       members.every((member) => member.reaches === true) &&
+      !(space && space.missing > 1) &&
       !(prepare || generate || install);
     element("connection-card").hidden =
       !view || !view.configured || (settled && !connectionOpen);
@@ -924,7 +926,12 @@
           ? members[0].host + " reaches the server"
           : "all " + members.length + " members reach the server") +
         (space && typeof space.free_bytes === "number"
-          ? ", " + size(space.free_bytes) + " free in " + space.directory
+          ? ", " + size(space.free_bytes) + " free in " + space.directory +
+            (space.missing === 1
+              ? ", which the first backup creates"
+              : space.missing > 1
+                ? ", which does not exist and which a backup cannot create"
+                : "")
           : "") +
         (reading.read_at ? ", checked " + whenRead(reading.read_at) : "")
       : "";
@@ -948,6 +955,23 @@
             "generates each member's backup key once and never replaces it, " +
             "since the server trusts it, so a key is not changed from here.";
     help.hidden = !canWrite || !help.textContent;
+  }
+
+  // The backups end in `rsync`, which creates the directory they land in
+  // but not its parent: one missing level is the first backup's to make, and
+  // more fails every backup at the very end, after the hour of export.
+  function missingText(space) {
+    if (space.missing === 1) {
+      return ". It is not there yet, and the first backup creates it.";
+    }
+    if (space.missing > 1) {
+      return (
+        ". It is not there, nor is its parent, and rsync creates only the " +
+        "last directory: a backup would fail once everything is exported. " +
+        "Create it on the server."
+      );
+    }
+    return "";
   }
 
   async function readConnection() {

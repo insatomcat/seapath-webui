@@ -128,7 +128,7 @@ def test_every_member_is_asked_for_its_key_and_to_reach_the_server(
     assert "BatchMode=yes" in command
     # The connection a backup makes, measuring where the backups land.
     script = shlex.split(command)[-1]
-    assert "backup@backup.example.org 'df -Pk /srv/seapath-backups/ 2>&1" in script
+    assert "backup@backup.example.org 'p=/srv/seapath-backups/; " in script
     members = {member["host"]: member for member in view["members"]}
     assert members["elabo1"] == {
         "host": "elabo1",
@@ -149,6 +149,7 @@ def test_every_member_is_asked_for_its_key_and_to_reach_the_server(
         "mountpoint": "/srv",
         "size_bytes": 976284628 * 1024,
         "free_bytes": 931000000 * 1024,
+        "missing": 0,
         "note": "",
     }
 
@@ -190,14 +191,16 @@ def test_a_member_whose_reading_has_no_number_gives_way_to_one_that_has(
     assert space["free_bytes"] == 7 * 1024
 
 
-def test_what_the_connection_prints_on_stderr_is_not_taken_for_df(
-    tmp_path: Path,
-) -> None:
-    """A warning the server's shell prints after `df` answered, as sshd may order it.
+def _probe(tmp_path: Path, remote_dir: str) -> str:
+    """What a member prints, with the generated command run for real.
 
-    The generated command runs for real, against an `ssh` that runs the remote
-    command locally and then complains, and a `sudo` that only steps aside.
+    Against an `ssh` that runs the remote command locally and then complains
+    on stderr, as a server's login shell may after `df` answered, a `sudo`
+    that only steps aside, and a `df` that names the path it was given where
+    the mount point goes, so the answer says which directory was measured.
     """
+    tools = tmp_path / "bin"
+    tools.mkdir()
     for name, body in (
         (
             "ssh",
@@ -208,28 +211,54 @@ def test_what_the_connection_prints_on_stderr_is_not_taken_for_df(
         (
             "df",
             "echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n"
-            "echo '/dev/sdb1 100 10 90 10% /srv'\n",
+            'echo "/dev/sdb1 100 10 90 10% $2"\n',
         ),
     ):
-        script = tmp_path / name
+        script = tools / name
         script.write_text("#!/bin/sh\n" + body)
         script.chmod(0o755)
     command = probe_command(
         BackupTarget(
-            remote_serv="backup@server", remote_shell="ssh", remote_dir="/srv/"
+            remote_serv="backup@server", remote_shell="ssh", remote_dir=remote_dir
         ),
         "",
     )
-
-    answer = subprocess.run(
+    return subprocess.run(
         ["/bin/sh", "-c", command],
-        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        env={"PATH": f"{tools}:/usr/bin:/bin"},
         capture_output=True,
         text=True,
         check=True,
     ).stdout
 
-    assert answer == "reach ok\nspace /dev/sdb1 100 10 90 10% /srv\n"
+
+def test_what_the_connection_prints_on_stderr_is_not_taken_for_df(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "srv").mkdir()
+
+    answer = _probe(tmp_path, f"{tmp_path}/srv/")
+
+    assert answer == f"reach ok\nspace 0 /dev/sdb1 100 10 90 10% {tmp_path}/srv/\n"
+
+
+def test_a_directory_not_there_yet_is_measured_where_it_would_be_created(
+    tmp_path: Path,
+) -> None:
+    """`df` refuses a path that does not exist: its nearest parent is asked."""
+    answer = _probe(tmp_path, f"{tmp_path}/moxa/")
+    space = parse_space(answer.splitlines()[1][len("space ") :], "node1", "/x/")
+
+    assert space.mountpoint == str(tmp_path)
+    assert space.free_bytes == 90 * 1024
+    assert space.missing == 1
+
+
+def test_every_missing_level_is_counted(tmp_path: Path) -> None:
+    """`rsync` creates the last one only, so two is a backup that fails."""
+    answer = _probe(tmp_path, f"{tmp_path}/data/moxa/")
+
+    assert answer.splitlines()[1] == f"space 2 /dev/sdb1 100 10 90 10% {tmp_path}"
 
 
 def test_a_directory_the_server_cannot_measure_is_said_with_df_s_words() -> None:

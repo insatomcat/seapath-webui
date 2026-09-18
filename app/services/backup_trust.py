@@ -104,6 +104,11 @@ class ServerSpace(BaseModel):
     mountpoint: str | None = None
     size_bytes: int | None = None
     free_bytes: int | None = None
+    missing: int = 0
+    """How many trailing levels of the directory are not there yet, measured
+    on the file system the nearest one that is would put them on. The backups
+    end in `rsync`, which creates the last level and no other: 1 is made by
+    the first backup, more makes every backup fail at the very end."""
     note: str = ""
     """What the server said when it could not measure the directory."""
 
@@ -408,6 +413,10 @@ def probe_command(target: BackupTarget, key_path: str) -> str:
     server is whatever the site already had: the room comes back with the
     answer to whether the member gets in at all.
 
+    A directory that is not there yet is measured on the nearest parent that
+    is, which is the file system `rsync` will create it on, and the answer
+    says how many levels were missing.
+
     `ssh` exits 255 on its own failures and passes the remote status through
     otherwise, and the pipe ends in `sed`, so a connection that got in says
     so even when `df` could not read the directory.
@@ -420,11 +429,9 @@ def probe_command(target: BackupTarget, key_path: str) -> str:
     """
     shell = target.shell_argv
     measure = (
-        "df -Pk "
-        + shlex.quote(target.remote_dir or ".")
-        + " 2>&1 | tail -n 1 | sed 's/^/"
-        + _SPACE_MARK
-        + "/'"
+        "p=" + shlex.quote(target.remote_dir or ".") + "; n=0; "
+        'while [ ! -e "$p" ]; do p=$(dirname "$p"); n=$((n+1)); done; '
+        'df -Pk "$p" 2>&1 | tail -n 1 | sed "s/^/' + _SPACE_MARK + '$n /"'
     )
     connect = shlex.join(
         [shell[0], *_PROBE_OPTIONS, *shell[1:], target.remote_serv, measure]
@@ -445,12 +452,14 @@ def probe_command(target: BackupTarget, key_path: str) -> str:
 
 
 def parse_space(line: str, host: str, directory: str) -> ServerSpace:
-    """One line of `df -Pk`: file system, blocks, used, available, capacity, mount.
+    """How many levels are missing, then one line of `df -Pk`.
 
-    Anything else is what `df` said instead, a directory that does not exist
-    above all, and it is kept as the note.
+    The `df` line is file system, blocks, used, available, capacity, mount.
+    Anything else is what `df` said instead, and it is kept as the note.
     """
-    fields = line.split()
+    head, _, rest = line.strip().partition(" ")
+    missing = int(head) if head.isdigit() else 0
+    fields = rest.split() if head.isdigit() else line.split()
     if len(fields) >= 6 and all(item.isdigit() for item in fields[1:4]):
         return ServerSpace(
             read_from=host,
@@ -458,11 +467,13 @@ def parse_space(line: str, host: str, directory: str) -> ServerSpace:
             mountpoint=" ".join(fields[5:]),
             size_bytes=int(fields[1]) * 1024,
             free_bytes=int(fields[3]) * 1024,
+            missing=missing,
         )
     return ServerSpace(
         read_from=host,
         directory=directory,
-        note=line.strip() or "df printed nothing.",
+        missing=missing,
+        note=(rest if head.isdigit() else line).strip() or "df printed nothing.",
     )
 
 
