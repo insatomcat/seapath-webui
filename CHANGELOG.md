@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.139 - 2026-09-18
+
+- feat: list where the staging can go, and choose one with a click
+
 ## 0.3.138 - 2026-09-18
 
 - fix: offer only a local disk's file system for the staging
