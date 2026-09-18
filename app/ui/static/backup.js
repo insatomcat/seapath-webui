@@ -1162,13 +1162,17 @@
     // Where the backups go is a commit, and a restore destroys a running
     // guest. Both are the administrator's.
     canWrite = Chrome.isAdmin(me);
+    // Never on the timer. Reading this page again asks every cluster member
+    // over SSH, for its staging directories and its connection to the backup
+    // server, which is not something to do every ten seconds.
     Reread.attach(
       element("reread"),
       async (fresh) => {
         showBanner("");
         await refresh(fresh);
       },
-      (failure) => showBanner(failure.message)
+      (failure) => showBanner(failure.message),
+      { timer: false }
     );
     const pending = API.started("/backup");
     const age = Kept.paint(KEPT, draw);

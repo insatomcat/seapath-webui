@@ -78,11 +78,20 @@ const Reread = (function () {
   // fetched. `onFailure` is the page's banner: a reading that failed leaves
   // the panel showing the last one that worked, which is the honest thing to
   // show, so the failure has to be said somewhere else.
-  function attach(button, read, onFailure) {
+  //
+  // `options.timer: false` keeps the control out of the timer's rounds: the
+  // button and the reading after a run still work, the switch does not. For a
+  // page whose readings each open an SSH connection to every cluster member,
+  // where ten seconds is a load on the machines rather than a fresh table.
+  function attach(button, read, onFailure, options) {
     if (!button) {
       return;
     }
-    const control = { button, running: false };
+    const control = {
+      button,
+      running: false,
+      timed: !options || options.timer !== false,
+    };
     control.run = async () => {
       if (control.running) {
         return;
@@ -160,7 +169,7 @@ const Reread = (function () {
       if (deciding()) {
         return;
       }
-      if (due(control)) {
+      if (control.timed && due(control)) {
         await control.run();
       }
     }
@@ -211,7 +220,7 @@ const Reread = (function () {
     // A page with no panel to read again arms nothing, whatever position the
     // switch is in. The setting is the browser's and holds for the pages that
     // do; a timer here would wake every ten seconds to walk an empty list.
-    if (!controls.length) {
+    if (!controls.some((control) => control.timed)) {
       return;
     }
     if (timer === null) {
