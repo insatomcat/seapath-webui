@@ -246,4 +246,7 @@ def _final(record: RunRecord) -> dict[str, Any]:
             host: progress.model_dump()
             for host, progress in record.progress.hosts.items()
         },
+        # The Runs page draws "Where the time went" from this verdict too, and
+        # a finished run is not read again after its replay.
+        "durations": record.progress.durations,
     }

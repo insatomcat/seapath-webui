@@ -259,6 +259,45 @@ def test_the_event_stream_carries_the_tasks_then_the_verdict(
     assert payloads[-1]["state"] == "success"
 
 
+def test_the_verdict_carries_where_the_time_went(
+    settings, reader, authenticator, directory
+) -> None:
+    from app.main import create_app
+    from app.runs.fake import FakeRunAdapter
+
+    events = fake.successful_run()
+    for event in events:
+        if event["event"] == "runner_on_ok":
+            event["event_data"]["duration"] = 2.5
+    application = create_app(
+        settings=settings,
+        reader=reader,
+        authenticator=authenticator,
+        role_directory=directory,
+        session_secret=b"test-secret",
+        run_adapter=FakeRunAdapter(events=events),
+    )
+    with TestClient(application, base_url="https://testserver") as client:
+        client.post(
+            "/api/v1/auth/login", json={"username": "admin", "password": "secret"}
+        )
+        client.headers["X-CSRF-Token"] = client.cookies[cookie_names(client).csrf]
+        run_id = client.post(
+            "/api/v1/runs", json={"playbook": "seapath_setup_main"}
+        ).json()["run_id"]
+        record = wait_for(client, run_id)
+        with client.stream("GET", f"/api/v1/runs/{run_id}/events") as response:
+            body = "".join(response.iter_text())
+
+    verdict = json.loads(
+        [line for line in body.splitlines() if line.startswith("data: ")][-1][6:]
+    )
+    # The page replaces the timings with the verdict's once the replay ends, so
+    # a verdict without them hid the link on every finished run.
+    assert record["progress"]["durations"]
+    assert verdict["durations"] == record["progress"]["durations"]
+
+
 def test_the_stream_is_resumable_by_index(signed_in: TestClient) -> None:
     run_id = signed_in.post(
         "/api/v1/runs", json={"playbook": "seapath_setup_main"}
