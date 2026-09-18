@@ -25,7 +25,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.cluster.fake import FakeMetricsClient, FakeRbdClient
+from app.cluster.fake import FakeMetricsClient, FakeRbdClient, rbd_answers
 from app.console.fake import FakeConsoleAdapter
 from app.core.auth import Role
 from app.core.security import CookieNames
@@ -158,9 +158,11 @@ def remote_runner() -> FakeRemoteRunner:
     """The backup server, which is a second hop this suite never makes.
 
     It answers the one command this service sends over that path: the listing
-    of the backup directory, run on a cluster member as root.
+    of the backup directory, run on a cluster member as root. And `rbd ls` and
+    `rbd du`, which run on that member too, from the cluster the fakes
+    describe.
     """
-    return FakeRemoteRunner()
+    return FakeRemoteRunner(rbd_answers())
 
 
 @pytest.fixture

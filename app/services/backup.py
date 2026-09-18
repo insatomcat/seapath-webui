@@ -28,11 +28,14 @@ run. The division is the one the rest of this service already holds to:
   including the machines an operator is not looking at, which is more than this
   service could do by writing the one file it can see.
 
-- **What a full backup would weigh is a reading of Ceph**, so it is asked of
-  Ceph directly, with `rbd du`, over the client D31 already established. The
-  upstream `backup_du.py` runs the same command on a machine and parses its
-  human readable table; this asks for JSON and sums the same numbers here. It
-  reaches no machine and costs no run.
+- **What a full backup would weigh is a reading of Ceph**, `rbd du`, which
+  the upstream `backup_du.py` runs on a machine and parses as a human readable
+  table. This asks for JSON and sums the same numbers here. It runs on the
+  member the backups run on, over the one SSH connection the staging reading
+  uses, rather than over the client D31 established in this container: `du`
+  walks every object of the pool on the client side, and this container's half
+  CPU turned the ten seconds it takes at the member's shell into a minute. It
+  costs no run.
 
 - **What the backup server holds can only be read from a machine.** The SSH
   trust that reaches the backup server belongs to the cluster members and is
@@ -68,9 +71,20 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from app.cluster.rbd import (
+    DU_TIMEOUT,
+    RbdUnavailable,
+    parse_disk_usage,
+    parse_image_list,
+)
 from app.core.errors import ApiError
 from app.hosts.models import BackupConf
-from app.hosts.remote import RemoteRefused, RemoteRequest, RemoteRunner
+from app.hosts.remote import (
+    TIMEOUT_SECONDS,
+    RemoteRefused,
+    RemoteRequest,
+    RemoteRunner,
+)
 from app.inventory.editor import Scope
 from app.inventory.model import Mode
 from app.inventory.repository import Commit
@@ -357,7 +371,6 @@ class BackupService:
         self,
         inventory: InventoryService,
         runs: RunService,
-        rbd,
         collections_path,
         reader,
         remote: RemoteRunner,
@@ -366,7 +379,6 @@ class BackupService:
     ) -> None:
         self._inventory = inventory
         self._runs = runs
-        self._rbd = rbd
         self._collections_path = collections_path
         self._reader = reader
         # The connection the backup server is asked over. The same key, the
@@ -386,11 +398,11 @@ class BackupService:
         the last listing run brought back, which is a file in that run's own
         directory. Neither reaches a machine.
 
-        The estimate is deliberately absent. `rbd du` walks the objects of
-        every image in the pool, which is minutes on a real cluster, and a page
-        that asked for it on every visit would take those minutes before it
-        drew anything and then report a timeout. It has an endpoint of its own
-        and a button that says what it costs.
+        The estimate is deliberately absent. `rbd du` walks every object of
+        the disks it measures, and a page that asked for it on every visit
+        would wait for that walk before it drew anything and then report a
+        timeout. It has an endpoint of its own and a button that says what it
+        costs.
         """
         state = self._inventory.state()
         if state.inventory is None:
@@ -478,27 +490,20 @@ class BackupService:
     def estimate(self, target: BackupTarget | None = None) -> Estimate:
         """What a full backup would weigh, per guest, from `rbd du`.
 
-        Asked for, never volunteered. `rbd du` adds up the objects of every
-        image in the pool, so it is minutes of work for Ceph on a cluster
-        holding a dozen guests, and the operator pressing the button is the one
-        who decided to spend them.
+        Asked for, never volunteered. `rbd du` adds up the objects of an
+        image, which with no fast-diff map is a walk of every one of them, and
+        the operator pressing the button is the one who decided to spend it.
 
         The two filters are applied here exactly as the scripts apply them, to
         the guest name and never to the image name, so a guest excluded on this
-        page is a guest the run will skip. An additional disk is counted with
-        the guest it belongs to, which is what makes the total the size of a
-        backup rather than the size of a pool.
+        page is a guest the run will skip. They are applied to what `rbd ls`
+        names before anything is measured, so only the images a backup would
+        export are walked. An additional disk is counted with the guest it
+        belongs to, which is what makes the total the size of a backup rather
+        than the size of a pool.
         """
         if target is None:
             target, _ = self._read(self._inventory.raw())
-        try:
-            usage = self._rbd.disk_usage()
-        except Exception as error:
-            # Ceph not answering is an ordinary state on a node whose cluster
-            # is down, and it must not take the rest of the page with it.
-            logger.warning("The backup estimate could not read Ceph: %s", error)
-            return Estimate(error=str(error))
-
         include, exclude = _filters(target)
         if include is None:
             return Estimate(
@@ -507,15 +512,45 @@ class BackupService:
                     "expression, so no guest can be matched against it."
                 )
             )
+        member = self._member()
+        if member is None:
+            return Estimate(
+                error=(
+                    "The member the backups run on carries no `ansible_host`, "
+                    "so there is no machine to ask."
+                )
+            )
+        name, address = member
+
+        try:
+            names = parse_image_list(self._ask(address, plays.images_shell_command()))
+            selected: list[str] = []
+            excluded: set[str] = set()
+            for image in names:
+                guest = _guest_of(image)
+                if guest is None:
+                    continue
+                if not include.search(guest) or (exclude and exclude.search(guest)):
+                    excluded.add(guest)
+                else:
+                    selected.append(image)
+            usage = (
+                parse_disk_usage(
+                    self._ask(address, plays.du_shell_command(selected), DU_TIMEOUT)
+                )
+                if selected
+                else []
+            )
+        except (RemoteRefused, RbdUnavailable) as error:
+            # Ceph not answering is an ordinary state on a node whose cluster
+            # is down, and it must not take the rest of the page with it.
+            logger.warning("The backup estimate could not read Ceph: %s", error)
+            return Estimate(error=f"{name} could not measure the pool: {error}")
 
         volumes: dict[str, GuestVolume] = {}
-        excluded: set[str] = set()
         for image in usage:
             guest = _guest_of(image.image)
             if guest is None:
-                continue
-            if not include.search(guest) or (exclude and exclude.search(guest)):
-                excluded.add(guest)
                 continue
             volume = volumes.setdefault(guest, GuestVolume(guest=guest))
             volume.images.append(image.image)
@@ -530,6 +565,20 @@ class BackupService:
             used_bytes=sum(volume.used_bytes for volume in guests),
             included=[volume.guest for volume in guests],
             excluded=sorted(excluded),
+        )
+
+    def _ask(self, address: str, command: str, timeout: float = TIMEOUT_SECONDS) -> str:
+        """One command on a member, over the connection a run makes."""
+        return self._remote.run(
+            RemoteRequest(
+                address=address,
+                user=self._ansible_user,
+                command=command,
+                private_key_file=self._keys.private_key_file,
+                known_hosts_file=self._keys.known_hosts_file,
+                extra_key_files=self._keys.extra_key_files(),
+                timeout=timeout,
+            )
         )
 
     def catalogue(self) -> BackupCatalogue:

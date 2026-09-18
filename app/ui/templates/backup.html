@@ -10,8 +10,8 @@ so this page keeps the values in the inventory where desired state belongs and
 passes them on the command line of a run.
 
 Three panels and four acts. Where the backups go is a commit. What a full
-backup would weigh is `rbd du`, asked of Ceph here, which is the port of
-`backup_du.py`. What the backup server holds is the one reading that cannot
+backup would weigh is `rbd du`, asked of the member the backups run on,
+which is the port of `backup_du.py`. What the backup server holds is the one reading that cannot
 happen here at all: the SSH trust that reaches it belongs to the cluster
 members, so the server is asked through one of them, and the listing opens in
 a window, which is where a restore starts.
@@ -170,16 +170,15 @@ to be erased.
     <p class="help" id="connection-help" hidden></p>
   </section>
 
-  {# What a full backup would weigh, per guest. `rbd du` read here rather than
-     on a machine: the numbers belong to Ceph and this service already talks to
-     Ceph for a guest's metadata. The two filters are applied exactly as the
-     scripts apply them, to the guest name, so a guest missing from this table
-     is a guest the run will skip.
+  {# What a full backup would weigh, per guest. `rbd du` on the member the
+     backups run on, of the images the filters select and no other. The two
+     filters are applied exactly as the scripts apply them, to the guest name,
+     so a guest missing from this table is a guest the run will skip.
 
-     Behind a button, and that is the whole design of this panel. `rbd du` adds
-     up the objects of every image in the pool, which on a real cluster is
-     minutes of work for Ceph. Asked on every visit it would hold the page up
-     and then report a timeout, which is what it did. #}
+     Behind a button, and that is the whole design of this panel. With no
+     fast-diff map `rbd du` walks every object of an image. Asked on every
+     visit it would hold the page up and then report a timeout, which is what
+     it did. #}
   <section class="card" id="estimate-card" hidden>
     <div class="card-head">
       <h2>Estimated volume</h2>
@@ -194,9 +193,10 @@ to be erased.
       they were provisioned at.
     </p>
     <p class="help">
-      Measuring it runs <code>rbd du</code>, which adds up the objects of every
-      image in the pool. On a cluster holding a dozen guests that is minutes of
-      work for Ceph, so it is asked for rather than read on every visit. Its
+      Measuring it runs <code>rbd du</code> on <span id="estimate-runner">the
+      member the backups run on</span>, for the disks of the selected guests
+      only. It walks every object of those disks, which is seconds to tens of
+      seconds, so it is asked for rather than read on every visit. Its
       figures are deltas, one per snapshot: an image counts what was written
       since its latest snapshot, so a guest is worth its image and its
       snapshots added up, bounded by what it provisions. A block rewritten
@@ -204,7 +204,7 @@ to be erased.
       and not a measurement.
     </p>
     <div class="loading" id="estimate-loading" hidden>
-      Adding up the objects of every image
+      Adding up the objects of every selected disk
     </div>
     <p class="error" id="estimate-error" hidden></p>
     <div class="table-scroll" id="estimate-table" hidden>

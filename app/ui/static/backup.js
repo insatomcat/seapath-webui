@@ -4,10 +4,11 @@
 // The Backup page: the upstream `backup_restore` role, without its menu.
 //
 // Three readings and four acts. Where the backups go comes out of the
-// inventory, what a full backup would weigh comes out of `rbd du`, and what
-// the backup server holds is read through a cluster member, because nothing
-// in this container can reach that server: the SSH trust to it belongs to the
-// cluster members and is the one the backups are pushed with.
+// inventory. What a full backup would weigh comes out of `rbd du`, and what
+// the backup server holds, both read through a cluster member: nothing in
+// this container can reach that server, since the SSH trust to it belongs to
+// the cluster members, and `rbd du` is too much work for this container's
+// half CPU.
 //
 // The one decision worth stating is what the confirmations say. Each script
 // pauses on a `read -r` before it deletes something, and a run answers that
@@ -121,6 +122,9 @@
     element("target-runner").textContent = payload.runs_on
       ? payload.runs_on + ", the first hypervisor of the cluster by name"
       : "no cluster member";
+    if (payload.runs_on) {
+      element("estimate-runner").textContent = payload.runs_on;
+    }
   }
 
   function settingsByKey(payload) {
@@ -133,9 +137,10 @@
 
   // What a full backup would weigh
   //
-  // Asked for rather than read with the page. `rbd du` adds up the objects of
-  // every image in the pool, which is minutes on a real cluster, so a panel
-  // that fetched it on every visit held the page up and then showed a timeout.
+  // Asked for rather than read with the page. With no fast-diff map `rbd du`
+  // walks every object of the disks it measures, so a panel that fetched it on
+  // every visit held the page up and then showed a timeout. It runs on the
+  // member the backups run on, for the selected guests' disks only.
   //
   // A ceiling, and the page says so in those words. The rows `rbd du` answers
   // are deltas between snapshots, so a guest is worth its image and its

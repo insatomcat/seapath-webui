@@ -17,10 +17,9 @@ answered "everything is fine" would let all of them go untested.
 
 from __future__ import annotations
 
+import json
 import time
 from pathlib import Path
-
-from app.cluster.rbd import ImageUsage, export_volume
 
 
 def _detail(**labels: str) -> str:
@@ -604,38 +603,59 @@ class FakeRbdClient:
             name[len("system_") :] for name in self.images if name.startswith("system_")
         )
 
-    def disk_usage(self) -> list[ImageUsage]:
-        """What `rbd du` would answer about the images above.
 
-        The numbers are plausible rather than uniform: a guest occupies less
-        than it provisions, which is the whole reason a backup volume is
-        estimated from the used size. `vm-guest1` carries an additional disk,
-        so the estimate has one guest whose volume is the sum of two images and
-        the page is drawn against a row that exercises the sum.
+# What `rbd du` answers on the cluster the fakes describe, in GiB: what each
+# image provisions, and its rows, the snapshots first and the image last.
+#
+# The numbers are plausible rather than uniform: a guest occupies less than it
+# provisions, which is the whole reason a backup volume is estimated from the
+# used size. `vm-guest1` carries an additional disk, so the estimate has one
+# guest whose volume is the sum of two images. The rows are deltas and the
+# volume is their sum. `vm-guest2` is the case that matters: a full backup
+# snapshotted it and nothing wrote to it since, so its own row is `0 B` and
+# everything it exports sits in the snapshot. `vm-guest3` is the other end, an
+# image whose rows add up past what it provisions. `nginxquadlet` belongs to
+# no guest, and a backup never exports it.
+DU_ROWS = {
+    "data_vm-guest1_0": (64, [11]),
+    "nginxquadlet": (1, [1]),
+    "system_vm-guest1": (32, [4, 2]),
+    "system_vm-guest2": (32, [4, 0]),
+    "system_vm-guest3": (32, [20, 9, 7]),
+    "system_vm-guest4": (32, [2]),
+}
 
-        Each image carries the rows `rbd du` answers for it, the snapshots
-        first and the image last, because those rows are deltas and the volume
-        is their sum. `vm-guest2` is the case that matters: a full backup
-        snapshotted it and nothing wrote to it since, so its own row is `0 B`
-        and everything it exports sits in the snapshot. `vm-guest3` is the
-        other end, an image whose rows add up past what it provisions.
-        """
-        images = {
-            "system_vm-guest1": (32, [4, 2]),
-            "data_vm-guest1_0": (64, [11]),
-            "system_vm-guest2": (32, [4, 0]),
-            "system_vm-guest3": (32, [20, 9, 7]),
-            "system_vm-guest4": (32, [2]),
-        }
-        gigabyte = 1024 * 1024 * 1024
-        return [
-            ImageUsage(
-                image=name,
-                provisioned_bytes=provisioned * gigabyte,
-                used_bytes=export_volume(
-                    provisioned * gigabyte, [row * gigabyte for row in rows]
-                ),
-            )
-            for name, (provisioned, rows) in sorted(images.items())
-            if name in self.images or name.startswith("data_")
-        ]
+
+def image_list(command: str = "") -> str:
+    """What `rbd ls --format json` answers."""
+    return json.dumps(sorted(DU_ROWS))
+
+
+def du_document(command: str = "") -> str:
+    """What `rbd du --format json` answers, one line per image asked about.
+
+    Every image when the command names none of them, the way `rbd du` alone
+    answers for the whole pool.
+    """
+    asked = [name for name in DU_ROWS if name in command] or list(DU_ROWS)
+    gigabyte = 1024 * 1024 * 1024
+    lines = []
+    for name in asked:
+        provisioned, used = DU_ROWS[name]
+        rows = []
+        for index, size in enumerate(used):
+            row = {
+                "name": name,
+                "provisioned_size": provisioned * gigabyte,
+                "used_size": size * gigabyte,
+            }
+            if index < len(used) - 1:
+                row["snapshot"] = f"20260311073{index}"
+            rows.append(row)
+        lines.append(json.dumps({"images": rows}))
+    return "\n".join(lines) + "\n"
+
+
+def rbd_answers() -> dict:
+    """The two `rbd` readings a member answers, for a `FakeRemoteRunner`."""
+    return {"rbd -p rbd ls": image_list, "rbd -p rbd du": du_document}

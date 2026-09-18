@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -157,7 +158,9 @@ class SshRemoteRunner:
 class FakeRemoteRunner:
     """Answers from a script, and records what it was asked."""
 
-    def __init__(self, answers: dict[str, str] | None = None) -> None:
+    def __init__(
+        self, answers: dict[str, str | Callable[[str], str]] | None = None
+    ) -> None:
         self.answers = answers or {}
         self.requests: list[RemoteRequest] = []
         self.refusal: str | None = None
@@ -168,7 +171,9 @@ class FakeRemoteRunner:
             raise RemoteRefused(self.refusal)
         for fragment, answer in self.answers.items():
             if fragment in request.command:
-                return answer
+                # A callable answers from the command, for a reading whose
+                # answer depends on what it was asked about.
+                return answer(request.command) if callable(answer) else answer
         return ""
 
 

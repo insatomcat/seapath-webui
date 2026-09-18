@@ -55,6 +55,7 @@ from enum import Enum
 
 import yaml
 
+from app.cluster.rbd import POOL
 from app.runs.catalogue import PlaybookEntry, Precondition, Preview, Reboots
 
 # The recorded playbook name, as `actions.py` records its own. Deliberately not
@@ -400,6 +401,31 @@ def staging_shell_command(
     return "sudo -n /bin/sh -c " + shlex.quote(script)
 
 
+def images_shell_command() -> str:
+    """`rbd ls`, as one command for the member the backups run on.
+
+    Run as root, which is how the member's own shell reaches the Ceph admin
+    keyring. A question for a monitor, answered at once.
+    """
+    return "sudo -n " + shlex.join(["rbd", "-p", POOL, "ls", "--format", "json"])
+
+
+def du_shell_command(images: list[str]) -> str:
+    """`rbd du` of each image a backup would export, as one command.
+
+    One image at a time, each answer on its own line, so only the images the
+    filters select are walked. The first image Ceph cannot measure stops the
+    loop and fails the command, with what Ceph said: an estimate missing a
+    guest is a ceiling that is not one.
+    """
+    script = (
+        "for image in "
+        + " ".join(shlex.quote(image) for image in images)
+        + f'; do rbd -p {POOL} du --format json "$image" || exit 1; echo; done'
+    )
+    return "sudo -n /bin/sh -c " + shlex.quote(script)
+
+
 def _readable(date: str) -> str:
     """`202203110836` as `2022-03-11 08:36`, which is what a title carries.
 
@@ -419,7 +445,9 @@ __all__ = [
     "SCRIPTS",
     "BackupAction",
     "BackupTarget",
+    "du_shell_command",
     "entry",
+    "images_shell_command",
     "listing_command",
     "listing_shell_command",
     "play",

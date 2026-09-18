@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -38,14 +39,13 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-from app.cluster.rbd import CommandRbdClient
+from app.cluster.rbd import DU_TIMEOUT, parse_disk_usage
 from app.core.settings import Settings
-from app.hosts.reader import CommandResult
 from app.runs import backup as plays
 from app.runs.backup import BackupAction, BackupTarget
 from app.services.backup import parse_listing, parse_staging
 from tests.conftest import sign_in
-from tests.fakes import FakeCommandRunner, write_fake_collection
+from tests.fakes import write_fake_collection
 
 # A cluster of three machines, with the backup settings already on
 # `cluster_machines`. The addresses are the ones the fake exporters answer for,
@@ -501,7 +501,7 @@ DU_WITH_SNAPSHOTS = {
 }
 
 
-def _du_client() -> tuple[CommandRbdClient, FakeCommandRunner]:
+def _du_document() -> str:
     mebibyte = 1024 * 1024
     images = [
         {
@@ -513,9 +513,7 @@ def _du_client() -> tuple[CommandRbdClient, FakeCommandRunner]:
         for name, rows in DU_WITH_SNAPSHOTS.items()
         for snapshot, provisioned, used in rows
     ]
-    document = json.dumps({"images": images, "total_used_size": 0})
-    runner = FakeCommandRunner({"rbd -p rbd du": CommandResult(0, document, "")})
-    return CommandRbdClient(runner=runner), runner
+    return json.dumps({"images": images, "total_used_size": 0})
 
 
 def test_an_image_is_worth_its_rows_added_up_rather_than_its_own() -> None:
@@ -528,9 +526,7 @@ def test_an_image_is_worth_its_rows_added_up_rather_than_its_own() -> None:
     snapshot holds are the blocks the image reads. Reading that row on its own
     put a thirty gigabyte guest on the Backup page as three hundred megabytes.
     """
-    client, runner = _du_client()
-
-    usage = {image.image: image for image in client.disk_usage()}
+    usage = {image.image: image for image in parse_disk_usage(_du_document())}
 
     mebibyte = 1024 * 1024
     # The snapshot's 18 GiB plus the 320 MiB written since it was taken.
@@ -541,14 +537,6 @@ def test_an_image_is_worth_its_rows_added_up_rather_than_its_own() -> None:
     # right before and has to stay right.
     assert usage["system_debian14"].used_bytes == 1331 * mebibyte
     assert usage["system_debian14"].provisioned_bytes == 3 * 1024 * mebibyte
-    # One reading of the pool, whatever the snapshots.
-    assert [argument for argument in runner.calls[0] if argument != "-p"] == [
-        "rbd",
-        "rbd",
-        "du",
-        "--format",
-        "json",
-    ]
 
 
 def test_a_volume_is_bounded_by_what_the_disk_provisions() -> None:
@@ -559,13 +547,59 @@ def test_a_volume_is_bounded_by_what_the_disk_provisions() -> None:
     possibly export. The provisioned size bounds it, because no export writes
     more than the disk holds.
     """
-    client, _ = _du_client()
-
-    usage = {image.image: image for image in client.disk_usage()}
+    usage = {image.image: image for image in parse_disk_usage(_du_document())}
 
     # 16 + 20 GiB of rows on a 32 GiB disk.
     assert usage["system_ABB"].used_bytes == 32 * 1024 * 1024 * 1024
     assert usage["system_ABB"].provisioned_bytes == 32 * 1024 * 1024 * 1024
+
+
+def test_only_the_images_a_backup_exports_are_measured(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """`rbd du` walks every object of what it is asked about, client side.
+
+    With no fast-diff map that is tens of CPU seconds over a whole pool, which
+    this container's half CPU turned from the ten seconds it takes at the
+    member's shell into a minute. So it runs on the member, and only on the
+    images the filters select: `rbd ls` names them at once, and an image that
+    belongs to no guest, or to a guest the filters leave out, is never walked.
+    """
+    _import(
+        signed_in,
+        CLUSTER.format(
+            settings=CONFIGURED.replace(
+                "backup_restore_exclude_vm: ''", "backup_restore_exclude_vm: guest[34]"
+            )
+        ),
+    )
+
+    _estimate(signed_in)
+
+    listing, measure = remote_runner.requests
+    assert {listing.address, measure.address} == {"192.168.200.126"}
+    assert listing.command == "sudo -n rbd -p rbd ls --format json"
+    script = shlex.split(measure.command)
+    assert script[:4] == ["sudo", "-n", "/bin/sh", "-c"]
+    assert script[4] == (
+        "for image in data_vm-guest1_0 system_vm-guest1 system_vm-guest2; "
+        'do rbd -p rbd du --format json "$image" || exit 1; echo; done'
+    )
+    assert measure.timeout == DU_TIMEOUT
+
+
+def test_a_pool_that_cannot_be_measured_says_why(
+    signed_in: TestClient, remote_runner
+) -> None:
+    _configured(signed_in)
+    remote_runner.refusal = "Permission denied (publickey)."
+
+    estimate = _estimate(signed_in)
+
+    assert estimate["guests"] == []
+    assert estimate["error"] == (
+        "elabo1 could not measure the pool: Permission denied (publickey)."
+    )
 
 
 def test_the_estimate_sums_a_guest_and_its_additional_disks(

@@ -28,7 +28,7 @@ from app.cluster.exporters import (
     ScrapeCache,
     UrllibMetricsClient,
 )
-from app.cluster.fake import FakeMetricsClient, FakeRbdClient
+from app.cluster.fake import FakeMetricsClient, FakeRbdClient, rbd_answers
 from app.cluster.pool import PoolReader
 from app.cluster.rbd import CommandRbdClient, RbdClient
 from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
@@ -475,12 +475,11 @@ def create_app(
     # installed, so this needs the run service and the collection the runs will
     # execute, resolved at each access like everywhere else.
     remote = remote_runner or (
-        FakeRemoteRunner() if settings.use_fakes else SshRemoteRunner()
+        FakeRemoteRunner(rbd_answers()) if settings.use_fakes else SshRemoteRunner()
     )
     app.state.backup_service = BackupService(
         inventory=app.state.inventory_service,
         runs=app.state.run_service,
-        rbd=rbd_client,
         collections_path=resolve_collections,
         # This node's own /etc/backup-restore.conf, through the read only
         # adapter and the /etc the quadlet already mounts. A site that has been

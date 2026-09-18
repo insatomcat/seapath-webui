@@ -4076,6 +4076,27 @@ of a `du` already being paid for and errs high, which is the side the operator
 sizing a destination wants. If a site ever needs the exact size, it goes behind
 the same button and refines the images that carry snapshots.
 
+**Where `rbd du` runs, and on what** is the third correction, and it was a slow
+number again. It was first asked of Ceph from this container, over the client
+[D31](#d31) established for a guest's metadata, for the whole pool. The
+SEAPATH Ceph setup turns exclusive-lock off (`rbd_default_features` is
+`layering, deep-flatten`), so no image carries the fast-diff map that lets
+`rbd du` answer from metadata, and it walks every object instead. That walk is
+client side work: on the first cluster measured, thirty CPU seconds spread
+over several threads, ten seconds at the member's shell. This container holds
+half a CPU by design, and the same command took a minute from here.
+
+So it runs on the member the backups run on, over the SSH connection the
+staging reading already makes, and only on the images a backup would export.
+`rbd ls` names the images at once; the two filters are applied to the guest
+each image belongs to; and `rbd du` is asked of each selected image in turn,
+in one command. An image that belongs to no guest, and a guest the filters
+leave out, is never walked. The first image Ceph cannot measure fails the
+whole reading, because an estimate missing a guest is a ceiling that is not
+one. The walk still costs what it costs, on the member's housekeeping CPUs,
+which is the same cost as the upstream menu's estimate at that member's
+shell.
+
 **What the backup server holds** is read from a cluster member, because the
 SSH trust that reaches that server is root's own key there, the one `rsync`
 pushes with, and this container has no route to it. Two hops: this node's own

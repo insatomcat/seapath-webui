@@ -58,15 +58,23 @@ TIMEOUT = 10.0
 
 # What `rbd du` is given instead, because it is a different kind of command.
 # Every other call here asks a monitor a question and gets an answer; `du`
-# walks the objects of every image in the pool and adds up what it finds, which
-# on a substation cluster holding a dozen guests is minutes rather than
-# seconds. The upstream menu prints "Estimating backup volume, please wait"
-# ahead of the same command for exactly this reason.
+# walks the objects of every image in the pool and adds up what it finds. The
+# SEAPATH Ceph setup turns exclusive-lock off, so no image has the fast-diff
+# map that would spare that walk, and the upstream menu prints "Estimating
+# backup volume, please wait" ahead of the same command for exactly this
+# reason.
 #
 # So it is never on the path of a page being drawn. The Backup page asks for it
 # when an operator presses the button, and this is the budget that reading is
 # given.
 DU_TIMEOUT = 600.0
+
+# Run on a cluster member rather than here, and one image at a time. The walk
+# is client side work, tens of CPU seconds over a whole pool, and this
+# container holds half a CPU: the pool that answers in ten seconds at the
+# member's shell took a minute here. Asked image by image, only the images a
+# backup would export are walked at all, and a pool holding images nobody
+# backs up stops paying for them.
 
 
 def image_of(guest: str) -> str:
@@ -111,6 +119,83 @@ class ImageUsage(BaseModel):
     used_bytes: int = 0
 
 
+def parse_image_list(result: str) -> list[str]:
+    """What `rbd ls --format json` answered: the names of the images."""
+    try:
+        document = json.loads(result or "[]")
+    except ValueError as error:
+        raise RbdUnavailable(
+            f"rbd answered something that is not JSON: {error}"
+        ) from error
+    if not isinstance(document, list):
+        raise RbdUnavailable("rbd ls answered something that is not a list.")
+    return [str(name) for name in document]
+
+
+def parse_disk_usage(result: str) -> list[ImageUsage]:
+    """What `rbd du --format json` answered, one entry per image.
+
+    One document per line, which is what asking image by image prints, and
+    what asking for the whole pool prints too: a single line.
+
+    The upstream `backup_du.py` parses the human readable table and converts
+    `GiB` and `MiB` back into bytes by hand. This asks for JSON instead, which
+    the same `rbd` has emitted since Nautilus, so the arithmetic the estimate
+    rests on is Ceph's rather than a regular expression's.
+
+    What that arithmetic is, is the thing to get right. `rbd du` answers a row
+    per snapshot and a row for the image, and every row is a delta: Ceph walks
+    each snapshot from the one before it, so the image's own row carries what
+    was written since the latest snapshot and nothing older. An image
+    snapshotted an hour ago and untouched since reports `0 B`, while a full
+    backup exports it whole, because the blocks its snapshot holds are the
+    blocks the image still reads. Reading that row on its own put a thirty
+    gigabyte guest on the page as three hundred megabytes.
+
+    So an image is worth its rows added up, bounded by what it provisions,
+    which is `export_volume`. A qcow2 is sparse, so that is what crosses the
+    network rather than the provisioned size.
+    """
+    images: list = []
+    for line in result.splitlines():
+        if not line.strip():
+            continue
+        try:
+            document = json.loads(line)
+        except ValueError as error:
+            raise RbdUnavailable(
+                f"rbd answered something that is not JSON: {error}"
+            ) from error
+        rows = document.get("images") if isinstance(document, dict) else None
+        if not isinstance(rows, list):
+            raise RbdUnavailable("rbd du answered without a list of images.")
+        images.extend(rows)
+    # A snapshot is a row of its own, carrying the image name and a `snapshot`
+    # key, and the image's row is the one without it. Both are collected under
+    # the image name: the rows are deltas, so the sum is what an export writes
+    # and the image's row alone is what it appended since the latest snapshot.
+    rows: dict[str, list[int]] = {}
+    provisioned: dict[str, int] = {}
+    for image in images:
+        if not isinstance(image, dict) or not image.get("name"):
+            continue
+        name = str(image["name"])
+        rows.setdefault(name, []).append(int(image.get("used_size") or 0))
+        if not image.get("snapshot"):
+            # The image's own row, which is the size it reads today. A
+            # snapshot carries the size the disk had when it was taken, and a
+            # disk that has been grown since makes the two differ.
+            provisioned[name] = int(image.get("provisioned_size") or 0)
+    return [
+        ImageUsage(
+            image=name,
+            provisioned_bytes=provisioned.get(name, 0),
+            used_bytes=export_volume(provisioned.get(name, 0), sizes),
+        )
+        for name, sizes in rows.items()
+    ]
+
+
 class RbdClient(Protocol):
     """The metadata of one image, listed and changed."""
 
@@ -121,8 +206,6 @@ class RbdClient(Protocol):
     def remove_metadata(self, image: str, key: str) -> None: ...
 
     def list_groups(self) -> list[str]: ...
-
-    def disk_usage(self) -> list[ImageUsage]: ...
 
 
 class CommandRbdClient:
@@ -170,64 +253,6 @@ class CommandRbdClient:
         if not isinstance(document, list):
             raise RbdUnavailable("rbd answered something that is not a list.")
         return [str(name) for name in document]
-
-    def disk_usage(self) -> list[ImageUsage]:
-        """`rbd du`, which is what a backup volume is estimated from.
-
-        The upstream `backup_du.py` parses the human readable table and
-        converts `GiB` and `MiB` back into bytes by hand. This asks for JSON
-        instead, which the same `rbd` has emitted since Nautilus, so the
-        arithmetic that estimate rests on is Ceph's rather than a regular
-        expression's.
-
-        What that arithmetic is, is the thing to get right. `rbd du` answers a
-        row per snapshot and a row for the image, and every row is a delta:
-        Ceph walks each snapshot from the one before it, so the image's own row
-        carries what was written since the latest snapshot and nothing older.
-        An image snapshotted an hour ago and untouched since reports `0 B`,
-        while a full backup exports it whole, because the blocks its snapshot
-        holds are the blocks the image still reads. Reading that row on its own
-        put a thirty gigabyte guest on the page as three hundred megabytes.
-
-        So an image is worth its rows added up, bounded by what it provisions,
-        which is `export_volume`. A qcow2 is sparse, so that is what crosses
-        the network rather than the provisioned size.
-        """
-        result = self._run(["du", "--format", "json"], timeout=DU_TIMEOUT)
-        try:
-            document = json.loads(result or "{}")
-        except ValueError as error:
-            raise RbdUnavailable(
-                f"rbd answered something that is not JSON: {error}"
-            ) from error
-        images = document.get("images") if isinstance(document, dict) else None
-        if not isinstance(images, list):
-            raise RbdUnavailable("rbd du answered without a list of images.")
-        # A snapshot is a row of its own, carrying the image name and a
-        # `snapshot` key, and the image's row is the one without it. Both are
-        # collected under the image name: the rows are deltas, so the sum is
-        # what an export writes and the image's row alone is what it appended
-        # since the latest snapshot.
-        rows: dict[str, list[int]] = {}
-        provisioned: dict[str, int] = {}
-        for image in images:
-            if not isinstance(image, dict) or not image.get("name"):
-                continue
-            name = str(image["name"])
-            rows.setdefault(name, []).append(int(image.get("used_size") or 0))
-            if not image.get("snapshot"):
-                # The image's own row, which is the size it reads today. A
-                # snapshot carries the size the disk had when it was taken,
-                # and a disk that has been grown since makes the two differ.
-                provisioned[name] = int(image.get("provisioned_size") or 0)
-        return [
-            ImageUsage(
-                image=name,
-                provisioned_bytes=provisioned.get(name, 0),
-                used_bytes=export_volume(provisioned.get(name, 0), sizes),
-            )
-            for name, sizes in rows.items()
-        ]
 
     def _run(self, arguments: list[str], timeout: float = TIMEOUT) -> str:
         result = self._runner.run(
