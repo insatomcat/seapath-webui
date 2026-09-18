@@ -8,7 +8,7 @@ Two acts, and they are different shapes.
 **Updating** is `seapath_update_debian.yaml`, a playbook of the collection,
 unchanged, launched from its reviewed catalogue entry. It snapshots the root
 volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`, writes the
-boot menu, reboots, and removes the snapshot once the machine has come back. A
+boot menu out to the disk, reboots, and removes the snapshot once the machine has come back. A
 cluster member is put in standby first, one machine at a time. What it does is
 the playbook's, and the page only chooses which machines it is sent to.
 

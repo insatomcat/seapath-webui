@@ -4478,6 +4478,15 @@ the snapshot unless packages may have changed, in which case it is kept as the
 way back. The check reads the same volume group, so the page says before the
 run which machine the update would refuse.
 
+The second run found why `update-grub` alone was not always enough. One
+member of two booted the previous kernel with the new one first in
+`grub.cfg`, and both had started with "recovering journal" on the root: it
+is not always unmounted cleanly on the way down, and GRUB reads ext4 without
+replaying the journal. The `grub.cfg` it read was the one from before the
+upgrade. The playbook now freezes and thaws the file system holding
+`/boot/grub` after `update-grub`, which writes the journal out to its place.
+The page's "installed, not booted" is what showed it.
+
 A collection from before that change is still what some images ship. The page
 reads the installed playbook, and where no play carries `serial: 1` it sends
 one machine per run.
