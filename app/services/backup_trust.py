@@ -69,6 +69,7 @@ _SHELL = "backup_restore_remote_shell"
 # asked to reach the server: the listing's own two options, for the listing's
 # reason. A prompt on a connection with no terminal waits for good.
 _PROBE_OPTIONS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
+_SPACE_MARK = "seapath-space "
 
 
 class MemberConnection(BaseModel):
@@ -168,9 +169,11 @@ class BackupTrustService:
             )
         view.members = [member for member, _ in answers]
         runner = self._backup.runner()
+        # Every member measures the same directory on the same server, so a
+        # measure from any of them beats a note from the one the backups run on.
         spaces = sorted(
             (space for _, space in answers if space is not None),
-            key=lambda space: space.read_from != runner,
+            key=lambda space: (space.free_bytes is None, space.read_from != runner),
         )
         view.space = spaces[0] if spaces else None
         view.read_at = datetime.now(tz=UTC).isoformat()
@@ -406,11 +409,23 @@ def probe_command(target: BackupTarget, key_path: str) -> str:
     answer to whether the member gets in at all.
 
     `ssh` exits 255 on its own failures and passes the remote status through
-    otherwise, and the pipe ends in `tail`, so a connection that got in says
+    otherwise, and the pipe ends in `sed`, so a connection that got in says
     so even when `df` could not read the directory.
+
+    The answer is marked on the server because it shares the output with
+    everything else the connection prints on stderr, a login shell warning
+    about its locale for instance. `sshd` forwards the two streams
+    separately, so such a line can land before or after `df`'s from one
+    reading to the next, and the last line alone is then that warning.
     """
     shell = target.shell_argv
-    measure = "df -Pk " + shlex.quote(target.remote_dir or ".") + " | tail -n 1"
+    measure = (
+        "df -Pk "
+        + shlex.quote(target.remote_dir or ".")
+        + " 2>&1 | tail -n 1 | sed 's/^/"
+        + _SPACE_MARK
+        + "/'"
+    )
     connect = shlex.join(
         [shell[0], *_PROBE_OPTIONS, *shell[1:], target.remote_serv, measure]
     )
@@ -422,7 +437,8 @@ def probe_command(target: BackupTarget, key_path: str) -> str:
         )
     parts.append(
         f"if o=$({connect} 2>&1); then echo 'reach ok'; "
-        "printf 'space %s\\n' \"$(printf '%s\\n' \"$o\" | tail -n 1)\"; "
+        "printf 'space %s\\n' "
+        f"\"$(printf '%s\\n' \"$o\" | sed -n 's/^{_SPACE_MARK}//p' | tail -n 1)\"; "
         "else printf 'reach failed %s\\n' \"$(printf %s \"$o\" | tr '\\n' ' ')\"; fi"
     )
     return "sudo -n /bin/sh -c " + shlex.quote("; ".join(parts))

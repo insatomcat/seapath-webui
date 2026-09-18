@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import shlex
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -127,9 +128,7 @@ def test_every_member_is_asked_for_its_key_and_to_reach_the_server(
     assert "BatchMode=yes" in command
     # The connection a backup makes, measuring where the backups land.
     script = shlex.split(command)[-1]
-    assert "backup@backup.example.org 'df -Pk /srv/seapath-backups/ | tail -n 1'" in (
-        script
-    )
+    assert "backup@backup.example.org 'df -Pk /srv/seapath-backups/ 2>&1" in script
     members = {member["host"]: member for member in view["members"]}
     assert members["elabo1"] == {
         "host": "elabo1",
@@ -170,6 +169,67 @@ def test_the_room_on_the_server_is_read_from_the_member_the_backups_run_on(
 
     assert space["read_from"] == "elabo1"
     assert space["free_bytes"] == 42 * 1024
+
+
+def test_a_member_whose_reading_has_no_number_gives_way_to_one_that_has(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """The same directory on the same server: any member's measure will do."""
+    _import(signed_in, PREPARED)
+    _members_answer(
+        remote_runner,
+        {
+            "seapath-machine": "reach ok\nspace /dev/x 100 0 7 0% /a\n",
+            "elabo1": "reach ok\nspace \n",
+        },
+    )
+
+    space = signed_in.get("/api/v1/backup/connection").json()["space"]
+
+    assert space["read_from"] == "seapath-machine"
+    assert space["free_bytes"] == 7 * 1024
+
+
+def test_what_the_connection_prints_on_stderr_is_not_taken_for_df(
+    tmp_path: Path,
+) -> None:
+    """A warning the server's shell prints after `df` answered, as sshd may order it.
+
+    The generated command runs for real, against an `ssh` that runs the remote
+    command locally and then complains, and a `sudo` that only steps aside.
+    """
+    for name, body in (
+        (
+            "ssh",
+            'for a; do cmd=$a; done\nsh -c "$cmd"\n'
+            "echo 'bash: warning: setlocale: LC_ALL: cannot change locale' >&2\n",
+        ),
+        ("sudo", 'shift\nexec "$@"\n'),
+        (
+            "df",
+            "echo 'Filesystem 1024-blocks Used Available Capacity Mounted on'\n"
+            "echo '/dev/sdb1 100 10 90 10% /srv'\n",
+        ),
+    ):
+        script = tmp_path / name
+        script.write_text("#!/bin/sh\n" + body)
+        script.chmod(0o755)
+    command = probe_command(
+        BackupTarget(
+            remote_serv="backup@server", remote_shell="ssh", remote_dir="/srv/"
+        ),
+        "",
+    )
+
+    answer = subprocess.run(
+        ["/bin/sh", "-c", command],
+        env={"PATH": f"{tmp_path}:/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    assert answer == "reach ok\nspace /dev/sdb1 100 10 90 10% /srv\n"
 
 
 def test_a_directory_the_server_cannot_measure_is_said_with_df_s_words() -> None:
