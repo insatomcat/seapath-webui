@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.155 - 2026-09-19
+
+- feat: open a guest's graphic console from the VMs page
+- fix: let the version button ask again after an up to date answer
+
 ## 0.3.154 - 2026-09-19
 
 - feat: check the machines in the same run as their update
