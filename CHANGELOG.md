@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.150 - 2026-09-19
+
+- feat: let the machine serving the page update itself, alone
+
 ## 0.3.149 - 2026-09-19
 
 - docs: describe the update playbook as seapathalloc now has it
