@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.154 - 2026-09-19
+
+- feat: check the machines in the same run as their update
+- fix: close the backup settings once they are saved
+- feat: check and upgrade this service from the top bar
+
 ## 0.3.153 - 2026-09-19
 
 - feat: reboot a machine on update only when it gets a new kernel
