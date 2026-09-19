@@ -1344,7 +1344,6 @@
   function showSettings(open, overrides) {
     element("settings").hidden = !open;
     element("settings-error").hidden = true;
-    element("settings-done").hidden = true;
     if (!open) {
       return;
     }
@@ -1411,9 +1410,7 @@
   async function saveSettings() {
     const save = element("settings-save");
     const error = element("settings-error");
-    const done = element("settings-done");
     error.hidden = true;
-    done.hidden = true;
     save.disabled = true;
     save.setAttribute("aria-busy", "true");
     try {
@@ -1421,19 +1418,15 @@
       (view.settings || []).forEach((setting) => {
         payload[setting.key] = element("set-" + setting.key).value.trim();
       });
-      const answer = await API.put(
+      await API.put(
         "/backup/settings",
         payload,
         view.commit ? { "If-Match": view.commit } : undefined
       );
-      done.textContent = answer.commit
-        ? "Saved to the inventory as commit " +
-          answer.commit.slice(0, 8) +
-          ": " +
-          answer.message
-        : answer.message;
-      done.hidden = false;
-      await refresh(true);
+      // The commit is the answer, and the page redrawn from it says what it
+      // holds: the form has nothing left to show.
+      showSettings(false);
+      refresh(true).catch((failure) => showBanner(failure.message));
     } catch (failure) {
       error.textContent = failure.message;
       error.hidden = false;
