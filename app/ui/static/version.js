@@ -11,9 +11,12 @@
 // naming an image. That run restarts this service and no guest, which is why
 // one click is enough here while every other convergence is confirmed.
 //
-// What the registry answered is kept for this tab, so the button keeps its
-// word from one page to the next. It is keyed by the version answering, so an
-// upgrade that landed starts over from a question.
+// A newer version the registry answered is kept for this tab, so the button
+// keeps its word from one page to the next. It is keyed by the version
+// answering, so an upgrade that landed starts over from a question. "Up to
+// date" is kept for a few seconds and never across pages: it is true only
+// until the registry holds something newer, and a button stuck on it hides
+// that it can ask again.
 
 (function () {
   const PLAYBOOK = "seapath_setup_deploy_seapath_webui";
@@ -24,11 +27,16 @@
   }
   const running = document.querySelector('meta[name="version"]').content;
   const KEY = "seapath-webui-latest:" + running;
+  const SETTLED_MS = 4000;
 
   // What the button would do, once the registry and the inventory answered:
   // `pin` a newer version then run, `apply` the version already pinned, or
   // nothing.
   let answer = recall();
+  // What the last check found when it found nothing to do, said in the title
+  // of the button once it asks again.
+  let settled = "";
+  let settling = null;
 
   function recall() {
     try {
@@ -75,13 +83,14 @@
       button.classList.add("version-due");
       return;
     }
-    if (answer && answer.act === "none") {
+    if (settling !== null) {
       button.textContent = "Up to date";
-      button.title = answer.note + " Click to ask again.";
+      button.title = settled;
       return;
     }
     button.textContent = "Check version";
     button.title =
+      (settled ? settled + " " : "") +
       "Asks the registry for a seapath-webui newer than " + running + ".";
   }
 
@@ -97,6 +106,8 @@
 
   async function check() {
     say("");
+    window.clearTimeout(settling);
+    settling = null;
     busy("Checking", true);
     try {
       const [latest, update] = await Promise.all([
@@ -111,11 +122,14 @@
         answer = null;
         say(latest.reason);
       } else {
-        answer = {
-          act: "none",
-          note: "The newest version " + latest.repository + " holds is " +
-            latest.latest + ", which the inventory names.",
-        };
+        answer = null;
+        settled =
+          "The newest version " + latest.repository + " holds is " +
+          latest.latest + ", which the inventory names.";
+        settling = window.setTimeout(() => {
+          settling = null;
+          draw();
+        }, SETTLED_MS);
       }
     } catch (failure) {
       answer = null;
