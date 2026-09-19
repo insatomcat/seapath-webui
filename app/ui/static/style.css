@@ -433,6 +433,21 @@ button[aria-busy="true"] {
   outline-offset: 1px;
 }
 
+/* The version button, sized to the bar rather than to a form. */
+.version-button {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+/* A newer version, or one pinned and not deployed: the one button of the bar
+   that asks for an act, drawn as one. */
+.version-button.version-due {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
 /* Stroked rather than filled, so one glyph works on both grounds. */
 .autorefresh svg {
   width: 0.9rem;

@@ -204,6 +204,11 @@ SPDX-License-Identifier: Apache-2.0
             <path d="M8 4.4V8l2.5 1.6"></path>
           </svg>
         </button>
+        {# Whether a newer seapath-webui exists, and the upgrade to it. An
+           administrator's, since the upgrade pins and deploys: drawn hidden,
+           and shown by `version.js` to the role that can use it. #}
+        <button type="button" id="version-button" class="secondary version-button"
+                hidden>Check version</button>
         <span id="identity">{{ identity }}</span>
         <button id="logout" type="button">Sign out</button>
       </div>
@@ -244,6 +249,8 @@ SPDX-License-Identifier: Apache-2.0
        page grid on purpose: it has to exist on every page, including the ones
        whose own banner is built by the script that just died. #}
     <p class="banner" id="script-error" hidden></p>
+    {# Why the version button could not answer or upgrade, on every page. #}
+    <p class="banner" id="version-error" hidden></p>
 
     {% block body %}{% endblock %}
 
@@ -297,7 +304,8 @@ SPDX-License-Identifier: Apache-2.0
     {{ script("kept.js") }}
     {{ script("reread.js") }}
     {{ script("runstream.js") }}
-    {{ script("runwatch.js") }}{% endif %}
+    {{ script("runwatch.js") }}
+    {{ script("version.js") }}{% endif %}
     {% block scripts %}{% endblock %}
   </body>
 </html>

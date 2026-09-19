@@ -834,6 +834,7 @@ def test_the_static_assets_are_served(signed_in: TestClient) -> None:
         "runs.js",
         "runstream.js",
         "runwatch.js",
+        "version.js",
         "style.css",
     ):
         assert signed_in.get(f"/static/{asset}").status_code == 200
@@ -1119,6 +1120,7 @@ def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> 
         "runs.js",
         "runstream.js",
         "runwatch.js",
+        "version.js",
         "deployment.js",
         "vms.js",
         "containers.js",
@@ -2525,6 +2527,32 @@ def test_every_page_carries_the_window_that_follows_a_run(
     assert body.rindex('class="modal"') == body.index('id="run-watch"') - len(
         'class="modal" '
     )
+
+
+@pytest.mark.parametrize("path", ["/", "/updates", "/backup"])
+def test_every_page_carries_the_version_button(
+    signed_in: TestClient, path: str
+) -> None:
+    """Drawn hidden, and shown by its script to an administrator."""
+    body = signed_in.get(path).text
+
+    assert 'id="version-button"' in body
+    assert 'id="version-error"' in body
+    assert "version.js" in body
+
+
+def test_the_version_button_uses_the_endpoints_of_the_deployment_page(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/version.js").text
+
+    for used in (
+        '"/node/update/latest"',
+        '"/node/update"',
+        '"/runs"',
+        '"seapath_setup_deploy_seapath_webui"',
+    ):
+        assert used in script
 
 
 @pytest.mark.parametrize(
