@@ -8,9 +8,10 @@ Two acts, and they are different shapes.
 **Updating** is `seapath_update_debian.yaml`, a playbook of the collection,
 unchanged, launched from its reviewed catalogue entry. It snapshots the root
 volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`, writes the
-boot menu out to the disk, reboots, and removes the snapshot once the machine has come back. A
-cluster member is put in standby first, one machine at a time. What it does is
-the playbook's, and the page only chooses which machines it is sent to.
+boot menu out to the disk, reboots, and removes the snapshot once the machine
+has come back. A cluster member is put in standby first, one machine at a
+time. What it does is the playbook's, and the page only chooses which machines
+it is sent to.
 
 **Checking** has no playbook upstream, so it is a play generated here, the
 shape D30 settles for acts no playbook covers: a handful of tasks, each an
