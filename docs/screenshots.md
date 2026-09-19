@@ -41,16 +41,16 @@ is also the file numbering:
 
 | `data-view`        | file                              |
 | ------------------ | --------------------------------- |
-| `checks`           | `12-1-realtime-conformance.png`   |
-| `pool`             | `12-2-realtime-cpu-pool.png`      |
-| `cyclictest`       | `12-3-realtime-latency.png`       |
-| `guest_cyclictest` | `12-4-realtime-guest-latency.png` |
-| `hwlatdetect`      | `12-5-realtime-firmware.png`      |
+| `checks`           | `13-1-realtime-conformance.png`   |
+| `pool`             | `13-2-realtime-cpu-pool.png`      |
+| `cyclictest`       | `13-3-realtime-latency.png`       |
+| `guest_cyclictest` | `13-4-realtime-guest-latency.png` |
+| `hwlatdetect`      | `13-5-realtime-firmware.png`      |
 
 When a view or a page is added or renamed, keep the file numbers following the
 tab order, and update the README captions and this table together. The pages
 follow the top bar: Node 1, Inventory 2, Deployment 3 to 5, VMs 6, Containers
-7, Cluster 8 to 10, Backup 11, Real time 12, Runs 13.
+7, Cluster 8 to 10, Backup 11, Updates 12, Real time 13, Runs 14.
 
 ## The script
 
@@ -66,11 +66,11 @@ const GATE = { username: process.env.GATE_USER, password: process.env.GATE_PASS 
 const APP_USER = process.env.APP_USER, APP_PASS = process.env.APP_PASS;
 
 const VIEWS = [
-  ['checks', '12-1-realtime-conformance'],
-  ['pool', '12-2-realtime-cpu-pool'],
-  ['cyclictest', '12-3-realtime-latency'],
-  ['guest_cyclictest', '12-4-realtime-guest-latency'],
-  ['hwlatdetect', '12-5-realtime-firmware'],
+  ['checks', '13-1-realtime-conformance'],
+  ['pool', '13-2-realtime-cpu-pool'],
+  ['cyclictest', '13-3-realtime-latency'],
+  ['guest_cyclictest', '13-4-realtime-guest-latency'],
+  ['hwlatdetect', '13-5-realtime-firmware'],
 ];
 
 (async () => {
@@ -117,7 +117,14 @@ not need the per-view clip. Clip them to the bottom of `footer.footer` plus
 the image. Select it by its class: the Node page has a `<footer>` of its own
 inside a card. The Node page is served at the root, `BASE + '/'`.
 
-`13-runs.png` and `13-1-runs-results.png` show the `backup_full` run, opened
+`12-updates.png` is the Updates page as the last check left it; no check is
+launched for it. `12-1-updates-packages.png` has `node1`'s count clicked open,
+scrolled back to the top, and is clipped 16 rows into the package list rather
+than to the footer, since a list of a hundred packages says nothing more than
+its first rows do. Scroll back to the top before the capture: a full-page shot
+taken while scrolled paints the sticky top bar in the middle of the image.
+
+`14-runs.png` and `14-1-runs-results.png` show the `backup_full` run, opened
 with `runs?run=<id>`; the second has the per host table unfolded by a click on
 `#hosts-summary`.
 
@@ -138,7 +145,7 @@ shows at both sides.
 | `7-1-add-container.png`        | Containers, `#add`, empty. Close with Cancel. |
 | `7-2-container-quadlet.png`    | Containers, the first `.quadlet-open` link. |
 | `11-1-backup-list.png`         | Backup, **Show the backups**, once `#catalogue-table` is shown. A read over SSH, no run. Never press Restore. |
-| `13-2-runs-time.png`           | Runs, `runs?run=<id>` of the same finished `deploy_vms_cluster` run, then **Where the time went**. |
+| `14-2-runs-time.png`           | Runs, `runs?run=<id>` of the same finished `deploy_vms_cluster` run, then **Where the time went**. |
 
 The run window replays a run that already happened, so no playbook is launched
 to take this picture: these are live substation hypervisors.

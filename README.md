@@ -399,18 +399,30 @@ about to be replaced and the date its changes are replayed up to, and the
 restore is a run of `restore_vm.sh`, which recreates the guest with
 `vm-mgr create --force`. See D54.
 
+![The Updates page: one row per machine of the inventory, its kernel, what an upgrade would bring and its last update, under the date of the check](img/12-updates.png)
+
 **Updates** says what an upgrade would bring to each machine and runs it.
 **Check for updates** is a run that refreshes the package lists and asks apt to
-simulate the `dist-upgrade`, installing nothing: each machine's row gives the
-packages it would upgrade, install and remove, flags a new kernel, and a kernel
-installed but not yet booted. **Update the selected machines** sends the
-upstream `seapath_update_debian` playbook to the machines ticked, which takes
-them one at a time: a cluster member goes to standby so its guests move, the
-root volume is snapshotted, the packages are upgraded and the machine
-reboots, and one that fails to boot its new system is rolled back. The machine serving the page is updated on its own, after the
-others: its run ends with its reboot, and the machine finishes the update itself once its new system is up. See D59 and D60.
+simulate the `dist-upgrade`, installing nothing. Each machine's row gives the
+kernel it booted, the packages it would upgrade, install and remove, flags a
+new kernel and a kernel installed but not yet booted, and says when the machine
+was last updated and how that run ended. The page draws the last check with its
+date and author, and marks a machine updated since then rather than listing
+packages it already has.
 
-![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/12-1-realtime-conformance.png)
+![What is pending on one machine, opened under the table: each package, the version installed, the version the upgrade brings and the repository it comes from](img/12-1-updates-packages.png)
+
+The count in a row opens the packages behind it. **Update the selected
+machines** sends the upstream `seapath_update_debian` playbook to the machines
+ticked, which takes them one at a time: a cluster member goes to standby so its
+guests move, the root volume is snapshotted, the packages are upgraded and the
+machine reboots, and one that fails to boot its new system is rolled back. The
+machine serving the page is updated on its own, after the others: its run ends
+with its reboot, and the machine finishes the update itself once its new
+system is up. With a collection whose playbook still finishes on the
+controller, the page offers it only from another member. See D59 and D60.
+
+![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/13-1-realtime-conformance.png)
 
 **Real time** answers whether the machines came out of a convergence with the
 tuning they were told to have. One row per check, one column per machine: each
@@ -449,7 +461,7 @@ each host and publishes it, and this container could not compute it if it
 wanted to, since occupancy is the affinity of every QEMU thread in `/proc`.
 Asking the exporter is the opposite of holding a second source of truth for it.
 
-![The Real time page, CPU pool: one column per physical core and one cell per thread, on every machine the inventory declares](img/12-2-realtime-cpu-pool.png)
+![The Real time page, CPU pool: one column per physical core and one cell per thread, on every machine the inventory declares](img/13-2-realtime-cpu-pool.png)
 
 It is the one page laid out as an application rather than as a document. Five
 views, Conformance, CPU pool, Latency, Guest latency and Firmware, and a bar of
@@ -460,9 +472,9 @@ forty-eight threads need. Every reading is fetched before the first tab is
 drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
 [docs/decisions.md](docs/decisions.md).
 
-![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/12-3-realtime-latency.png)
+![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/13-3-realtime-latency.png)
 
-![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/12-5-realtime-firmware.png)
+![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/13-5-realtime-firmware.png)
 
 Latency and Firmware carry a form, which the other two views have no use for.
 Reading what a machine publishes costs one HTTP GET; a measurement asks the
@@ -494,9 +506,9 @@ packages are written into its cloud-init seed, which the upstream role builds
 and the guest applies on its first boot. See D41 and D48 in
 [docs/decisions.md](docs/decisions.md).
 
-![The Real time page, Guest latency: what cyclictest measured inside one guest, over the form and this node's public key that make a guest measurable](img/12-4-realtime-guest-latency.png)
+![The Real time page, Guest latency: what cyclictest measured inside one guest, over the form and this node's public key that make a guest measurable](img/13-4-realtime-guest-latency.png)
 
-![The Runs page: the history on the left, one run and its task stream on the right](img/13-runs.png)
+![The Runs page: the history on the left, one run and its task stream on the right](img/14-runs.png)
 
 **Runs** is what happened. Every run keeps the playbook, who launched it, the
 inventory commit it ran against and the exact `ansible-playbook` command, so a
@@ -504,9 +516,9 @@ run can be read months later or replayed from a control machine. The event
 stream becomes the per host recap Ansible prints at the end, the task stream as
 it arrives, and where the time went. The log is downloadable whole.
 
-![The per host recap Ansible prints at the end, opened under the run](img/13-1-runs-results.png)
+![The per host recap Ansible prints at the end, opened under the run](img/14-1-runs-results.png)
 
-![Where the time went: the tasks of a run, ordered by the seconds each took](img/13-2-runs-time.png)
+![Where the time went: the tasks of a run, ordered by the seconds each took](img/14-2-runs-time.png)
 
 Every page is drawn in the palette the operator's system asks for, and the
 switch in the top bar overrides it in either direction or hands the choice
@@ -557,6 +569,11 @@ upstream `backup_restore` role as runs, says before a backup whether it will
 fit, sets up the members' connection to the backup server, gives the staging a
 volume of its own when the machine has none with the room, and restores one
 guest from the listing.
+
+The **Updates** page followed. Checking for updates is a play that installs
+nothing and whose answers are kept with its run, and updating is the upstream
+`seapath_update_debian` playbook, sent one machine at a time, the machine
+serving the page included, on its own.
 
 Two pieces of M3 arrived early, because the pages being written needed them.
 The **Cluster** page reads Pacemaker and Ceph from the exporters a deployed
