@@ -407,8 +407,8 @@ installed but not yet booted. **Update the selected machines** sends the
 upstream `seapath_update_debian` playbook to the machines ticked, which takes
 them one at a time: a cluster member goes to standby so its guests move, the
 root volume is snapshotted, the packages are upgraded and the machine
-reboots, and one that fails to boot its new system is rolled back. The machine serving the page is updated from another member, since the
-run has to outlive its reboot. See D59.
+reboots, and one that fails to boot its new system is rolled back. The machine serving the page is updated on its own, after the
+others: its run ends with its reboot, and the machine finishes the update itself once its new system is up. See D59 and D60.
 
 ![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/12-1-realtime-conformance.png)
 

@@ -4439,7 +4439,7 @@ is where the role adds one. A free stretch between two partitions is reported
 with its size and not offered: using it is a judgement about the disk that
 belongs to whoever laid it out, and the role declines to make it.
 
-## D59 - Settled: a software update is the upstream playbook, sent from another machine, and checking is a simulation
+## D59 - Superseded in part by [D60](#d60): a software update is the upstream playbook, sent from another machine, and checking is a simulation
 
 An operator wants two answers about the software of the machines: what an
 upgrade would bring, and the upgrade. Neither is desired state. An upgrade is
@@ -4494,7 +4494,8 @@ A collection from before that change is still what some images ship. The page
 reads the installed playbook, and where no play carries `serial: 1` it sends
 one machine per run.
 
-**The machine driving the run is never in it.** The playbook finishes its work
+**The machine driving the run is never in it.** Superseded by [D60](#d60),
+which lets it update itself, alone. The playbook finishes its work
 after the reboot, and the controller is this service: sent to its own machine
 it would go down with the reboot and leave the member in standby, `noout` set,
 the GRUB password lifted and a snapshot filling up under the root. The catalogue
@@ -4519,3 +4520,45 @@ that belongs in a run.
 The page draws the last check and says when it was taken. A machine updated
 after that check is marked as such rather than listed with the packages it has
 already installed.
+
+## D60 - Settled: a machine updates itself alone, and finishes its update at boot
+
+[D59](#d59) kept the machine driving the run out of it, because the playbook
+finished its work after the reboot and the controller was that machine. A
+cluster member was then updated from another member's page, and a standalone
+machine could not be updated from its own page at all.
+
+**What followed the reboot moved onto the machine, upstream.** The snapshot
+removed, the GRUB password put back, the member online, `noout` cleared: all of
+it is done by `system_check`, the unit of `debian_grub_bootcount` that already
+decides at every boot whether the system came up. The update leaves it one
+empty file per thing to undo in `/boot/efi/seapath_update`, on the ESP rather
+than the root, since a rollback puts the root back as it was before the
+update. The snapshot and the password are handled on the first boot of the new
+system; the standby and `noout` once boot counting is over, whether the new
+system held or was rolled back. The tasks that followed the reboot in the
+playbook became checks that the machine did it, for a machine updated from
+another one.
+
+Two shortcuts were weighed and set aside. A standby given the lifetime
+`reboot`, which Pacemaker drops when the node leaves, needs nobody to undo
+it, but it drops it as the node goes down: the member would take its guests
+back as soon as it joined, on a system that boot counting may still reboot
+and roll back. And dropping `noout`, since a reboot takes about seventy
+seconds and Ceph marks an OSD out after ten minutes, holds only as long as
+the new system boots on the first try.
+
+**The machine driving the run is accepted alone.** The run ends with its
+reboot, as the run of `seapath_setup_deploy_seapath_webui` ends with the
+container it replaces, and the record says so rather than inviting a relaunch,
+which would update and reboot the machine a second time. One at a time, in the
+inventory's order, a machine after this one would never be reached, so a scope
+holding it beside others is refused, naming the others to update first. The
+page reads the installed playbook, and one that does not name
+`/boot/efi/seapath_update` still finishes on the controller: with it, the
+machine is refused as before.
+
+**What the machine did is read by the check.** The check reads the boot
+counter and what is left in `/boot/efi/seapath_update` beside the snapshot it
+already read, and the page says what an earlier update left undone. After
+updating this machine, the operator checks once the page is back.

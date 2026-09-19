@@ -113,6 +113,13 @@ class RunRecord(BaseModel):
     the playbook's own patterns were not readable, which an empty list would
     report as a run that played nothing.
     """
+    ends_with_reboot: str | None = None
+    """The machine driving the run, when the run reboots it.
+
+    Such a run ends without a final status by design, and the record says so
+    rather than calling it an interruption worth relaunching: a relaunch would
+    update the machine and reboot it a second time.
+    """
     return_code: int | None = None
     progress: RunProgress = Field(default_factory=RunProgress)
     message: str | None = None

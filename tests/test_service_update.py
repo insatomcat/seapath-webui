@@ -52,7 +52,9 @@ def _with_image(client: TestClient, image: str) -> None:
     assert response.status_code == 200, response.text
 
 
-def _interrupted(root, playbook_id: str) -> RunRecord:
+def _interrupted(
+    root, playbook_id: str, ends_with_reboot: str | None = None
+) -> RunRecord:
     store = RunStore(root)
     record = RunRecord(
         id="20260904-abcdef",
@@ -61,6 +63,7 @@ def _interrupted(root, playbook_id: str) -> RunRecord:
         launched_by="admin",
         state=RunState.RUNNING,
         started_at=datetime.now(tz=UTC),
+        ends_with_reboot=ends_with_reboot,
     )
     store.create(record)
     store.save(record)
@@ -169,6 +172,25 @@ def test_a_run_that_replaced_this_service_is_reported_as_that(tmp_path) -> None:
 
     assert recovered.state is RunState.INTERRUPTED
     assert "That is what applying it looks like" in recovered.message
+
+
+def test_an_update_of_this_machine_cut_by_its_reboot_is_reported_as_that(
+    tmp_path,
+) -> None:
+    recovered = _interrupted(
+        tmp_path / "runs", "seapath_update_debian", ends_with_reboot="seapath-machine"
+    )
+
+    assert recovered.state is RunState.INTERRUPTED
+    assert "as it was meant to" in recovered.message
+    assert "Do not relaunch it" in recovered.message
+    assert "relaunchable" not in recovered.message
+
+
+def test_an_update_of_other_machines_cut_short_still_says_relaunch(tmp_path) -> None:
+    recovered = _interrupted(tmp_path / "runs", "seapath_update_debian")
+
+    assert "relaunchable" in recovered.message
 
 
 def test_any_other_run_that_never_came_back_still_says_relaunch(tmp_path) -> None:

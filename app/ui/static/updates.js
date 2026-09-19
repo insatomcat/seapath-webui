@@ -9,10 +9,11 @@
 // says how old that answer is. A machine updated since then is marked, rather
 // than listed with packages it has already installed.
 //
-// The machine serving the page is never offered. The playbook reboots each
-// machine and finishes its work once the machine is back, and the controller
-// is this service: it would go down with the reboot and leave the machine in
-// standby with its snapshot still in place.
+// The machine serving the page is updated alone. The playbook reboots each
+// machine, and the controller is this service: the run ends with the reboot
+// of this machine, which finishes its update itself once its new system is
+// up, and a machine after it would never be reached. With a playbook that
+// still finishes on the controller, it is not offered at all.
 
 (function () {
   let canCheck = false;
@@ -174,6 +175,11 @@
     // The room for the snapshot the update takes of root. The update refuses
     // too little before it touches anything, and this says so before the
     // run; it is as old as the check, so it warns rather than blocks.
+    // An earlier update that rebooted the machine and was not finished by it.
+    if (reading.unfinished) {
+      box.append(document.createElement("br"));
+      box.append(span(reading.unfinished, "state-failed"));
+    }
     const room = reading.snapshot;
     if (room && room.note) {
       box.append(document.createElement("br"));
@@ -208,19 +214,26 @@
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = selected.has(machine.host);
-    // This machine drives the run, and a run cannot outlive the reboot of
-    // the machine driving it.
-    box.disabled = !canUpdate || machine.this_node || !updateAvailable();
-    if (machine.this_node) {
+    // This machine drives the run, and the run ends with its reboot.
+    const refused = machine.this_node && !view.updates_itself;
+    box.disabled = !canUpdate || refused || !updateAvailable();
+    if (refused) {
       box.title = "Updated from another member: this machine drives the run.";
+    } else if (machine.this_node) {
+      box.title = "Updated on its own: the run ends with its reboot.";
     }
     box.addEventListener("change", () => {
-      if (box.checked && !view.one_at_a_time) {
-        // An older playbook reboots every machine it is sent to at once.
+      if (box.checked && (!view.one_at_a_time || machine.this_node)) {
+        // An older playbook reboots every machine it is sent to at once, and
+        // this machine's run ends with its reboot.
         selected.clear();
         selected.add(machine.host);
         renderRows();
       } else if (box.checked) {
+        const local = view.machines.find((other) => other.this_node);
+        if (local && selected.delete(local.host)) {
+          renderRows();
+        }
         selected.add(machine.host);
       } else {
         selected.delete(machine.host);
@@ -282,15 +295,25 @@
         "The collection this image ships updates every machine it is sent " +
         "to at once, without moving their guests first, so one machine is " +
         "updated per run.";
-    } else if (view.this_host && others.length === 0) {
+    } else if (view.this_host && !view.updates_itself && others.length === 0) {
       note.textContent =
         "This machine is the only one, and it drives the run, so it cannot " +
-        "update itself: the run has to outlive the reboot. Run " +
-        "seapath_update_debian from a control machine.";
-    } else if (view.this_host) {
+        "update itself with the playbook this image ships, which finishes " +
+        "after the reboot. Run seapath_update_debian from a control machine.";
+    } else if (view.this_host && !view.updates_itself) {
       note.textContent =
         view.this_host + " is updated from another member, since it drives " +
-        "the run and the run has to outlive its reboot.";
+        "the run and the playbook this image ships finishes after the reboot.";
+    } else if (view.this_host && others.length) {
+      note.textContent =
+        view.this_host + " is updated on its own, after the others: the run " +
+        "ends with its reboot, and it finishes its update itself once its " +
+        "new system is up.";
+    } else if (view.this_host) {
+      note.textContent =
+        "The run ends with the reboot of this machine, which finishes its " +
+        "update itself once its new system is up. Check for updates " +
+        "afterwards to see that it did.";
     } else {
       note.textContent = "";
     }
@@ -413,10 +436,18 @@
           !machine.reading.snapshot.enough && !machine.stale
       )
       .map((machine) => machine.host);
+    // Only ever alone: the server refuses this machine beside others.
+    const itself = hosts.includes(view.this_host);
     confirm({
       title: "Update " + hosts.join(", "),
       body: entry.disruption,
       note:
+        (itself
+          ? "This page goes away when " + view.this_host + " reboots, and " +
+            "the run ends there without a final status, as it should. Once " +
+            "the page is back, check for updates to see that the machine " +
+            "finished its update. "
+          : "") +
         (cramped.length
           ? "At the last check, " + cramped.join(", ") +
             " had no room for the snapshot, and the update stops there " +

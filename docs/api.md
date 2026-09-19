@@ -1133,24 +1133,28 @@ disk. See [D56](decisions.md#d56) and [D58](decisions.md#d58).
 
 What an upgrade would bring to each machine, and the upgrade. Both are runs,
 and nothing is written to the inventory: an upgrade is an act made once, and
-the run record is its trace. See [D59](decisions.md#d59).
+the run record is its trace. See [D59](decisions.md#d59) and
+[D60](decisions.md#d60).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/software` | One row per machine of the inventory, guests left out: `reading` is what the machine answered to the last check (`simulation` with `upgrades`, `installs` and `removals`, each package with `current`, `candidate`, `origin` and `kernel`; `running_kernel`, `newest_kernel` and `kernel_pending` when a newer kernel is installed than the one booted; `refresh_error` when the package lists could not be refreshed; `snapshot` with the volume group, `free_bytes`, `root_bytes`, `leftover` and `enough`, which is what the update will refuse before touching anything, and `note` saying why; `error` when apt could not simulate), `stale` when the machine was updated after that check, `last_update` the newest update run that reached it, and `this_node`. `checked` is the check the readings come from and `check` the newest one, which may still be going; `updating` an update run still going; `update` the catalogue entry with its availability; `one_at_a_time` whether the installed playbook takes several machines one by one. Read from the run history, never from the machines |
+| GET | `/software` | One row per machine of the inventory, guests left out: `reading` is what the machine answered to the last check (`simulation` with `upgrades`, `installs` and `removals`, each package with `current`, `candidate`, `origin` and `kernel`; `running_kernel`, `newest_kernel` and `kernel_pending` when a newer kernel is installed than the one booted; `refresh_error` when the package lists could not be refreshed; `snapshot` with the volume group, `free_bytes`, `root_bytes`, `leftover` and `enough`, which is what the update will refuse before touching anything, and `note` saying why; `error` when apt could not simulate), `stale` when the machine was updated after that check, `last_update` the newest update run that reached it, and `this_node`. `checked` is the check the readings come from and `check` the newest one, which may still be going; `updating` an update run still going; `update` the catalogue entry with its availability; `one_at_a_time` whether the installed playbook takes several machines one by one; `updates_itself` whether it lets the machine serving the API be updated from it, alone. A reading's `unfinished` says what an earlier update left undone after the machine rebooted: its boot counter still armed, or the standby and `noout` it was to clear. Read from the run history, never from the machines |
 | POST | `/software/check` | Refresh the package lists of every machine and run `apt-get --simulate dist-upgrade`, as a generated play. Installs nothing. `202` with the run. `operator` |
-| POST | `/software/update` | Run `seapath_update_debian` on `hosts`, one machine at a time. `202` with the run. Refused with `controller_in_scope` when `hosts` names the machine serving the API, which is updated from another member, and with `one_machine_at_a_time` when the installed playbook has no `serial: 1` and `hosts` names several. `admin` |
+| POST | `/software/update` | Run `seapath_update_debian` on `hosts`, one machine at a time. `202` with the run. Refused with `controller_not_alone` when `hosts` names the machine serving the API beside others, which are updated first, with `controller_in_scope` when it names that machine and the installed playbook still finishes on the controller, and with `one_machine_at_a_time` when the installed playbook has no `serial: 1` and `hosts` names several. `admin` |
 
 **The check writes nothing on a machine.** Its last task runs on the
 controller and writes one JSON document per machine into the run's results
 directory, which is what `GET /software` reads back.
 
-**The machine serving the API is never updated from it.** The playbook reboots
-each machine and finishes its work once the machine is back: it removes the
-snapshot, restores the GRUB password, puts the member back online and clears
-Ceph's `noout`. The controller is this service, so a run sent to its own
-machine would stop at the reboot and leave all of that undone. The refusal
-belongs to the catalogue entry, so `POST /runs` refuses it as well.
+**The machine serving the API is updated alone.** The playbook reboots each
+machine, and once its new system is up the machine removes the snapshot,
+restores the GRUB password, leaves standby and clears Ceph's `noout` itself.
+The controller is this service, so a run holding its own machine ends with
+that reboot, and a machine after it would never be reached: that machine is
+refused beside others. The run is recorded with `ends_with_reboot`, and its
+message says it ended as it should. A playbook from before, which does that
+work on the controller, refuses the machine outright. The rules belong to the
+catalogue entry, so `POST /runs` holds them as well.
 
 ## Internal
 

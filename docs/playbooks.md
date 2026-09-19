@@ -378,22 +378,24 @@ names the guests and, for the first case, the package. See
 
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
-| `seapath_update_debian.yaml` | `all` | none | yes | Snapshots the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade` and reboots, one machine at a time. The snapshot is taken first, sized to root or to what the volume group has free, and too little room stops the run before anything changes. A cluster member is then put in standby and Ceph's `noout` is set while it reboots; a failure before the reboot undoes both. Refused on the machine driving the run. See [D59](decisions.md#d59). |
+| `seapath_update_debian.yaml` | `all` | none | yes | Snapshots the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade` and reboots, one machine at a time. The snapshot is taken first, sized to root or to what the volume group has free, and too little room stops the run before anything changes. A cluster member is then put in standby and Ceph's `noout` is set while it reboots; a failure before the reboot undoes both, and the machine undoes them itself once its new system is up. The machine driving the run only alone, and ending the run with its reboot. See [D59](decisions.md#d59) and [D60](decisions.md#d60). |
 
 It has a screen of its own, the Updates page, which checks first what an
 upgrade would bring with a simulation and sends the playbook to the machines
 ticked there. Two things about it are stated where an operator reads them.
 
 **Preview is `none`.** The simulation the page runs is the preview. Check mode
-would take no snapshot, skip the upgrade and the reboot, and the task after the
-reboot reads the `.stdout` of an `lvs` it skipped.
+would take no snapshot, skip the upgrade and the reboot, and the checks after
+the reboot read the output of commands it skipped.
 
-**The machine driving the run is left out, from every page.** The playbook
-finishes after the reboot: it removes the snapshot, restores the GRUB password,
-puts the member back online and clears `noout`. Run from the machine it
-reboots, the controller goes down with it. The entry carries
-`spares_controller`, and the run service refuses a scope holding this node,
-naming the others. A standalone machine is updated from a control machine.
+**The machine driving the run is updated alone.** Once its new system is up,
+the machine removes the snapshot, restores the GRUB password, leaves standby
+and clears `noout` itself, from what the playbook left in
+`/boot/efi/seapath_update`. Run from the machine it reboots, the run ends with
+the reboot, and a machine after it in the play would never be reached. The
+entry carries `reboots_controller`, and the run service refuses a scope
+holding this node beside others, naming them. An installed playbook that
+still finishes on the controller refuses this node outright.
 
 ### Not reviewed, and offered as such
 

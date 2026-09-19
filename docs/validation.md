@@ -709,3 +709,25 @@ a real backup server behind it. See [D53](decisions.md#d53).
 ### Result
 
 Pending. Nothing in this section has run on hardware yet.
+
+## Updating the machine serving the page
+
+The suite asserts the refusals and the record of a run that ends with the
+reboot of this machine, against fakes. What it cannot show is `system_check`
+finishing the update on a real machine once the controller is gone. See
+[D60](decisions.md#d60).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | On a cluster member, ticking this machine alone and updating it ends the run at the reboot, and once the page is back the run says it ended as it should | The container going down with the machine it updates | Pending |
+| 2 | On that machine after the reboot, `uname -r` is the new kernel, `lvs vg1` has no `root-snap`, `grub-editenv /boot/efi/bootcountenv list` says `bootcount=disabled`, `/etc/grub.d/01_password` is back and `/boot/efi/seapath_update` is empty | `system_check` doing at boot what the controller used to do | Pending |
+| 3 | `crm_mon -1` shows the member online, and `ceph osd dump \| grep flags` has no `noout`, with `journalctl -b -t system_check` naming both | Pacemaker and Ceph answering a unit that runs early in the boot | Pending |
+| 4 | A check run afterwards shows the machine on its new kernel with nothing left undone | The check reading the counter and the ESP of a real machine | Pending |
+| 5 | Ticking this machine with another one is refused, naming the other to update first | The rule, over the page rather than the API | Pending |
+| 6 | A standalone machine updates itself from its own page, with the same checks as 2 | The case D59 could not serve at all | Pending |
+
+### Result
+
+Not yet run.

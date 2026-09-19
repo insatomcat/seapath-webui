@@ -28,6 +28,7 @@ from app.runs import (
     hwlatdetect,
     progress,
     seed,
+    software,
     staging,
 )
 from app.runs import scope as scoping
@@ -40,7 +41,7 @@ from app.runs.catalogue import (
 )
 from app.runs.models import RunProgress, RunRecord, RunState
 from app.runs.scope import RunScope, Scope, ScopeRefused
-from app.runs.store import RunLocked, RunStore
+from app.runs.store import RunLocked, RunStore, rebooted_message
 from app.trust import known_hosts
 from app.trust.authorized_keys import MissingAccount
 from app.trust.service import TrustService
@@ -676,8 +677,9 @@ class RunService:
                 400,
                 {"guests": plan.hosts or []},
             )
-        if entry.spares_controller:
-            self._check_spared(entry, plan)
+        ends_with_reboot = (
+            self._check_controller(entry, plan) if entry.reboots_controller else None
+        )
         blocking = self._blocking(
             entry,
             self._unmet_preconditions(plan.hosts),
@@ -753,6 +755,7 @@ class RunService:
             guest=guest,
             scope=plan.requested,
             machines=plan.hosts,
+            ends_with_reboot=ends_with_reboot,
         )
 
         # The lock before the directory: two operators must not converge the
@@ -896,34 +899,52 @@ class RunService:
                 supplied[name] = _checked_value(entry, spec, value)
         return dict(supplied)
 
-    def _check_spared(self, entry: PlaybookEntry, plan: Scope) -> None:
-        """Refuse a run that would reboot the machine driving it midway.
+    def _check_controller(self, entry: PlaybookEntry, plan: Scope) -> str | None:
+        """Accept the machine driving the run only alone, and only if it can be.
 
-        The default scope of such an entry holds this machine too, so the
-        refusal names the others: sending the run to them is the way out, and
-        updating this one is the business of another member.
+        Answers that machine when the run holds it, since the run then ends
+        with its reboot. One at a time, a machine after it in the play would
+        never be reached, and the play's order is the inventory's, so the
+        others are named to be updated first. A playbook that does not leave
+        the machine to finish at boot refuses it outright: the controller
+        would go down with the reboot and leave the rest of the update undone.
         """
         this_host = self._inventory.state().this_host
         if this_host is None or plan.hosts is None or this_host not in plan.hosts:
-            return
+            return None
         others = [host for host in plan.hosts if host != this_host]
-        raise ApiError(
-            "controller_in_scope",
-            (
-                f"{entry.title} reboots each machine and finishes its work once "
-                f"the machine is back. {this_host} is the machine driving this "
-                "run, so it would go down with the reboot and leave the rest "
-                "undone. "
-                + (
-                    f"Send it to {', '.join(others)}, and update {this_host} "
-                    "from one of them."
-                    if others
-                    else "It has to be launched from another machine."
-                )
-            ),
-            409,
-            {"this_host": this_host, "others": others},
-        )
+        if not software.updates_itself(self._paths.collections_path):
+            raise ApiError(
+                "controller_in_scope",
+                (
+                    f"{entry.title} reboots each machine, and the playbook the "
+                    "SEAPATH collection of this image ships finishes its work "
+                    f"once the machine is back. {this_host} is the machine "
+                    "driving this run, so it would go down with the reboot and "
+                    "leave the rest undone. "
+                    + (
+                        f"Send it to {', '.join(others)}, and update {this_host} "
+                        "from one of them."
+                        if others
+                        else "It has to be launched from another machine."
+                    )
+                ),
+                409,
+                {"this_host": this_host, "others": others},
+            )
+        if others:
+            raise ApiError(
+                "controller_not_alone",
+                (
+                    f"{entry.title} ends with the reboot of {this_host}, the "
+                    "machine driving this run, and the machines it had not "
+                    f"reached by then would be left out. Update {', '.join(others)} "
+                    f"first, then {this_host} on its own."
+                ),
+                409,
+                {"this_host": this_host, "others": others},
+            )
+        return this_host
 
     def _check_machine(
         self,
@@ -1074,6 +1095,8 @@ class RunService:
                 "Ansible stopped before it reached any machine, so nothing was "
                 "changed. " + self._first_error(record.id)
             )
+        if record.state is RunState.INTERRUPTED and record.ends_with_reboot:
+            return rebooted_message(record.ends_with_reboot)
         if record.state is RunState.INTERRUPTED:
             reached = [
                 host for host, state in record.progress.hosts.items() if state.reached

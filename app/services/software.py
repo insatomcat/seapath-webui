@@ -12,11 +12,12 @@ trace.
 
 Two rules are held here rather than left to the page.
 
-**This machine is not updated from here.** The playbook reboots each machine
-halfway through and finishes its work once the machine is back, and the
-controller is this service. `RunService` refuses such a run whatever launched
-it, and this module leaves the machine out of what it offers, naming the
-members it can be updated from.
+**This machine is updated alone.** The playbook reboots each machine, and the
+controller is this service, so a run holding this machine ends with its
+reboot, and a machine after it would never be reached. The machine finishes
+its own update once its new system is up. `RunService` refuses this machine
+beside others whatever launched the run, and refuses it outright when the
+installed playbook still finishes on the controller.
 
 **A reading older than an update says so.** A check that ran before a machine
 was updated describes a machine that is not there any more, and a page that
@@ -96,6 +97,14 @@ class SoftwareView(BaseModel):
             "When it does not, an update run names one machine."
         ),
     )
+    updates_itself: bool = Field(
+        default=False,
+        description=(
+            "Whether the installed playbook lets the machine serving this page "
+            "be updated from it, alone. When it does not, that machine is "
+            "updated from another one."
+        ),
+    )
     note: str | None = None
 
 
@@ -140,6 +149,7 @@ class SoftwareService:
             ),
             update=availability[0] if availability else None,
             one_at_a_time=plays.one_at_a_time(self._runs.paths.collections_path),
+            updates_itself=plays.updates_itself(self._runs.paths.collections_path),
             note=None if machines else _NO_MACHINE,
         )
 
@@ -154,8 +164,8 @@ class SoftwareService:
 
         The names are checked against the machines the inventory declares, so
         a run narrowed to a guest or a typo is refused here with a sentence
-        rather than by Ansible with an empty play. This machine is refused by
-        the run service itself, for every caller.
+        rather than by Ansible with an empty play. This machine beside others
+        is refused by the run service itself, for every caller.
         """
         chosen = sorted(set(hosts))
         if not chosen:

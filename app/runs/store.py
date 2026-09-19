@@ -50,6 +50,17 @@ class RunLocked(Exception):
     """
 
 
+def rebooted_message(host: str) -> str:
+    """Why a run that rebooted the machine driving it has no final status."""
+    return (
+        f"This run ended with the reboot of {host}, the machine serving this "
+        "page, as it was meant to: the machine finishes its update itself once "
+        "its new system is up. Do not relaunch it, which would update and "
+        f"reboot {host} again. Check for updates to see that it finished: the "
+        "kernel it booted, and nothing the update left undone."
+    )
+
+
 def _interrupted_message(record: RunRecord) -> str:
     """Why a run has no final status, said as what happened.
 
@@ -58,6 +69,8 @@ def _interrupted_message(record: RunRecord) -> str:
     without saying so reads as a failure of the update. What the operator
     checks instead is the version this page now reports.
     """
+    if record.ends_with_reboot:
+        return rebooted_message(record.ends_with_reboot)
     entry = catalogue.get(record.playbook_id)
     if entry is not None and entry.restarts_service:
         return (

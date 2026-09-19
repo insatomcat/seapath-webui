@@ -10,9 +10,9 @@ writes into the run's results directory, and the parser of apt's simulation is
 tested on the lines apt prints.
 
 The update is the upstream playbook, and what this service decides about it is
-which machines it is sent to. The machine driving the run is refused whatever
-launched it, because the playbook finishes its work after the reboot and the
-controller would not be there to do it.
+which machines it is sent to. The machine driving the run is accepted only
+alone, whatever launched it, because the run ends with its reboot, and only
+when the installed playbook lets the machine finish its update at boot.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
-from app.runs import software
+from app.runs import fake, software
 from app.trust import known_hosts
 from tests.conftest import sign_in
 
@@ -309,6 +309,38 @@ def test_a_volume_group_that_could_not_be_read_says_why() -> None:
     assert room.note == 'Volume group "vg1" not found'
 
 
+def test_a_machine_whose_last_update_finished_has_nothing_left_undone() -> None:
+    reading = software.parse_reading(
+        "elabo1", _answer(bootcount="bootcount=disabled\n", pending=[])
+    )
+
+    assert reading.unfinished is None
+
+
+def test_what_a_machine_left_undone_after_its_reboot_is_said() -> None:
+    reading = software.parse_reading(
+        "elabo1",
+        _answer(
+            bootcount="bootcount=1\n",
+            pending=[
+                "/boot/efi/seapath_update/standby",
+                "/boot/efi/seapath_update/noout",
+            ],
+        ),
+    )
+
+    assert reading.unfinished == (
+        "The last update rebooted this machine and it did not disable its boot "
+        "counter, still at 1 or leave the standby the update put it in or clear "
+        "the Ceph noout flag the update set. journalctl -t system_check on the "
+        "machine says why."
+    )
+
+
+def test_an_answer_from_before_the_check_read_the_counter_says_nothing() -> None:
+    assert software.parse_reading("elabo1", _answer()).unfinished is None
+
+
 def test_an_unreadable_answer_is_an_error_and_not_a_crash() -> None:
     assert software.parse_reading("elabo1", "{not json").error
 
@@ -341,6 +373,18 @@ def test_the_check_refreshes_simulates_and_writes_nothing_on_a_machine(
     lvm = [task["ansible.builtin.command"]["argv"] for task in tasks[5:7]]
     assert [argv[0] for argv in lvm] == ["lvs", "vgs"]
     assert all(argv[-1] == "{{ vg_name | default('vg1') }}" for argv in lvm)
+    # What an update leaves the machine to finish after its reboot.
+    assert tasks[7]["ansible.builtin.command"]["argv"] == [
+        "grub-editenv",
+        "/boot/efi/bootcountenv",
+        "list",
+    ]
+    assert tasks[8]["ansible.builtin.command"]["argv"] == [
+        "find",
+        "/boot/efi/seapath_update",
+        "-type",
+        "f",
+    ]
     # The one task that writes is the last, and it writes on the controller,
     # into this run's own results directory.
     writes = [task for task in tasks if "ansible.builtin.copy" in task]
@@ -406,6 +450,18 @@ ROLLING = """---
 """
 
 
+# The same, from the collection where the machine finishes its update at boot:
+# what it has left to undo is written where `system_check` looks for it.
+FINISHING = (
+    ROLLING
+    + """    - name: Have the machine leave standby after the reboot
+      ansible.builtin.copy:
+        content: ""
+        dest: /boot/efi/seapath_update/standby
+"""
+)
+
+
 def _install_playbook(settings: Settings, content: str) -> None:
     path = settings.collections_path.joinpath(
         "ansible_collections/seapath/ansible/playbooks", "seapath_update_debian.yaml"
@@ -449,11 +505,33 @@ def test_an_older_playbook_is_sent_one_machine_at_a_time(
     assert run_adapter.requests[-1].limit == "elabo1"
 
 
-def test_the_machine_driving_the_run_is_refused_and_the_others_named(
+def test_this_machine_alone_is_updated_and_the_run_ends_with_its_reboot(
     signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
 ) -> None:
     _cluster(signed_in, settings, key_pair)
-    _install_playbook(settings, ROLLING)
+    _install_playbook(settings, FINISHING)
+    run_adapter.events = fake.interrupted_run("seapath-machine")
+
+    assert signed_in.get("/api/v1/software").json()["updates_itself"] is True
+    response = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["seapath-machine"]}
+    )
+
+    assert response.status_code == 202, response.text
+    assert run_adapter.requests[-1].limit == "seapath-machine"
+    record = _wait(signed_in, response.json()["run_id"])
+    assert record["ends_with_reboot"] == "seapath-machine"
+    assert record["state"] == "interrupted"
+    assert "as it was meant to" in record["message"]
+    assert "Relaunching is safe" not in record["message"]
+
+
+def test_this_machine_beside_others_is_refused_and_the_others_named_first(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    """One at a time, a machine after this one would never be reached."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, FINISHING)
 
     response = signed_in.post(
         "/api/v1/software/update", json={"hosts": ["seapath-machine", "elabo1"]}
@@ -461,16 +539,67 @@ def test_the_machine_driving_the_run_is_refused_and_the_others_named(
 
     assert response.status_code == 409, response.text
     error = response.json()["error"]
-    assert error["code"] == "controller_in_scope"
-    assert "seapath-machine" in error["message"]
-    assert "elabo1" in error["message"]
+    assert error["code"] == "controller_not_alone"
+    assert "Update elabo1 first, then seapath-machine on its own" in error["message"]
+    assert error["detail"]["others"] == ["elabo1"]
     assert run_adapter.requests == []
 
 
-def test_the_deployment_page_cannot_send_the_update_to_this_machine_either(
+def test_the_others_without_this_machine_are_not_said_to_end_with_a_reboot(
+    signed_in: TestClient, settings: Settings, key_pair: Path
+) -> None:
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, FINISHING)
+
+    response = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["elabo1", "elabo2"]}
+    )
+
+    assert response.status_code == 202, response.text
+    assert _wait(signed_in, response.json()["run_id"])["ends_with_reboot"] is None
+
+
+def test_a_playbook_finishing_on_the_controller_refuses_this_machine_outright(
     signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
 ) -> None:
-    """The refusal belongs to the entry, whatever page launches it."""
+    """Alone or not: the rest of the update would be left undone."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, ROLLING)
+
+    assert signed_in.get("/api/v1/software").json()["updates_itself"] is False
+    response = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["seapath-machine"]}
+    )
+
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "controller_in_scope"
+    assert "seapath-machine" in error["message"]
+    assert "another machine" in error["message"]
+    assert run_adapter.requests == []
+
+
+def test_the_deployment_page_cannot_send_the_update_to_every_machine_at_once(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    """The rule belongs to the entry, whatever page launches it."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, FINISHING)
+
+    response = signed_in.post(
+        "/api/v1/runs", json={"playbook": "seapath_update_debian"}
+    )
+
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "controller_not_alone"
+    assert error["detail"]["others"] == ["elabo1", "elabo2"]
+    assert run_adapter.requests == []
+
+
+def test_the_deployment_page_cannot_send_an_older_update_to_this_machine(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
     _cluster(signed_in, settings, key_pair)
 
     response = signed_in.post(
@@ -484,7 +613,25 @@ def test_the_deployment_page_cannot_send_the_update_to_this_machine_either(
     assert run_adapter.requests == []
 
 
-def test_a_standalone_machine_is_told_it_cannot_update_itself_from_here(
+def test_a_standalone_machine_updates_itself(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    _import(signed_in, STANDALONE)
+    response = signed_in.put(
+        "/api/v1/trust/site-key", json={"material": key_pair.read_text()}
+    )
+    assert response.status_code == 200, response.text
+    _install_playbook(settings, FINISHING)
+
+    response = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["seapath-machine"]}
+    )
+
+    assert response.status_code == 202, response.text
+    assert run_adapter.requests[-1].limit == "seapath-machine"
+
+
+def test_a_standalone_machine_is_told_an_older_playbook_cannot_update_it(
     signed_in: TestClient,
 ) -> None:
     _import(signed_in, STANDALONE)

@@ -7,10 +7,11 @@ Two acts, and they are different shapes.
 
 **Updating** is `seapath_update_debian.yaml`, a playbook of the collection,
 unchanged, launched from its reviewed catalogue entry. It snapshots the root
-volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`, reboots, and
-removes the snapshot once the machine has come back. A cluster member is put in
-standby first, one machine at a time. What it does is the playbook's, and the
-page only chooses which machines it is sent to.
+volume, arms the GRUB boot counter, runs `apt-get dist-upgrade` and reboots. A
+cluster member is put in standby first, one machine at a time. Once its new
+system is up, the machine itself removes the snapshot and leaves standby, so
+the run of the machine serving this page can end with its reboot. What it does
+is the playbook's, and the page only chooses which machines it is sent to.
 
 **Checking** has no playbook upstream, so it is a play generated here, the
 shape D30 settles for acts no playbook covers: a handful of tasks, each an
@@ -69,6 +70,15 @@ _ENVIRONMENT = {"LC_ALL": "C"}
 # The volume group `seapath_update_debian` snapshots root in, as it names it.
 _VG = "{{ vg_name | default('vg1') }}"
 
+PENDING = "/boot/efi/seapath_update"
+"""Where the update leaves what the machine undoes itself after the reboot.
+
+One empty file per thing to undo: `standby` and `noout`. `system_check`, of the
+`debian_grub_bootcount` role, removes each once it is done. A playbook that
+names this directory is one whose run may end with the reboot of the machine
+driving it.
+"""
+
 SNAPSHOT_MIN_BYTES = 2 * 1024**3
 """The least room the update accepts for its snapshot.
 
@@ -97,7 +107,9 @@ _READING = (
     "'vg': (vg_name | default('vg1')), "
     "'volumes': (software_volumes.stdout_lines | default([])), "
     "'vg_free': (software_vg.stdout | default('')), "
-    "'vg_message': (software_vg.stderr | default(software_vg.msg | default('')))"
+    "'vg_message': (software_vg.stderr | default(software_vg.msg | default(''))), "
+    "'bootcount': (software_bootcount.stdout | default('')), "
+    "'pending': (software_pending.stdout_lines | default([]))"
     "}"
 )
 
@@ -248,6 +260,29 @@ def check_play() -> str:
                     "changed_when": False,
                 },
                 {
+                    # Armed by the update and disabled by the machine once its
+                    # new system is up. Still armed afterwards, the machine
+                    # did not finish its update.
+                    "name": "Read the boot counter",
+                    "ansible.builtin.command": {
+                        "argv": ["grub-editenv", "/boot/efi/bootcountenv", "list"],
+                    },
+                    "register": "software_bootcount",
+                    "ignore_errors": True,
+                    "changed_when": False,
+                },
+                {
+                    # Absent on a machine no update has touched, which `find`
+                    # reports as an error and the reading as nothing left.
+                    "name": "List what an update left the machine to undo",
+                    "ansible.builtin.command": {
+                        "argv": ["find", PENDING, "-type", "f"],
+                    },
+                    "register": "software_pending",
+                    "ignore_errors": True,
+                    "changed_when": False,
+                },
+                {
                     "name": "Keep what the machine answered",
                     "ansible.builtin.copy": {
                         "content": "{{ " + _READING + " | to_json }}",
@@ -268,6 +303,26 @@ def check_play() -> str:
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
+def _installed(collections_path: Path) -> Path:
+    return Path(collections_path).joinpath(*COLLECTION_PLAYBOOKS, f"{UPDATE}.yaml")
+
+
+def updates_itself(collections_path: Path) -> bool:
+    """Whether the installed update playbook lets a machine finish at boot.
+
+    Only then can the machine serving this page be updated from it: the run
+    ends with the reboot, and what used to follow on the controller, the
+    snapshot removed, the GRUB password back, the member online and `noout`
+    cleared, is done by the machine once its new system is up. A playbook from
+    before that finishes on the controller, and would leave all of it undone.
+    Read off the file, like `one_at_a_time`.
+    """
+    try:
+        return PENDING in _installed(collections_path).read_text()
+    except OSError:
+        return False
+
+
 def one_at_a_time(collections_path: Path) -> bool:
     """Whether the installed update playbook takes the machines one by one.
 
@@ -278,9 +333,8 @@ def one_at_a_time(collections_path: Path) -> bool:
     file rather than assumed from a version: a site builds the image from the
     branch it likes, and the version in `galaxy.yml` does not follow branches.
     """
-    path = Path(collections_path).joinpath(*COLLECTION_PLAYBOOKS, f"{UPDATE}.yaml")
     try:
-        plays = yaml.safe_load(path.read_text())
+        plays = yaml.safe_load(_installed(collections_path).read_text())
     except (OSError, yaml.YAMLError):
         return False
     if not isinstance(plays, list):
@@ -352,6 +406,13 @@ class MachineReading(BaseModel):
     snapshot: SnapshotRoom | None = Field(
         default=None,
         description="Whether the update has room for its snapshot of root",
+    )
+    unfinished: str | None = Field(
+        default=None,
+        description=(
+            "What an earlier update left undone on the machine after its "
+            "reboot, absent when it finished"
+        ),
     )
 
 
@@ -456,7 +517,39 @@ def parse_reading(host: str, raw: str) -> MachineReading:
     )
     reading.reboot_required = bool(data.get("reboot_required"))
     reading.snapshot = parse_room(data)
+    reading.unfinished = parse_unfinished(data)
     return reading
+
+
+# What each file under `PENDING` says the machine has not done yet.
+_UNDONE = {
+    "standby": "leave the standby the update put it in",
+    "noout": "clear the Ceph noout flag the update set",
+}
+
+
+def parse_unfinished(data: dict) -> str | None:
+    """What the machine was left to do after the reboot and has not done.
+
+    The boot counter still armed, and the files the update left under
+    `PENDING`. The snapshot left behind is `SnapshotRoom.leftover`, said
+    beside the room it takes. Absent from an answer written before the check
+    read them, and from a machine whose last update finished.
+    """
+    undone = []
+    counter = re.search(r"^bootcount=(\d+)$", str(data.get("bootcount") or ""), re.M)
+    if counter:
+        undone.append(f"disable its boot counter, still at {counter.group(1)}")
+    for path in data.get("pending") or []:
+        name = Path(str(path)).name
+        undone.append(_UNDONE.get(name, f"undo {name}"))
+    if not undone:
+        return None
+    return (
+        "The last update rebooted this machine and it did not "
+        + " or ".join(undone)
+        + ". journalctl -t system_check on the machine says why."
+    )
 
 
 def parse_room(data: dict) -> SnapshotRoom | None:

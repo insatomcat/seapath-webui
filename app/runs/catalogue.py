@@ -237,15 +237,15 @@ class PlaybookEntry(BaseModel):
     from, the way a reboot does, and the record says so rather than calling it
     a failure. See D23.
     """
-    spares_controller: bool = False
-    """This playbook refuses to be sent to the machine driving the run.
+    reboots_controller: bool = False
+    """This playbook reboots the machines it is sent to, one at a time.
 
-    `seapath_update_debian` reboots each machine halfway through and finishes
-    once it is back: the snapshot is removed, the GRUB password restored, the
-    cluster member put back online and Ceph allowed to rebalance again. Sent
-    to the machine this service runs on, the controller goes down with the
-    reboot and none of that happens, so the machine is left in standby with a
-    snapshot filling up under its root. It is updated from another member.
+    Sent to the machine driving the run, the run ends with that machine's
+    reboot, and a machine the play had not reached yet is never updated. So
+    the machine driving the run is accepted alone, and only when the installed
+    playbook leaves it to finish its update at boot: one from before that does
+    the rest on the controller once the machine is back, and would leave it in
+    standby with its snapshot in place. See `RunService._check_controller`.
     """
     results_variable: str | None = None
     """The variable naming where this playbook fetches what it measured.
@@ -693,11 +693,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         title="Update the software of the Debian machines",
         targets=["all"],
         # The simulation it would need is the Updates page's check. Check mode
-        # snapshots nothing, skips the upgrade and the reboot, and the task
-        # after the reboot reads the `.stdout` of an `lvs` it skipped.
+        # snapshots nothing, skips the upgrade and the reboot, and the checks
+        # after the reboot read the output of commands it skipped.
         preview=Preview.NONE,
         reboots=Reboots.YES,
-        spares_controller=True,
+        reboots_controller=True,
         disruption=(
             "Upgrades every package of each machine with `apt-get "
             "dist-upgrade` and reboots it, one machine "
@@ -720,8 +720,10 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "snapshot left by an earlier update stops the run before anything "
             "changes. A failure before the reboot puts the member back online "
             "and clears noout, and keeps the snapshot only if packages may "
-            "have changed. The machine this service runs on is updated from "
-            "another member."
+            "have changed. Once its new system is up, each machine removes "
+            "the snapshot, leaves standby and clears noout itself, so the "
+            "machine this service runs on is updated on its own, and its run "
+            "ends with its reboot."
         ),
     ),
     # Cluster entries. Listed so an operator can see what exists and why it is
