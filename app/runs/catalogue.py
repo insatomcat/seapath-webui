@@ -700,7 +700,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         spares_controller=True,
         disruption=(
             "Upgrades every package of each machine with `apt-get "
-            "dist-upgrade`, writes the boot menu and reboots it, one machine "
+            "dist-upgrade` and reboots it, one machine "
             "at a time. A cluster member is put in standby first, so its "
             "guests move to the other members and come back only when "
             "Pacemaker moves them, and Ceph is kept from rebalancing while it "

@@ -378,7 +378,7 @@ names the guests and, for the first case, the package. See
 
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
-| `seapath_update_debian.yaml` | `all` | none | yes | Snapshots the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`, writes the boot menu and reboots, one machine at a time. The snapshot is taken first, sized to root or to what the volume group has free, and too little room stops the run before anything changes. A cluster member is then put in standby and Ceph's `noout` is set while it reboots; a failure before the reboot undoes both. Refused on the machine driving the run. See [D59](decisions.md#d59). |
+| `seapath_update_debian.yaml` | `all` | none | yes | Snapshots the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade` and reboots, one machine at a time. The snapshot is taken first, sized to root or to what the volume group has free, and too little room stops the run before anything changes. A cluster member is then put in standby and Ceph's `noout` is set while it reboots; a failure before the reboot undoes both. Refused on the machine driving the run. See [D59](decisions.md#d59). |
 
 It has a screen of its own, the Updates page, which checks first what an
 upgrade would bring with a simulation and sends the playbook to the machines

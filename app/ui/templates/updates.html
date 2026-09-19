@@ -53,8 +53,8 @@ another member.
       <p class="legend" id="acts-note"></p>
     </div>
     <p class="help">
-      An update runs <code>apt-get dist-upgrade</code>, writes the boot menu and
-      reboots, one machine at a time. The root volume is snapshotted first, and a
+      An update runs <code>apt-get dist-upgrade</code> and reboots, one machine
+      at a time. The root volume is snapshotted first, and a
       machine that fails to boot its new system is rolled back to it. A cluster
       member is put in standby before anything changes, so its guests move to
       the other members.

@@ -4448,57 +4448,47 @@ and the inventory keeps nothing of it: the run record is its trace.
 
 **The upgrade is `seapath_update_debian.yaml`, unchanged here.** It snapshots
 the root volume, arms the GRUB boot counter, runs `apt-get dist-upgrade`,
-writes the boot menu, reboots, and removes the snapshot once the machine is
-back; a machine that fails to boot its new system is rolled back to the
-snapshot by the initramfs. Two things were missing from it and were fixed
-upstream rather than worked around here, because a conventional control
-machine running the same playbook needs them as much:
+reboots, and removes the snapshot once the machine is back; a machine that
+fails to boot its new system is rolled back to the snapshot by the
+initramfs. What was missing from it, and from the collection around it, was
+fixed upstream rather than worked around here, because a conventional control
+machine running the same playbook needs it as much:
 
-- `update-grub` ran only to lift and restore the GRUB password, and only where
-  there was one. Installing a kernel does not regenerate `grub.cfg` on every
-  SEAPATH machine, so the reboot booted the previous kernel. It now runs after
-  every upgrade, before the reboot.
 - The play updated and rebooted every machine at once, and moved no guest
   first. It now takes one machine at a time (`serial: 1`), puts a cluster
   member in standby and waits for its guests to leave, sets Ceph's `noout`
   while it reboots, and puts it back online afterwards. A rolled back machine
   fails the run, so the next machine is not touched.
+- The snapshot asked for 21 GiB, more than root itself, and the first run on
+  a real cluster failed there: a local volume had taken the room in the
+  volume group. It came after the standby and `noout`, so the failure left
+  the member in standby with `noout` set. The snapshot is now taken first,
+  sized to root when the volume group has the room and to what is free
+  otherwise, since a snapshot never needs more than its origin. Less than
+  2 GiB free, or a `root-snap` left by an earlier update, stops the run before
+  anything changes, and every step before the reboot sits in a `block` whose
+  `rescue` puts the machine back. The check reads the same volume group, so
+  the page says before the run which machine the update would refuse.
+- A new kernel was never booted until `update-grub` was run by hand, and the
+  root was never unmounted cleanly: every boot started by recovering the ext4
+  journal, and GRUB, which reads the file system without replaying it, once
+  read the `grub.cfg` from before an upgrade. Both had one cause, found with
+  a hook in `/usr/lib/systemd/system-shutdown` recording the end of a plain
+  reboot. systemd took the hypervisor for a podman container: the
+  `ha_cluster_exporter` quadlet of `deploy_prometheus_exporters` mounted the
+  host's `/var/run` on its own, podman created the mount point of the
+  container's `/run/.containerenv` in the host's `/run`, and
+  `systemd-detect-virt -c` answered `podman` on the machine itself. In a
+  container, the kernel's `zz-update-grub` hook exits without writing the
+  menu, and `systemd-shutdown` skips every unmount. The role no longer mounts
+  it, since the image's Pacemaker tools `nsenter` into PID 1 and never used
+  it, and removes the empty file left behind.
 
-The first run on a real cluster found a third one. The snapshot asked for
-21 GiB, more than root itself, and the volume group had less than that free
-once a local volume had been created in it. The snapshot was also taken after
-the standby and `noout`, so its failure left the member in standby with
-`noout` set. The snapshot is now taken first, sized to root when the volume
-group has the room and to what is free otherwise, since a snapshot never needs
-more than its origin. Less than 2 GiB free, or a `root-snap` left by an
-earlier update, stops the run before anything changes. And every step before
-the reboot sits in a `block` whose `rescue` disarms the boot counter, restores
-the GRUB password, puts the member back online, clears `noout`, and removes
-the snapshot unless packages may have changed, in which case it is kept as the
-way back. The check reads the same volume group, so the page says before the
-run which machine the update would refuse.
-
-The second run found why `update-grub` alone was not always enough. One
-member of two booted the previous kernel with the new one first in
-`grub.cfg`, and both had started with "recovering journal" on the root: it
-is not always unmounted cleanly on the way down, and GRUB reads ext4 without
-replaying the journal. The `grub.cfg` it read was the one from before the
-upgrade. The playbook now freezes and thaws the file system holding
-`/boot/grub` after `update-grub`, which writes the journal out to its place.
-The page's "installed, not booted" is what showed it.
-
-Why the root was never unmounted cleanly was found next, with a hook
-in `/usr/lib/systemd/system-shutdown` recording the state at the end of a
-plain reboot: `/` still read-write, no process left, and `systemd-shutdown`
-declaring every file system detached without trying one. It took the
-hypervisor for a podman container. The `ha_cluster_exporter` quadlet of
-`deploy_prometheus_exporters` mounted the host's `/var/run` on its own, and
-podman creates the mount point of the container's `/run/.containerenv`
-there, which is the host's `/run`; `systemd-detect-virt -c` answered
-`podman` on the machine itself. The role no longer mounts it, since the
-image's Pacemaker tools `nsenter` into PID 1 and never used it, and it
-removes the empty file left behind. The freeze after `update-grub` stays:
-it costs nothing and does not depend on how the machine goes down.
+An `update-grub` after the upgrade, and a freeze of the file system to write
+the journal out, were added to the playbook while the cause was unknown, and
+taken out once it was found: with the hook working and the root unmounted,
+they only hid the next regression of the same kind. The page's "installed,
+not booted" is what showed this one, and it keeps doing that job.
 
 A collection from before that change is still what some images ship. The page
 reads the installed playbook, and where no play carries `serial: 1` it sends
