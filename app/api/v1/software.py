@@ -66,9 +66,9 @@ def check(request: Request, user: User = operator) -> RunResponse:
 def update(request: Request, payload: UpdateRequest, user: User = admin) -> RunResponse:
     """Run `seapath_update_debian` on the machines named, one at a time.
 
-    Each machine is upgraded and rebooted; a cluster member is put in standby
-    first. The machine serving this API is refused: it is updated from another
-    member, since the run has to outlive its reboot.
+    Each machine is upgraded, and rebooted when it gets a new kernel; a cluster
+    member is put in standby first. The machine serving this API is accepted
+    alone: its reboot is scheduled, and the run ends before it.
     """
     record = _service(request).update(payload.hosts, user.username)
     return RunResponse(run_id=record.id, state=record.state.value)

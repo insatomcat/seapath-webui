@@ -462,6 +462,18 @@ FINISHING = (
 )
 
 
+# The same, from the collection that reboots a machine only for a new kernel,
+# and schedules the reboot of the machine driving the run.
+DETACHING = (
+    FINISHING
+    + """    - name: Schedule the reboot and end the run
+      ansible.builtin.command:
+        argv: [systemd-run, --on-active=15, systemctl, reboot]
+      when: detach_reboot | default(false) | bool
+"""
+)
+
+
 def _install_playbook(settings: Settings, content: str) -> None:
     path = settings.collections_path.joinpath(
         "ansible_collections/seapath/ansible/playbooks", "seapath_update_debian.yaml"
@@ -524,6 +536,48 @@ def test_this_machine_alone_is_updated_and_the_run_ends_with_its_reboot(
     assert record["state"] == "interrupted"
     assert "as it was meant to" in record["message"]
     assert "Relaunching is safe" not in record["message"]
+
+
+def test_this_machine_schedules_its_reboot_and_its_run_ends_with_a_status(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, DETACHING)
+
+    assert signed_in.get("/api/v1/software").json()["reboots_for_kernel"] is True
+    response = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["seapath-machine"]}
+    )
+
+    assert response.status_code == 202, response.text
+    assert run_adapter.requests[-1].extra_vars == {"detach_reboot": True}
+    record = _wait(signed_in, response.json()["run_id"])
+    assert record["state"] == "success"
+    # Worked out again by a relaunch, from where that one is launched.
+    assert record["variables"] == {}
+
+
+def test_the_others_are_not_told_to_schedule_a_reboot(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, DETACHING)
+
+    response = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["elabo1", "elabo2"]}
+    )
+
+    assert response.status_code == 202, response.text
+    assert run_adapter.requests[-1].extra_vars == {}
+
+
+def test_an_older_playbook_is_said_to_reboot_every_machine(
+    signed_in: TestClient, settings: Settings, key_pair: Path
+) -> None:
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, FINISHING)
+
+    assert signed_in.get("/api/v1/software").json()["reboots_for_kernel"] is False
 
 
 def test_this_machine_beside_others_is_refused_and_the_others_named_first(

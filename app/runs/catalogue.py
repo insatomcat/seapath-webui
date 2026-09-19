@@ -700,11 +700,12 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         reboots_controller=True,
         disruption=(
             "Upgrades every package of each machine with `apt-get "
-            "dist-upgrade` and reboots it, one machine "
-            "at a time. A cluster member is put in standby first, so its "
-            "guests move to the other members and come back only when "
-            "Pacemaker moves them, and Ceph is kept from rebalancing while it "
-            "reboots. A standalone machine's guests stop with it."
+            "dist-upgrade`, one machine at a time, and reboots a machine "
+            "only when it gets a new kernel. A cluster member is put in "
+            "standby first, so its guests move to the other members and come "
+            "back only when Pacemaker moves them, and Ceph is kept from "
+            "rebalancing while it reboots. A standalone machine's guests see "
+            "their services restart, and stop with it when it reboots."
         ),
         requires=[
             Precondition.INVENTORY_VALID,
@@ -712,8 +713,9 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.PEER_REACHABLE,
         ],
         notes=(
-            "The root volume is snapshotted before the upgrade and the GRUB "
-            "boot counter armed: a machine that fails to boot its new system "
+            "The root volume is snapshotted before the upgrade, and the GRUB "
+            "boot counter armed when the machine is to reboot: a machine "
+            "that fails to boot its new system "
             "is rolled back to the snapshot, and the run then stops before "
             "the next machine. The snapshot is taken first, sized to root or "
             "to what the volume group has free, and too little room or a "
@@ -723,7 +725,8 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "have changed. Once its new system is up, each machine removes "
             "the snapshot, leaves standby and clears noout itself, so the "
             "machine this service runs on is updated on its own, and its run "
-            "ends with its reboot."
+            "schedules its reboot and ends first. Without a reboot, the run "
+            "removes the snapshot and the standby itself."
         ),
     ),
     # Cluster entries. Listed so an operator can see what exists and why it is

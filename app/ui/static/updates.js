@@ -172,6 +172,10 @@
         box.append(span("new kernel", "tag warn"));
       }
     }
+    if (view.reboots_for_kernel && reboots(machine)) {
+      box.append(" ");
+      box.append(span("reboots", "tag warn"));
+    }
     // The room for the snapshot the update takes of root. The update refuses
     // too little before it touches anything, and this says so before the
     // run; it is as old as the check, so it warns rather than blocks.
@@ -197,6 +201,22 @@
     return cell(box);
   }
 
+  // Whether an update would reboot the machine, as of the last check. The
+  // playbook decides again when it runs, from the same two readings: a kernel
+  // the upgrade installs, or one installed that the machine never booted.
+  function reboots(machine) {
+    const reading = machine.reading;
+    if (!reading || reading.error || machine.stale) {
+      return false;
+    }
+    return (
+      reading.kernel_pending ||
+      reading.simulation.upgrades
+        .concat(reading.simulation.installs)
+        .some((item) => item.kernel)
+    );
+  }
+
   function lastUpdateCell(machine) {
     const run = machine.last_update;
     if (!run) {
@@ -214,13 +234,15 @@
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = selected.has(machine.host);
-    // This machine drives the run, and the run ends with its reboot.
+    // This machine drives the run, and may reboot at its end.
     const refused = machine.this_node && !view.updates_itself;
     box.disabled = !canUpdate || refused || !updateAvailable();
     if (refused) {
       box.title = "Updated from another member: this machine drives the run.";
     } else if (machine.this_node) {
-      box.title = "Updated on its own: the run ends with its reboot.";
+      box.title = view.reboots_for_kernel
+        ? "Updated on its own, since it drives the run."
+        : "Updated on its own: the run ends with its reboot.";
     }
     box.addEventListener("change", () => {
       if (box.checked && (!view.one_at_a_time || machine.this_node)) {
@@ -304,11 +326,22 @@
       note.textContent =
         view.this_host + " is updated from another member, since it drives " +
         "the run and the playbook this image ships finishes after the reboot.";
+    } else if (view.this_host && others.length && view.reboots_for_kernel) {
+      note.textContent =
+        view.this_host + " is updated on its own, after the others, since " +
+        "it drives the run. When it gets a new kernel, the run ends by " +
+        "scheduling its reboot, and it finishes its update itself once its " +
+        "new system is up.";
     } else if (view.this_host && others.length) {
       note.textContent =
         view.this_host + " is updated on its own, after the others: the run " +
         "ends with its reboot, and it finishes its update itself once its " +
         "new system is up.";
+    } else if (view.this_host && view.reboots_for_kernel) {
+      note.textContent =
+        "When this machine gets a new kernel, the run ends by scheduling its " +
+        "reboot, and the machine finishes its update itself once its new " +
+        "system is up. Check for updates afterwards to see that it did.";
     } else if (view.this_host) {
       note.textContent =
         "The run ends with the reboot of this machine, which finishes its " +
@@ -438,11 +471,37 @@
       .map((machine) => machine.host);
     // Only ever alone: the server refuses this machine beside others.
     const itself = hosts.includes(view.this_host);
+    const chosen = view.machines.filter((machine) => selected.has(machine.host));
+    const rebooting = chosen.filter(reboots).map((machine) => machine.host);
+    const unknown = chosen
+      .filter((machine) => !machine.reading || machine.reading.error || machine.stale)
+      .map((machine) => machine.host);
     confirm({
       title: "Update " + hosts.join(", "),
       body: entry.disruption,
       note:
-        (itself
+        (view.reboots_for_kernel
+          ? (rebooting.length
+              ? "At the last check, " + rebooting.join(", ") +
+                (rebooting.length === 1
+                  ? " gets a new kernel and reboots. "
+                  : " get a new kernel and reboot. ")
+              : unknown.length < chosen.length
+                ? "At the last check, none of them gets a new kernel, and " +
+                  "none reboots. "
+                : "") +
+            (unknown.length
+              ? "No current check says whether " + unknown.join(", ") +
+                (unknown.length === 1 ? " reboots. " : " reboot. ")
+              : "")
+          : "") +
+        (itself && view.reboots_for_kernel
+          ? "Should " + view.this_host + " reboot, the run schedules it and " +
+            "ends first, and this page goes away a few seconds later. Once " +
+            "the page is back, check for updates to see that the machine " +
+            "finished its update. "
+          : "") +
+        (itself && !view.reboots_for_kernel
           ? "This page goes away when " + view.this_host + " reboots, and " +
             "the run ends there without a final status, as it should. Once " +
             "the page is back, check for updates to see that the machine " +
@@ -453,7 +512,9 @@
             " had no room for the snapshot, and the update stops there " +
             "before changing anything unless that was fixed since. "
           : "") + entry.notes,
-      label: hosts.length === 1 ? "Update and reboot it" : "Update and reboot them",
+      label: view.reboots_for_kernel
+        ? (hosts.length === 1 ? "Update it" : "Update them")
+        : (hosts.length === 1 ? "Update and reboot it" : "Update and reboot them"),
       act: async () => {
         const launched = await API.post("/software/update", { hosts });
         selected.clear();

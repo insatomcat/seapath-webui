@@ -6,11 +6,12 @@ The software updates of the machines. Two acts and one table. Checking is a run
 that refreshes the package lists and asks apt to simulate the upgrade; what
 each machine answered is kept with that run and drawn here. Updating is the
 upstream `seapath_update_debian` playbook, sent to the machines ticked in the
-table, which it upgrades and reboots one at a time.
+table, which it upgrades one at a time, rebooting a machine only for a new
+kernel.
 
-The machine serving this page is never ticked. The playbook finishes its work
-after the reboot, and the controller is this service, so it is updated from
-another member.
+The machine serving this page is updated alone: when it reboots, the run
+schedules the reboot and ends first, and the machine finishes its update at
+boot.
 #}
 {% extends "base.html" %}
 {% from "_controls.html" import reread %}
@@ -53,8 +54,9 @@ another member.
       <p class="legend" id="acts-note"></p>
     </div>
     <p class="help">
-      An update runs <code>apt-get dist-upgrade</code> and reboots, one machine
-      at a time. The root volume is snapshotted first, and a
+      An update runs <code>apt-get dist-upgrade</code>, one machine at a time,
+      and reboots a machine only when it gets a new kernel. The root volume is
+      snapshotted first, and a
       machine that fails to boot its new system is rolled back to it. A cluster
       member is put in standby before anything changes, so its guests move to
       the other members.

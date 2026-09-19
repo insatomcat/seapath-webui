@@ -7,11 +7,12 @@ Two acts, and they are different shapes.
 
 **Updating** is `seapath_update_debian.yaml`, a playbook of the collection,
 unchanged, launched from its reviewed catalogue entry. It snapshots the root
-volume, arms the GRUB boot counter, runs `apt-get dist-upgrade` and reboots. A
-cluster member is put in standby first, one machine at a time. Once its new
-system is up, the machine itself removes the snapshot and leaves standby, so
-the run of the machine serving this page can end with its reboot. What it does
-is the playbook's, and the page only chooses which machines it is sent to.
+volume, runs `apt-get dist-upgrade`, and reboots a machine only when that
+brings it a new kernel, with the GRUB boot counter armed first. A cluster
+member is put in standby first, one machine at a time. Once its new system is
+up, the machine itself removes the snapshot and leaves standby, so the run of
+the machine serving this page can schedule its reboot and end. What it does is
+the playbook's, and the page only chooses which machines it is sent to.
 
 **Checking** has no playbook upstream, so it is a play generated here, the
 shape D30 settles for acts no playbook covers: a handful of tasks, each an
@@ -77,6 +78,14 @@ One empty file per thing to undo: `standby` and `noout`. `system_check`, of the
 `debian_grub_bootcount` role, removes each once it is done. A playbook that
 names this directory is one whose run may end with the reboot of the machine
 driving it.
+"""
+
+DETACH_REBOOT = "detach_reboot"
+"""What has the update schedule the reboot of the machine and end the run.
+
+Given when the machine updated is the one driving the run, which cannot wait
+for its own reboot: the run then ends with a status, and the machine reboots
+a few seconds later.
 """
 
 SNAPSHOT_MIN_BYTES = 2 * 1024**3
@@ -319,6 +328,21 @@ def updates_itself(collections_path: Path) -> bool:
     """
     try:
         return PENDING in _installed(collections_path).read_text()
+    except OSError:
+        return False
+
+
+def reboots_for_kernel(collections_path: Path) -> bool:
+    """Whether the installed update playbook reboots a machine only for a kernel.
+
+    Such a playbook reboots a machine the upgrade gives a new kernel, or that
+    has one installed and not booted, and leaves the others running. It also
+    schedules the reboot of the machine driving the run rather than wait for
+    it. One from before that reboots every machine. Read off the file, like
+    `one_at_a_time`.
+    """
+    try:
+        return DETACH_REBOOT in _installed(collections_path).read_text()
     except OSError:
         return False
 

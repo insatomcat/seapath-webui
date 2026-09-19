@@ -105,6 +105,13 @@ class SoftwareView(BaseModel):
             "updated from another one."
         ),
     )
+    reboots_for_kernel: bool = Field(
+        default=False,
+        description=(
+            "Whether the installed playbook reboots a machine only when it gets "
+            "a new kernel. When it does not, every machine updated reboots."
+        ),
+    )
     note: str | None = None
 
 
@@ -150,6 +157,9 @@ class SoftwareService:
             update=availability[0] if availability else None,
             one_at_a_time=plays.one_at_a_time(self._runs.paths.collections_path),
             updates_itself=plays.updates_itself(self._runs.paths.collections_path),
+            reboots_for_kernel=plays.reboots_for_kernel(
+                self._runs.paths.collections_path
+            ),
             note=None if machines else _NO_MACHINE,
         )
 

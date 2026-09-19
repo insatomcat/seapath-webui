@@ -4562,3 +4562,37 @@ machine is refused as before.
 counter and what is left in `/boot/efi/seapath_update` beside the snapshot it
 already read, and the page says what an earlier update left undone. After
 updating this machine, the operator checks once the page is back.
+
+## D61 - Settled: an update reboots a machine only for a kernel, and schedules the reboot of the machine driving it
+
+Every package but the kernel takes effect when its service restarts, which the
+upgrade does. `seapath_update_debian` rebooted every machine it updated all the
+same, and a node whose upgrade brought no kernel went down and back for
+nothing.
+
+**The playbook decides before touching the machine, upstream.** It refreshes
+the package lists and runs the same `apt-get --simulate dist-upgrade` as the
+check, and reboots when the simulation installs a `linux-image-*` package, or
+when a kernel newer than the one running is already installed and was never
+booted. The decision is taken before anything changes, because it also decides
+what is prepared: without a reboot the GRUB boot counter is not armed, the GRUB
+password is not lifted and `noout` is not set. The upgrade then runs from the
+lists the simulation read. A cluster member still goes to standby either way,
+since the upgrade restarts services under the guests, Open vSwitch among them.
+Without a reboot the playbook removes the snapshot and takes the member out of
+standby itself, once the upgrade succeeded.
+
+**The machine driving the run schedules its reboot and the run ends.** Under
+[D60](#d60) the run of this machine ended with its reboot, without a final
+status, and the page had to explain an interrupted run as the expected outcome.
+With `detach_reboot`, the playbook starts `systemctl reboot` fifteen seconds
+out with `systemd-run` and stops there, and the run ends with its status. What
+followed the reboot only checked that the machine finished its update, which
+nobody is left to do from this machine; the check does it once the page is
+back, as before. The run service gives `detach_reboot` to a run whose scope
+holds the machine serving the page, and keeps it out of the recorded variables
+like the results directory: it describes where the run was launched from.
+
+The page reads the installed playbook for `detach_reboot`, as it reads it for
+`/boot/efi/seapath_update`. With an older playbook every machine reboots and
+the run of this machine still ends with its reboot, and the page says so.

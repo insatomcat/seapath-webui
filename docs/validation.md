@@ -727,6 +727,8 @@ finishing the update on a real machine once the controller is gone. See
 | 4 | A check run afterwards shows the machine on its new kernel with nothing left undone | The check reading the counter and the ESP of a real machine | Pending |
 | 5 | Ticking this machine with another one is refused, naming the other to update first | The rule, over the page rather than the API | Pending |
 | 6 | A standalone machine updates itself from its own page, with the same checks as 2 | The case D59 could not serve at all | Pending |
+| 7 | An update whose check shows no kernel package, on this machine and on another member, ends in success without a reboot: `uptime` unchanged, no `root-snap`, the member online, no `noout`, `/boot/efi/seapath_update` absent | The decision reading a real simulation, see [D61](decisions.md#d61) | Pending |
+| 8 | An update of this machine that brings a kernel ends the run in success, and the machine reboots about fifteen seconds later, with the same checks as 2 afterwards | The scheduled reboot outliving the run, see [D61](decisions.md#d61) | Pending |
 
 ### Result
 

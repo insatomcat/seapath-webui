@@ -114,11 +114,12 @@ class RunRecord(BaseModel):
     report as a run that played nothing.
     """
     ends_with_reboot: str | None = None
-    """The machine driving the run, when the run reboots it.
+    """The machine driving the run, when the run may reboot it.
 
-    Such a run ends without a final status by design, and the record says so
-    rather than calling it an interruption worth relaunching: a relaunch would
-    update the machine and reboot it a second time.
+    The playbook is then told to schedule that reboot and end. With one that
+    does not know how, the run ends without a final status, and the record
+    says so rather than calling it an interruption worth relaunching: a
+    relaunch would update the machine and reboot it a second time.
     """
     return_code: int | None = None
     progress: RunProgress = Field(default_factory=RunProgress)

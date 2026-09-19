@@ -743,6 +743,12 @@ class RunService:
             # first run's directory. The exact invocation is still recorded, in
             # `command`, which is built from the request.
             extra_vars[entry.results_variable] = str(self._store.results_dir(run_id))
+        if ends_with_reboot:
+            # The run cannot wait for the reboot of the machine it runs on, so
+            # the playbook schedules it and ends, with a status. Out of
+            # `record.variables` for the same reason as above: it describes
+            # this run's controller, and a relaunch works it out again.
+            extra_vars[software.DETACH_REBOOT] = True
         record = RunRecord(
             id=run_id,
             playbook=entry.playbook,
@@ -902,12 +908,13 @@ class RunService:
     def _check_controller(self, entry: PlaybookEntry, plan: Scope) -> str | None:
         """Accept the machine driving the run only alone, and only if it can be.
 
-        Answers that machine when the run holds it, since the run then ends
-        with its reboot. One at a time, a machine after it in the play would
-        never be reached, and the play's order is the inventory's, so the
-        others are named to be updated first. A playbook that does not leave
-        the machine to finish at boot refuses it outright: the controller
-        would go down with the reboot and leave the rest of the update undone.
+        Answers that machine when the run holds it, since the run may then end
+        by rebooting it, scheduled so the run ends first. One at a time, a
+        machine after it in the play would never be reached, and the play's
+        order is the inventory's, so the others are named to be updated first.
+        A playbook that does not leave the machine to finish at boot refuses it
+        outright: the controller would go down with the reboot and leave the
+        rest of the update undone.
         """
         this_host = self._inventory.state().this_host
         if this_host is None or plan.hosts is None or this_host not in plan.hosts:
@@ -936,7 +943,7 @@ class RunService:
             raise ApiError(
                 "controller_not_alone",
                 (
-                    f"{entry.title} ends with the reboot of {this_host}, the "
+                    f"{entry.title} may end by rebooting {this_host}, the "
                     "machine driving this run, and the machines it had not "
                     f"reached by then would be left out. Update {', '.join(others)} "
                     f"first, then {this_host} on its own."
