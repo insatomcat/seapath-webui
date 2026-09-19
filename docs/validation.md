@@ -689,11 +689,11 @@ QEMU on a hardened hypervisor, and a real guest's screen. See
 
 | # | Check | Why it cannot be tested against a fake | Result |
 |---|---|---|---|
-| 1 | On a hypervisor, the console's ssh command line with `-T` and `graphic_command(<guest>)` answers `RFB 003.008` for a guest deployed with `graphic-console` | `python3`, `sudo -n /bin/sh` and `virsh domdisplay` on the hardened machine, with forwarding off | Pending |
+| 1 | On a hypervisor, the console's ssh command line with `-T` and `graphic_command(<guest>)` answers `RFB 003.008` for a guest whose domain has a VNC display | `python3`, `sudo -n /bin/sh` and `virsh domdisplay` on the hardened machine, with forwarding off | Passed on the demo cluster on 2026-09-19: the websocket for PORUN, a guest defined by hand with SPICE and VNC, answered `RFB 003.008` through node2 |
 | 2 | **Graphic console** on the VMs page shows a Windows guest's login screen, **Ctrl+Alt+Del** reaches it, and a password typed on an AZERTY keyboard is accepted | QEMU's extended key events and the guest's own layout | Pending |
 | 3 | The pointer follows the mouse with no offset, at fit and at actual size | The USB tablet the template adds | Pending |
 | 4 | A cluster guest opens from a member that does not run it, and after a migration Reconnect opens it on its new host | Pacemaker's location read through the exporter | Pending |
-| 5 | A guest declared with the feature but not yet restarted closes with virsh's reason, and a Linux guest without it shows no button | `virsh domdisplay` on a domain with no `<graphics>` | Pending |
+| 5 | A cluster guest whose XML in Ceph has a VNC display shows the button and one with SPICE alone does not; a guest given the display but not yet restarted closes with virsh's reason | The `xml` metadata `vm_manager` wrote, and `virsh domdisplay` on a domain with no VNC | Pending |
 | 6 | Left untouched, the panel closes after the idle timeout, and moving the mouse over it keeps it open | noVNC's own update requests not counted as input | Pending |
 
 

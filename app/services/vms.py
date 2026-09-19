@@ -27,6 +27,7 @@ import logging
 import re
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,7 @@ from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResour
 from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
-from app.cluster.rbd import RbdClient, RbdUnavailable
+from app.cluster.rbd import RbdClient, RbdUnavailable, image_of
 from app.core.logging import audit_event
 from app.inventory import cloudinit
 from app.inventory.editor import guest_entries
@@ -47,7 +48,6 @@ from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
     STANDALONE_GUEST_GROUP,
-    Guest,
     Inventory,
     Mode,
 )
@@ -74,37 +74,23 @@ DEPLOY_PLAYBOOK = {
 # names it. Relative to the playbooks, like every path an entry carries.
 COLLECTION_TEMPLATE = "../templates/vm/guest.xml.j2"
 
-# The entry of `vm_features` that gives a domain rendered by that template a VNC
-# server on the hypervisor's loopback, a video card and a USB tablet. See D62.
-GRAPHIC_CONSOLE = "graphic-console"
 # What starts a VNC server in a domain. A `<video>` card alone draws a screen
-# nothing outside the guest can see.
+# nothing outside the guest can see, and a SPICE `<graphics>` is a protocol
+# noVNC does not speak. See D62.
 _VNC_GRAPHICS = re.compile(r"""<graphics\b[^>]*\btype\s*=\s*["']vnc["']""")
 
+# The metadata key `vm_manager` stores a cluster guest's domain XML under, on
+# its system image, and the one Pacemaker's agent defines the domain from.
+XML_KEY = "xml"
 
-def declares_display(guest: Guest, read: Callable[[str], str | None]) -> bool:
-    """Whether the domain an entry describes has a VNC display.
+# How many images are read at once for the graphic consoles. Each is one `rbd`
+# asking a monitor, so the page waits for the slowest rather than for the sum.
+_DISPLAY_READERS = 8
 
-    What the inventory declares, which is what the VMs page offers a graphic
-    console on. Whether the running domain already has it is asked of the
-    hypervisor when the console opens, since a domain takes a new definition
-    only when it restarts.
 
-    SEAPATH's template renders one for `graphic-console`. An XML the operator
-    brought, or a template of the site's, declares one when it carries a VNC
-    `<graphics>` element, unless it names the feature too, which is a template
-    written like SEAPATH's and rendering the element only for it. A file this
-    node cannot read says nothing, and the feature is what is left.
-    """
-    features = guest.extra.get("vm_features")
-    featured = isinstance(features, list | str) and GRAPHIC_CONSOLE in features
-    source = guest.xml_path or guest.vm_template
-    if not source or source == COLLECTION_TEMPLATE:
-        return featured
-    text = read(source)
-    if text is None or GRAPHIC_CONSOLE in text:
-        return featured
-    return _VNC_GRAPHICS.search(text) is not None
+def has_vnc_display(xml: str) -> bool:
+    """Whether a domain XML gives the guest a VNC display."""
+    return _VNC_GRAPHICS.search(xml) is not None
 
 
 # The name is the host key, the libvirt domain name and the Pacemaker resource
@@ -171,8 +157,6 @@ class GuestView(BaseModel):
     force: bool = False
     """The guest is destroyed and recreated on every deployment run."""
     enable: bool = True
-    graphic_console: bool = False
-    """The entry declares a VNC display, which a graphic console opens. See D62."""
     ansible_host: str | None = None
     """Where a run reaches inside the guest, when the entry says.
 
@@ -245,6 +229,18 @@ class GuestView(BaseModel):
     @property
     def missing_files(self) -> list[Reference]:
         return [reference for reference in self.files if not reference.found]
+
+
+class DisplaysView(BaseModel):
+    """Which cluster guests have a VNC display, from the XML Ceph holds."""
+
+    guests: dict[str, bool | None] = Field(default_factory=dict)
+    """Keyed by guest, for each cluster guest whose image exists.
+
+    None where Ceph did not answer for it. A standalone guest is absent: its
+    definition is in its machine's libvirt, which this reads nothing of, and
+    the console asks that libvirt when it opens.
+    """
 
 
 class GuestsView(BaseModel):
@@ -858,16 +854,6 @@ class VmService:
                 recorded.setdefault(name, files.get(name, []))
         return recorded
 
-    def _read_text(self, path: str) -> str | None:
-        """A file an entry names, when the inventory folder holds it."""
-        stored = in_folder(path)
-        if stored is None:
-            return None
-        try:
-            return self._inventory.read_file(stored).decode(errors="replace")
-        except (OSError, UnsafePath, RefusedFile):
-            return None
-
     def _held(self, source: SourceFile) -> Path | None:
         """Where this node keeps a source file, when it still does."""
         try:
@@ -1074,7 +1060,6 @@ class VmService:
                     xml_path=guest.xml_path,
                     force=guest.force,
                     enable=guest.enable,
-                    graphic_console=declares_display(guest, self._read_text),
                     ansible_host=guest.ansible_host,
                     seeded=guest.cloud_init is not None,
                     preferred_host=guest.extra.get("preferred_host"),
@@ -1149,6 +1134,42 @@ class VmService:
             for domain in reading.domains:
                 found.setdefault(domain.name, domain)
         return found
+
+    def displays(self) -> DisplaysView:
+        """Which cluster guests carry a VNC `<graphics>` in their domain XML.
+
+        Read from the `xml` metadata of each guest's system image, which is the
+        definition Pacemaker's agent gives libvirt at every start, whatever
+        created the guest: this service, `vm-mgr` by hand, or an import. The
+        inventory forgets the XML a guest was created from once it exists, so
+        it has nothing to say here. Asked on its own request, since it is one
+        `rbd` per guest, and the page draws the table without waiting for it.
+        """
+        state = self._inventory.state()
+        view = DisplaysView()
+        if state.inventory is None or self._rbd is None:
+            return view
+        rbd = self._rbd
+        names = [
+            name
+            for name in state.inventory.guests
+            if state.inventory.deployment_of(name) is Mode.CLUSTER
+        ]
+
+        def read(name: str) -> tuple[str, str | None]:
+            try:
+                return name, rbd.list_metadata(image_of(name)).get(XML_KEY, "")
+            except RbdUnavailable as error:
+                logger.info("Could not read the XML of %s: %s", name, error)
+                return name, None
+
+        with ThreadPoolExecutor(max_workers=_DISPLAY_READERS) as pool:
+            for name, xml in pool.map(read, names):
+                # An empty answer is an image that does not exist yet, or one
+                # `vm_manager` did not write: a guest with no domain to show.
+                if xml != "":
+                    view.guests[name] = None if xml is None else has_vnc_display(xml)
+        return view
 
     def _groups(self, wanted: bool) -> set[str]:
         """The guests Ceph holds, or nothing when it was not worth asking.

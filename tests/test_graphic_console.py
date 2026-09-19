@@ -25,12 +25,13 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.api.v1.console import operator_input
+from app.cluster.fake import FakeRbdClient
+from app.cluster.rbd import RbdUnavailable
 from app.console.adapter import ConsoleRequest, ssh_command
 from app.console.fake import FakeConsoleAdapter
 from app.console.service import RELAY, graphic_command
 from app.core.settings import Settings
-from app.inventory.model import Guest
-from app.services.vms import COLLECTION_TEMPLATE, declares_display
+from app.services.vms import has_vnc_display
 from app.trust import known_hosts
 from tests.conftest import cookie_names
 from tests.test_console import CLUSTER, HOST_KEY, STANDALONE
@@ -391,59 +392,84 @@ def test_the_idle_timeout_counts_the_operator_and_not_novnc(
     assert operator_input(frame) is counted
 
 
-# What the inventory declares.
+# Which guests have a screen: the XML Ceph holds for each cluster guest.
+
+WINDOWS_XML = """<domain type="kvm"><name>guest-windows</name><devices>
+<graphics type="spice" autoport="yes"><listen type="address"/></graphics>
+<graphics type='vnc' port='-1' autoport='yes'/>
+<video><model type="qxl"/></video></devices></domain>"""
+
+LINUX_XML = """<domain type="kvm"><name>guest-linux</name><devices>
+<graphics type="spice" autoport="yes"/><video><model type="virtio"/></video>
+</devices></domain>"""
 
 
-def _guest(**fields) -> Guest:
-    return Guest(vm_template=COLLECTION_TEMPLATE, **fields)
+@pytest.mark.parametrize(
+    ("xml", "shown"),
+    [
+        (WINDOWS_XML, True),
+        # SPICE is a protocol noVNC does not speak, and a video card alone
+        # shows nothing outside the guest.
+        (LINUX_XML, False),
+        ("<domain><devices><video/></devices></domain>", False),
+        ('<domain><devices><graphics  autoport="yes" type="vnc"/></devices>', True),
+    ],
+)
+def test_a_vnc_graphics_element_is_what_gives_a_screen(xml: str, shown: bool) -> None:
+    assert has_vnc_display(xml) is shown
 
 
-def test_seapaths_template_declares_a_display_for_the_feature() -> None:
-    def unread(path: str) -> str | None:
-        raise AssertionError("the collection's template is not read")
+class _Ceph(FakeRbdClient):
+    """Holds the two guests' XML, and fails for one image."""
 
-    assert declares_display(_guest(extra={"vm_features": ["graphic-console"]}), unread)
-    assert not declares_display(_guest(extra={"vm_features": ["rt"]}), unread)
-    assert not declares_display(_guest(), unread)
+    def __init__(self) -> None:
+        super().__init__(
+            {
+                "system_guest-windows": {"xml": WINDOWS_XML, "_priority": "10"},
+                "system_guest-linux": {"xml": LINUX_XML},
+            }
+        )
 
-
-def test_a_brought_xml_declares_one_with_a_vnc_graphics_element() -> None:
-    files = {
-        "../files/windows.xml": "<devices><graphics type='vnc' port='-1'/></devices>",
-        "../files/spice.xml": '<devices><graphics type="spice"/><video/></devices>',
-    }
-    assert declares_display(Guest(xml_path="../files/windows.xml"), files.get)
-    # A video card alone shows nothing outside the guest.
-    assert not declares_display(Guest(xml_path="../files/spice.xml"), files.get)
+    def list_metadata(self, image: str) -> dict[str, str]:
+        if image == "system_guest-lost":
+            raise RbdUnavailable("the monitors did not answer")
+        return super().list_metadata(image)
 
 
-def test_a_site_template_written_like_seapaths_follows_the_feature() -> None:
-    template = (
-        '{% if "graphic-console" in vm_features %}\n'
-        '<graphics type="vnc" port="-1"/>\n'
-        "{% endif %}\n"
+LOST = """    guest-lost:
+      vm_template: "../templates/vm/guest.xml.j2"
+    guest-new:
+      vm_template: "../templates/vm/guest.xml.j2"
+"""
+
+
+@pytest.mark.parametrize("rbd_client", [_Ceph()])
+def test_the_page_reads_the_screens_from_the_xml_ceph_holds(
+    signed_in: TestClient,
+) -> None:
+    # Whatever created the guest: the inventory keeps no XML once it exists.
+    # A guest with no image yet has nothing to show and is left out, and one
+    # Ceph did not answer for is said as unknown.
+    response = signed_in.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS + LOST},
     )
-    read = {"../files/site.xml.j2": template}.get
+    assert response.status_code == 200, response.text
 
-    assert not declares_display(Guest(vm_template="../files/site.xml.j2"), read)
-    assert declares_display(
-        Guest(
-            vm_template="../files/site.xml.j2",
-            extra={"vm_features": ["graphic-console"]},
-        ),
-        read,
-    )
+    answer = signed_in.get("/api/v1/vms/displays")
 
-
-def test_the_vms_page_is_told_which_guests_declare_one(signed_in: TestClient) -> None:
-    _declare_cluster(signed_in, located=None)
-
-    guests = {
-        guest["name"]: guest for guest in signed_in.get("/api/v1/vms").json()["guests"]
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {
+        "guests": {"guest-windows": True, "guest-linux": False, "guest-lost": None}
     }
 
-    assert guests["guest-windows"]["graphic_console"] is True
-    assert guests["guest-linux"]["graphic_console"] is False
+
+def test_a_standalone_guest_is_not_read_from_ceph(signed_in: TestClient) -> None:
+    # Its definition is its machine's libvirt, and the console asks it there.
+    response = signed_in.post("/api/v1/inventory/import", json={"document": STANDALONE})
+    assert response.status_code == 200, response.text
+
+    assert signed_in.get("/api/v1/vms/displays").json() == {"guests": {}}
 
 
 def test_the_vms_page_loads_the_panel_and_novnc_is_served(

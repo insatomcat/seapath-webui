@@ -4622,24 +4622,32 @@ is left is its screen. `guest.xml.j2` already gives a guest one: the
 hypervisor's loopback, a virtio video card, and a USB tablet. The console
 shows that screen in the browser, with noVNC.
 
-### Where it is declared, and where it is read
+### Where a screen is read
 
-Declared in the inventory, as `graphic-console` in `vm_features`, which is a
-variable of the guest like any other and changes the domain through a
-deployment run. For a guest created from an XML the operator brought, the
-declaration is a `<graphics type="vnc">` in that file, and a site template
-that renders one without the feature counts as declaring it. The element that
-matters is `<graphics>`: it starts the VNC server, and a `<video>` card alone
-has nothing to show outside the guest. What is declared decides whether the VMs
-page offers the button.
+The element that matters is a `<graphics type="vnc">` in the domain XML: it
+starts the VNC server. A `<video>` card alone has nothing to show outside the
+guest, and a SPICE `<graphics>` is a protocol noVNC does not speak, so a guest
+that has one gets a VNC `<graphics>` beside it, which libvirt allows. For a
+guest rendered by SEAPATH's template, `graphic-console` in `vm_features` is
+what writes one.
 
-What is running decides whether the console opens. A domain only takes the
-feature when it is defined again, so a guest declared a minute ago keeps no VNC
-until it restarts, and the libvirt exporter does not say either way. The
-console therefore asks the hypervisor, `virsh domdisplay --type vnc`, when it
-opens, and a domain with no display is refused with that reason. The feature
-belongs on the guest from its creation: the day it is needed is the day its
-guest cannot be restarted to take it.
+The inventory cannot say which guests have one. Once a guest exists its entry
+forgets the XML it was created from ([D50](#d50)), and most guests were never
+created from here at all: they were defined by hand, from an XML of their own.
+The definition that holds is the one `vm_manager` keeps in the `xml` metadata
+of the guest's system image, which Pacemaker's agent gives libvirt at every
+start. So the VMs page asks Ceph for it, one `rbd image-meta list` per cluster
+guest on a request of its own, `GET /vms/displays`, and offers the button on a
+cluster guest whose XML has a VNC display, or whose image Ceph did not answer
+for. A standalone guest's definition is in its machine's libvirt, which nothing
+here reads, so the button is offered on every standalone guest that runs.
+
+What is running decides whether the console opens. A domain only takes a new
+definition when it restarts, and the libvirt exporter does not say what it
+runs with. The console therefore asks the hypervisor, `virsh domdisplay --type
+vnc`, when it opens, and a domain with no display is refused with that reason.
+The display belongs on the guest from its creation: the day it is needed is the
+day its guest cannot be restarted to take it.
 
 ### The chain
 

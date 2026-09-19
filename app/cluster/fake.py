@@ -549,6 +549,13 @@ class FakeMetricsClient:
 IMAGE_METADATA: dict[str, dict[str, str]] = {
     "system_vm-guest1": {
         "vm_name": "vm-guest1",
+        # The definition `vm_manager` keeps, cut to what a page reads off it:
+        # a VNC display, which is what offers the graphic console.
+        "xml": (
+            "<domain type='kvm'><name>vm-guest1</name><devices>"
+            "<graphics type='vnc' port='-1' autoport='yes'/>"
+            "</devices></domain>"
+        ),
         "_live_migration": "true",
         "_priority": "10",
         "_preferred_host": _CLUSTER_NODES[0],

@@ -331,6 +331,7 @@ is where this service answers "who changed what, and when".
 | GET | `/node/console` | Whether a console can be opened, on which account and on which machines, and how many are open |
 | WS | `/node/console/ws` | The console itself: a shell on this machine, on the entry `?host=` names, or the serial console of the guest `?serial=` names |
 | WS | `/node/console/graphic` | The graphic console of the guest `?guest=` names: its VNC display, for noVNC |
+| GET | `/vms/displays` | Which cluster guests have a VNC display, read from the domain XML Ceph holds |
 | GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
@@ -626,9 +627,12 @@ display and copies bytes between it and the ssh. See D62.
   is not running, or that it has no VNC display).
 - The role, the session limit and the idle timeout are the console's. The
   timeout counts frames carrying more than noVNC's update requests.
-- `GET /vms` says for each guest whether its entry declares a display, in
-  `graphic_console`: `graphic-console` in `vm_features` with SEAPATH's
-  template, or a VNC `<graphics>` in an XML or template of the site's.
+- `GET /vms/displays` answers `{"guests": {"<name>": true | false | null}}`,
+  whether each cluster guest's domain XML, the `xml` metadata `vm_manager`
+  keeps on its system image, carries a VNC `<graphics>`. `null` is an image
+  Ceph did not answer for. A guest with no image, and every standalone guest,
+  is absent: the page offers a standalone guest's console whenever it runs,
+  and the console asks its libvirt.
 - The `Origin` header is checked before the socket is accepted. A websocket
   handshake is not subject to the same origin policy and carries the session
   cookie whatever page opened it, so this check is what the CSRF middleware

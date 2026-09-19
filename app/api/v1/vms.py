@@ -35,6 +35,7 @@ from app.services.metadata import (
 from app.services.ping import InvalidAddress, PingAnswer, Pinger
 from app.services.ping import target as ping_target
 from app.services.vms import (
+    DisplaysView,
     GuestsView,
     InvalidGuest,
     NoSources,
@@ -197,6 +198,17 @@ def guests(request: Request) -> GuestsView:
     saying which of the two it is.
     """
     return _service(request).guests()
+
+
+@router.get("/displays", response_model=DisplaysView)
+def displays(request: Request) -> DisplaysView:
+    """Which cluster guests have a VNC display, for the graphic console button.
+
+    Read from the domain XML `vm_manager` keeps in each guest's RBD image
+    metadata, one `rbd` per guest, on a request of its own so the table is
+    drawn without waiting for it. See D62.
+    """
+    return _service(request).displays()
 
 
 @router.get("/ping", response_model=PingAnswer, dependencies=[admin])

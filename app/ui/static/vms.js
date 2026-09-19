@@ -51,6 +51,8 @@
   // The last reading, so a change of filter redraws without asking the
   // cluster again.
   let lastView = null;
+  // Which cluster guests have a VNC display, by name, once Ceph answered.
+  let displays = null;
 
   function shown(deployment) {
     return filter === "all" || filter === deployment;
@@ -321,10 +323,11 @@
       button.addEventListener("click", () => Console.openSerial(guest.name));
       cell.append(cell.childNodes.length ? " " : "", button);
     }
-    // Its screen, for a guest whose entry declares a VNC display: the one way
-    // into a Windows guest whose network is down. Whether the running domain
-    // has the display yet is the node's to find out when it opens.
-    if (Graphic.permitted() && guest.graphic_console && (guest.resource || guest.domain)) {
+    // Its screen, the one way into a Windows guest whose network is down. A
+    // cluster guest shows it when the XML Ceph holds for it has a VNC display,
+    // or when Ceph did not say; a standalone guest's definition is its
+    // machine's, read by nothing here, so the console asks when it opens.
+    if (Graphic.permitted() && (guest.resource || guest.domain) && hasDisplay(guest)) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "secondary";
@@ -334,6 +337,14 @@
       cell.append(cell.childNodes.length ? " " : "", button);
     }
     return cell;
+  }
+
+  function hasDisplay(guest) {
+    if (guest.deployment !== "cluster") {
+      return true;
+    }
+    return displays !== null && displays[guest.name] !== undefined &&
+      displays[guest.name] !== false;
   }
 
   function runtimeActs(guest) {
@@ -1833,6 +1844,7 @@
   }
 
   async function refresh(fresh, pending) {
+    const reading = readDisplays();
     const [view] = await Promise.all([
       pending || API.get(API.reading("/vms", fresh)),
       describeConsole(),
@@ -1840,6 +1852,23 @@
     draw(view);
     Kept.keep(KEPT, view);
     Kept.release();
+    // Drawn again once Ceph said which guests have a screen: one `rbd` per
+    // guest, which the table does not wait for.
+    if (await reading) {
+      renderGuests(lastView);
+    }
+  }
+
+  // Whether the reading changed anything worth drawing again. One that fails
+  // keeps what the last one said, and costs the new buttons alone.
+  async function readDisplays() {
+    try {
+      const answer = await API.get("/vms/displays");
+      displays = answer.guests;
+      return true;
+    } catch (ignored) {
+      return false;
+    }
   }
 
   async function start() {
