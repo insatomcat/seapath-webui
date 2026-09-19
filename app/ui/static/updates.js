@@ -9,11 +9,14 @@
 // says how old that answer is. A machine updated since then is marked, rather
 // than listed with packages it has already installed.
 //
-// The machine serving the page is updated alone. The playbook reboots each
-// machine, and the controller is this service: the run ends with the reboot
-// of this machine, which finishes its update itself once its new system is
-// up, and a machine after it would never be reached. With a playbook that
-// still finishes on the controller, it is not offered at all.
+// An update is the upstream playbook followed by the check, in one run, so
+// each machine is drawn as the update left it.
+//
+// The machine serving the page is updated alone, since a machine after it
+// would never be reached. Its run cannot outlive its reboot: the playbook
+// stops short of it, the check reads the machine, and the run schedules the
+// reboot and ends. The machine finishes its update at boot. With a playbook
+// that still finishes on the controller, it is not offered at all.
 
 (function () {
   let canCheck = false;
@@ -116,7 +119,10 @@
     }
     const box = document.createElement("div");
     box.append(span(reading.running_kernel));
-    if (reading.kernel_pending) {
+    if (reading.awaiting_reboot) {
+      box.append(document.createElement("br"));
+      box.append(span("reboots into " + reading.newest_kernel, "tag warn"));
+    } else if (reading.kernel_pending) {
       box.append(document.createElement("br"));
       box.append(
         span("installed, not booted: " + reading.newest_kernel, "tag warn")
@@ -172,7 +178,7 @@
         box.append(span("new kernel", "tag warn"));
       }
     }
-    if (view.reboots_for_kernel && reboots(machine)) {
+    if (view.reboots_for_kernel && reboots(machine) && !reading.awaiting_reboot) {
       box.append(" ");
       box.append(span("reboots", "tag warn"));
     }
@@ -329,9 +335,9 @@
     } else if (view.this_host && others.length && view.reboots_for_kernel) {
       note.textContent =
         view.this_host + " is updated on its own, after the others, since " +
-        "it drives the run. When it gets a new kernel, the run ends by " +
-        "scheduling its reboot, and it finishes its update itself once its " +
-        "new system is up.";
+        "it drives the run. When it gets a new kernel, the run checks it, " +
+        "schedules its reboot and ends, and it finishes its update itself " +
+        "once its new system is up.";
     } else if (view.this_host && others.length) {
       note.textContent =
         view.this_host + " is updated on its own, after the others: the run " +
@@ -339,9 +345,9 @@
         "new system is up.";
     } else if (view.this_host && view.reboots_for_kernel) {
       note.textContent =
-        "When this machine gets a new kernel, the run ends by scheduling its " +
-        "reboot, and the machine finishes its update itself once its new " +
-        "system is up. Check for updates afterwards to see that it did.";
+        "When this machine gets a new kernel, the run checks it, schedules " +
+        "its reboot and ends, and the machine finishes its update itself " +
+        "once its new system is up.";
     } else if (view.this_host) {
       note.textContent =
         "The run ends with the reboot of this machine, which finishes its " +
@@ -496,10 +502,9 @@
               : "")
           : "") +
         (itself && view.reboots_for_kernel
-          ? "Should " + view.this_host + " reboot, the run schedules it and " +
-            "ends first, and this page goes away a few seconds later. Once " +
-            "the page is back, check for updates to see that the machine " +
-            "finished its update. "
+          ? "Should " + view.this_host + " reboot, the run checks it, " +
+            "schedules the reboot and ends, and this page goes away a few " +
+            "seconds later. "
           : "") +
         (itself && !view.reboots_for_kernel
           ? "This page goes away when " + view.this_host + " reboots, and " +

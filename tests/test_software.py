@@ -176,6 +176,25 @@ def _played(settings: Settings, run_id: str) -> dict:
     return yaml.safe_load(documents[0].read_text())[0]
 
 
+def _checked(client: TestClient) -> str:
+    """A check, run to its end."""
+    run_id = client.post("/api/v1/software/check").json()["run_id"]
+    _wait(client, run_id)
+    return run_id
+
+
+def _update_plays(settings: Settings, run_id: str) -> list:
+    """The play an update from the page ran, beside the upstream playbook."""
+    return yaml.safe_load(
+        (
+            settings.runs_dir
+            / run_id
+            / "collections/ansible_collections/seapath/ansible/playbooks"
+            / f"{software.UPDATE_AND_CHECK}.yaml"
+        ).read_text()
+    )
+
+
 # What apt says it would do
 
 
@@ -463,13 +482,14 @@ FINISHING = (
 
 
 # The same, from the collection that reboots a machine only for a new kernel,
-# and schedules the reboot of the machine driving the run.
-DETACHING = (
+# and can stop short of the reboot of the machine driving the run.
+DEFERRING = (
     FINISHING
-    + """    - name: Schedule the reboot and end the run
-      ansible.builtin.command:
-        argv: [systemd-run, --on-active=15, systemctl, reboot]
-      when: detach_reboot | default(false) | bool
+    + """    - name: Reboot into the new kernel
+      when:
+        - update_debian_reboot
+        - not (defer_reboot | default(false) | bool)
+      ansible.builtin.reboot:
 """
 )
 
@@ -492,10 +512,20 @@ def test_the_update_is_the_upstream_playbook_narrowed_to_the_machines_chosen(
     )
 
     assert response.status_code == 202, response.text
+    run_id = response.json()["run_id"]
     request = run_adapter.requests[-1]
-    assert request.playbook == "seapath.ansible.seapath_update_debian"
+    assert request.playbook.endswith(f"playbooks/{software.UPDATE_AND_CHECK}.yaml")
     assert request.limit == "elabo1:elabo2"
-    assert request.extra_vars == {}
+    assert request.extra_vars == {
+        software.RESULTS_VARIABLE: str(settings.runs_dir / run_id / "results")
+    }
+    # The upstream playbook unchanged, then the check, and nothing else.
+    _wait(signed_in, run_id)
+    update, check = _update_plays(settings, run_id)
+    assert update == {"import_playbook": "seapath.ansible.seapath_update_debian"}
+    assert [task["name"] for task in check["tasks"]] == [
+        task["name"] for task in _played(settings, _checked(signed_in))["tasks"]
+    ]
 
 
 def test_an_older_playbook_is_sent_one_machine_at_a_time(
@@ -538,11 +568,11 @@ def test_this_machine_alone_is_updated_and_the_run_ends_with_its_reboot(
     assert "Relaunching is safe" not in record["message"]
 
 
-def test_this_machine_schedules_its_reboot_and_its_run_ends_with_a_status(
+def test_this_machine_is_read_then_its_reboot_scheduled_and_the_run_ends(
     signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
 ) -> None:
     _cluster(signed_in, settings, key_pair)
-    _install_playbook(settings, DETACHING)
+    _install_playbook(settings, DEFERRING)
 
     assert signed_in.get("/api/v1/software").json()["reboots_for_kernel"] is True
     response = signed_in.post(
@@ -550,25 +580,125 @@ def test_this_machine_schedules_its_reboot_and_its_run_ends_with_a_status(
     )
 
     assert response.status_code == 202, response.text
-    assert run_adapter.requests[-1].extra_vars == {"detach_reboot": True}
-    record = _wait(signed_in, response.json()["run_id"])
+    run_id = response.json()["run_id"]
+    update, check, reboot = _update_plays(settings, run_id)
+    assert update["vars"] == {"defer_reboot": True}
+    assert check["hosts"] == "all"
+    assert reboot["hosts"] == "seapath-machine"
+    (task,) = reboot["tasks"]
+    assert task["ansible.builtin.command"]["argv"] == [
+        "systemd-run",
+        "--on-active=15",
+        "systemctl",
+        "reboot",
+    ]
+    # The playbook's decision, read and never made here.
+    assert task["when"] == "update_debian_reboot | default(false) | bool"
+    record = _wait(signed_in, run_id)
     assert record["state"] == "success"
-    # Worked out again by a relaunch, from where that one is launched.
-    assert record["variables"] == {}
+    assert record["ends_with_reboot"] == "seapath-machine"
 
 
-def test_the_others_are_not_told_to_schedule_a_reboot(
-    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+def test_the_others_are_updated_without_a_reboot_of_this_machine(
+    signed_in: TestClient, settings: Settings, key_pair: Path
 ) -> None:
     _cluster(signed_in, settings, key_pair)
-    _install_playbook(settings, DETACHING)
+    _install_playbook(settings, DEFERRING)
 
     response = signed_in.post(
         "/api/v1/software/update", json={"hosts": ["elabo1", "elabo2"]}
     )
 
     assert response.status_code == 202, response.text
-    assert run_adapter.requests[-1].extra_vars == {}
+    update, _ = _update_plays(settings, response.json()["run_id"])
+    assert "vars" not in update
+
+
+def test_each_machine_is_drawn_from_the_newest_run_that_read_it(
+    signed_in: TestClient, settings: Settings, key_pair: Path
+) -> None:
+    """An update checks only the machines it was sent to."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, DEFERRING)
+    checked = _checked(signed_in)
+    results = settings.runs_dir / checked / "results"
+    (results / "software_elabo1.json").write_text(_answer())
+    (results / "software_elabo2.json").write_text(_answer())
+    updated = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["elabo1"]}
+    ).json()["run_id"]
+    _wait(signed_in, updated)
+    (settings.runs_dir / updated / "results" / "software_elabo1.json").write_text(
+        _answer(simulation="")
+    )
+
+    rows = {
+        row["host"]: row for row in signed_in.get("/api/v1/software").json()["machines"]
+    }
+
+    assert rows["elabo1"]["read_by"]["id"] == updated
+    assert rows["elabo1"]["reading"]["simulation"]["upgrades"] == []
+    assert rows["elabo1"]["stale"] is False
+    assert rows["elabo2"]["read_by"]["id"] == checked
+    assert len(rows["elabo2"]["reading"]["simulation"]["upgrades"]) == 3
+
+
+def test_this_machine_read_before_its_reboot_says_it_is_awaited(
+    signed_in: TestClient, settings: Settings, key_pair: Path
+) -> None:
+    """The update's snapshot and standby are not an update left undone."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, DEFERRING)
+    updated = signed_in.post(
+        "/api/v1/software/update", json={"hosts": ["seapath-machine"]}
+    ).json()["run_id"]
+    _wait(signed_in, updated)
+    (
+        settings.runs_dir / updated / "results" / "software_seapath-machine.json"
+    ).write_text(
+        _answer(
+            simulation="",
+            running_kernel="6.1.0-17-rt-amd64",
+            kernels=[
+                "/boot/vmlinuz-6.1.0-17-rt-amd64",
+                "/boot/vmlinuz-6.1.0-18-rt-amd64",
+            ],
+            volumes=["root,16106127360", "root-snap,16106127360"],
+            bootcount="bootcount=0",
+            pending=["/boot/efi/seapath_update/standby"],
+            awaiting_reboot=True,
+        )
+    )
+
+    (row,) = [
+        row
+        for row in signed_in.get("/api/v1/software").json()["machines"]
+        if row["this_node"]
+    ]
+
+    # The fake machine already runs 6.1.0-18-rt-amd64: it rebooted into it.
+    reading = row["reading"]
+    assert reading["running_kernel"] == "6.1.0-18-rt-amd64"
+    assert reading["kernel_pending"] is False
+    assert reading["awaiting_reboot"] is False
+    assert reading["unfinished"] is None
+    assert reading["snapshot"] is None
+
+
+def test_a_reading_awaiting_a_reboot_is_left_as_is_before_the_reboot() -> None:
+    reading = software.parse_reading(
+        "seapath-machine",
+        _answer(
+            simulation="",
+            bootcount="bootcount=0",
+            pending=["/boot/efi/seapath_update/standby"],
+            awaiting_reboot=True,
+        ),
+    )
+
+    assert reading.awaiting_reboot is True
+    assert reading.unfinished is None
+    assert reading.snapshot is None
 
 
 def test_an_older_playbook_is_said_to_reboot_every_machine(

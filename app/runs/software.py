@@ -40,7 +40,9 @@ import yaml
 from pydantic import BaseModel, Field
 
 from app.inventory.resolve import ROOT
+from app.runs import catalogue
 from app.runs.catalogue import (
+    COLLECTION,
     COLLECTION_PLAYBOOKS,
     PlaybookEntry,
     Precondition,
@@ -80,13 +82,26 @@ names this directory is one whose run may end with the reboot of the machine
 driving it.
 """
 
-DETACH_REBOOT = "detach_reboot"
-"""What has the update schedule the reboot of the machine and end the run.
+DEFER_REBOOT = "defer_reboot"
+"""What has the update stop short of the reboot it decided.
 
 Given when the machine updated is the one driving the run, which cannot wait
-for its own reboot: the run then ends with a status, and the machine reboots
-a few seconds later.
+for its own reboot. The playbook then leaves `update_debian_reboot` saying
+whether the machine has to reboot, and the play that follows it here checks
+the machines and schedules that reboot, a few seconds after the run ends.
 """
+
+UPDATE_AND_CHECK = "software_update"
+"""What an update launched from the Updates page is filed under.
+
+The upstream playbook followed by the check, as one generated play, so the
+table shows the machines as the update left them.
+"""
+
+REBOOT_DELAY = 15
+"""Seconds between the end of the run and the reboot it scheduled.
+
+Enough for the run to write its status before the machine goes down."""
 
 SNAPSHOT_MIN_BYTES = 2 * 1024**3
 """The least room the update accepts for its snapshot.
@@ -118,7 +133,9 @@ _READING = (
     "'vg_free': (software_vg.stdout | default('')), "
     "'vg_message': (software_vg.stderr | default(software_vg.msg | default(''))), "
     "'bootcount': (software_bootcount.stdout | default('')), "
-    "'pending': (software_pending.stdout_lines | default([]))"
+    "'pending': (software_pending.stdout_lines | default([])), "
+    "'awaiting_reboot': ((update_debian_reboot | default(false) | bool) "
+    "and (" + DEFER_REBOOT + " | default(false) | bool))"
     "}"
 )
 
@@ -156,159 +173,224 @@ def check_entry() -> PlaybookEntry:
     )
 
 
-def check_play() -> str:
-    """The check, as YAML.
+def _check(name: str) -> dict:
+    """The check, as one play.
 
     Every task that reads the machine carries `ignore_errors`, and the last
     one writes whatever was gathered. A machine whose mirror is unreachable is
     an ordinary answer, and it is the answer the page has to show: dropping the
     machine from the results would read as a machine with nothing to install.
     """
-    document = [
-        {
-            "name": check_entry().title,
-            "hosts": ROOT,
-            "gather_facts": False,
-            "become": True,
-            "tasks": [
-                {
-                    "name": "Refresh the package lists",
-                    "ansible.builtin.apt": {"update_cache": True},
-                    "environment": _ENVIRONMENT,
-                    "register": "software_refresh",
-                    "ignore_errors": True,
-                    # The lists are a cache. Refreshing them changes nothing a
-                    # machine runs, and a check that reported every machine as
-                    # changed would say the opposite.
-                    "changed_when": False,
+    return {
+        "name": name,
+        "hosts": ROOT,
+        "gather_facts": False,
+        "become": True,
+        "tasks": [
+            {
+                "name": "Refresh the package lists",
+                "ansible.builtin.apt": {"update_cache": True},
+                "environment": _ENVIRONMENT,
+                "register": "software_refresh",
+                "ignore_errors": True,
+                # The lists are a cache. Refreshing them changes nothing a
+                # machine runs, and a check that reported every machine as
+                # changed would say the opposite.
+                "changed_when": False,
+            },
+            {
+                "name": "Ask apt what an upgrade would do",
+                "ansible.builtin.command": {
+                    # What `seapath_update_debian` runs, simulated.
+                    "argv": ["apt-get", "--simulate", "dist-upgrade"],
                 },
-                {
-                    "name": "Ask apt what an upgrade would do",
-                    "ansible.builtin.command": {
-                        # What `seapath_update_debian` runs, simulated.
-                        "argv": ["apt-get", "--simulate", "dist-upgrade"],
-                    },
-                    "environment": _ENVIRONMENT,
-                    "register": "software_simulation",
-                    "ignore_errors": True,
-                    "changed_when": False,
+                "environment": _ENVIRONMENT,
+                "register": "software_simulation",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                "name": "Read the kernel the machine booted",
+                "ansible.builtin.command": {"argv": ["uname", "-r"]},
+                "register": "software_kernel",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                "name": "List the kernels installed",
+                "ansible.builtin.command": {
+                    "argv": [
+                        "find",
+                        "/boot",
+                        "-maxdepth",
+                        "1",
+                        "-name",
+                        "vmlinuz-*",
+                    ],
                 },
-                {
-                    "name": "Read the kernel the machine booted",
-                    "ansible.builtin.command": {"argv": ["uname", "-r"]},
-                    "register": "software_kernel",
-                    "ignore_errors": True,
-                    "changed_when": False,
+                "register": "software_kernels",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                # Written by the packages that need a reboot to take effect,
+                # on a machine that has the hook installed. A hint, never
+                # the only reason given.
+                "name": "Look for a pending reboot",
+                "ansible.builtin.stat": {"path": "/run/reboot-required"},
+                "register": "software_reboot",
+                "ignore_errors": True,
+            },
+            {
+                # What the update's snapshot is sized from, and a snapshot an
+                # update left behind, which it refuses.
+                "name": "Read the root volume group",
+                "ansible.builtin.command": {
+                    "argv": [
+                        "lvs",
+                        "--noheadings",
+                        "--nosuffix",
+                        "--units",
+                        "b",
+                        "--separator",
+                        ",",
+                        "-o",
+                        "lv_name,lv_size",
+                        _VG,
+                    ],
                 },
-                {
-                    "name": "List the kernels installed",
-                    "ansible.builtin.command": {
-                        "argv": [
-                            "find",
-                            "/boot",
-                            "-maxdepth",
-                            "1",
-                            "-name",
-                            "vmlinuz-*",
-                        ],
-                    },
-                    "register": "software_kernels",
-                    "ignore_errors": True,
-                    "changed_when": False,
+                "register": "software_volumes",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                # The room the snapshot is taken from.
+                "name": "Read the room left in the root volume group",
+                "ansible.builtin.command": {
+                    "argv": [
+                        "vgs",
+                        "--noheadings",
+                        "--nosuffix",
+                        "--units",
+                        "b",
+                        "--separator",
+                        ",",
+                        "-o",
+                        "vg_free",
+                        _VG,
+                    ],
                 },
-                {
-                    # Written by the packages that need a reboot to take effect,
-                    # on a machine that has the hook installed. A hint, never
-                    # the only reason given.
-                    "name": "Look for a pending reboot",
-                    "ansible.builtin.stat": {"path": "/run/reboot-required"},
-                    "register": "software_reboot",
-                    "ignore_errors": True,
+                "register": "software_vg",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                # Armed by the update and disabled by the machine once its
+                # new system is up. Still armed afterwards, the machine
+                # did not finish its update.
+                "name": "Read the boot counter",
+                "ansible.builtin.command": {
+                    "argv": ["grub-editenv", "/boot/efi/bootcountenv", "list"],
                 },
-                {
-                    # What the update's snapshot is sized from, and a snapshot an
-                    # update left behind, which it refuses.
-                    "name": "Read the root volume group",
-                    "ansible.builtin.command": {
-                        "argv": [
-                            "lvs",
-                            "--noheadings",
-                            "--nosuffix",
-                            "--units",
-                            "b",
-                            "--separator",
-                            ",",
-                            "-o",
-                            "lv_name,lv_size",
-                            _VG,
-                        ],
-                    },
-                    "register": "software_volumes",
-                    "ignore_errors": True,
-                    "changed_when": False,
+                "register": "software_bootcount",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                # Absent on a machine no update has touched, which `find`
+                # reports as an error and the reading as nothing left.
+                "name": "List what an update left the machine to undo",
+                "ansible.builtin.command": {
+                    "argv": ["find", PENDING, "-type", "f"],
                 },
-                {
-                    # The room the snapshot is taken from.
-                    "name": "Read the room left in the root volume group",
-                    "ansible.builtin.command": {
-                        "argv": [
-                            "vgs",
-                            "--noheadings",
-                            "--nosuffix",
-                            "--units",
-                            "b",
-                            "--separator",
-                            ",",
-                            "-o",
-                            "vg_free",
-                            _VG,
-                        ],
-                    },
-                    "register": "software_vg",
-                    "ignore_errors": True,
-                    "changed_when": False,
+                "register": "software_pending",
+                "ignore_errors": True,
+                "changed_when": False,
+            },
+            {
+                "name": "Keep what the machine answered",
+                "ansible.builtin.copy": {
+                    "content": "{{ " + _READING + " | to_json }}",
+                    "dest": (
+                        "{{ " + RESULTS_VARIABLE + " }}/"
+                        "software_{{ inventory_hostname }}.json"
+                    ),
+                    "mode": "0644",
                 },
-                {
-                    # Armed by the update and disabled by the machine once its
-                    # new system is up. Still armed afterwards, the machine
-                    # did not finish its update.
-                    "name": "Read the boot counter",
-                    "ansible.builtin.command": {
-                        "argv": ["grub-editenv", "/boot/efi/bootcountenv", "list"],
-                    },
-                    "register": "software_bootcount",
-                    "ignore_errors": True,
-                    "changed_when": False,
-                },
-                {
-                    # Absent on a machine no update has touched, which `find`
-                    # reports as an error and the reading as nothing left.
-                    "name": "List what an update left the machine to undo",
-                    "ansible.builtin.command": {
-                        "argv": ["find", PENDING, "-type", "f"],
-                    },
-                    "register": "software_pending",
-                    "ignore_errors": True,
-                    "changed_when": False,
-                },
-                {
-                    "name": "Keep what the machine answered",
-                    "ansible.builtin.copy": {
-                        "content": "{{ " + _READING + " | to_json }}",
-                        "dest": (
-                            "{{ " + RESULTS_VARIABLE + " }}/"
-                            "software_{{ inventory_hostname }}.json"
-                        ),
-                        "mode": "0644",
-                    },
-                    # Written by the controller, into this run's own directory.
-                    # Nothing about the check is left on the machine.
-                    "delegate_to": "localhost",
-                    "become": False,
-                },
-            ],
+                # Written by the controller, into this run's own directory.
+                # Nothing about the check is left on the machine.
+                "delegate_to": "localhost",
+                "become": False,
+            },
+        ],
+    }
+
+
+def check_play() -> str:
+    """The check, as YAML."""
+    document = [_check(check_entry().title)]
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+
+
+def update_entry() -> PlaybookEntry:
+    """The catalogue shape of an update launched from the Updates page.
+
+    The reviewed entry of the upstream playbook, filed under its own id: the
+    generated play is written into the run's `playbooks/` under that id, beside
+    the upstream file it imports. What the entry says about the preconditions,
+    the disruption and the machine driving the run is the playbook's.
+    """
+    entry = catalogue.get(UPDATE)
+    assert entry is not None
+    return entry.model_copy(
+        update={
+            "id": UPDATE_AND_CHECK,
+            "playbook": f"{GENERATOR}.{UPDATE_AND_CHECK}",
+            "results_variable": RESULTS_VARIABLE,
         }
-    ]
+    )
+
+
+def update_play(this_host: str | None) -> str:
+    """The upstream update, then the check, as YAML.
+
+    With `this_host`, the machine driving the run and then the only one in it,
+    the update stops short of the reboot it decides, since the run could not
+    outlive it. The check reads the machine before that reboot, and the last
+    play schedules it, so the run ends first and with its status. The decision
+    to reboot stays the playbook's: the play only reads `update_debian_reboot`.
+
+    The check plays the machines the run was narrowed to, and a machine the
+    update never reached is not checked, since a failure stops the run.
+    """
+    upgrade: dict = {"import_playbook": f"{COLLECTION}.{UPDATE}"}
+    if this_host is not None:
+        upgrade["vars"] = {DEFER_REBOOT: True}
+    document = [upgrade, _check("Check the machines the update left")]
+    if this_host is not None:
+        document.append(
+            {
+                "name": f"Reboot {this_host} into its new kernel",
+                "hosts": this_host,
+                "gather_facts": False,
+                "become": True,
+                "tasks": [
+                    {
+                        "name": "Schedule the reboot and end the run",
+                        "ansible.builtin.command": {
+                            "argv": [
+                                "systemd-run",
+                                f"--on-active={REBOOT_DELAY}",
+                                "systemctl",
+                                "reboot",
+                            ],
+                        },
+                        "changed_when": True,
+                        "when": "update_debian_reboot | default(false) | bool",
+                    }
+                ],
+            }
+        )
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
@@ -336,13 +418,13 @@ def reboots_for_kernel(collections_path: Path) -> bool:
     """Whether the installed update playbook reboots a machine only for a kernel.
 
     Such a playbook reboots a machine the upgrade gives a new kernel, or that
-    has one installed and not booted, and leaves the others running. It also
-    schedules the reboot of the machine driving the run rather than wait for
-    it. One from before that reboots every machine. Read off the file, like
-    `one_at_a_time`.
+    has one installed and not booted, and leaves the others running. It can
+    also stop short of the reboot of the machine driving the run, which the
+    play generated here then schedules. One from before that reboots every
+    machine. Read off the file, like `one_at_a_time`.
     """
     try:
-        return DETACH_REBOOT in _installed(collections_path).read_text()
+        return DEFER_REBOOT in _installed(collections_path).read_text()
     except OSError:
         return False
 
@@ -436,6 +518,13 @@ class MachineReading(BaseModel):
         description=(
             "What an earlier update left undone on the machine after its "
             "reboot, absent when it finished"
+        ),
+    )
+    awaiting_reboot: bool = Field(
+        default=False,
+        description=(
+            "Read by the update of the machine driving it, just before the "
+            "reboot that run scheduled, which finishes the update"
         ),
     )
 
@@ -540,6 +629,13 @@ def parse_reading(host: str, raw: str) -> MachineReading:
         running and reading.newest_kernel and reading.newest_kernel != running
     )
     reading.reboot_required = bool(data.get("reboot_required"))
+    reading.awaiting_reboot = bool(data.get("awaiting_reboot"))
+    if reading.awaiting_reboot:
+        # The snapshot, the armed counter and the standby are the update's
+        # own, which the machine clears at the reboot that follows. Said as an
+        # update left undone, or as a snapshot the next update refuses, they
+        # would read as a failure.
+        return reading
     reading.snapshot = parse_room(data)
     reading.unfinished = parse_unfinished(data)
     return reading

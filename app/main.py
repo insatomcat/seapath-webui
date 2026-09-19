@@ -481,7 +481,9 @@ def create_app(
     # The software updates: the check is a run generated here, the update the
     # upstream playbook, and what the page shows is the history of both.
     app.state.software_service = SoftwareService(
-        inventory=app.state.inventory_service, runs=app.state.run_service
+        inventory=app.state.inventory_service,
+        runs=app.state.run_service,
+        kernel=lambda: reader.node_identity().kernel_release,
     )
     app.state.backup_service = BackupService(
         inventory=app.state.inventory_service,

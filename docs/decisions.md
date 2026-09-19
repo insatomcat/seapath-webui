@@ -4563,7 +4563,7 @@ counter and what is left in `/boot/efi/seapath_update` beside the snapshot it
 already read, and the page says what an earlier update left undone. After
 updating this machine, the operator checks once the page is back.
 
-## D61 - Settled: an update reboots a machine only for a kernel, and schedules the reboot of the machine driving it
+## D61 - Settled: an update reboots a machine only for a kernel, and checks the machines in the same run
 
 Every package but the kernel takes effect when its service restarts, which the
 upgrade does. `seapath_update_debian` rebooted every machine it updated all the
@@ -4582,17 +4582,32 @@ since the upgrade restarts services under the guests, Open vSwitch among them.
 Without a reboot the playbook removes the snapshot and takes the member out of
 standby itself, once the upgrade succeeded.
 
-**The machine driving the run schedules its reboot and the run ends.** Under
-[D60](#d60) the run of this machine ended with its reboot, without a final
-status, and the page had to explain an interrupted run as the expected outcome.
-With `detach_reboot`, the playbook starts `systemctl reboot` fifteen seconds
-out with `systemd-run` and stops there, and the run ends with its status. What
-followed the reboot only checked that the machine finished its update, which
-nobody is left to do from this machine; the check does it once the page is
-back, as before. The run service gives `detach_reboot` to a run whose scope
-holds the machine serving the page, and keeps it out of the recorded variables
-like the results directory: it describes where the run was launched from.
+**An update from the Updates page is followed by the check, in the same run.**
+A check launched by hand after each update left the table saying "updated since
+this check" until someone did. The run is a generated play: the upstream
+playbook imported unchanged, then the check's play. The check then covers the
+machines the run was sent to, so the page draws each machine from the newest
+run that read it, check or update. The catalogue entry is still what the
+Deployment page launches, without the check.
 
-The page reads the installed playbook for `detach_reboot`, as it reads it for
-`/boot/efi/seapath_update`. With an older playbook every machine reboots and
-the run of this machine still ends with its reboot, and the page says so.
+**The machine driving the run is checked before its reboot, which the run
+schedules.** Under [D60](#d60) its run ended with its reboot, without a final
+status, and the page had to explain an interrupted run as the expected
+outcome. A check launched once the run ended would be cut by the reboot. With
+`defer_reboot`, the playbook stops short of the reboot and leaves
+`update_debian_reboot`, its decision, as a fact; the check reads the machine,
+and a last play schedules `systemctl reboot` fifteen seconds out with
+`systemd-run` when that fact says so. The decision stays the playbook's. The run
+ends with its status, and the machine finishes its update at boot as before.
+
+That reading is taken before the reboot, with the update's snapshot, standby
+and armed counter still in place, and it says so: the page shows the kernel the
+machine reboots into, and keeps the snapshot, the standby and the counter out
+of the row. Once the machine is back, the page compares the kernel it now runs,
+read off its own `/proc`, with the one the reading saw, and draws it on its new
+kernel.
+
+The page reads the installed playbook for `defer_reboot`, as it reads it for
+`/boot/efi/seapath_update`. With an older playbook every machine reboots and the
+run of this machine still ends with its reboot, before the check, and the page
+says so.

@@ -22,11 +22,19 @@ installed playbook still finishes on the controller.
 **A reading older than an update says so.** A check that ran before a machine
 was updated describes a machine that is not there any more, and a page that
 listed its packages as pending would send an operator to update it twice.
+
+**An update checks the machines it updated.** Launched from this page, the
+upstream playbook is followed by the check in the same run, so a machine is
+read as the update left it. The check of such a run covers only the machines
+the run was sent to, so each machine is drawn from the newest run that read
+it. This machine is read just before the reboot its run schedules; once it
+came back on the kernel that reading expected, the page says it booted it.
 """
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -47,6 +55,12 @@ logger = logging.getLogger(__name__)
 _HISTORY = 300
 
 _ACTIVE = (RunState.PENDING, RunState.RUNNING)
+
+# Where the machines are read: the checks, and the updates that end with one.
+_READS = (plays.CHECK, plays.UPDATE_AND_CHECK)
+
+# The updates: from this page, or the catalogue entry from the Deployment page.
+_UPDATES = (plays.UPDATE, plays.UPDATE_AND_CHECK)
 
 
 class SoftwareRun(BaseModel):
@@ -71,6 +85,9 @@ class MachineSoftware(BaseModel):
     stale: bool = Field(
         default=False,
         description="The machine was updated after the check that is shown",
+    )
+    read_by: SoftwareRun | None = Field(
+        default=None, description="The run the reading comes from"
     )
     last_update: SoftwareRun | None = None
 
@@ -116,9 +133,16 @@ class SoftwareView(BaseModel):
 
 
 class SoftwareService:
-    def __init__(self, inventory: InventoryService, runs: RunService) -> None:
+    def __init__(
+        self,
+        inventory: InventoryService,
+        runs: RunService,
+        kernel: Callable[[], str | None] = lambda: None,
+    ) -> None:
         self._inventory = inventory
         self._runs = runs
+        # The kernel this machine runs now, read off its /proc.
+        self._kernel = kernel
 
     def view(self) -> SoftwareView:
         state = self._inventory.state()
@@ -126,21 +150,24 @@ class SoftwareService:
         history = self._runs.list(limit=_HISTORY)
 
         check = _newest(history, plays.CHECK)
-        checked = _newest(history, plays.CHECK, finished=True)
-        readings = (
-            plays.read(self._runs.results(checked.id)) if checked is not None else {}
-        )
-        updates = [record for record in history if record.playbook_id == plays.UPDATE]
+        readings, read_by = self._readings(history, machines)
+        sources = {record.id for record in read_by.values()}
+        checked = next((record for record in history if record.id in sources), None)
+        updates = [record for record in history if record.playbook_id in _UPDATES]
 
         rows = []
         for host in machines:
             last = next((record for record in updates if _reached(record, host)), None)
+            reading = readings.get(host)
+            if reading is not None and host == state.this_host:
+                self._booted(reading)
             rows.append(
                 MachineSoftware(
                     host=host,
                     this_node=host == state.this_host,
-                    reading=readings.get(host),
-                    stale=_updated_since(last, checked),
+                    reading=reading,
+                    stale=_updated_since(last, read_by.get(host)),
+                    read_by=_summary(read_by.get(host)),
                     last_update=_summary(last),
                 )
             )
@@ -162,6 +189,39 @@ class SoftwareService:
             ),
             note=None if machines else _NO_MACHINE,
         )
+
+    def _readings(
+        self, history: list[RunRecord], machines: list[str]
+    ) -> tuple[dict[str, plays.MachineReading], dict[str, RunRecord]]:
+        """Each machine's newest reading, and the run it comes from."""
+        readings: dict[str, plays.MachineReading] = {}
+        read_by: dict[str, RunRecord] = {}
+        for record in history:
+            if len(readings) == len(machines):
+                break
+            if record.playbook_id not in _READS or not record.finished:
+                continue
+            for host, reading in plays.read(self._runs.results(record.id)).items():
+                if host not in readings:
+                    readings[host] = reading
+                    read_by[host] = record
+        return readings, read_by
+
+    def _booted(self, reading: plays.MachineReading) -> None:
+        """This machine's reading, once it rebooted into the kernel it expected.
+
+        Read now off this machine rather than guessed: the reboot that
+        finishes an update of this machine comes after its last reading.
+        """
+        if not reading.awaiting_reboot:
+            return
+        running = self._kernel()
+        if running and running != reading.running_kernel:
+            reading.running_kernel = running
+            reading.kernel_pending = bool(
+                reading.newest_kernel and reading.newest_kernel != running
+            )
+            reading.awaiting_reboot = False
 
     def check(self, author: str) -> RunRecord:
         """Ask every machine what an upgrade would do, as a run."""
@@ -206,7 +266,24 @@ class SoftwareService:
                 409,
                 {"hosts": chosen},
             )
-        return self._runs.launch(plays.UPDATE, author, scope=RunScope(hosts=chosen))
+        availability = self._runs.playbooks({plays.UPDATE})
+        if availability and not availability[0].available:
+            raise ApiError(
+                "precondition_failed",
+                availability[0].unmet[0],
+                409,
+                {
+                    "unmet": availability[0].unmet,
+                    "codes": availability[0].unmet_codes,
+                },
+            )
+        this_host = self._inventory.state().this_host
+        return self._runs.launch_generated(
+            plays.update_entry(),
+            author,
+            plays.update_play(this_host if this_host in chosen else None),
+            scope=RunScope(hosts=chosen),
+        )
 
     def _machines(self) -> list[str]:
         """Every host of the inventory that is not a guest, by name.

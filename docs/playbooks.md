@@ -378,7 +378,7 @@ names the guests and, for the first case, the package. See
 
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
-| `seapath_update_debian.yaml` | `all` | none | when a kernel changes | Snapshots the root volume and runs `apt-get dist-upgrade`, one machine at a time, and reboots a machine only when the upgrade installs a kernel or one is installed and not booted, with the GRUB boot counter armed first. The snapshot is taken first, sized to root or to what the volume group has free, and too little room stops the run before anything changes. A cluster member is then put in standby, and Ceph's `noout` is set when it reboots; a failure before the reboot undoes both, and the machine undoes them itself once its new system is up. Without a reboot the playbook removes the snapshot and the standby itself. The machine driving the run only alone, with its reboot scheduled and the run ended first. See [D59](decisions.md#d59), [D60](decisions.md#d60) and [D61](decisions.md#d61). |
+| `seapath_update_debian.yaml` | `all` | none | when a kernel changes | Snapshots the root volume and runs `apt-get dist-upgrade`, one machine at a time, and reboots a machine only when the upgrade installs a kernel or one is installed and not booted, with the GRUB boot counter armed first. The snapshot is taken first, sized to root or to what the volume group has free, and too little room stops the run before anything changes. A cluster member is then put in standby, and Ceph's `noout` is set when it reboots; a failure before the reboot undoes both, and the machine undoes them itself once its new system is up. Without a reboot the playbook removes the snapshot and the standby itself. The machine driving the run only alone. With `defer_reboot` it stops short of the reboot and leaves `update_debian_reboot` for the caller. See [D59](decisions.md#d59), [D60](decisions.md#d60) and [D61](decisions.md#d61). |
 
 It has a screen of its own, the Updates page, which checks first what an
 upgrade would bring with a simulation and sends the playbook to the machines
@@ -391,13 +391,17 @@ the reboot read the output of commands it skipped.
 **The machine driving the run is updated alone.** Once its new system is up,
 the machine removes the snapshot, restores the GRUB password, leaves standby
 and clears `noout` itself, from what the playbook left in
-`/boot/efi/seapath_update`. Run from the machine it reboots, the playbook is
-given `detach_reboot`: it schedules the reboot a few seconds out and ends, so
-the run has a status and a machine after it in the play would never be
-reached. The entry carries `reboots_controller`, and the run service refuses a
-scope holding this node beside others, naming them. An installed playbook that
-still finishes on the controller refuses this node outright, and one without
-`detach_reboot` ends the run with the reboot.
+`/boot/efi/seapath_update`. Run from the machine it reboots, the run ends with
+the reboot, and a machine after it in the play would never be reached. The
+entry carries `reboots_controller`, and the run service refuses a scope
+holding this node beside others, naming them. An installed playbook that
+still finishes on the controller refuses this node outright.
+
+**The Updates page adds the check.** It launches a generated play that imports
+the playbook unchanged, then runs the check on the machines of the run. For
+this node the import is given `defer_reboot`, and a last play schedules the
+reboot the playbook decided, so the run checks the machine and ends with its
+status first. See [D61](decisions.md#d61).
 
 ### Not reviewed, and offered as such
 

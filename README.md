@@ -418,8 +418,10 @@ ticked, which takes them one at a time: a cluster member goes to standby so its
 guests move, the root volume is snapshotted and the packages are upgraded. A
 machine reboots only when it gets a new kernel, and one that fails to boot its
 new system is rolled back. The machine serving the page is updated on its own,
-after the others: when it reboots, the run schedules the reboot and ends first,
-and the machine finishes the update itself once its new system is up. With a
+after the others. The run then checks the machines it updated, so the table
+shows them as the update left them. When the machine serving the page reboots,
+the run checks it first, schedules the reboot and ends, and the machine
+finishes the update itself once its new system is up. With a
 collection whose playbook still finishes on the controller, the page offers it
 only from another member. See D59, D60 and D61.
 

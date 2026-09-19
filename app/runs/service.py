@@ -582,6 +582,7 @@ class RunService:
         launched_by: str,
         play: str,
         guest: str | None = None,
+        scope: RunScope | None = None,
     ) -> RunRecord:
         """A play this service wrote, launched as a run like any other.
 
@@ -601,6 +602,7 @@ class RunService:
             check=False,
             play=play,
             guest=guest,
+            scope=scope,
         )
 
     def scopes(self) -> scoping.ScopeChoices:
@@ -743,12 +745,6 @@ class RunService:
             # first run's directory. The exact invocation is still recorded, in
             # `command`, which is built from the request.
             extra_vars[entry.results_variable] = str(self._store.results_dir(run_id))
-        if ends_with_reboot:
-            # The run cannot wait for the reboot of the machine it runs on, so
-            # the playbook schedules it and ends, with a status. Out of
-            # `record.variables` for the same reason as above: it describes
-            # this run's controller, and a relaunch works it out again.
-            extra_vars[software.DETACH_REBOOT] = True
         record = RunRecord(
             id=run_id,
             playbook=entry.playbook,

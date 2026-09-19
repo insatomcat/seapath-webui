@@ -725,8 +725,10 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "have changed. Once its new system is up, each machine removes "
             "the snapshot, leaves standby and clears noout itself, so the "
             "machine this service runs on is updated on its own, and its run "
-            "schedules its reboot and ends first. Without a reboot, the run "
-            "removes the snapshot and the standby itself."
+            "ends with its reboot. From the Updates page, the run checks the "
+            "machines it updated, then schedules that reboot and ends first. "
+            "Without a reboot, the run removes the snapshot and the standby "
+            "itself."
         ),
     ),
     # Cluster entries. Listed so an operator can see what exists and why it is
