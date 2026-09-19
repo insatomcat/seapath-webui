@@ -48,7 +48,8 @@ def test_a_page_allows_only_this_service_and_its_own_nonce(
     assert directives["base-uri"] == "'none'"
     assert directives["form-action"] == "'self'"
     assert directives["frame-ancestors"] == "'none'"
-    assert directives["img-src"] == "'self'"
+    # `data:` for the cursor and the JPEG rectangles noVNC builds itself.
+    assert directives["img-src"] == "'self' data:"
     assert re.fullmatch(r"'self' 'nonce-[\w-]+'", directives["script-src"])
 
 

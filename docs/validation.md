@@ -677,6 +677,25 @@ port. See [D52](decisions.md#d52).
 | 6b | After that deployment, `git log -p` on the inventory and the working tree both hold no `$6$` string, and the run's own copy of the inventory holds none either once the run has ended | The hash living in the run's staged copy alone, and being wiped from it. The property the whole design is for, and the one a test on a laptop can only half prove | Pending |
 | 7 | The same guest still refuses a password over SSH, and the `ansible` account still gets in by key | `ssh_pwauth` left as the image set it, which is what says this password reaches the console alone | Pending |
 
+## A guest's graphic console
+
+The suite runs the relay itself against a `virsh` printing what libvirt prints
+and a TCP server in place of QEMU's display, and the whole websocket against a
+fake VNC server that noVNC draws. What it cannot show is `sudo`, `virsh` and
+QEMU on a hardened hypervisor, and a real guest's screen. See
+[D62](decisions.md#d62).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | On a hypervisor, the console's ssh command line with `-T` and `graphic_command(<guest>)` answers `RFB 003.008` for a guest deployed with `graphic-console` | `python3`, `sudo -n /bin/sh` and `virsh domdisplay` on the hardened machine, with forwarding off | Pending |
+| 2 | **Graphic console** on the VMs page shows a Windows guest's login screen, **Ctrl+Alt+Del** reaches it, and a password typed on an AZERTY keyboard is accepted | QEMU's extended key events and the guest's own layout | Pending |
+| 3 | The pointer follows the mouse with no offset, at fit and at actual size | The USB tablet the template adds | Pending |
+| 4 | A cluster guest opens from a member that does not run it, and after a migration Reconnect opens it on its new host | Pacemaker's location read through the exporter | Pending |
+| 5 | A guest declared with the feature but not yet restarted closes with virsh's reason, and a Linux guest without it shows no button | `virsh domdisplay` on a domain with no `<graphics>` | Pending |
+| 6 | Left untouched, the panel closes after the idle timeout, and moving the mouse over it keeps it open | noVNC's own update requests not counted as input | Pending |
+
 
 ## Backup and restore
 

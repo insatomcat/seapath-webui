@@ -47,6 +47,7 @@ from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
     GUEST_GROUP,
     STANDALONE_GUEST_GROUP,
+    Guest,
     Inventory,
     Mode,
 )
@@ -72,6 +73,39 @@ DEPLOY_PLAYBOOK = {
 # The guest template `seapath-ansible` ships, as the reference VM inventory
 # names it. Relative to the playbooks, like every path an entry carries.
 COLLECTION_TEMPLATE = "../templates/vm/guest.xml.j2"
+
+# The entry of `vm_features` that gives a domain rendered by that template a VNC
+# server on the hypervisor's loopback, a video card and a USB tablet. See D62.
+GRAPHIC_CONSOLE = "graphic-console"
+# What starts a VNC server in a domain. A `<video>` card alone draws a screen
+# nothing outside the guest can see.
+_VNC_GRAPHICS = re.compile(r"""<graphics\b[^>]*\btype\s*=\s*["']vnc["']""")
+
+
+def declares_display(guest: Guest, read: Callable[[str], str | None]) -> bool:
+    """Whether the domain an entry describes has a VNC display.
+
+    What the inventory declares, which is what the VMs page offers a graphic
+    console on. Whether the running domain already has it is asked of the
+    hypervisor when the console opens, since a domain takes a new definition
+    only when it restarts.
+
+    SEAPATH's template renders one for `graphic-console`. An XML the operator
+    brought, or a template of the site's, declares one when it carries a VNC
+    `<graphics>` element, unless it names the feature too, which is a template
+    written like SEAPATH's and rendering the element only for it. A file this
+    node cannot read says nothing, and the feature is what is left.
+    """
+    features = guest.extra.get("vm_features")
+    featured = isinstance(features, list | str) and GRAPHIC_CONSOLE in features
+    source = guest.xml_path or guest.vm_template
+    if not source or source == COLLECTION_TEMPLATE:
+        return featured
+    text = read(source)
+    if text is None or GRAPHIC_CONSOLE in text:
+        return featured
+    return _VNC_GRAPHICS.search(text) is not None
+
 
 # The name is the host key, the libvirt domain name and the Pacemaker resource
 # id at once, so it has to survive all three. The same shape a machine's key
@@ -137,6 +171,8 @@ class GuestView(BaseModel):
     force: bool = False
     """The guest is destroyed and recreated on every deployment run."""
     enable: bool = True
+    graphic_console: bool = False
+    """The entry declares a VNC display, which a graphic console opens. See D62."""
     ansible_host: str | None = None
     """Where a run reaches inside the guest, when the entry says.
 
@@ -822,6 +858,16 @@ class VmService:
                 recorded.setdefault(name, files.get(name, []))
         return recorded
 
+    def _read_text(self, path: str) -> str | None:
+        """A file an entry names, when the inventory folder holds it."""
+        stored = in_folder(path)
+        if stored is None:
+            return None
+        try:
+            return self._inventory.read_file(stored).decode(errors="replace")
+        except (OSError, UnsafePath, RefusedFile):
+            return None
+
     def _held(self, source: SourceFile) -> Path | None:
         """Where this node keeps a source file, when it still does."""
         try:
@@ -1028,6 +1074,7 @@ class VmService:
                     xml_path=guest.xml_path,
                     force=guest.force,
                     enable=guest.enable,
+                    graphic_console=declares_display(guest, self._read_text),
                     ansible_host=guest.ansible_host,
                     seeded=guest.cloud_init is not None,
                     preferred_host=guest.extra.get("preferred_host"),

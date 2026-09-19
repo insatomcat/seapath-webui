@@ -330,6 +330,7 @@ is where this service answers "who changed what, and when".
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |
 | GET | `/node/console` | Whether a console can be opened, on which account and on which machines, and how many are open |
 | WS | `/node/console/ws` | The console itself: a shell on this machine, on the entry `?host=` names, or the serial console of the guest `?serial=` names |
+| WS | `/node/console/graphic` | The graphic console of the guest `?guest=` names: its VNC display, for noVNC |
 | GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
@@ -608,6 +609,26 @@ through. A name that is not a guest of the inventory closes with `4404`
   target (`host_key_unknown`), `4408` idle timeout, `1008` an origin that is
   not this page's.
   The close reason carries the operator facing message, and the panel prints it.
+
+`/node/console/graphic?guest=<name>` is a guest's graphic console, its VNC
+display. The node opens it from the machine running the guest, where Pacemaker
+or the libvirt exporter reports it, and runs one fixed command there without a
+terminal: `sudo -n /bin/sh -c 'exec python3 -I -c <relay> <guest>'`, the relay
+of `app/console/service.py`, which asks `virsh domdisplay --type vnc` for the
+display and copies bytes between it and the ssh. See D62.
+
+- Both directions are binary frames, and they are the VNC protocol, untouched.
+  There is no JSON on this socket, so no `ready` and no `error` event.
+- A refusal is the close code and its reason alone, with the codes above: `4404`
+  for a name that is not a guest, `4409` for a guest nothing reports running,
+  a machine with no accepted host key, or a relay that ended before the display
+  answered, with the last line it wrote as the reason (virsh saying the domain
+  is not running, or that it has no VNC display).
+- The role, the session limit and the idle timeout are the console's. The
+  timeout counts frames carrying more than noVNC's update requests.
+- `GET /vms` says for each guest whether its entry declares a display, in
+  `graphic_console`: `graphic-console` in `vm_features` with SEAPATH's
+  template, or a VNC `<graphics>` in an XML or template of the site's.
 - The `Origin` header is checked before the socket is accepted. A websocket
   handshake is not subject to the same origin policy and carries the session
   cookie whatever page opened it, so this check is what the CSRF middleware

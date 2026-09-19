@@ -202,6 +202,12 @@ come up: it travels with the run that creates the guest, is spliced into that
 run's copy of the inventory and wiped when the run ends, so no form of it is
 ever committed. See D52.
 
+A guest whose entry has `graphic-console` in `vm_features` also gets a
+**Graphic console**: its screen in the browser, from the VNC server QEMU runs
+on the hypervisor's loopback, with a button for Ctrl+Alt+Del, a toggle between
+fitting the panel and scrolling at actual size, and full screen. It is how a
+Windows guest whose network is down is reached. See D62.
+
 Folded under all of that is what
 `cluster_vm create` is given: placement, priority, live migration and its
 timeouts, colocation, disk bus, the pinning profile. They are asked there

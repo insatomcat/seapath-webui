@@ -6,6 +6,10 @@ The console panel, written once for every page that opens one. The page links
 `console_head()` in its head block, places `console_modal()` in its body and
 loads `console_scripts()` before its own script, which then calls
 `Console.describe` and `Console.open`.
+
+A page that opens a guest's graphic console also places `graphic_modal()` and
+loads `graphic_scripts()` after `console_scripts()`: `Graphic` asks `Console`
+whether this session may open one.
 #}
 
 {% macro console_head() %}
@@ -54,4 +58,45 @@ loads `console_scripts()` before its own script, which then calls
 {{ script("vendor/xterm.js") }}
 {{ script("vendor/addon-fit.js") }}
 {{ script("console.js") }}
+{%- endmacro %}
+
+
+{% macro graphic_modal() %}
+{# noVNC is loaded the first time this panel opens, from the stamped URL the
+   panel carries: its modules import one another by relative paths, which a
+   stamp on the first one leaves alone. #}
+<div class="modal" id="graphic-modal" data-dismiss="graphic-close"
+     data-rfb="{{ asset_url('vendor/novnc/core/rfb.js') }}" hidden>
+  <div class="console-panel">
+    <div class="console-head">
+      <h2>Graphic console</h2>
+      <span class="console-target" id="graphic-target"></span>
+      <span class="console-state" id="graphic-state"></span>
+      {# The operator's own system keeps this chord, so it is sent from here. #}
+      <button id="graphic-cad" type="button" class="secondary"
+              title="Send Ctrl+Alt+Del to the guest">Ctrl+Alt+Del</button>
+      <button id="graphic-fit" type="button" class="secondary"
+              title="Show the screen at its own size, and scroll">Actual size</button>
+      <button id="graphic-full" type="button" class="secondary"
+              title="Give the screen the whole display">Full screen</button>
+      <button id="graphic-reconnect" type="button" hidden>Reconnect</button>
+      <button id="graphic-close" type="button">Close</button>
+    </div>
+    <div class="console-screen graphic-screen" id="graphic-screen"></div>
+    <p class="legend graphic-said" id="graphic-said" hidden></p>
+    <p class="legend">
+      This is the guest's screen, from the VNC server QEMU runs on the
+      loopback of the machine named above, reached over the SSH path a run uses
+      and a relay run as root there. Keys travel as the keys of your keyboard,
+      so the guest applies its own layout; Escape goes to the guest, and Close
+      leaves. The pointer is a tablet, never captured. The screen is shared:
+      another operator opening it sees the same one. Nothing done here is
+      recorded or part of the desired state.
+    </p>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro graphic_scripts() %}
+{{ script("graphic.js") }}
 {%- endmacro %}

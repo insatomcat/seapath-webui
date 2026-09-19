@@ -102,7 +102,8 @@ and a guest with no address, or one whose network is down, still needs the
 console this entry is about.*
 
 *Settled by [D52](#d52): the serial console is `vm-mgr console`, run over the
-console's own connection, for `admin` by default.*
+console's own connection, for `admin` by default. And by [D62](#d62) for the
+screen: a guest's VNC display, relayed over the same connection.*
 
 ## D6 - Open: first login credentials
 
@@ -4611,3 +4612,105 @@ The page reads the installed playbook for `defer_reboot`, as it reads it for
 `/boot/efi/seapath_update`. With an older playbook every machine reboots and the
 run of this machine still ends with its reboot, before the check, and the page
 says so.
+
+## D62 - Settled: a guest's graphic console is its VNC display, relayed at the end of the console's connection
+
+A Windows guest writes nothing useful to a serial port, and [D52](#d52) leaves
+it with an empty terminal. When its network fails, RDP fails with it, and what
+is left is its screen. `guest.xml.j2` already gives a guest one: the
+`graphic-console` entry of `vm_features` renders a VNC server listening on the
+hypervisor's loopback, a virtio video card, and a USB tablet. The console
+shows that screen in the browser, with noVNC.
+
+### Where it is declared, and where it is read
+
+Declared in the inventory, as `graphic-console` in `vm_features`, which is a
+variable of the guest like any other and changes the domain through a
+deployment run. For a guest created from an XML the operator brought, the
+declaration is a `<graphics type="vnc">` in that file, and a site template
+that renders one without the feature counts as declaring it. The element that
+matters is `<graphics>`: it starts the VNC server, and a `<video>` card alone
+has nothing to show outside the guest. What is declared decides whether the VMs
+page offers the button.
+
+What is running decides whether the console opens. A domain only takes the
+feature when it is defined again, so a guest declared a minute ago keeps no VNC
+until it restarts, and the libvirt exporter does not say either way. The
+console therefore asks the hypervisor, `virsh domdisplay --type vnc`, when it
+opens, and a domain with no display is refused with that reason. The feature
+belongs on the guest from its creation: the day it is needed is the day its
+guest cannot be restarted to take it.
+
+### The chain
+
+```
+browser (noVNC) -> websocket -> ssh ansible@<hypervisor running the guest>
+    -> sudo -n /bin/sh -c 'exec python3 -I -c <relay> <guest>'
+    -> virsh domdisplay -> the VNC server on the hypervisor's loopback
+```
+
+- **The hypervisor running the guest.** The VNC server listens on that machine's
+  loopback alone, so the connection goes there: where Pacemaker reports the
+  resource started, or where the libvirt exporter reports the domain. A
+  standalone guest nothing reports is tried where [D52](#d52) tries its serial
+  console. A cluster guest nothing reports is refused, since any other member
+  would only answer that it has no such domain.
+- **A relay on the hypervisor, since forwarding is off.** The hardening role
+  sets `AllowTcpForwarding no` and `PermitOpen none`, which rules out `ssh -W`
+  and `-L`. So the ssh runs one fixed command without a terminal, and the bytes
+  of the VNC protocol cross it on stdin and stdout. The command is a short
+  Python program, kept in `app/console/service.py` beside `serial_command`: it
+  asks `virsh` for the display, connects to it, and copies bytes both ways.
+  Python is on every machine a run reaches, since Ansible needs it, and `socat`
+  is not.
+- **As root, through the rule the ISO grants.** `ansible` is outside the
+  `libvirt` group, so `virsh` needs root, and `sudo -n /bin/sh -c` is the whole
+  of what the account may run. This service holds no new key and writes no
+  trust.
+- **The browser names a guest.** The node picks the machine and writes the
+  command, and the guest's name is quoted for both shells it crosses, as for
+  the serial console.
+
+### The rules it shares with the console
+
+`admin` by default, through `console_min_role`, since the chain passes through
+root on the hypervisor. The same session limit, counted with the terminals. The
+same `Origin` check on the websocket, and the same journal line naming the
+account, the guest and the machine. The idle timeout counts what the operator
+does, keys and pointer: noVNC keeps asking for screen updates on its own, so a
+message made only of update requests is not counted.
+
+QEMU's VNC server takes several viewers at once, and noVNC connects shared, so
+a second operator sees the same screen. VNC carries no authentication here: the
+server listens on the loopback of a hypervisor, as upstream renders it, and
+anyone with a shell on that machine can already reach it.
+
+The page's content security policy allows `data:` images for this panel:
+noVNC draws the guest's cursor, and the JPEG rectangles of the tight encoding,
+from `data:` URLs it builds itself.
+
+### What the page does with it
+
+- **The keyboard is the operator's physical keys.** QEMU's extended key events
+  carry scan codes, so the guest applies its own layout, and an AZERTY guest
+  typed from an AZERTY keyboard works with nothing configured. A string sent as
+  keysyms would go through QEMU's US layout instead, which is why the page has
+  no button that types text.
+- **Ctrl+Alt+Del has a button**, since the operator's own system keeps the
+  chord for itself.
+- **The mouse is absolute**, through the USB tablet the template adds, so the
+  pointer is never captured and never drifts from the operator's.
+- **The screen fits the panel, or shows at its size and scrolls**, a toggle,
+  and it can take the whole screen.
+- **No clipboard.** QEMU needs its vdagent and the guest its agent for one, and
+  neither is part of the template.
+
+### RDP
+
+A client for a Windows guest's own RDP server was weighed in the same pass and
+left out. It serves a guest whose network works, which is the case a
+workstation's RDP client already covers, and in a browser it needs `guacd`: a
+second container and a C protocol stack to follow, plus an answer about the
+guest's self signed certificate, which has no `known_hosts` to be checked
+against. The graphic console covers the case the question came from, a guest
+whose network is down.

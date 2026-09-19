@@ -321,6 +321,18 @@
       button.addEventListener("click", () => Console.openSerial(guest.name));
       cell.append(cell.childNodes.length ? " " : "", button);
     }
+    // Its screen, for a guest whose entry declares a VNC display: the one way
+    // into a Windows guest whose network is down. Whether the running domain
+    // has the display yet is the node's to find out when it opens.
+    if (Graphic.permitted() && guest.graphic_console && (guest.resource || guest.domain)) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "secondary";
+      button.textContent = "Graphic console";
+      button.title = "Open " + guest.name + "'s screen, from its VNC display";
+      button.addEventListener("click", () => Graphic.open(guest.name));
+      cell.append(cell.childNodes.length ? " " : "", button);
+    }
     return cell;
   }
 

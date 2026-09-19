@@ -17,6 +17,10 @@ size, and the `SIGWINCH` that would normally follow is sent explicitly, which
 `ssh` turns into a window change message for the remote shell. The alternative,
 a `preexec_fn` calling `setsid` and `TIOCSCTTY`, forks a process that has
 threads and holds locks, which is a worse trade for the same result.
+
+A guest's graphic console is the same ssh with no terminal at all: the bytes of
+the VNC protocol cross it on stdin and stdout, and a pseudo terminal in the way
+would translate line endings and echo them back. See D62.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ logger = logging.getLogger(__name__)
 _READ_BYTES = 64 * 1024
 _CONNECT_TIMEOUT_SECONDS = 10
 _TERMINATE_GRACE_SECONDS = 3
+_DIAGNOSTIC_BYTES = 4 * 1024
 
 # The child's environment, written out rather than inherited. The service runs
 # with whatever the container gave it, and a shell is not the place to find out
@@ -62,6 +67,9 @@ class ConsoleRequest:
     command: str = ""
     columns: int = 80
     lines: int = 24
+    # False for a byte stream: the far end gets pipes, and nothing between the
+    # two ends reads what crosses them.
+    terminal: bool = True
 
 
 class ConsoleProcess(Protocol):
@@ -76,8 +84,23 @@ class ConsoleProcess(Protocol):
         """End the session and report the exit code, if there was one."""
 
 
+class StreamProcess(Protocol):
+    async def read(self) -> bytes:
+        """The next chunk of the stream, or `b""` once it is over."""
+
+    async def write(self, data: bytes) -> None: ...
+
+    def diagnostic(self) -> str:
+        """What the far end wrote on its error output, the last of it."""
+
+    async def close(self) -> int | None:
+        """End the stream and report the exit code, if there was one."""
+
+
 class ConsoleAdapter(Protocol):
     async def open(self, request: ConsoleRequest) -> ConsoleProcess: ...
+
+    async def open_stream(self, request: ConsoleRequest) -> StreamProcess: ...
 
 
 def ssh_command(request: ConsoleRequest) -> list[str]:
@@ -100,7 +123,7 @@ def ssh_command(request: ConsoleRequest) -> list[str]:
     ]
     return [
         "ssh",
-        "-tt",
+        "-tt" if request.terminal else "-T",
         "-F",
         "/dev/null",
         "-o",
@@ -153,6 +176,21 @@ class SshConsoleAdapter:
         finally:
             os.close(replica)
         return PtyConsoleProcess(process, master)
+
+    async def open_stream(self, request: ConsoleRequest) -> StreamProcess:
+        process = await asyncio.create_subprocess_exec(
+            *ssh_command(request),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+            env={
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "HOME": os.environ.get("HOME", "/root"),
+                "LANG": "C.UTF-8",
+            },
+        )
+        return PipeStreamProcess(process)
 
 
 class PtyConsoleProcess:
@@ -227,6 +265,58 @@ class PtyConsoleProcess:
         self._loop.remove_reader(self._master)
         os.close(self._master)
         self._master = None
+
+
+class PipeStreamProcess:
+    """The ssh's stdin and stdout as a byte stream, and its stderr kept aside.
+
+    The error output is read as it comes, so a chatty far end cannot fill the
+    pipe and stall the stream, and only its tail is kept: it is what says why a
+    stream ended before it started, `virsh` naming a domain with no display.
+    """
+
+    def __init__(self, process: asyncio.subprocess.Process) -> None:
+        self._process = process
+        self._errors = bytearray()
+        self._drain = asyncio.create_task(self._read_errors())
+
+    async def _read_errors(self) -> None:
+        assert self._process.stderr is not None
+        while chunk := await self._process.stderr.read(_READ_BYTES):
+            self._errors += chunk
+            del self._errors[:-_DIAGNOSTIC_BYTES]
+
+    async def read(self) -> bytes:
+        assert self._process.stdout is not None
+        return await self._process.stdout.read(_READ_BYTES)
+
+    async def write(self, data: bytes) -> None:
+        assert self._process.stdin is not None
+        try:
+            self._process.stdin.write(data)
+            await self._process.stdin.drain()
+        except (BrokenPipeError, ConnectionResetError):
+            # The read side is what reports that the far end is gone.
+            logger.debug("Dropped stream input, the ssh is gone")
+
+    def diagnostic(self) -> str:
+        return self._errors.decode(errors="replace").strip()
+
+    async def close(self) -> int | None:
+        if self._process.returncode is None:
+            with contextlib.suppress(ProcessLookupError):
+                self._process.terminate()
+            try:
+                await asyncio.wait_for(
+                    self._process.wait(), timeout=_TERMINATE_GRACE_SECONDS
+                )
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError):
+                    self._process.kill()
+                await self._process.wait()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(self._drain, timeout=_TERMINATE_GRACE_SECONDS)
+        return self._process.returncode
 
 
 def _set_window_size(fd: int, columns: int, lines: int) -> None:

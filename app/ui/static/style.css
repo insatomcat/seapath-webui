@@ -1936,6 +1936,17 @@ button.secondary {
   margin-bottom: 0;
 }
 
+/* noVNC fills the element with a screen of its own, which scrolls when the
+   guest's display is shown at its size, so the frame keeps no padding. */
+.graphic-screen {
+  padding: 0;
+  overflow: hidden;
+}
+
+.graphic-said {
+  color: var(--bad);
+}
+
 /* Real time.
 
    An application layout: the shell is the viewport and each pane scrolls

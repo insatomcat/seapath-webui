@@ -102,7 +102,13 @@ def script(name: str) -> Markup:
     return Markup('<script src="static/{}?v={}"></script>').format(name, stamp(name))
 
 
+def asset_url(name: str) -> str:
+    """The stamped URL of an asset a script loads itself, rather than a tag."""
+    return f"static/{name}?v={stamp(name)}"
+
+
 templates.env.globals["styles"] = styles
+templates.env.globals["asset_url"] = asset_url
 templates.env.globals["script"] = script
 # The favicon is a link rather than a helper of its own: one line of markup, and
 # the only thing it needs from here is the stamp that lets a browser keep it.

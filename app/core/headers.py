@@ -73,7 +73,9 @@ def _content_security_policy(request: Request, nonce: str) -> str:
             # this directive would turn `'unsafe-inline'` off. Styles are not
             # where the risk is.
             "style-src 'self' 'unsafe-inline'",
-            "img-src 'self'",
+            # `data:` for noVNC, which draws a guest's cursor and the JPEG
+            # rectangles of its screen from URLs it builds. See D62.
+            "img-src 'self' data:",
             f"connect-src 'self' {socket}",
             "font-src 'self'",
             "object-src 'none'",

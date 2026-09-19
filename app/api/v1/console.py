@@ -21,6 +21,13 @@ Which machine the shell opens on is the `host` query parameter, a name the
 inventory declares, and this machine when it is absent. The address is never
 the browser's to give. `serial` names a guest instead, and the node picks the
 machine and the command.
+
+A guest's graphic console is a socket of its own, `/graphic?guest=<name>`, with
+binary frames both ways: they are the VNC protocol between noVNC and the
+guest's display, and this end reads nothing of them beyond telling the
+operator's input from noVNC's own requests for the screen, for the idle
+timeout. With no JSON on that wire, a refusal is the close code and its reason
+alone. See D62.
 """
 
 from __future__ import annotations
@@ -39,10 +46,12 @@ from app.console.service import (
     ConsoleService,
     ConsoleUnavailable,
     OpenedConsole,
+    OpenedDisplay,
     clamp_window,
 )
 from app.core.auth import Role
 from app.core.security import current_session, require_role
+from app.core.sessions import Session
 
 logger = logging.getLogger(__name__)
 
@@ -80,17 +89,22 @@ def console(request: Request) -> ConsoleInfo:
     return _service(request).info()
 
 
-@router.websocket("/ws")
-async def console_stream(websocket: WebSocket) -> None:
-    service = _service(websocket)
+async def _admitted(
+    websocket: WebSocket, service: ConsoleService, explained: bool = True
+) -> Session | None:
+    """The session a socket is opened for, once it is accepted and allowed.
 
+    None when it was refused, and then it is already closed. `explained` is
+    whether the refusal is also said in a JSON frame, which the terminal
+    prints and noVNC would read as a broken server.
+    """
     # Before accepting, because a socket opened from another origin has no
     # business being answered at all. A websocket is not subject to the same
     # origin policy and rides the session cookie, so this is the check the
     # CSRF middleware performs for every other unsafe request.
     if not _same_origin(websocket):
         await websocket.close(code=_POLICY)
-        return
+        return None
 
     await websocket.accept()
 
@@ -101,15 +115,26 @@ async def console_stream(websocket: WebSocket) -> None:
             _UNAUTHENTICATED,
             "authentication_required",
             "This session has expired. Sign in again.",
+            explained,
         )
-        return
+        return None
     if not session.user.role.can(service.required_role):
         await _refuse(
             websocket,
             _FORBIDDEN,
             "permission_denied",
             f"A console requires the {service.required_role.value} role.",
+            explained,
         )
+        return None
+    return session
+
+
+@router.websocket("/ws")
+async def console_stream(websocket: WebSocket) -> None:
+    service = _service(websocket)
+    session = await _admitted(websocket, service)
+    if session is None:
         return
 
     columns, lines = clamp_window(
@@ -150,6 +175,135 @@ async def console_stream(websocket: WebSocket) -> None:
         await service.close(opened, session.username)
     with contextlib.suppress(RuntimeError):
         await websocket.close(code=ending.code, reason=ending.reason)
+
+
+@router.websocket("/graphic")
+async def graphic_stream(websocket: WebSocket) -> None:
+    service = _service(websocket)
+    session = await _admitted(websocket, service, explained=False)
+    if session is None:
+        return
+
+    guest = websocket.query_params.get("guest") or ""
+    try:
+        opened = await service.open_graphic(session.username, guest)
+    except ConsoleUnavailable as failure:
+        code = _NOT_FOUND if failure.status == 404 else _UNAVAILABLE
+        await _refuse(websocket, code, failure.code, failure.message, False)
+        return
+    except OSError as failure:
+        logger.error("Could not open a graphic console: %s", failure)
+        await _refuse(
+            websocket,
+            _FAILED,
+            "console_failed",
+            f"The ssh client could not be started: {failure}",
+            False,
+        )
+        return
+
+    # In a `finally` for the same reason as a terminal: an ssh left open holds
+    # a session against the limit until this node restarts.
+    ending = _Ending(_FAILED, "the graphic console stream failed")
+    try:
+        ending = await _relay(websocket, opened, service.idle_timeout_seconds)
+    finally:
+        await service.close_graphic(opened, session.username)
+    with contextlib.suppress(RuntimeError):
+        await websocket.close(code=ending.code, reason=_reason(ending.reason))
+
+
+async def _relay(
+    websocket: WebSocket, opened: OpenedDisplay, idle_timeout: int
+) -> _Ending:
+    """Both directions of a display, and whichever ends first ends the session."""
+    tasks = {
+        asyncio.create_task(_display_to_browser(websocket, opened)),
+        asyncio.create_task(_browser_to_display(websocket, opened, idle_timeout)),
+    }
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    ending = _Ending(_NORMAL, "session ended")
+    for task in done:
+        try:
+            ending = task.result()
+        except Exception as failure:  # pragma: no cover - defensive
+            logger.warning("Graphic console stream failed: %s", failure)
+            ending = _Ending(_FAILED, "the graphic console stream failed")
+    return ending
+
+
+async def _display_to_browser(websocket: WebSocket, opened: OpenedDisplay) -> _Ending:
+    started = False
+    while True:
+        data = await opened.stream.read()
+        if not data:
+            break
+        started = True
+        await websocket.send_bytes(data)
+    if started:
+        return _Ending(_NORMAL, "the display closed")
+    # Nothing ever came from the display, so the relay said why on its error
+    # output: `virsh` finding no display, the domain not running here, sudo
+    # refusing. That line is the only explanation the operator gets.
+    await opened.stream.close()
+    said = opened.stream.diagnostic().splitlines()
+    return _Ending(
+        _UNAVAILABLE,
+        said[-1] if said else f"{opened.guest} has no display to open",
+    )
+
+
+async def _browser_to_display(
+    websocket: WebSocket, opened: OpenedDisplay, idle_timeout: int
+) -> _Ending:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + idle_timeout if idle_timeout else None
+    while True:
+        remaining = None if deadline is None else max(0.0, deadline - loop.time())
+        try:
+            message = await asyncio.wait_for(websocket.receive(), timeout=remaining)
+        except TimeoutError:
+            return _Ending(
+                _TIMED_OUT,
+                f"closed after {idle_timeout} seconds without a key or a click",
+            )
+        if message["type"] == "websocket.disconnect":
+            return _Ending(_NORMAL, "the browser went away")
+        data = message.get("bytes")
+        if not data:
+            continue
+        if deadline is not None and operator_input(data):
+            deadline = loop.time() + idle_timeout
+        await opened.stream.write(data)
+
+
+# A FramebufferUpdateRequest: message type 3, ten bytes. noVNC sends one after
+# every update it draws, with nobody at the keyboard, and flushes each on its
+# own or with others of its kind.
+_UPDATE_REQUEST = 3
+_UPDATE_REQUEST_BYTES = 10
+
+
+def operator_input(data: bytes) -> bool:
+    """Whether a frame from noVNC carries more than requests for the screen.
+
+    A frame made only of update requests is noVNC keeping the picture current.
+    Anything else is a key, the pointer, or the handshake, and the idle timeout
+    starts again. Nothing is parsed beyond that: a frame this misreads counts
+    as input, which keeps a console open that could have closed, and nothing
+    worse.
+    """
+    if len(data) % _UPDATE_REQUEST_BYTES:
+        return True
+    return any(
+        data[offset] != _UPDATE_REQUEST
+        for offset in range(0, len(data), _UPDATE_REQUEST_BYTES)
+    )
 
 
 def _ready(service: ConsoleService, opened: OpenedConsole) -> dict[str, str]:
@@ -236,13 +390,23 @@ async def _to_terminal(
 
 
 async def _refuse(
-    websocket: WebSocket, code: int, error_code: str, message: str
+    websocket: WebSocket,
+    code: int,
+    error_code: str,
+    message: str,
+    explained: bool = True,
 ) -> None:
     with contextlib.suppress(RuntimeError):
-        await websocket.send_json(
-            {"type": "error", "code": error_code, "message": message}
-        )
-        await websocket.close(code=code, reason=message[:120])
+        if explained:
+            await websocket.send_json(
+                {"type": "error", "code": error_code, "message": message}
+            )
+        await websocket.close(code=code, reason=_reason(message))
+
+
+def _reason(message: str) -> str:
+    """A close reason, which a websocket caps at 123 bytes of UTF-8."""
+    return message.encode()[:123].decode(errors="ignore")
 
 
 def _same_origin(websocket: WebSocket) -> bool:

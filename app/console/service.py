@@ -28,6 +28,12 @@ end of it: `vm-mgr console`, as root, on a machine that can reach the guest's
 libvirt. `vm_manager` finds the hypervisor through Pacemaker and reaches it as
 `libvirtadmin`, with the root key `add_libvirtadmin_user` provisioned, so this
 service reimplements none of it and adds no trust. See D52.
+
+A guest's graphic console is that connection again, to the hypervisor that runs
+the guest, with a relay at the end of it: the VNC server listens on that
+machine's loopback, and the hardening role turns ssh forwarding off, so a short
+program run as root asks `virsh` for the display and copies bytes between it
+and the ssh. See D62.
 """
 
 from __future__ import annotations
@@ -41,9 +47,14 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from app.console.adapter import ConsoleAdapter, ConsoleProcess, ConsoleRequest
+from app.console.adapter import (
+    ConsoleAdapter,
+    ConsoleProcess,
+    ConsoleRequest,
+    StreamProcess,
+)
 from app.core.auth import Role
-from app.inventory.model import Mode
+from app.inventory.model import Inventory, Mode
 from app.inventory.service import InventoryState
 from app.trust import known_hosts
 
@@ -104,6 +115,13 @@ class OpenedConsole:
     """The guest whose serial console this is, reached through `target`."""
 
 
+@dataclass(frozen=True)
+class OpenedDisplay:
+    stream: StreamProcess
+    target: ConsoleTarget
+    guest: str
+
+
 def serial_command(guest: str) -> str:
     """What the far end runs for a guest's serial console, quoted once per shell.
 
@@ -114,6 +132,59 @@ def serial_command(guest: str) -> str:
     shell left behind it on the hypervisor.
     """
     inner = f"exec vm-mgr console {shlex.quote(guest)}"
+    return f"sudo -n /bin/sh -c {shlex.quote(inner)}"
+
+
+# What runs on the hypervisor for a graphic console, the whole of it. It asks
+# libvirt for the domain's VNC display, which also says whether the running
+# domain has one at all, connects to it, and copies bytes between the display
+# and the ssh until either side ends. Written for the `python3` Ansible
+# already needs on every machine, with nothing imported beyond its standard
+# library. `virsh` prints `vnc://127.0.0.1:0`, the display number, and names
+# a server listening on every address `localhost`, which is reached on the
+# loopback like the default one. Exit 3 is "no display", with virsh's reason.
+RELAY = r"""
+import os, re, select, socket, subprocess, sys
+shown = subprocess.run(["virsh", "domdisplay", "--type", "vnc", sys.argv[1]],
+                       capture_output=True, text=True)
+found = re.fullmatch(r"vnc://(\[[^\]]*\]|[^:/]*):(\d+)/?", shown.stdout.strip())
+if found is None:
+    sys.stderr.write((shown.stderr.strip() or "the domain has no VNC display") + "\n")
+    sys.exit(3)
+host = found.group(1).strip("[]")
+if host in ("", "localhost", "0.0.0.0", "::"):
+    host = "127.0.0.1"
+port = 5900 + int(found.group(2))
+try:
+    display = socket.create_connection((host, port), 10)
+except OSError as error:
+    sys.stderr.write(f"cannot reach the VNC display at {host}:{port}: {error}\n")
+    sys.exit(4)
+while True:
+    ready = select.select([0, display], [], [])[0]
+    if 0 in ready:
+        data = os.read(0, 65536)
+        if not data:
+            break
+        display.sendall(data)
+    if display in ready:
+        data = display.recv(65536)
+        if not data:
+            break
+        view = memoryview(data)
+        while view:
+            view = view[os.write(1, view):]
+"""
+
+
+def graphic_command(guest: str) -> str:
+    """What the far end runs for a guest's graphic console, quoted once per shell.
+
+    The same rule as `serial_command`, with the relay in place of `vm-mgr`.
+    `-I` keeps the environment and the working directory from deciding what
+    `python3` imports, since it runs as root.
+    """
+    inner = f"exec python3 -I -c {shlex.quote(RELAY)} {shlex.quote(guest)}"
     return f"sudo -n /bin/sh -c {shlex.quote(inner)}"
 
 
@@ -239,6 +310,82 @@ class ConsoleService:
             status=404,
         )
 
+    def _guest_inventory(self, guest: str, what: str) -> Inventory:
+        state = self._inventory() if self._inventory is not None else None
+        inventory = state.inventory if state is not None else None
+        if inventory is None or guest not in inventory.guests:
+            raise ConsoleUnavailable(
+                "unknown_guest",
+                f"{guest} is not a guest of the inventory, so no {what} "
+                "can be opened on it.",
+                status=404,
+            )
+        return inventory
+
+    def _standalone_candidates(
+        self, inventory: Inventory, guest: str, this_machine: str
+    ) -> list[str]:
+        """The machine a standalone guest is on, or the one it is tried on.
+
+        The one whose libvirt exporter reports its domain; when nothing
+        reports it, the one standalone machine if there is one, and this
+        machine if it is among several. Picking another would open a console
+        on a guest that is not there, which reads like a guest that is broken.
+        """
+        standalone = [
+            name
+            for name in inventory.hypervisors()
+            if name not in inventory.cluster_members
+        ]
+        located = self._located(guest)
+        if located in standalone:
+            return [located]
+        if len(standalone) == 1:
+            return standalone
+        if this_machine in standalone:
+            return [this_machine]
+        return []
+
+    def _reachable(
+        self, targets: list[ConsoleTarget], candidates: list[str]
+    ) -> ConsoleTarget | None:
+        this_machine = targets[0].name
+        by_name = {target.name: target for target in targets}
+        for name in sorted(candidates, key=lambda name: name != this_machine):
+            target = by_name.get(name)
+            if target is not None and target.host_key_known:
+                return target
+        return None
+
+    def graphic_route(self, guest: str) -> ConsoleTarget:
+        """The machine a guest's graphic console is opened on.
+
+        The one running the guest, since its VNC server listens on that
+        machine's loopback and nowhere else: where Pacemaker or libvirt
+        reports it. A cluster guest nothing reports has no machine to go to,
+        and every member but one would only say it has no such domain.
+        """
+        inventory = self._guest_inventory(guest, "graphic console")
+        targets = self.targets()
+        if inventory.deployment_of(guest) is Mode.CLUSTER:
+            located = self._located(guest)
+            candidates = [located] if located else []
+        else:
+            candidates = self._standalone_candidates(inventory, guest, targets[0].name)
+        target = self._reachable(targets, candidates)
+        if target is not None:
+            return target
+        raise ConsoleUnavailable(
+            "no_hypervisor",
+            (
+                f"{guest} runs on {candidates[0]}, and this node cannot reach it: "
+                "it has no ansible_host with an accepted host key."
+                if candidates
+                else f"Nothing reports {guest} running on any machine, so there "
+                "is no display to open. Start it first."
+            ),
+        )
+
     def serial_route(self, guest: str) -> ConsoleTarget:
         """The machine a guest's serial console is opened from.
 
@@ -249,44 +396,15 @@ class ConsoleService:
         knows its own libvirt; when nothing reports it, the one standalone
         machine if there is one, and this machine if it is among several.
         """
-        state = self._inventory() if self._inventory is not None else None
-        inventory = state.inventory if state is not None else None
-        if inventory is None or guest not in inventory.guests:
-            raise ConsoleUnavailable(
-                "unknown_guest",
-                f"{guest} is not a guest of the inventory, so no serial console "
-                "can be opened on it.",
-                status=404,
-            )
-
+        inventory = self._guest_inventory(guest, "serial console")
         targets = self.targets()
-        this_machine = targets[0].name
         if inventory.deployment_of(guest) is Mode.CLUSTER:
             candidates = inventory.placement_hosts()
         else:
-            standalone = [
-                name
-                for name in inventory.hypervisors()
-                if name not in inventory.cluster_members
-            ]
-            located = self._located(guest)
-            if located in standalone:
-                candidates = [located]
-            elif len(standalone) == 1:
-                candidates = standalone
-            elif this_machine in standalone:
-                candidates = [this_machine]
-            else:
-                # Several machines and no reading saying which one holds the
-                # domain: picking one would open a console on a guest that is
-                # not there, which reads like a guest that is broken.
-                candidates = []
-
-        by_name = {target.name: target for target in targets}
-        for name in sorted(candidates, key=lambda name: name != this_machine):
-            target = by_name.get(name)
-            if target is not None and target.host_key_known:
-                return target
+            candidates = self._standalone_candidates(inventory, guest, targets[0].name)
+        target = self._reachable(targets, candidates)
+        if target is not None:
+            return target
         raise ConsoleUnavailable(
             "no_hypervisor",
             f"No machine this node can reach runs vm-mgr for {guest}: "
@@ -316,43 +434,9 @@ class ConsoleService:
         host: str | None = None,
         serial: str | None = None,
     ) -> OpenedConsole:
-        if not self._enabled:
-            raise ConsoleUnavailable(
-                "console_disabled",
-                "The console is turned off on this node.",
-            )
+        self._check_enabled()
         target = self.serial_route(serial) if serial else self.resolve(host)
-        if self._active >= self._max_sessions:
-            raise ConsoleUnavailable(
-                "console_busy",
-                f"There are already {self._active} consoles open on this node, "
-                "which is the maximum. Close one and retry.",
-            )
-        if not self._private_key_file.exists():
-            raise ConsoleUnavailable(
-                "trust_missing",
-                "This node has no key for the ansible account yet, so no "
-                "console can be opened. The journal says why the self trust "
-                "could not be provisioned.",
-            )
-        if not target.host_key_known:
-            raise ConsoleUnavailable(
-                "host_key_unknown",
-                f"No host key is recorded for {target.name} at {target.address}. "
-                "The console never accepts a key it has not seen. Accept it "
-                "under Host keys on the Deployment page; a guest declared to "
-                "accept its key on first use records it at the first run "
-                "that reaches it.",
-            )
-
-        # This machine is reached over its self relation alone, which is the
-        # one that carries `pty`. Any other gets the keys a run offers it, in
-        # the same order.
-        extra = (
-            ()
-            if target.kind is TargetKind.THIS_MACHINE
-            else tuple(path for path in self._extra_key_files() if path.exists())
-        )
+        extra = self._admit(target)
         columns, lines = clamp_window(columns, lines)
         request = ConsoleRequest(
             address=target.address,
@@ -382,6 +466,89 @@ class ConsoleService:
             self._active,
         )
         return OpenedConsole(process=process, target=target, guest=serial)
+
+    async def open_graphic(self, username: str, guest: str) -> OpenedDisplay:
+        """A byte stream to a guest's VNC display, through the relay.
+
+        Counted with the terminals: what the limit protects is this node and
+        the sshd at the other end, and a screen holds one of each.
+        """
+        self._check_enabled()
+        target = self.graphic_route(guest)
+        extra = self._admit(target)
+        request = ConsoleRequest(
+            address=target.address,
+            user=self._user,
+            private_key_file=self._private_key_file,
+            known_hosts_file=self._known_hosts_file,
+            extra_key_files=extra,
+            command=graphic_command(guest),
+            terminal=False,
+        )
+        stream = await self._adapter.open_stream(request)
+        self._active += 1
+        logger.info(
+            "Console opened by %s on the graphic console of %s on %s, %s@%s "
+            "(%d open)",
+            username,
+            guest,
+            target.name,
+            self._user,
+            target.address,
+            self._active,
+        )
+        return OpenedDisplay(stream=stream, target=target, guest=guest)
+
+    async def close_graphic(self, opened: OpenedDisplay, username: str) -> None:
+        code = await opened.stream.close()
+        self._active = max(0, self._active - 1)
+        logger.info(
+            "Console of %s on the graphic console of %s closed, ssh exit %s "
+            "(%d open)",
+            username,
+            opened.guest,
+            "unknown" if code is None else code,
+            self._active,
+        )
+
+    def _check_enabled(self) -> None:
+        if not self._enabled:
+            raise ConsoleUnavailable(
+                "console_disabled",
+                "The console is turned off on this node.",
+            )
+
+    def _admit(self, target: ConsoleTarget) -> tuple[Path, ...]:
+        """Refuse what would fail inside the session, and give the keys to offer."""
+        if self._active >= self._max_sessions:
+            raise ConsoleUnavailable(
+                "console_busy",
+                f"There are already {self._active} consoles open on this node, "
+                "which is the maximum. Close one and retry.",
+            )
+        if not self._private_key_file.exists():
+            raise ConsoleUnavailable(
+                "trust_missing",
+                "This node has no key for the ansible account yet, so no "
+                "console can be opened. The journal says why the self trust "
+                "could not be provisioned.",
+            )
+        if not target.host_key_known:
+            raise ConsoleUnavailable(
+                "host_key_unknown",
+                f"No host key is recorded for {target.name} at {target.address}. "
+                "The console never accepts a key it has not seen. Accept it "
+                "under Host keys on the Deployment page; a guest declared to "
+                "accept its key on first use records it at the first run "
+                "that reaches it.",
+            )
+
+        # This machine is reached over its self relation alone, which is the
+        # one that carries `pty`. Any other gets the keys a run offers it, in
+        # the same order.
+        if target.kind is TargetKind.THIS_MACHINE:
+            return ()
+        return tuple(path for path in self._extra_key_files() if path.exists())
 
     async def close(self, opened: OpenedConsole, username: str) -> None:
         code = await opened.process.close()
