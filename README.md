@@ -109,8 +109,9 @@ and the image is not out yet, and this service itself, which is
 to a machine does, by an apply.
 
 **Check version**, in the top bar of every page, asks the registry for a newer
-seapath-webui. When there is one, the button becomes **Upgrade to** that
-version: one click pins it in the inventory as one commit and launches the
+seapath-webui. It asks once on its own when an administrator signs in, and again
+on each click. When a newer version exists, the button becomes **Upgrade to**
+that version: one click pins it in the inventory as one commit and launches the
 playbook that deploys it on every machine naming an image. That run restarts
 this service and no guest, and the run window follows it over the page.
 

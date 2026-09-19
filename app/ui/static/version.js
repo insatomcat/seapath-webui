@@ -5,7 +5,10 @@
 // the upgrade to it in one click.
 //
 // Three steps, each one the endpoint the Deployment page uses. The registry is
-// asked on a click, because asking leaves the machine. A newer version turns
+// asked once when a session opens, then on a click, because asking leaves the
+// machine. That first question is a quiet one: a node with no route to a
+// registry is a supported state, so what it answers goes in the title of the
+// button rather than in a banner greeting every sign in. A newer version turns
 // the button into the upgrade, which pins it in the inventory as one commit
 // and launches the catalogue entry that deploys this service on every machine
 // naming an image. That run restarts this service and no guest, which is why
@@ -27,6 +30,9 @@
   }
   const running = document.querySelector('meta[name="version"]').content;
   const KEY = "seapath-webui-latest:" + running;
+  // Set once the session asked on its own. Signing out clears the storage of
+  // the tab, so the next session asks again.
+  const ASKED = "seapath-webui-asked:" + running;
   const SETTLED_MS = 4000;
 
   // What the button would do, once the registry and the inventory answered:
@@ -55,6 +61,19 @@
       }
     } catch (error) {
       /* Kept for this page only. */
+    }
+  }
+
+  function askedAlready() {
+    try {
+      if (sessionStorage.getItem(ASKED)) {
+        return true;
+      }
+      sessionStorage.setItem(ASKED, "1");
+      return false;
+    } catch (error) {
+      // No storage means no way to ask only once: the click stays the way.
+      return true;
     }
   }
 
@@ -104,8 +123,9 @@
     }
   }
 
-  async function check() {
+  async function check(quiet) {
     say("");
+    settled = "";
     window.clearTimeout(settling);
     settling = null;
     busy("Checking", true);
@@ -120,7 +140,11 @@
         answer = { act: "apply", version: update.wanted };
       } else if (latest.reason) {
         answer = null;
-        say(latest.reason);
+        if (quiet) {
+          settled = latest.reason;
+        } else {
+          say(latest.reason);
+        }
       } else {
         answer = null;
         settled =
@@ -133,7 +157,11 @@
       }
     } catch (failure) {
       answer = null;
-      say(failure.message);
+      if (quiet) {
+        settled = failure.message;
+      } else {
+        say(failure.message);
+      }
     } finally {
       busy("", false);
     }
@@ -169,9 +197,12 @@
     if (answer && (answer.act === "pin" || answer.act === "apply")) {
       upgrade();
     } else {
-      check();
+      check(false);
     }
   });
 
   draw();
+  if (!answer && !askedAlready()) {
+    check(true);
+  }
 })();

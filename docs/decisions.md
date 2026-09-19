@@ -836,9 +836,12 @@ nobody runs, a second answer to "which code is this machine meant to run"
 waiting for somebody to delete a host line. The two acts stay two: the commit
 stands on its own, and applying it is the catalogue entry with the
 confirmation every convergence gets, naming the machines and the interruption.
-The registry is asked on a click and never on page load, since a substation
-hypervisor may have no route to one, and a registry that cannot be reached is a
-sentence on the page rather than a page that fails.
+The registry is asked once when an administrator's session opens, then on a
+click, and never again on page load, since asking leaves the machine. A
+substation hypervisor may have no route to one, and a registry that cannot be
+reached is a sentence rather than a page that fails: in the title of the button
+for the question the session asked on its own, in a banner for the one an
+operator asked.
 
 The pin is seeded rather than typed. The read only adapter reads the image
 reference out of the quadlet installed on the machine, and the seed inventory
