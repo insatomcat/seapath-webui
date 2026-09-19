@@ -58,8 +58,10 @@ boot.
       and reboots a machine only when it gets a new kernel, then checks the
       machines it updated. The root volume is snapshotted first, and a
       machine that fails to boot its new system is rolled back to it. A cluster
-      member is put in standby before anything changes, so its guests move to
-      the other members.
+      member that reboots is put in standby first, so its guests move to the
+      other members. Without a reboot the guests stay where they are, and when
+      the upgrade restarts Pacemaker or Corosync, the cluster is put in
+      maintenance for its length so that no guest is stopped or moved.
     </p>
   </section>
 

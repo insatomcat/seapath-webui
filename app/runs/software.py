@@ -9,7 +9,9 @@ Two acts, and they are different shapes.
 unchanged, launched from its reviewed catalogue entry. It snapshots the root
 volume, runs `apt-get dist-upgrade`, and reboots a machine only when that
 brings it a new kernel, with the GRUB boot counter armed first. A cluster
-member is put in standby first, one machine at a time. Once its new system is
+member that reboots is put in standby first, one machine at a time, and one
+that does not keeps its guests, with the cluster in maintenance while an
+upgrade of Pacemaker or Corosync restarts them. Once its new system is
 up, the machine itself removes the snapshot and leaves standby, so the run of
 the machine serving this page can schedule its reboot and end. What it does is
 the playbook's, and the page only chooses which machines it is sent to.
@@ -76,8 +78,10 @@ _VG = "{{ vg_name | default('vg1') }}"
 PENDING = "/boot/efi/seapath_update"
 """Where the update leaves what the machine undoes itself after the reboot.
 
-One empty file per thing to undo: `standby` and `noout`. `system_check`, of the
-`debian_grub_bootcount` role, removes each once it is done. A playbook that
+One empty file per thing to undo: `standby`, `noout`, and `maintenance` for an
+update without a reboot whose run ended with the cluster still detached from
+its guests. `system_check`, of the `debian_grub_bootcount` role, removes each
+once it is done. A playbook that
 names this directory is one whose run may end with the reboot of the machine
 driving it.
 """
@@ -657,19 +661,33 @@ def parse_unfinished(data: dict) -> str | None:
     read them, and from a machine whose last update finished.
     """
     undone = []
+    detached = False
     counter = re.search(r"^bootcount=(\d+)$", str(data.get("bootcount") or ""), re.M)
     if counter:
         undone.append(f"disable its boot counter, still at {counter.group(1)}")
     for path in data.get("pending") or []:
         name = Path(str(path)).name
+        if name == "maintenance":
+            detached = True
+            continue
         undone.append(_UNDONE.get(name, f"undo {name}"))
-    if not undone:
+    if not undone and not detached:
         return None
-    return (
-        "The last update rebooted this machine and it did not "
-        + " or ".join(undone)
-        + ". journalctl -t system_check on the machine says why."
-    )
+    said = []
+    # Said first and on its own: it holds every guest of the cluster, not
+    # only this machine's, and it comes from an update that did not reboot.
+    if detached:
+        said.append(
+            "The last update of this machine left the cluster in maintenance, "
+            "so Pacemaker restarts no guest that fails, on any member."
+        )
+    if undone:
+        said.append(
+            "The last update rebooted this machine and it did not "
+            + " or ".join(undone)
+            + "."
+        )
+    return " ".join(said) + " journalctl -t system_check on the machine says why."
 
 
 def parse_room(data: dict) -> SnapshotRoom | None:

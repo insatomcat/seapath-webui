@@ -4581,10 +4581,34 @@ when a kernel newer than the one running is already installed and was never
 booted. The decision is taken before anything changes, because it also decides
 what is prepared: without a reboot the GRUB boot counter is not armed, the GRUB
 password is not lifted and `noout` is not set. The upgrade then runs from the
-lists the simulation read. A cluster member still goes to standby either way,
-since the upgrade restarts services under the guests, Open vSwitch among them.
-Without a reboot the playbook removes the snapshot and takes the member out of
-standby itself, once the upgrade succeeded.
+lists the simulation read. Only a member that reboots goes to standby. One
+that does not keeps its guests: a guest that cannot migrate live would be
+stopped and started on another member, a far longer outage than the upgrade
+causes by restarting services under it, Open vSwitch among them. Without a
+reboot the playbook removes the snapshot itself, once the upgrade succeeded.
+
+Pacemaker and Corosync are the exception. Debian stops `pacemaker` in the
+`prerm` of a new one and restarts `corosync` in its `postinst`, which stops
+`pacemaker` too, since it requires it. A member whose pacemaker stops hands its
+guests to the others, and a guest that cannot migrate live is stopped: the
+outage the standby was dropped to avoid, and in the middle of `dpkg`. When the
+simulation installs either package, the playbook puts the cluster in
+`maintenance-mode` for the upgrade, Pacemaker's own "detach and reattach"
+upgrade. The option is cluster wide: the node attribute `maintenance` would
+hold only this machine, but Pacemaker documents that it must not be restarted
+under it. The maintenance ends once the machine is back in a quorate partition
+and its guests were probed again, since ended earlier the others would take
+them for stopped and start them a second time. For the same reason a failure
+leaves it in place rather than end it with this machine out of the cluster.
+An empty `maintenance` file on the ESP, beside `standby` and `noout`, lets
+`system_check` end it at the next boot of a run that died, and the Updates page
+says it first, since it holds every guest of the cluster. A maintenance an
+operator set before the update is left as found.
+
+The standby is written with `crm_attribute --type nodes --name standby`, which
+asks the cluster how it names the machine. `crm node standby` with no node
+takes the hostname, and on a machine Pacemaker names otherwise it changed
+nothing, so the guests never left.
 
 **An update from the Updates page is followed by the check, in the same run.**
 A check launched by hand after each update left the table saying "updated since

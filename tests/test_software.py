@@ -356,6 +356,22 @@ def test_what_a_machine_left_undone_after_its_reboot_is_said() -> None:
     )
 
 
+def test_a_cluster_an_update_left_in_maintenance_is_said_first() -> None:
+    reading = software.parse_reading(
+        "elabo1",
+        _answer(
+            bootcount="bootcount=disabled\n",
+            pending=["/boot/efi/seapath_update/maintenance"],
+        ),
+    )
+
+    assert reading.unfinished == (
+        "The last update of this machine left the cluster in maintenance, so "
+        "Pacemaker restarts no guest that fails, on any member. journalctl -t "
+        "system_check on the machine says why."
+    )
+
+
 def test_an_answer_from_before_the_check_read_the_counter_says_nothing() -> None:
     assert software.parse_reading("elabo1", _answer()).unfinished is None
 
