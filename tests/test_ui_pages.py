@@ -2762,6 +2762,26 @@ def test_the_logs_page_offers_the_matches_before_the_pattern(
     assert "Narrows the scope above" in body
 
 
+def test_the_logs_page_lets_an_operator_name_the_units(
+    signed_in: TestClient,
+) -> None:
+    """A scope is a list, and a machine runs units no list written here holds.
+
+    Ceph's carry the cluster's own identifier, so the field takes a glob. What
+    it names replaces the scope rather than narrowing it, because journalctl
+    matches the values of one field as OR and two fields against each other as
+    AND, and the select goes grey to say so.
+    """
+    body = signed_in.get("/logs").text
+    script = signed_in.get("/static/logs.js").text
+
+    assert 'id="units"' in body
+    # A match, so it sits with the scope and before the pattern.
+    assert body.index('id="units"') < body.index('id="grep"')
+    assert 'built.append("unit", unit)' in script
+    assert 'element("scope").disabled' in script
+
+
 def test_the_logs_page_builds_its_controls_from_the_service(
     signed_in: TestClient,
 ) -> None:

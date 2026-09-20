@@ -9,6 +9,11 @@
 // entry of a 517 MB journal on a machine whose CPUs belong to its guests. The
 // page offers no way to send one.
 //
+// The units an operator names are a match of the same kind, and they replace
+// the scope rather than narrowing it: `journalctl` matches the values of one
+// field as OR and two fields against each other as AND, so a scope's units
+// beside theirs would ask for the lines that are both.
+//
 // The whole state of the page is in its query string, so a reading is a link.
 // That is what lets the VMs, Cluster and Runs pages send an operator here with
 // the question already asked, and what lets one operator paste what they are
@@ -52,6 +57,21 @@
     window.history.replaceState(null, "", url);
   }
 
+  // The units the field names, separated by a comma or by spaces. They reach
+  // the API as they were typed and are checked there, so a glob like `ceph*`
+  // is refused or accepted in one place rather than in two.
+  function namedUnits() {
+    return element("units")
+      .value.split(/[\s,]+/)
+      .filter((item) => item.length > 0);
+  }
+
+  // The select goes grey while the field holds anything, because what it says
+  // is then not what is being asked.
+  function scopeFollowsUnits() {
+    element("scope").disabled = namedUnits().length > 0;
+  }
+
   function selectedMachines() {
     return Array.from(
       document.querySelectorAll("#machines input[type=checkbox]:checked")
@@ -63,7 +83,12 @@
   // and saying so in the URL would pin a link to the cluster it was made on.
   function query() {
     const built = new URLSearchParams();
-    built.set("scope", element("scope").value);
+    const units = namedUnits();
+    if (units.length) {
+      units.forEach((unit) => built.append("unit", unit));
+    } else {
+      built.set("scope", element("scope").value);
+    }
     if (element("window").value === "fixed" && fixed) {
       built.set("since", fixed.since);
       if (fixed.until) {
@@ -90,7 +115,12 @@
   // moment it asks rather than pinning it when the page loaded.
   function apiPath(state) {
     const asked = new URLSearchParams();
-    asked.set("scope", state.get("scope"));
+    const units = state.getAll("unit");
+    if (units.length) {
+      units.forEach((unit) => asked.append("unit", unit));
+    } else {
+      asked.set("scope", state.get("scope"));
+    }
     asked.set("lines", state.get("lines"));
     if (state.get("since")) {
       asked.set("since", state.get("since"));
@@ -149,6 +179,8 @@
     });
 
     element("grep").value = state.get("grep") || "";
+    element("units").value = state.getAll("unit").join(", ");
+    scopeFollowsUnits();
 
     // Every machine is ticked when the link named none, which is what "the
     // cluster" means on this page.
@@ -178,7 +210,7 @@
   // nothing else, so everything else here comes from the service's own
   // defaults rather than from whichever option a select happens to list first.
   function defaults(state) {
-    if (!state.get("scope")) {
+    if (!state.get("scope") && state.getAll("unit").length === 0) {
       state.set("scope", sources.scopes[0].name);
     }
     if (!state.get("lines")) {
@@ -310,6 +342,8 @@
       );
       return;
     }
+
+    element("units").addEventListener("input", scopeFollowsUnits);
 
     element("window").addEventListener("change", (event) => {
       if (event.target.value !== "fixed") {

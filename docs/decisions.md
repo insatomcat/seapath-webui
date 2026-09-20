@@ -4880,8 +4880,8 @@ a search box over the cluster:
   was asked for, a guest that will not migrate.
 - **From `/cluster`,** the same three units when quorum or a resource moved.
 
-A free text field can come later, on top of the same engine, once the matches
-above are what it narrows.
+A free text field sits on the same engine, below, with the matches above as
+what it narrows.
 
 The merge is on `__REALTIME_TIMESTAMP`, and it means something because SEAPATH
 holds the clocks with PTP. The page says which machine each line came from, and
@@ -4890,6 +4890,55 @@ names the machines that did not answer beside the ones that did.
 `viewer` reads it, moved with `SEAPATH_WEBUI_LOGS_MIN_ROLE`. A journal carries
 command lines and service output, so a site that treats it as more than a
 reading raises the role, the way [D19](#d19) lets one lower the console's.
+
+### The scopes, and the units an operator names
+
+The four scopes this shipped with answered the questions it was asked for and
+nothing else, so a machine whose trouble was in Ceph, in the kernel or in
+`timemaster` was still read from a terminal. The list covers the subsystems a
+SEAPATH machine runs:
+
+| Scope | Matched on |
+|---|---|
+| Guests, libvirt and their placement | `libvirtd`, `pacemaker`, `corosync` |
+| Membership and quorum | `corosync`, `pacemaker` |
+| Everything at error and above | `PRIORITY` at `err` |
+| Ceph and the storage it serves | `ceph*` |
+| Clocks and time synchronisation | `timemaster`, `ptpstatus` |
+| The kernel and the hardware | `SYSLOG_IDENTIFIER=kernel` |
+| Logins, sudo and SSH | `sshd`, `sshd-session`, `sudo`, `su`, `systemd-logind` |
+| This management service | `seapath-webui` |
+| Everything these machines logged | `PRIORITY` at `debug` |
+
+Three things follow from it:
+
+- **A scope names units or identifiers, never both.** `journalctl` puts the
+  values of one field in a disjunction and the fields themselves in a
+  conjunction, so `-u timemaster.service -t ptp4l` asks for the lines that are
+  both, which is usually none of them. A scope after a daemon and its children
+  names the unit, since the children run in its cgroup and carry its
+  `_SYSTEMD_UNIT`; a scope after a program that runs under no unit of its own,
+  like the kernel or `sudo`, names the identifiers. The model refuses a scope
+  that names the two, so the trap is sprung once, here.
+- **A unit may be a glob.** A Ceph daemon carries the cluster's fsid in its
+  unit name, as in `ceph-46613678-...@mon.ccv1.service`, and nothing in the
+  inventory holds that identifier. `journalctl` resolves a pattern against the
+  unit names its own journal holds, which walks the index rather than the
+  entries, so `ceph*` keeps the property the whole design rests on.
+- **"Everything these machines logged" is a match on `PRIORITY` at `debug`,**
+  which satisfies the rule and selects nothing. What makes it affordable is the
+  line cap: `journalctl` walks back from the end of the journal and stops once
+  it has the entries it was asked for, so the reading costs what it returns, at
+  most two thousand entries per machine, rather than what the window spans. The
+  4.6 MB measured above is an unbounded hour, which no query this service
+  builds asks for.
+
+The free text field is the **Units** control beside the scope, taking one or
+several unit names or globs, separated by a comma or by spaces. What it names
+replaces the scope rather than being added to it, for the reason in the first
+point, and the select goes grey while the field holds anything. The pattern
+still applies to what those matches selected, which is the order the API
+enforces.
 
 ### Where the code goes
 

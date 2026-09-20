@@ -5,11 +5,12 @@ SPDX-License-Identifier: CC-BY-4.0
 The journal of every machine the inventory declares, asked now and merged here.
 Nothing is stored: what is on screen is what the machines still hold.
 
-The controls are a scope, a window and the machines, rather than a field over
-the cluster. A scope is a match on a field, which the journal serves from its
-index in milliseconds; a pattern with no match behind it scans, and takes
-seconds of a hypervisor's CPU. The page therefore offers the matches first and
-the pattern on top of them, and the API refuses the other order. See D63.
+The controls are a scope or the units an operator names, a window and the
+machines, rather than a free field over the cluster. Both are matches on a
+field, which the journal serves from its index in milliseconds; a pattern with
+no match behind it scans, and takes seconds of a hypervisor's CPU. The page
+therefore offers the matches first and the pattern on top of them, and the API
+refuses the other order. See D63.
 #}
 {% extends "base.html" %}
 {% from "_controls.html" import reread %}
@@ -32,6 +33,11 @@ the pattern on top of them, and the API refuses the other order. See D63.
       <label class="field">
         <span>Scope</span>
         <select id="scope"></select>
+      </label>
+      <label class="field log-units">
+        <span>Units</span>
+        <input type="search" id="units" placeholder="Replaces the scope, e.g. ceph*"
+               autocomplete="off" spellcheck="false">
       </label>
       <label class="field">
         <span>Window</span>
@@ -79,7 +85,10 @@ the pattern on top of them, and the API refuses the other order. See D63.
     <p class="legend" id="empty" hidden></p>
 
     <p class="help">
-      Every machine is asked at once, over the same SSH connection a run
+      A scope is a set of units or a priority, and naming units takes its
+      place: several are separated by a comma or a space, and a glob reaches
+      the ones whose name a machine decides, as Ceph's carry the cluster's
+      identifier. Every machine is asked at once, over the same SSH connection a run
       makes, and one that does not answer is named above rather than failing
       the reading. The lines of all of them are interleaved by their own
       timestamps, which is meaningful because the cluster holds its clocks with

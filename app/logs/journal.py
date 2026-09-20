@@ -64,10 +64,16 @@ FIELDS = (
     "_PID",
 )
 
-#: A systemd unit name, as the units of a SEAPATH machine are named. The `@`
-#: and the long hexadecimal in `ceph-<fsid>@mon.ccv1.service` are why this is
-#: wider than a first guess.
-UNIT = re.compile(r"^[A-Za-z0-9:_.@-]{1,128}$")
+#: A systemd unit name, as the units of a SEAPATH machine are named, or a glob
+#: over them. The `@` and the long hexadecimal in `ceph-<fsid>@mon.ccv1.service`
+#: are why this is wider than a first guess, and the `*` is why it has to be:
+#: that identifier belongs to the cluster, nothing in the inventory holds it,
+#: and `ceph*` is the only way to name those units without reading them off a
+#: machine first. `journalctl` resolves a glob against the unit names its own
+#: journal holds, which walks the index rather than the entries, and the
+#: pattern reaches the far end as one argument because `command()` quotes it
+#: for both shells it crosses.
+UNIT = re.compile(r"^[A-Za-z0-9:_.@*?-]{1,128}$")
 
 #: A syslog identifier, which is what a program that writes to the journal
 #: without a unit is found by.

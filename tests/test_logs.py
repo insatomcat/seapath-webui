@@ -205,6 +205,23 @@ def test_the_units_a_seapath_machine_actually_runs_are_accepted() -> None:
     )
 
 
+def test_a_glob_over_unit_names_is_accepted() -> None:
+    # A Ceph daemon carries the cluster's fsid in its unit name and nothing in
+    # the inventory holds that identifier, so `ceph*` is the only way to name
+    # those units. `journalctl` resolves the pattern against the unit names its
+    # own journal holds, which is still the index.
+    built = journal.argv(journal.checked(a_query(units=("ceph*",))))
+    assert built[built.index("--unit") + 1] == "ceph*"
+
+
+def test_a_glob_reaches_the_far_end_as_one_argument() -> None:
+    # It crosses the remote shell and then `sh -c`, and a `*` that either of
+    # them expanded would become the names of the files in a home directory.
+    command = journal.command(journal.checked(a_query(units=("ceph*",))))
+    inner = shlex.split(shlex.split(command)[-1])
+    assert "ceph*" in inner
+
+
 def test_an_identifier_that_is_not_one_is_refused() -> None:
     with pytest.raises(Refused, match="not a syslog identifier"):
         journal.checked(a_query(identifiers=("kernel; id",)))
@@ -252,6 +269,26 @@ def test_an_unchecked_query_never_reaches_a_command_line() -> None:
     # test, or by a caller that skipped `checked`, produces no argv at all.
     with pytest.raises(Refused, match="only once it is checked"):
         journal.argv(a_query())
+
+
+def test_a_scope_naming_both_units_and_identifiers_is_refused() -> None:
+    """The trap a scope must not fall into, held by the model itself.
+
+    `journalctl` matches the values of one field as OR and two fields against
+    each other as AND, so a scope naming a unit and an identifier would ask for
+    the lines that are both, which is usually none of them.
+    """
+    import pydantic
+
+    from app.services.logs import Scope
+
+    with pytest.raises(pydantic.ValidationError, match="as AND"):
+        Scope(
+            name="time",
+            label="Clocks",
+            units=("timemaster.service",),
+            identifiers=("ptp4l",),
+        )
 
 
 # What is sent
@@ -598,6 +635,64 @@ def test_the_errors_scope_is_a_priority_and_needs_no_unit(client: TestClient) ->
     assert "--priority 3" in answers.requests[0].command
 
 
+def test_a_scope_over_programs_that_run_under_no_unit_matches_on_identifiers(
+    client: TestClient,
+) -> None:
+    # The kernel runs under no unit, so the scope that reads what it printed is
+    # a match on `SYSLOG_IDENTIFIER` rather than on a unit.
+    answers = Answers({})
+    build(client, answers)
+    response = client.get("/api/v1/logs", params={"scope": "kernel"})
+    assert response.status_code == 200, response.text
+    assert "--identifier kernel" in answers.requests[0].command
+
+
+def test_the_storage_scope_names_the_ceph_units_by_glob(client: TestClient) -> None:
+    answers = Answers({})
+    build(client, answers)
+    response = client.get("/api/v1/logs", params={"scope": "storage"})
+    assert response.status_code == 200, response.text
+    # Read back through both shells it crosses, since a `*` either of them
+    # expanded would become the names of the files in a home directory.
+    inner = shlex.split(shlex.split(answers.requests[0].command)[-1])
+    assert inner[inner.index("--unit") + 1] == "ceph*"
+
+
+def test_the_whole_journal_is_a_scope_bounded_by_the_line_cap(
+    client: TestClient,
+) -> None:
+    """Everything a machine logged, which is `debug` and everything above it.
+
+    It is a match on `PRIORITY`, so the rule holds, and it selects nothing:
+    what makes it affordable is that `journalctl` walks back from the end of
+    the journal and stops once it has the entries it was asked for, so it costs
+    what it returns rather than what the window spans.
+    """
+    answers = Answers({})
+    build(client, answers)
+    response = client.get(
+        "/api/v1/logs", params={"scope": "all", "lines": journal.MAX_LINES}
+    )
+    assert response.status_code == 200, response.text
+    command = answers.requests[0].command
+    assert f"--priority {journal.MAX_PRIORITY}" in command
+    assert f"--lines={journal.MAX_LINES}" in command
+
+
+def test_units_a_caller_names_are_asked_for_on_their_own(client: TestClient) -> None:
+    # What the page sends once an operator names units: no scope, so nothing is
+    # ORed into their question and nothing is ANDed against it either.
+    answers = Answers({})
+    build(client, answers)
+    response = client.get(
+        "/api/v1/logs", params={"unit": ["ceph*", "libvirtd.service"]}
+    )
+    assert response.status_code == 200, response.text
+    command = answers.requests[0].command
+    assert command.count("--unit") == 2
+    assert "pacemaker.service" not in command
+
+
 def test_a_scope_and_a_pattern_compose(client: TestClient) -> None:
     answers = Answers({})
     build(client, answers)
@@ -643,7 +738,12 @@ def test_the_page_reads_the_scopes_and_the_machines_from_the_service(
         "guests",
         "cluster",
         "errors",
+        "storage",
+        "time",
+        "kernel",
+        "access",
         "service",
+        "all",
     ]
     assert {machine["host"] for machine in body["machines"]} == {
         "seapath-machine",

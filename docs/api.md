@@ -1190,8 +1190,18 @@ run takes, merged here and stored nowhere. See [D63](decisions.md#d63).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/logs/sources` | What the page builds its controls from: `scopes`, each with a `name`, a `label` and the `units` or `priority` it matches on; `machines`, the ones the inventory declares with an address, which are the ones a reading asks; and the defaults, `default_window_minutes`, `default_lines` and `max_lines` |
+| GET | `/logs/sources` | What the page builds its controls from: `scopes`, each with a `name`, a `label` and the `units`, `identifiers` or `priority` it matches on; `machines`, the ones the inventory declares with an address, which are the ones a reading asks; and the defaults, `default_window_minutes`, `default_lines` and `max_lines` |
 | GET | `/logs` | Every machine's journal over one window, merged, oldest first. `entries` carries `host`, `timestamp`, `message`, `priority`, `unit`, `identifier`, `pid` and `cursor`; `machines` one row per machine asked, with `answered`, `returned`, `capped` and the `error` of one that did not answer; `warnings` names what could not be read; `truncated` says older entries matched and were left out. Parameters: `scope`, `unit` and `identifier` repeatable, `priority`, `grep`, `since` and `until` as RFC 3339, `lines`, and `host` repeatable. `viewer` |
+
+**A scope, or the units a caller names.** A scope is a set of units, or a set
+of syslog identifiers, or a priority, listed by `/logs/sources` and folded into
+whatever else the caller sent. `journalctl` matches the values of one field as
+OR and two fields against each other as AND, so `scope=kernel&unit=...` asks
+for the lines that are both: name units instead of a scope rather than beside
+one. A unit may be a glob, which is how the Ceph daemons are reached, since
+their unit names carry the cluster's own identifier. The widest scope is `all`,
+a match on `PRIORITY` at `debug`, which is every entry a journal holds, bounded
+by the window and by `lines`.
 
 **A query carries at least one match on a field,** meaning a scope, a unit, an
 identifier or a priority. Without one, `journalctl` scans every entry rather

@@ -3463,10 +3463,15 @@ button.quadlet-open:hover {
   min-width: 9rem;
 }
 
-/* The pattern takes whatever the controls before it left. It is the only
-   field whose content has no bound, so it is the one that should grow. */
+/* The two fields an operator types into take whatever the selects before
+   them left. They are the only ones whose content has no bound, so they are
+   the ones that should grow, and the pattern grows first. */
+.log-filters .log-units {
+  flex: 1 1 11rem;
+}
+
 .log-filters .log-pattern {
-  flex: 1 1 14rem;
+  flex: 2 1 14rem;
 }
 
 .log-filters .log-machines {

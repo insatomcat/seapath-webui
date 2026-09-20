@@ -189,18 +189,25 @@ def _query(
     than replacing them, so `scope=guests&host=node2&grep=migrat` is the shape
     the page builds and `unit=...` alone is the shape an automation client
     writes.
+
+    Naming units beside a scope built on identifiers, or the other way round,
+    asks for the lines that are both: `journalctl` matches the values of one
+    field as OR and the fields against each other as AND. The page therefore
+    sends its own units instead of a scope rather than beside one.
     """
     units = list(unit)
+    identifiers = list(identifier)
     if scope is not None:
         named: Scope = service.scope(scope)
         units += [name for name in named.units if name not in units]
+        identifiers += [name for name in named.identifiers if name not in identifiers]
         if priority is None:
             priority = named.priority
     return journal.Query(
         since=_since(since),
         until=_utc(until),
         units=tuple(units),
-        identifiers=tuple(identifier),
+        identifiers=tuple(identifiers),
         priority=priority,
         grep=grep,
         lines=lines,

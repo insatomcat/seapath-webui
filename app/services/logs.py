@@ -41,7 +41,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from app.core.auth import Role
 from app.hosts.remote import RemoteRefused, RemoteRequest, RemoteRunner
@@ -74,8 +74,8 @@ class Scope(BaseModel):
 
     D63 asks for views bounded by construction rather than a search box over
     the cluster, and these are the bounds. Each one is a match on a field, so
-    each one is served from the journal's index, and an operator who picks one
-    from a list cannot write the query that scans.
+    each one is served from the journal's index rather than by a scan of the
+    entries.
 
     A unit named here that a machine does not run matches nothing, which is
     the right answer on a mixed inventory: an observer runs no `libvirtd` and
@@ -85,12 +85,33 @@ class Scope(BaseModel):
     name: str
     label: str
     units: tuple[str, ...] = ()
+    identifiers: tuple[str, ...] = ()
     priority: int | None = None
+
+    @model_validator(mode="after")
+    def _one_field_only(self) -> Scope:
+        """Units or identifiers, never both, because the two are matched as AND.
+
+        `journalctl` puts the values of one field in a disjunction and the
+        fields themselves in a conjunction, so `-u timemaster.service -t ptp4l`
+        asks for the lines that are both, which is not what a scope naming the
+        two ever means. A scope after a daemon and its children names the unit,
+        since the children run in its cgroup and carry its `_SYSTEMD_UNIT`; a
+        scope after programs that run under no unit of their own, like the
+        kernel or `sudo`, names the identifiers.
+        """
+        if self.units and self.identifiers:
+            raise ValueError(
+                f"Scope {self.name!r} names both units and identifiers, which "
+                "journalctl matches as AND rather than as OR."
+            )
+        return self
 
 
 #: The scopes the API offers, and the page's buttons. Ordered as an operator
 #: reaches for them: the guests first, because a guest that will not migrate is
-#: the question this feature was asked for.
+#: the question this feature was asked for, then the subsystems, and the whole
+#: journal last.
 SCOPES: tuple[Scope, ...] = (
     Scope(
         name="guests",
@@ -111,9 +132,59 @@ SCOPES: tuple[Scope, ...] = (
         priority=3,
     ),
     Scope(
+        name="storage",
+        label="Ceph and the storage it serves",
+        # A glob, because a Ceph daemon carries the cluster's fsid in its unit
+        # name, as in `ceph-46613678-...@mon.ccv1.service`, and nothing in the
+        # inventory holds that identifier. `journalctl` resolves the pattern
+        # against the unit names its own journal holds, so this stays a match
+        # on a field. It covers `ceph-crash` and `ceph-volume` as well, which
+        # is the right answer for a disk that went away.
+        units=("ceph*",),
+    ),
+    Scope(
+        name="time",
+        label="Clocks and time synchronisation",
+        # The units rather than `ptp4l` and `phc2sys` by name: `timemaster`
+        # runs both as children, so what they print carries its
+        # `_SYSTEMD_UNIT`, and naming the identifiers beside the unit would ask
+        # for the lines that are both. D27 reads the offset from the exporter;
+        # this is what the daemons said while it drifted.
+        units=("timemaster.service", "ptpstatus.service"),
+    ),
+    Scope(
+        name="kernel",
+        label="The kernel and the hardware",
+        # The kernel runs under no unit, so it is found by its identifier. This
+        # is the scope for a link that went down, a disk that reset and an
+        # `isolcpus` the machine did not take.
+        identifiers=("kernel",),
+    ),
+    Scope(
+        name="access",
+        label="Logins, sudo and SSH",
+        # `sshd-session` beside `sshd` because OpenSSH 9.8 split the session
+        # off into its own binary, which logs under its own identifier: a
+        # machine running the newer one says nothing under `sshd` alone.
+        identifiers=("sshd", "sshd-session", "sudo", "su", "systemd-logind"),
+    ),
+    Scope(
         name="service",
         label="This management service",
         units=("seapath-webui.service",),
+    ),
+    Scope(
+        name="all",
+        label="Everything these machines logged",
+        # `debug` and everything more urgent, which is every entry a journal
+        # holds. It is a match on `PRIORITY` and so satisfies the rule, and it
+        # selects nothing: what makes it affordable is the line cap, since
+        # `journalctl` walks back from the end of the journal and stops once it
+        # has the entries it was asked for. So this costs what it returns, at
+        # most `MAX_LINES` per machine, rather than what the window spans. It
+        # is the scope for a machine whose trouble is not in any of the ones
+        # above, and the pattern is what narrows it.
+        priority=journal.MAX_PRIORITY,
     ),
 )
 
