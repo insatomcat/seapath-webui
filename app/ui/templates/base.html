@@ -207,9 +207,25 @@ SPDX-License-Identifier: Apache-2.0
         </button>
         {# Whether a newer seapath-webui exists, and the upgrade to it. An
            administrator's, since the upgrade pins and deploys: drawn hidden,
-           and shown by `version.js` to the role that can use it. #}
-        <button type="button" id="version-button" class="secondary version-button"
-                hidden>Check version</button>
+           and shown by `version.js` to the role that can use it.
+
+           Two glyphs and a word, one shown at a time by `version.js`: the
+           question it asks and the answer that there is nothing to do are
+           glyphs beside the other switches of the bar, and only the version
+           it offers to deploy is worth a word. #}
+        <button type="button" id="version-button"
+                class="secondary version-button version-glyph" hidden>
+          <svg data-version-glyph="ask" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2.6v7"></path>
+            <path d="M5 6.8 8 9.8l3-3"></path>
+            <path d="M3 12.4h10"></path>
+          </svg>
+          <svg data-version-glyph="settled" viewBox="0 0 16 16" aria-hidden="true"
+               hidden>
+            <path d="M3.2 8.4 6.4 11.6l6.4-7.2"></path>
+          </svg>
+          <span data-version-label hidden></span>
+        </button>
         <span id="identity">{{ identity }}</span>
         <button id="logout" type="button">Sign out</button>
       </div>

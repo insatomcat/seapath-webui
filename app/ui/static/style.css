@@ -440,6 +440,37 @@ button[aria-busy="true"] {
   white-space: nowrap;
 }
 
+/* Its two quiet states, the question and the answer that there is nothing to
+   do, drawn as a glyph the size of the switches beside it: they are worth a
+   place in the bar and not a sentence of it. The states that name a version
+   keep the button's own shape. */
+.version-button.version-glyph {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  padding: 0;
+  border-radius: 999px;
+  color: var(--muted);
+}
+
+.version-button.version-glyph:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Stroked rather than filled, so one glyph works on both grounds. */
+.version-button svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 /* A newer version, or one pinned and not deployed: the one button of the bar
    that asks for an act, drawn as one. */
 .version-button.version-due {
