@@ -160,6 +160,44 @@ BAN_PREFIX = "cli-ban-"
 PIN_PREFIX = "pin-"
 
 
+def running(cluster: PacemakerCluster, resource: str) -> PacemakerResource | None:
+    """The one line that says where a guest is, out of the several Pacemaker sends.
+
+    Pacemaker reports a resource once per node it holds a record for, and more
+    than one exactly when the guest is moving: the node it leaves carries
+    `migrating` and the node it arrives on carries `started`. Both say
+    `status=active` and both are true at that moment.
+
+    Which one the page leads with cannot be left to the order they arrive in.
+    Keyed by the resource alone, the last read won, which is the node name that
+    sorts highest: the same migration reads as the destination going one way
+    and as the source going the other, and half the time the row names the
+    machine the guest has just left and offers Start on a guest that is
+    running. So the line kept is the one that answers the question the column
+    asks, which is where the guest is running now.
+
+    A failure comes next, because a resource that failed somewhere and runs
+    nowhere is a finding rather than an absence. Past that the order is the
+    node name, so a reading with nothing to choose between is at least the same
+    reading twice.
+
+    The Cluster page keeps showing every line, which is where the whole of what
+    Pacemaker said belongs.
+    """
+    instances = [item for item in cluster.resources if item.id == resource]
+    if not instances:
+        return None
+
+    def rank(line: PacemakerResource) -> tuple[int, str]:
+        if line.role == "started" and not line.failed:
+            return 0, line.node
+        if line.failed:
+            return 1, line.node
+        return 2, line.node
+
+    return min(instances, key=rank)
+
+
 def preference(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
     """The `cli-prefer` constraint holding a resource, when there is one.
 

@@ -2265,3 +2265,88 @@ def test_deleting_the_sources_is_an_administrator_s_act(client: TestClient) -> N
     operator = sign_in(client, "operator")
 
     assert operator.post("/api/v1/vms/vm-guest1/delete-sources").status_code == 403
+
+
+def _moving(started_on: str, migrating_on: str) -> str:
+    """One exposition for a guest Pacemaker reports on two nodes at once.
+
+    What `crm_mon` publishes while a guest is migrating: the node it leaves
+    carries `migrating`, the node it arrives on carries `started`, and both
+    say `status=active`. The same two lines are what a collector serving a
+    series its exporter has stopped publishing leaves behind afterwards.
+    """
+    lines = [
+        f'ha_cluster_pacemaker_nodes{{node="{node}",type="member",status="online"}} 1'
+        for node in ("node1", "node3")
+    ]
+    lines += [
+        f'ha_cluster_pacemaker_resources{{node="{node}",resource="vm-guest1",'
+        f'role="{role}",managed="true",status="active",'
+        'agent="ocf::seapath:VirtualDomain",group="",clone=""} 1'
+        for node, role in ((started_on, "started"), (migrating_on, "migrating"))
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def test_a_guest_reported_on_two_nodes_is_read_on_the_one_it_runs_on(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    """Both directions, because the bug this covers was direction dependent.
+
+    The lines used to be collapsed by resource id alone, so the one kept was
+    whichever sorted last by node name: the same migration read as the
+    destination going one way and as the source going the other.
+    """
+    from app.cluster import fake
+
+    for started_on, migrating_on in (("node1", "node3"), ("node3", "node1")):
+        monkeypatch.setitem(
+            fake.HA_EXPORTERS, "10.132.159.60", _moving(started_on, migrating_on)
+        )
+        signed_in.post(
+            "/api/v1/inventory/import",
+            json={"document": CLUSTER.read_text() + GUESTS},
+        )
+        # `fresh` because the two readings are milliseconds apart and the
+        # scrape window would answer the second with the first one's answer.
+        guests = signed_in.get("/api/v1/vms", params={"fresh": 1}).json()["guests"]
+        resource = {item["name"]: item for item in guests}["vm-guest1"]["resource"]
+
+        assert resource["node"] == started_on
+        assert resource["role"] == "started"
+
+
+def test_a_domain_two_machines_report_is_read_on_the_one_running_it(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    """The same rule for libvirt, where the first machine asked used to win.
+
+    A guest that has moved is defined on both ends of the migration, and the
+    machine whose exporter answers first is the first of the inventory rather
+    than the one running the domain.
+    """
+    from app.cluster import fake
+
+    def exposition(state: int, description: str) -> str:
+        return (
+            "libvirt_up 1\n"
+            f'libvirt_domain_info_state{{domain="vm-guest1",'
+            f'state_desc="{description}"}} {state}\n'
+        )
+
+    # node1 is asked first and holds the definition the guest has left behind.
+    monkeypatch.setitem(
+        fake.LIBVIRT_EXPORTERS, "10.132.159.60", exposition(5, "the domain is shut off")
+    )
+    monkeypatch.setitem(
+        fake.LIBVIRT_EXPORTERS, "10.132.159.62", exposition(1, "the domain is running")
+    )
+    signed_in.post(
+        "/api/v1/inventory/import",
+        json={"document": CLUSTER.read_text() + GUESTS},
+    )
+
+    domain = _guests(signed_in)["vm-guest1"]["domain"]
+
+    assert domain["host"] == "node3"
+    assert domain["running"] is True

@@ -411,3 +411,43 @@ def test_the_page_is_offered_the_members_a_guest_may_be_sent_to(
 
     assert view["placement_nodes"] == ["seapath-machine"]
     assert "elabo2" not in view["placement_nodes"]
+
+
+def test_a_move_reads_the_node_the_guest_runs_on_while_it_is_migrating(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    """The refusal above has to survive the moment a guest is on two nodes.
+
+    Pacemaker reports the node a guest is leaving as well as the one it runs
+    on, and the leaving line sorts first here. Read that way, a move to the
+    node the guest is already on was let through and failed on the machine
+    three minutes later, which is the failure the refusal exists to prevent.
+    """
+    from app.cluster import fake
+
+    # Every member, because the reading taken is the coordinator's and the fan
+    # out asks every machine the inventory declares.
+    moving = (
+        fake._pacemaker()
+        + 'ha_cluster_pacemaker_resources{node="elabo1",resource="vm-guest1",'
+        'role="migrating",managed="true",status="active",'
+        'agent="ocf::seapath:VirtualDomain",group="",clone=""} 1\n'
+    )
+    for address in fake.HA_EXPORTERS:
+        monkeypatch.setitem(fake.HA_EXPORTERS, address, moving)
+    client = _cluster(signed_in)
+
+    refused = client.post(
+        "/api/v1/cluster/resources/vm-guest1/move",
+        json={"node": "seapath-machine"},
+    )
+    assert refused.status_code == 409, refused.text
+    assert refused.json()["error"]["code"] == "already_there"
+
+    # And the node it is leaving is still somewhere it can be sent.
+    accepted = client.post(
+        "/api/v1/cluster/resources/vm-guest1/move",
+        json={"node": "elabo1"},
+        headers={"X-Fresh": "1"},
+    )
+    assert accepted.status_code == 202, accepted.text

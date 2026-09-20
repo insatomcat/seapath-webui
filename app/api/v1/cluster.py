@@ -290,10 +290,10 @@ def _elsewhere(cluster: PacemakerCluster, name: str, node: str) -> None:
     CIB again would leave the inventory still not describing the cluster, which
     is the thing the VMs page marks the row for.
     """
-    current = next(
-        (item.node for item in cluster.resources if item.id == name and item.node),
-        "",
-    )
+    # The line that says where it runs. Pacemaker sends several while a guest
+    # is moving, and the rest name the node it is leaving.
+    line = ha.running(cluster, name)
+    current = line.node if line is not None else ""
     if current and current == node:
         raise ApiError(
             "already_there",

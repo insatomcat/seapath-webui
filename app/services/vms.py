@@ -34,8 +34,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from app.cluster import ha
 from app.cluster.exporters import MetricsClient, UrllibMetricsClient, read_all
-from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResource
+from app.cluster.ha import (
+    LocationConstraint,
+    PacemakerCluster,
+    PacemakerResource,
+)
 from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
@@ -1116,6 +1121,12 @@ class VmService:
 
         A machine that does not answer costs its own domains and nothing else,
         which is the ordinary state of a machine being built.
+
+        Two machines describing the same domain is the same moment as two
+        Pacemaker lines for one resource: a guest that is moving is defined on
+        both ends of the migration, and the machine that answers first is the
+        first of the inventory rather than the one running it. The domain that
+        is running wins, for the reason `ha.running` gives.
         """
         if state.inventory is None:
             return {}
@@ -1132,7 +1143,9 @@ class VmService:
                 continue
             reading = read_libvirt(exposition)
             for domain in reading.domains:
-                found.setdefault(domain.name, domain)
+                kept = found.get(domain.name)
+                if kept is None or (domain.running and not kept.running):
+                    found[domain.name] = domain
         return found
 
     def displays(self) -> DisplaysView:
@@ -1226,12 +1239,15 @@ class VmService:
         held: dict[str, list[LocationConstraint]] = {}
         for constraint in cluster.constraints:
             held.setdefault(constraint.resource, []).append(constraint)
+        # Through `ha.running`: Pacemaker sends one line per node it holds a
+        # record for, and the page leads with the one that says where the
+        # guest is.
+        named = {
+            resource.id for resource in cluster.resources if VM_AGENT in resource.agent
+        }
+        found = {name: ha.running(cluster, name) for name in named}
         return (
-            {
-                resource.id: resource
-                for resource in cluster.resources
-                if VM_AGENT in resource.agent
-            },
+            {name: line for name, line in found.items() if line is not None},
             held,
             _FROM_PACEMAKER,
         )
