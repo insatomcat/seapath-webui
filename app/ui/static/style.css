@@ -557,6 +557,12 @@ dd {
   min-width: 26rem;
 }
 
+/* Except as a record, where the name has a line of its own and the floor
+   would be the last thing making the card scroll sideways. */
+#card-disks table.stacked {
+  min-width: 0;
+}
+
 /* And when even that is not enough, on a narrow window, the table scrolls
    inside its own card rather than over the one next to it. */
 .table-scroll {
@@ -570,6 +576,16 @@ dd {
 #card-network .table-scroll {
   max-height: 15rem;
   overflow-y: auto;
+}
+
+/* A phone, where those eight rows are records of six lines each and the cap
+   would show one and a half of them. A panel scrolling inside a page that is
+   already scrolling is a thumb fighting two surfaces, so the card takes its
+   height and the page carries it. */
+@media (max-width: 49.6rem) {
+  #card-network .table-scroll {
+    max-height: none;
+  }
 }
 
 /* Which column is the MAC and which is the driver stops being obvious once the
@@ -664,6 +680,102 @@ td button {
   border: 1px solid var(--line);
   color: var(--muted);
   font-weight: 400;
+}
+
+/* A phone, and a table with more columns than the screen has room for. Nine
+   of them describe a guest, and on a 390 pixel screen four fitted: the rest
+   was behind a sideways scroll inside the card, which is where a reading goes
+   to be missed. The row becomes a record instead, one line per column, the
+   column's own heading in front of the value.
+
+   `static/narrow.js` writes the class and the labels, and it writes them only
+   where the table overflowed the card as a table: two columns of device and
+   state read better as the table they are. The heading of the first column is
+   dropped, since the value under it is the name of the thing the record is
+   about and every one of these tables leads with it. */
+@media (max-width: 49.6rem) {
+  table.stacked,
+  table.stacked tbody {
+    display: block;
+  }
+
+  table.stacked thead {
+    display: none;
+  }
+
+  /* The row is the record. Its cells are laid out rather than stacked, so
+     that the controls at the end of it, which carry no heading, come back
+     together on one line instead of one button per line. */
+  table.stacked tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.3rem 0.5rem;
+    padding: 0.55rem 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  table.stacked tr:last-child {
+    border-bottom: 0;
+  }
+
+  /* One line each, and a value with no break opportunity of its own, a
+     `by-path` name or a MAC address, breaks rather than widening the card. */
+  table.stacked td {
+    flex: 0 0 100%;
+    padding: 0.1rem 0;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+
+  /* A column the page left empty on this row says nothing worth a line. */
+  table.stacked td:empty {
+    display: none;
+  }
+
+  table.stacked td[data-label] {
+    position: relative;
+    padding-left: 7.5rem;
+    min-height: 1.4em;
+  }
+
+  table.stacked td[data-label]::before {
+    content: attr(data-label);
+    position: absolute;
+    left: 0;
+    width: 7rem;
+    color: var(--muted);
+    font-size: 0.9em;
+  }
+
+  /* The name of the record, which is the first column that has a heading. On
+     the Updates table that is the second one: the first holds the checkbox
+     choosing the machine, and it keeps the line the name is on rather than
+     sitting alone above it. */
+  table.stacked td:first-child,
+  table.stacked td:first-child:not([data-label]) + td[data-label] {
+    padding-left: 0;
+    font-weight: 600;
+  }
+
+  table.stacked td:first-child::before,
+  table.stacked td:first-child:not([data-label]) + td[data-label]::before {
+    content: none;
+  }
+
+  table.stacked td:first-child:not([data-label]) + td[data-label] {
+    flex: 1 1 auto;
+  }
+
+  /* The controls of the row, side by side under it. */
+  table.stacked td:not([data-label]) {
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+
+  table.stacked td button {
+    padding: 0.3rem 0.7rem;
+  }
 }
 
 .tag {
@@ -2540,7 +2652,11 @@ button.secondary {
   min-height: 0;
   flex: 1 1 auto;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(44rem, 1fr));
+  /* `min(44rem, 100%)`, the same floor the page grid takes, because a track
+     with a fixed minimum is a track wider than a phone: the column kept its
+     44rem, the panel scrolled sideways, and the sentence under the table was
+     cut off mid-word. */
+  grid-template-columns: repeat(auto-fit, minmax(min(44rem, 100%), 1fr));
   gap: 0 2rem;
   align-items: start;
 }
@@ -2997,6 +3113,17 @@ td > button.leftover svg {
 .card-head .card-acts button {
   flex: none;
   white-space: nowrap;
+}
+
+/* A phone. The heading and three acts are wider than the screen, and holding
+   them on one line pushed the page itself sideways: the whole document
+   scrolled, taking the top bar and every other card with it. They wrap here,
+   and the acts stay together. */
+@media (max-width: 49.6rem) {
+  .card-head,
+  .card-head .card-acts {
+    flex-wrap: wrap;
+  }
 }
 
 /* Three buttons read as one control: which guests the table lists. */

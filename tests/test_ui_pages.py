@@ -61,6 +61,8 @@ def test_each_page_loads_its_own_script_and_the_shared_chrome(
     assert script in body
     assert "chrome.js" in body
     assert "api.js" in body
+    # Every page here has a table, and on a phone every one of them folds.
+    assert "narrow.js" in body
 
 
 @pytest.mark.parametrize(
@@ -156,6 +158,79 @@ def test_a_form_control_is_the_size_of_the_text_beside_it(
     # button on screen is drawn a size larger than the page around it.
     assert "html {\n  font-size: 80%;" in css
     assert "button,\ninput,\nselect,\ntextarea {\n  font: inherit;\n}" in css
+
+
+def test_a_table_too_wide_for_a_phone_is_read_as_a_list_of_records(
+    signed_in: TestClient,
+) -> None:
+    """Nine columns of a guest do not fit a phone screen.
+
+    They scrolled sideways inside their own card, which is where a reading goes
+    to be missed: four columns were on screen and the address, the acts and the
+    placement were behind a gesture nothing announced. The row is drawn as a
+    record instead, one line per column with the column's own heading in front
+    of the value.
+    """
+    css = signed_in.get("/static/style.css").text
+
+    phone = css.split("@media (max-width: 49.6rem) {\n  table.stacked,")[1]
+    assert "table.stacked thead {\n    display: none;" in phone
+    # The heading of the column, carried down to the cell by `narrow.js`, is
+    # what replaces the header row that is no longer drawn.
+    assert "content: attr(data-label);" in phone
+    # The first column that has a heading holds the name of the thing the
+    # record is about, so it is the record's title rather than a labelled
+    # value. On the Updates table that is the second column: the first holds
+    # the checkbox choosing the machine, and it keeps the line the name is on
+    # rather than sitting alone above it.
+    assert "table.stacked td:first-child::before,\n" in phone
+    assert (
+        "table.stacked td:first-child:not([data-label]) + td[data-label]::before {"
+        "\n    content: none;"
+    ) in phone
+
+
+def test_only_a_table_that_overflows_its_card_is_folded(
+    signed_in: TestClient,
+) -> None:
+    """A table of two columns reads perfectly well as a table on a phone.
+
+    Folding every table below the breakpoint would turn the SBD devices, two
+    columns and one row, into a page of labelled values. The question asked is
+    whether this table overflows the card it is in, and it is asked of the
+    table as a table, which is why the class comes off before the measurement.
+    """
+    script = signed_in.get("/static/narrow.js").text
+
+    assert 'table.classList.remove("stacked");' in script
+    assert "frame.scrollWidth > frame.clientWidth + 1" in script
+    # A folded table is taller than the table it replaces, so writing the class
+    # resizes the frame around it. Acting on that would take the class off,
+    # restore the height, and put it back forever.
+    assert "if (widths.get(entry.target) === width) {" in script
+
+
+def test_the_labels_are_the_headings_the_page_itself_wrote(
+    signed_in: TestClient,
+) -> None:
+    """The cells carry no heading: every table here is filled by its page's script.
+
+    A header cell the page has hidden is a column its rows do not carry either,
+    so it is left out of the count. The Creation column of the guest list
+    appears and disappears with the guests on screen, and a label that counted
+    it would be one column out on every row.
+    """
+    script = signed_in.get("/static/narrow.js").text
+
+    assert ".filter((cell) => !cell.hidden)" in script
+    assert "cell.dataset.label = name;" in script
+    # A row is refilled long after this file has run, so the document is
+    # watched rather than the fourteen page scripts being taught about phones.
+    assert "new MutationObserver(" in script
+    # And only where a table was part of what changed: a run streams its events
+    # into the window over the page several lines a second, and measuring every
+    # table against every one of them is a layout on each frame.
+    assert 'record.target.closest("table")' in script
 
 
 def test_the_two_inventory_lines_stay_inside_their_column(
