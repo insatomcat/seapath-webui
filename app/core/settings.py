@@ -68,6 +68,16 @@ class Settings(BaseSettings):
     # choice: it is the module's default, and only the active manager serves
     # it, so every machine is asked and the one that answers is the manager.
     ceph_exporter_port: int = 9283
+    # Where `deploy_otel_collector` serves all of the above at once, over TLS,
+    # on the machines that carry `deploy_otel_collector_enabled`. Those
+    # machines answer on nothing else: the role moves their exporters to the
+    # loopback, which is the whole point of deploying it.
+    collector_port: int = 9464
+    # The CA every collector certificate is verified against, for a site that
+    # issues them. Left unset, each machine's certificate is read once over
+    # the SSH connection a run already makes and pinned under `state_dir`,
+    # which is the model the SSH host keys themselves use.
+    collector_ca_file: Path | None = None
 
     # How long one scrape of an exporter answers the panels that ask for it.
     # Drawing one page asks several endpoints and several of them ask the same
@@ -221,6 +231,11 @@ class Settings(BaseSettings):
     @property
     def tls_key_file(self) -> Path:
         return self.pki_dir / "server.key"
+
+    @property
+    def collector_cert_dir(self) -> Path:
+        """Where each machine's pinned collector certificate is kept."""
+        return self.state_dir / "collector-certs"
 
     @property
     def session_secret_file(self) -> Path:

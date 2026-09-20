@@ -4948,3 +4948,53 @@ the `RemoteRunner` that already exists, and merges. `app/api/v1/logs.py` is the
 router, and the refusals above live there. The fake runner answers from
 recorded journal lines, so the suite reaches no machine, as every other adapter
 does.
+
+## D64 - Settled: a machine serving its exporters behind a collector is read over TLS, on a certificate read over SSH
+
+`deploy_otel_collector` puts one OpenTelemetry collector on each SEAPATH node,
+scraping that node's exporters on the loopback and serving all of them on a
+single TLS port. A site that deploys it does so to stop exposing six
+unauthenticated HTTP endpoints on the administration network, and one of those
+endpoints, port 9100, carries the `seapath_rt_*` block: the tuning of a
+real-time machine, readable by anyone who reaches that network.
+
+This service reads four of those six. The moment the role is applied, every
+panel that fans out over the inventory would say "unreachable" for the machine
+the browser is pointed at as much as for its peers, because the fan out
+addresses every machine by the address the inventory holds, including its own.
+So the fan out follows, and the question is what it is allowed to trust.
+
+The certificate is the node's own. The role signs it there unless a site hands
+it one, which means there is no authority here to verify it against, and
+accepting whatever answers on that address would hand the whole reading to
+whoever answers first. The answer is the authority this service already has:
+it reaches every machine of the inventory over SSH, with the key the trust
+provisioned and the `known_hosts` the startup wrote, which is what a run
+reaches and what [D54](#d54) and [D63](#d63) already bounded. The certificate
+is read over that connection once, kept under `state_dir`, and every scrape
+afterwards is verified against the copy. It is the model the SSH host keys
+themselves use, applied to the other protocol this service speaks.
+
+A certificate that stops verifying is read again over SSH and re-pinned, once,
+because the role replaces one a month before it expires and a site can install
+its own at any time. A stale copy would otherwise take a page down with a
+message about an expiry nobody caused. A site that issues certificates sets
+`collector_ca_file` and none of that runs.
+
+Three properties came out of putting the rewrite in front of the scrape window
+rather than inside each reader. The four URLs a page asks one machine for
+become one request to its collector, which on a hypervisor whose CPUs belong
+to its guests is the expensive part of drawing the page. A cluster migrated
+one machine at a time is read correctly throughout, since the question is
+asked per address. And no reader, no service and no endpoint changed: what a
+panel asks for is still the exporter it has always asked for.
+
+The flag is read from the inventory, out of `extra` where the parser leaves
+every variable this service does not model, the way `nics_affinity` already is.
+It is the same variable the playbook reads, in the same file, so the page and
+the machine cannot disagree about which of the two shapes a node is in.
+
+`app/cluster/trust.py` holds the trust, `app/cluster/exporters.py` the rewrite
+and the TLS half of the client, and the suite exercises both against a real
+HTTPS server holding a real certificate: a fake socket would only assert that
+the tests believe Python verifies it.

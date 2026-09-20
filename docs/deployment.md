@@ -436,6 +436,14 @@ administration network, no route to a host daemon, and Prometheus still owns
 the history and the alerting. See D26, D27 and D29 in
 [decisions.md](decisions.md).
 
+A machine carrying `deploy_otel_collector_enabled` serves all of them on 9464
+instead, over TLS, and serves none of them on the administration network: the
+role moves its exporters to the loopback and puts one collector in front. The
+fan out follows that variable per machine, and verifies the certificate
+against the copy it read over the SSH connection a run already makes. D64
+records it, and `collector_ca_file` is how a site with a PKI replaces the
+pinning.
+
 `/home/ansible/.ssh` is not created either, and that is deliberate too. The
 account comes from the ISO, and a service that invents a home directory for a
 user nobody created has invented a second problem. If that mount is missing, the

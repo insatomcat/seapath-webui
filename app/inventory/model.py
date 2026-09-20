@@ -96,6 +96,28 @@ class NodeConfig(BaseModel):
 # service does not model.
 NIC_AFFINITY_VARIABLE = "nics_affinity"
 
+# `deploy_otel_collector`'s switch. A machine that carries it serves every
+# exporter this service reads behind one TLS port, and serves none of them on
+# the administration network any more, so the fan out has to know. Read out of
+# `extra` for the same reason as above: no form writes it, and a cluster is
+# migrated one machine at a time, so it is asked per machine.
+OTEL_COLLECTOR_VARIABLE = "deploy_otel_collector_enabled"
+
+# What `deploy_otel_collector` serves, and the port the role documents.
+OTEL_COLLECTOR_PORT = 9464
+
+
+def otel_collector_enabled(node: NodeConfig) -> bool:
+    """Whether this machine serves its metrics through a collector.
+
+    A string is accepted because a hand written inventory says `true` in
+    whatever spelling its author used, and Ansible reads all of them.
+    """
+    value = node.extra.get(OTEL_COLLECTOR_VARIABLE, False)
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "yes", "on", "1"}
+    return bool(value)
+
 
 def nics_affinity(node: NodeConfig) -> dict[str, list[int]]:
     """`nics_affinity`, as the interfaces and the CPUs it names.

@@ -24,6 +24,7 @@ from app import __version__
 from app.api import v1
 from app.cluster.exporters import (
     CachingMetricsClient,
+    CollectorClient,
     MetricsClient,
     ScrapeCache,
     UrllibMetricsClient,
@@ -31,6 +32,7 @@ from app.cluster.exporters import (
 from app.cluster.fake import FakeMetricsClient, FakeRbdClient, rbd_answers
 from app.cluster.pool import PoolReader
 from app.cluster.rbd import CommandRbdClient, RbdClient
+from app.cluster.trust import CollectorTrust, SshCertificateFetcher
 from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
 from app.console.service import ConsoleService
 from app.core.auth import (
@@ -55,6 +57,7 @@ from app.hosts.local import LocalHostReader, read_hostname
 from app.hosts.reader import HostReader
 from app.hosts.remote import FakeRemoteRunner, RemoteRunner, SshRemoteRunner
 from app.inventory.artefacts import ArtefactStore
+from app.inventory.model import otel_collector_enabled
 from app.inventory.replication import ReplicationService, SshTransport, Transport
 from app.inventory.repository import InventoryRepository
 from app.inventory.service import InventoryService
@@ -131,6 +134,28 @@ def _site_keys(settings: Settings) -> Callable[[], tuple[Path, ...]]:
         return ()
 
     return resolve
+
+
+def _collected(inventory: InventoryService) -> Callable[[str], bool]:
+    """Whether the machine at this address serves its metrics through a collector.
+
+    Asked per address rather than once for the whole inventory, because a
+    cluster is migrated one machine at a time and a node still serving its
+    exporters directly has to keep being read that way. Read at each scrape,
+    so turning the variable on and applying the playbook takes effect on the
+    next page rather than on the next restart.
+    """
+
+    def collected(address: str) -> bool:
+        state = inventory.state()
+        if state.inventory is None:
+            return False
+        return any(
+            node.ansible_host == address and otel_collector_enabled(node)
+            for node in state.inventory.hosts.values()
+        )
+
+    return collected
 
 
 def _replication_transport(settings: Settings, repository: Path) -> Transport:
@@ -397,10 +422,41 @@ def create_app(
     # an operator asked for empties it first, which is what `fresh` does on
     # those endpoints. `scrape_window_seconds: 0` turns it off. See D45.
     app.state.scrapes = ScrapeCache(settings.scrape_window_seconds)
-    exporters = CachingMetricsClient(
-        metrics_client
-        or (FakeMetricsClient() if settings.use_fakes else UrllibMetricsClient()),
-        app.state.scrapes,
+    # One SSH runner for every reading that takes that path: the backup server
+    # listing, the journals, and the collector certificate below. It is built
+    # here because the metrics client needs it, and the readings further down
+    # share the one that was built.
+    remote = remote_runner or (
+        FakeRemoteRunner(rbd_answers()) if settings.use_fakes else SshRemoteRunner()
+    )
+    # A machine carrying `deploy_otel_collector_enabled` serves every exporter
+    # of this fan out behind one TLS port and serves none of them on the
+    # administration network. Its certificate is verified against the copy read
+    # over the SSH connection a run already makes, or against the site CA when
+    # there is one. See `app/cluster/trust.py`.
+    app.state.collector_trust = CollectorTrust(
+        store_dir=settings.collector_cert_dir,
+        ca_file=settings.collector_ca_file,
+        fetcher=SshCertificateFetcher(
+            remote=remote,
+            keys=app.state.run_service.paths,
+            ansible_user=settings.ansible_user,
+        ),
+    )
+    # The rewrite sits in front of the scrape window: the four URLs a page asks
+    # one machine for become one request to its collector rather than four.
+    exporters = CollectorClient(
+        CachingMetricsClient(
+            metrics_client
+            or (
+                FakeMetricsClient()
+                if settings.use_fakes
+                else UrllibMetricsClient(app.state.collector_trust)
+            ),
+            app.state.scrapes,
+        ),
+        collected=_collected(app.state.inventory_service),
+        port=settings.collector_port,
     )
 
     # The real time page, which reads both halves of the same question: the
@@ -486,9 +542,6 @@ def create_app(
     # server. The acts are runs of the scripts the `backup_restore` role
     # installed, so this needs the run service and the collection the runs will
     # execute, resolved at each access like everywhere else.
-    remote = remote_runner or (
-        FakeRemoteRunner(rbd_answers()) if settings.use_fakes else SshRemoteRunner()
-    )
     # The software updates: the check is a run generated here, the update the
     # upstream playbook, and what the page shows is the history of both.
     app.state.software_service = SoftwareService(

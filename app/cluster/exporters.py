@@ -21,14 +21,18 @@ to render the machines that did answer beside the reason the others did not.
 from __future__ import annotations
 
 import logging
+import ssl
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from app.cluster import metrics
+from app.cluster.trust import CollectorTrust, TrustRefused
 
 logger = logging.getLogger(__name__)
 
@@ -56,20 +60,93 @@ class UrllibMetricsClient:
     `urllib` already makes. The timeout is short and the failure is a sentence:
     a node that cannot be reached is an ordinary state on a cluster being
     built, and the page says which one rather than failing whole.
+
+    A node running a collector answers over TLS, and the certificate it
+    answers with is verified against the copy `app/cluster/trust.py` read over
+    SSH. A failure to verify is the one error retried here, once, because the
+    role replaces a certificate before it expires and a site can install its
+    own: the copy is re-read over SSH and the request made again.
     """
 
+    def __init__(self, trust: CollectorTrust | None = None) -> None:
+        self._trust = trust
+
     def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
+        if not url.startswith("https://"):
+            text, error, _ = self._get(url, timeout, None)
+            return text, error
+        address = urllib.parse.urlsplit(url).hostname or ""
+        if self._trust is None:  # pragma: no cover - defensive
+            return None, "no certificate is pinned for this machine"
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
-                return response.read().decode("utf-8", errors="replace"), ""
+            context = self._trust.context_for(address)
+        except TrustRefused as error:
+            return None, str(error)
+        text, error, unverified = self._get(url, timeout, context)
+        if text is not None or not unverified:
+            return text, error
+        try:
+            context = self._trust.renew(address)
+        except TrustRefused as refused:
+            return None, str(refused)
+        text, error, unverified = self._get(url, timeout, context)
+        if unverified:
+            return None, f"its certificate does not verify: {error}"
+        return text, error
+
+    def _get(
+        self, url: str, timeout: float, context: ssl.SSLContext | None
+    ) -> tuple[str | None, str, bool]:
+        """The answer, why there is none, and whether the certificate is the reason."""
+        try:
+            with urllib.request.urlopen(  # noqa: S310
+                url, timeout=timeout, context=context
+            ) as response:
+                return response.read().decode("utf-8", errors="replace"), "", False
         except urllib.error.HTTPError as error:
-            return None, f"the exporter answered {error.code}"
+            return None, f"the exporter answered {error.code}", False
         except urllib.error.URLError as error:
-            return None, f"{error.reason}"
+            unverified = isinstance(error.reason, ssl.SSLCertVerificationError)
+            return None, f"{error.reason}", unverified
         except (TimeoutError, OSError) as error:
-            return None, str(error)
+            return None, str(error), False
         except Exception as error:  # pragma: no cover - defensive
-            return None, str(error)
+            return None, str(error), False
+
+
+class CollectorClient:
+    """Reads a machine through its collector, when that machine has one.
+
+    `deploy_otel_collector` moves the exporters of a node to the loopback and
+    serves all of them on one TLS port, so the four URLs the panels of a page
+    ask a machine for become one. The rewrite sits in front of the scrape
+    window rather than behind it, which is what makes them one request rather
+    than four requests to the same place.
+
+    A cluster is migrated one machine at a time, so this is asked per address:
+    a node still serving its exporters directly is read as before.
+    """
+
+    def __init__(
+        self,
+        client: MetricsClient,
+        collected: Callable[[str], bool],
+        port: int,
+    ) -> None:
+        self._client = client
+        self._collected = collected
+        self._port = port
+
+    def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
+        return self._client.fetch(self._rewritten(url), timeout=timeout)
+
+    def _rewritten(self, url: str) -> str:
+        parts = urllib.parse.urlsplit(url)
+        host = parts.hostname
+        if not host or not self._collected(host):
+            return url
+        literal = f"[{host}]" if ":" in host else host
+        return f"https://{literal}:{self._port}{parts.path}"
 
 
 class Exposition:
