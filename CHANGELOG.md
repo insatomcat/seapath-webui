@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.160 - 2026-09-20
+
+- feat: read the journal of every machine from one page
+
 ## 0.3.159 - 2026-09-20
 
 - fix: a table too wide for a phone is read as a list of records
