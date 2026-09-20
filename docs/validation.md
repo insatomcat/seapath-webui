@@ -753,3 +753,35 @@ finishing the update on a real machine once the controller is gone. See
 ### Result
 
 Not yet run.
+
+## The cluster's journal
+
+The suite asserts the refusals, the command and the merge against fakes, and no
+fake can show what a real `systemd` writes. Two halves of this were checked
+against a three node SEAPATH cluster while the feature was written, and they
+are recorded here as done because the numbers in [D63](decisions.md#d63) come
+from them: the commands this builds run on a real machine and return what is
+expected of them, and the parser read 600 entries of three real journals with
+nothing it could not read. What remains is the service doing it from inside its
+own container, which is where the trust and the addresses are real.
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Each scope returns entries from every member, and the table interleaves the three machines by time | The journal of a machine that has been running, and clocks held by PTP | Pending |
+| 2 | The reading goes out over the administration address and is not refused by `from=` in `authorized_keys` | The restriction the trust writes, which no fake enforces | Pending |
+| 3 | A member that is powered off is named in the page with its reason, while the other two are drawn | An `ssh` that reaches nothing, against its `ConnectTimeout` | Pending |
+| 4 | A pattern carrying a quote, a dollar and a semicolon matches nothing and runs nothing on the far end | The two shells the command crosses | Done, on `ccv2`: the pattern reached `journalctl` whole and exited 1 |
+| 5 | `sudo -n /bin/sh -c` reaches the journal on a machine where the `ansible` account is in neither `adm` nor `systemd-journal` | The sudoers rule the ISO grants, which D62 and D63 both rest on | Done, on `ccv2` |
+| 6 | A line `systemd` wrote about a unit is labelled with that unit rather than with `init.scope` | Only a real `systemd` sets `UNIT` beside `_SYSTEMD_UNIT` | Done: verified on a real node shutdown on `ccv1` |
+| 7 | The whole reading of a three node cluster is under half a second | The machines, the network and a journal of real size | Done: 417 ms for three machines, 600 entries, on a 517 MB journal |
+| 8 | From the VMs page, a guest's link opens the journal narrowed to it; from a run, the link opens the window that run occupied on the machines it was aimed at | The links against a real inventory and a real run | Pending |
+| 9 | A viewer reads the page, and raising `SEAPATH_WEBUI_LOGS_MIN_ROLE` takes it away from them | The setting on a running service | Pending |
+
+### Result
+
+Partly run, on the `ccv` cluster, 2026-09-20. Checks 4 to 7 passed against the
+real machines, by generating the commands from this code and running them over
+the trust the node already holds. The rest waits for an image carrying this
+version.

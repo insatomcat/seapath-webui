@@ -3446,3 +3446,167 @@ button.quadlet-open {
 button.quadlet-open:hover {
   text-decoration: underline;
 }
+
+/* The Logs page. The controls sit on one row while they fit, because the
+   whole of the page below them is a table an operator scrolls, and a filter
+   bar that wraps into four lines pushes it off the screen. */
+.log-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0 1rem;
+  margin-bottom: 1rem;
+}
+
+.log-filters .field {
+  flex: 0 0 auto;
+  min-width: 9rem;
+}
+
+/* The pattern takes whatever the controls before it left. It is the only
+   field whose content has no bound, so it is the one that should grow. */
+.log-filters .log-pattern {
+  flex: 1 1 14rem;
+}
+
+.log-filters .log-machines {
+  flex: 0 0 auto;
+}
+
+.log-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  padding: 0.5rem 0;
+}
+
+/* `.field label` above sets `display: block` on every label inside a field,
+   which is right for the ones that sit above their control and wrong for a
+   checkbox, whose box belongs on the line of its name. Named through the row
+   so it outweighs that rule rather than racing it on source order. */
+.log-checks .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+.log-act {
+  margin-bottom: 1rem;
+}
+
+/* A journal is read down its left edge, so the three columns before the
+   message are held to their content and the message takes the rest. */
+table.journal td:nth-child(-n + 3) {
+  white-space: nowrap;
+  vertical-align: top;
+  color: var(--muted);
+}
+
+table.journal td:first-child {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The message keeps the spacing the program wrote it with, and wraps rather
+   than scrolling the table sideways: a stack trace or a `crm` dump is most of
+   what is worth reading here. */
+.log-message {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The lines that stand out, marked on the row rather than on the word, since
+   what an operator scans for is a band of colour down the table. */
+tr.severity-error .log-message {
+  color: var(--bad-ink);
+}
+
+tr.severity-error .tag {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+tr.severity-warning .log-message {
+  color: var(--warn-ink);
+}
+
+tr.severity-warning .tag {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* A link into the Logs page, drawn as the secondary buttons it stands among.
+   A link rather than a button because it is a navigation, and an operator
+   reading a guest's lines wants it in a tab of its own beside the table they
+   came from. The element selectors on `button` therefore do not reach it, and
+   the three declarations it needs are repeated here rather than the button
+   rules being widened to anchors. */
+/* A link in a pane's heading sits beside the reread control rather than
+   claiming the free space: `.button-link` takes that space for the heading it
+   was written for, and here the lead line already has it. */
+.pane-head .button-link {
+  margin-left: 0;
+}
+
+a.act-link {
+  display: inline-block;
+  padding: 0.5rem 0.9rem;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--text);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.act-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* The severity mark sits on the first line of the message, and the space
+   between the two is the mark's own: the message keeps the spacing its
+   program wrote, so a space outside it would be collapsed by the wrap. */
+td.log-line .tag {
+  margin-right: 0.4rem;
+}
+
+/* On a phone the four columns leave the message about ninety pixels, which
+   wraps every line into a column of two words. The row becomes three muted
+   fields on one line with the message under them at full width, which is how
+   a journal reads on a narrow screen. `narrow.js` may also have folded this
+   table into labelled records; its labels are dropped here, because the three
+   fields above the message say what they are by being where they are. */
+@media (max-width: 49.6rem) {
+  table.journal thead {
+    display: none;
+  }
+
+  table.journal tr {
+    display: block;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+
+  table.journal td {
+    display: inline;
+    padding: 0;
+    border: none;
+  }
+
+  table.journal td:nth-child(-n + 3)::after {
+    content: " ";
+  }
+
+  table.journal td.log-line {
+    display: block;
+    margin-top: 0.15rem;
+  }
+
+  table.journal.stacked td::before {
+    content: none;
+  }
+}

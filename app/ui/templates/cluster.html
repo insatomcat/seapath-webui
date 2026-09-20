@@ -53,6 +53,11 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
   <section class="card pane" id="card-members">
     <div class="pane-head">
       <p class="pane-lead" id="members-lead"></p>
+      {# What Corosync and Pacemaker printed on every member, for the moment
+         the table above says a node left or quorum moved and the question is
+         why. See D63. #}
+      <a class="button-link" href="logs?scope=cluster&amp;minutes=60"
+         title="Corosync and Pacemaker on every machine, over the last hour">Journal</a>
       {{ reread("members-reread", "the membership") }}
     </div>
     <div class="loading" id="members-loading">Asking each node's exporter</div>

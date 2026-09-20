@@ -174,6 +174,20 @@ class Settings(BaseSettings):
     # which is a decision a site can make and this service will not make for it.
     console_idle_timeout_seconds: int = 900
 
+    # The cluster's journal, read over the same ssh a run takes. See D63.
+    # A viewer by default, because it is a reading and because the page it
+    # feeds answers the question an operator came here with. A journal
+    # nonetheless carries command lines, the accounts that ran them and
+    # whatever a service chose to print, so a site that treats it as more than
+    # a reading raises this.
+    logs_min_role: str = "viewer"
+    # What one machine is given to answer its part of a reading. Shorter than
+    # the ten seconds a reading an operator waits on alone is given: this one
+    # fans out, and a machine that has gone away costs this much before the
+    # ones that answered can be drawn.
+    logs_connect_timeout_seconds: int = 5
+    logs_timeout_seconds: float = 20.0
+
     # D6: the ISO must produce a machine reachable from a browser with no prior
     # Ansible run, so root is accepted as an administrator. Sites that harden
     # further can turn this off once another account exists.

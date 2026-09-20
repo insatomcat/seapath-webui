@@ -67,6 +67,7 @@ from app.services.backup_trust import BackupTrustService
 from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
 from app.services.local_storage import LocalStorageService
+from app.services.logs import LogService
 from app.services.metadata import MetadataService
 from app.services.node import NodeService
 from app.services.ping import FakePinger, IcmpPinger, Pinger
@@ -525,6 +526,20 @@ def create_app(
         ansible_user=settings.ansible_user,
         installer=key_installer
         or (FakeKeyInstaller() if settings.use_fakes else SshKeyInstaller()),
+    )
+
+    # The cluster's journal: one `journalctl` per machine over the same ssh,
+    # in parallel, merged here, stored nowhere. This node is one entry of that
+    # fan out like any other, because the container has no route to the host's
+    # journal and must not grow one. See D63.
+    app.state.log_service = LogService(
+        inventory=app.state.inventory_service,
+        remote=remote,
+        keys=app.state.run_service.paths,
+        ansible_user=settings.ansible_user,
+        required_role=Role(settings.logs_min_role),
+        connect_timeout=settings.logs_connect_timeout_seconds,
+        timeout=settings.logs_timeout_seconds,
     )
 
     # The local volumes of a machine: what its disks have room for, read over

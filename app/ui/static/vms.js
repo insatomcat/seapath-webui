@@ -336,7 +336,30 @@
       button.addEventListener("click", () => Graphic.open(guest.name));
       cell.append(cell.childNodes.length ? " " : "", button);
     }
+    // What the cluster printed about this guest, on every machine at once.
+    // The question the Logs page was built for is a guest that will not
+    // migrate, and the answer is on the machine it left as much as on the one
+    // it would not reach, so the link asks all of them.
+    cell.append(cell.childNodes.length ? " " : "", logsLink(guest.name));
     return cell;
+  }
+
+  // A regular expression, so a name is escaped before it becomes one. Guest
+  // names carry dots, and a dot is every character until it is escaped.
+  function quoted(text) {
+    return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  function logsLink(guest) {
+    const link = document.createElement("a");
+    link.className = "act-link";
+    link.href =
+      "logs?scope=guests&minutes=60&grep=" + encodeURIComponent(quoted(guest));
+    link.textContent = "Logs";
+    link.title =
+      "libvirt, Pacemaker and Corosync on every machine, over the last hour, " +
+      "narrowed to " + guest;
+    return link;
   }
 
   function hasDisplay(guest) {

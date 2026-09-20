@@ -1,0 +1,95 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+The journal of every machine the inventory declares, asked now and merged here.
+Nothing is stored: what is on screen is what the machines still hold.
+
+The controls are a scope, a window and the machines, rather than a field over
+the cluster. A scope is a match on a field, which the journal serves from its
+index in milliseconds; a pattern with no match behind it scans, and takes
+seconds of a hypervisor's CPU. The page therefore offers the matches first and
+the pattern on top of them, and the API refuses the other order. See D63.
+#}
+{% extends "base.html" %}
+{% from "_controls.html" import reread %}
+{% block page_title %}Logs{% endblock %}
+
+{% block body %}
+<main class="page single logs">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card" id="card-logs">
+    <div class="card-head">
+      <h2>Cluster journal</h2>
+      <div class="card-acts">
+        {{ reread("reread", "the journal") }}
+      </div>
+    </div>
+    <p class="lead" id="lead"></p>
+
+    <form class="log-filters" id="filters">
+      <label class="field">
+        <span>Scope</span>
+        <select id="scope"></select>
+      </label>
+      <label class="field">
+        <span>Window</span>
+        <select id="window">
+          <option value="15">Last 15 minutes</option>
+          <option value="60">Last hour</option>
+          <option value="360">Last 6 hours</option>
+          <option value="1440">Last 24 hours</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Entries</span>
+        <select id="lines"></select>
+      </label>
+      <label class="field log-pattern">
+        <span>Pattern</span>
+        <input type="search" id="grep" placeholder="Narrows the scope above"
+               autocomplete="off" spellcheck="false">
+      </label>
+      <div class="field log-machines">
+        <span>Machines</span>
+        <div class="log-checks" id="machines"></div>
+      </div>
+      <div class="log-act">
+        <button type="submit" id="read">Read</button>
+      </div>
+    </form>
+
+    <div class="loading" id="loading" hidden>Asking the machines</div>
+    <p class="warning" id="note" hidden></p>
+
+    <div class="table-scroll" id="table" hidden>
+      <table class="journal">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Machine</th>
+            <th>Unit</th>
+            <th>Message</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="legend" id="empty" hidden></p>
+
+    <p class="help">
+      Every machine is asked at once, over the same SSH connection a run
+      makes, and one that does not answer is named above rather than failing
+      the reading. The lines of all of them are interleaved by their own
+      timestamps, which is meaningful because the cluster holds its clocks with
+      PTP. Nothing is kept here: a machine that has been reinstalled, or whose
+      journal has rotated, no longer holds what it printed.
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+{{ script("logs.js") }}
+{% endblock %}

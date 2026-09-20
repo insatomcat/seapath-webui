@@ -271,6 +271,10 @@ def install(app: FastAPI) -> None:
     def cluster(request: Request):
         return _page(request, "cluster.html", "cluster")
 
+    @app.get("/logs", response_class=HTMLResponse, include_in_schema=False)
+    def logs(request: Request):
+        return _page(request, "logs.html", "logs")
+
     @app.get("/updates", response_class=HTMLResponse, include_in_schema=False)
     def updates(request: Request):
         return _page(request, "updates.html", "updates")

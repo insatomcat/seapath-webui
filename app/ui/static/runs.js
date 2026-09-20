@@ -31,9 +31,35 @@
       const term = document.createElement("dt");
       term.textContent = label;
       const definition = document.createElement("dd");
-      definition.textContent = value;
+      if (value instanceof Node) {
+        definition.append(value);
+      } else {
+        definition.textContent = value;
+      }
       target.append(term, definition);
     });
+  }
+
+  // The cluster's journal over the window this run occupied, on the machines
+  // it was aimed at. A failing task says what Ansible saw; what the machine
+  // itself printed at that moment is the other half, and it is one link away
+  // rather than three terminals. See D63.
+  function journalLink(record) {
+    if (!record.started_at) {
+      return "";
+    }
+    const asked = new URLSearchParams();
+    asked.set("scope", "guests");
+    // A minute on each side, because the line worth reading is usually the
+    // one just before the task failed or just after it gave up.
+    asked.set("since", new Date(Date.parse(record.started_at) - 60000).toISOString());
+    const end = record.finished_at ? Date.parse(record.finished_at) : Date.now();
+    asked.set("until", new Date(end + 60000).toISOString());
+    (record.machines || []).forEach((host) => asked.append("host", host));
+    const link = document.createElement("a");
+    link.href = "logs?" + asked.toString();
+    link.textContent = "What the machines printed";
+    return link;
   }
 
   const KEPT = "runs";
@@ -242,6 +268,7 @@
       // way to tell a machine that failed from one the run never played.
       ["Machines", describeScope(record)],
       ["Command", (record.command || []).join(" ")],
+      ["Journal", journalLink(record)],
     ]);
 
     const message = element("run-message");

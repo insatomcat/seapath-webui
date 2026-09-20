@@ -69,6 +69,14 @@ class RemoteRequest:
     known_hosts_file: Path
     extra_key_files: tuple[Path, ...] = ()
     timeout: float = TIMEOUT_SECONDS
+    connect_timeout: int = CONNECT_TIMEOUT_SECONDS
+    """How long the connection is given, when this reading wants less.
+
+    Ten seconds is right for a reading an operator asked for and waits on
+    alone. A reading that fans out to every machine of the inventory waits on
+    the slowest of them, and a machine that has gone away costs the whole of
+    this before the page can draw the ones that answered. See D63.
+    """
 
 
 class RemoteRunner(Protocol):
@@ -116,7 +124,7 @@ def ssh_command(request: RemoteRequest) -> list[str]:
         "-o",
         "ControlPath=none",
         "-o",
-        f"ConnectTimeout={CONNECT_TIMEOUT_SECONDS}",
+        f"ConnectTimeout={request.connect_timeout}",
         *identities,
         "-l",
         request.user,

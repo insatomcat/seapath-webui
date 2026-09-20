@@ -14,6 +14,7 @@ from app.api.v1 import (
     containers,
     inventory,
     local_storage,
+    logs,
     node,
     realtime,
     runs,
@@ -34,6 +35,7 @@ router.include_router(local_storage.router)
 router.include_router(console.router)
 router.include_router(collection.router)
 router.include_router(inventory.router)
+router.include_router(logs.router)
 router.include_router(realtime.router)
 router.include_router(runs.router)
 router.include_router(software.router)

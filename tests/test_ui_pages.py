@@ -27,6 +27,7 @@ from app.ui.routes import stamp
         "/vms",
         "/containers",
         "/cluster",
+        "/logs",
         "/backup",
         "/realtime",
         "/runs",
@@ -48,6 +49,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/vms", "vms.js"),
         ("/containers", "containers.js"),
         ("/cluster", "cluster.js"),
+        ("/logs", "logs.js"),
         ("/backup", "backup.js"),
         ("/realtime", "realtime.js"),
         ("/runs", "runs.js"),
@@ -2739,3 +2741,98 @@ def test_a_click_beside_a_window_shuts_it(signed_in: TestClient) -> None:
     # Both ends of the click, because a selection that starts on a value inside
     # the window and ends past its edge is released on the scrim.
     assert "scrim !== pressed" in script
+
+
+# The Logs page
+
+
+def test_the_logs_page_offers_the_matches_before_the_pattern(
+    signed_in: TestClient,
+) -> None:
+    """The order of the controls is the order the API enforces.
+
+    A scope is a match on a field, which the journal serves from its index; a
+    pattern with nothing behind it scans every entry of a hypervisor's journal,
+    measured at 2.9 seconds against 9 ms. The page therefore has no control
+    that sends a pattern on its own, and the field says what it does.
+    """
+    body = signed_in.get("/logs").text
+
+    assert body.index('id="scope"') < body.index('id="grep"')
+    assert "Narrows the scope above" in body
+
+
+def test_the_logs_page_builds_its_controls_from_the_service(
+    signed_in: TestClient,
+) -> None:
+    # The scopes and the machines are read from `/logs/sources` rather than
+    # written into the template, so there is no second list to keep in step
+    # with the one the API refuses queries against.
+    script = signed_in.get("/static/logs.js").text
+
+    assert 'API.get("/logs/sources")' in script
+    assert "sources.scopes.map" in script
+    assert "sources.machines.map" in script
+
+
+def test_the_logs_page_never_reads_on_a_timer(signed_in: TestClient) -> None:
+    # Each reading opens an SSH connection to every machine of the inventory,
+    # which is a load on the cluster rather than a number that moves.
+    script = signed_in.get("/static/logs.js").text
+
+    assert "{ timer: false }" in script
+
+
+def test_a_reading_of_the_journal_is_a_link(signed_in: TestClient) -> None:
+    """The whole state of the page is in its query string.
+
+    That is what lets the other pages send an operator here with the question
+    already asked, and what lets one operator paste what they are looking at.
+    """
+    script = signed_in.get("/static/logs.js").text
+
+    assert "window.history.replaceState" in script
+    # A window named outright, which is what a run's link carries: a run
+    # happened between two moments, and "the last fifteen minutes" would
+    # answer about now instead.
+    assert 'state.get("since")' in script
+    assert 'option("fixed"' in script
+
+
+def test_the_vms_page_asks_the_cluster_what_it_printed_about_a_guest(
+    signed_in: TestClient,
+) -> None:
+    # The question the Logs page was built for is a guest that will not
+    # migrate, and the answer is on the machine it left as much as on the one
+    # it would not reach, so the link asks every machine.
+    script = signed_in.get("/static/vms.js").text
+
+    assert '"logs?scope=guests&minutes=60&grep="' in script
+    # A guest name becomes a regular expression, and a dot is every character
+    # until it is escaped.
+    assert "quoted(guest)" in script
+
+
+def test_the_cluster_page_links_to_what_the_members_printed(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/cluster").text
+
+    assert 'href="logs?scope=cluster&amp;minutes=60"' in body
+
+
+def test_a_run_links_to_the_journal_of_the_window_it_occupied(
+    signed_in: TestClient,
+) -> None:
+    """What Ansible saw, and what the machines themselves printed.
+
+    The second is the other half of a failing task, and it is one link away
+    rather than three terminals.
+    """
+    script = signed_in.get("/static/runs.js").text
+
+    assert '["Journal", journalLink(record)]' in script
+    # The machines the run was aimed at, and a minute on each side of it: the
+    # line worth reading is usually the one just before the task failed.
+    assert "(record.machines || []).forEach" in script
+    assert "Date.parse(record.started_at) - 60000" in script

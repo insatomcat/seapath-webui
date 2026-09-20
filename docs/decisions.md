@@ -4749,3 +4749,153 @@ second container and a C protocol stack to follow, plus an answer about the
 guest's self signed certificate, which has no `known_hosts` to be checked
 against. The graphic console covers the case the question came from, a guest
 whose network is down.
+
+## D63 - Settled: the cluster's journal is read over the SSH path a run takes, bounded, and nothing is stored
+
+[SPEC.md](../SPEC.md) put the journal with Cockpit and with monitoring, and
+[deployment.md](deployment.md) records in section 2.1 what taking it out was
+worth: eight bind mounts and about seven hundred lines, with
+`test_the_container_is_given_no_route_to_the_live_state` holding the mounts
+out. This takes back one part of that, for one reading, and leaves every mount
+where it is.
+
+The argument that removed it was that the exporter already collects this. It
+holds for unit states, the clock offset and the tuned profile, which is why
+[D26](#d26), [D27](#d27) and [D29](#d29) read those from an exposition and why
+they stay there. It does not reach a log line. `node_exporter` answers what a
+machine is doing now, and "what did node2 print while the migration was
+failing" has no metric, no series and no exposition. An operator who spawns a
+cluster, watches a guest refuse to migrate and has to open three terminals to
+find out why is being sent away from the tool that told them it failed.
+
+So the line moves for the journal alone, and it moves with a store that stays
+empty: this decision adds no daemon, no listening port, no mount and no byte on
+disk.
+
+### Three ways to reach a journal that is not on this machine
+
+- **A. This service's own API, called on the peer.** Each node exposes its
+  journal, and the node the operator is on fans out over HTTP to the others.
+  It needs a credential a node holds on its peers, and the only node to node
+  authentication that exists here is the mTLS channel the trust exchange uses.
+  It also reads a peer through that peer's container, which is unavailable in
+  the case the reading is for.
+- **B. `systemd-journal-upload` to `systemd-journal-remote`.** Shipped to every
+  member, the journal survives the machine that wrote it, and one `journalctl
+  --directory` answers for the cluster. It stores every journal N times, needs
+  a role, certificates and a disk budget on a hypervisor, and it duplicates
+  what the site's collector already does. `syslog_ng_client` is the supported
+  way to feed that collector and stays it.
+- **C. The SSH path a run takes.** One `ssh` per machine, `journalctl` at the
+  far end, merged here. It reuses the trust [D2](#d2) established, holds no
+  new credential, and reaches a machine whose container is dead.
+
+**C is chosen**, and B is the answer for a site that needs the journal of a
+node that burned, which no reading at request time can give.
+
+### The chain
+
+```
+browser -> GET /api/v1/logs -> ssh ansible@<administration address of each node>
+    -> sudo -n /bin/sh -c 'journalctl <matches> --since <t> --lines <n> -o json'
+    -> merge on __REALTIME_TIMESTAMP
+```
+
+- **As root, through the rule the ISO grants.** The `ansible` account is in
+  neither `adm` nor `systemd-journal`, so it sees nothing of the system
+  journal, and `sudo -n /bin/sh -c` is the whole of what it may run
+  ([D62](#d62)). Adding the account to `systemd-journal` upstream would look
+  like a smaller grant and would be decoration: that account holds arbitrary
+  root already, because Ansible needs it, which [D2](#d2) settled and declined
+  to pretend otherwise.
+- **The administration address, never the cluster one.** The relations carry
+  `from=` bound to the peer's addresses, and a read that goes out over
+  192.168.55.x is refused by `authorized_keys` before sshd looks at the key.
+  This is where that gets noticed, since every other reading already uses the
+  administration network.
+- **The local node included, over the same ssh.** The container has no route to
+  the host's journal and must not grow one, so this node is one entry in the
+  fan-out like any other. The configuration plane already reaches its own
+  machine this way.
+- **The command is built here.** What a browser sends reaches a value inside
+  the command after it has been checked, and never the command, which is the
+  rule `app/hosts/remote.py` and `app/console/adapter.py` already hold.
+
+### What it costs, measured
+
+On a three node cluster running guests, Debian 13, a 517 MB journal, over the
+administration network:
+
+| | |
+|---|---|
+| `journalctl` on the machine, unit matched, 15 min | 6 ms |
+| the same, 24 h, capped at 500 lines | 7 ms |
+| the same with no unit match, 1 h | 226 ms, **4.6 MB of JSON** |
+| `-g` over the whole journal | **2 883 ms** |
+| `-g` after a unit match | **9 ms** |
+| ssh handshake to a peer | 130 ms |
+| ssh, `sudo`, and a bounded query | 150 ms |
+| **the three machines in parallel** | **165 ms** |
+| the same over a warm private `ControlPath` | 39 ms |
+| one machine, unbounded, 1 h | 388 ms and 4.3 MB |
+| a machine that does not answer | its `ConnectTimeout` |
+
+A match on a field is served from the journal's index and a `-g` scans, which
+is the whole of the difference between 9 ms and 2.9 seconds. The transport is
+not what a slow answer here would be made of: 165 ms for a cluster is faster
+than the page that asks for it, and `ssh -C` buys nothing, since the time is
+spent producing JSON rather than moving it.
+
+### The rules that keep it cheap
+
+1. **Every query carries at least one match on a field.** A request with none
+   is refused with `409` naming the missing condition, the way every other
+   precondition is. A regex applies to what the matches already narrowed, or
+   here, to what came back.
+2. **A time window and a line cap, bounded by this service** rather than
+   proposed by the page. An hour of one node with no match is 4.6 MB, and a
+   cluster wide version of that is 13 MB per click.
+3. **`--output-fields`** on the fields the page shows. `-o json` carries every
+   field otherwise, and `__CURSOR` and `__REALTIME_TIMESTAMP` come regardless.
+4. **The machines in parallel, and a machine that does not answer is a
+   result.** `app/cluster/exporters.py` already does this for the exporters,
+   for the same reason: the page waits on the slowest, and a cluster half built
+   or half up is an ordinary state.
+5. **`ssh -n`.** Without it the client consumes the caller's standard input,
+   which is a bug that costs a confusing afternoon.
+6. **`ControlMaster=no` stays.** `app/hosts/remote.py` refuses to ride the
+   connection a run holds open or to leave one behind, and 165 ms needs no
+   help. A private `ControlPath` under `/var/lib/seapath-webui` is what to
+   reach for if a follow mode is ever built, and it is a decision of its own.
+
+### What the page offers
+
+Views bounded by construction, placed where the question is asked, rather than
+a search box over the cluster:
+
+- **From `/runs`,** the cluster's journal over the window of a run, on the
+  machines that run touched.
+- **From `/vms`,** `libvirtd`, `pacemaker` and `corosync` on every member over
+  the last minutes, matched on a guest's name. This is the case the feature
+  was asked for, a guest that will not migrate.
+- **From `/cluster`,** the same three units when quorum or a resource moved.
+
+A free text field can come later, on top of the same engine, once the matches
+above are what it narrows.
+
+The merge is on `__REALTIME_TIMESTAMP`, and it means something because SEAPATH
+holds the clocks with PTP. The page says which machine each line came from, and
+names the machines that did not answer beside the ones that did.
+
+`viewer` reads it, moved with `SEAPATH_WEBUI_LOGS_MIN_ROLE`. A journal carries
+command lines and service output, so a site that treats it as more than a
+reading raises the role, the way [D19](#d19) lets one lower the console's.
+
+### Where the code goes
+
+`app/logs/journal.py` builds the argv from a query model and parses `-o json`,
+one line at a time. `app/services/logs.py` fans out over the inventory through
+the `RemoteRunner` that already exists, and merges. `app/api/v1/logs.py` is the
+router, and the refusals above live there. The fake runner answers from
+recorded journal lines, so the suite reaches no machine, as every other adapter
+does.
