@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.166 - 2026-09-21
+
+- fix: the version button shows its tick and hides its arrow
+
 ## 0.3.165 - 2026-09-21
 
 - fix: a sign in after an expired session asks for updates again
