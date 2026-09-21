@@ -161,28 +161,13 @@ def run_startup_tasks(
     check_account_files()
 
     addresses = node_addresses(reader)
-
-    try:
-        _, changed = trust.ensure_self_trust(hostname, addresses)
-        if changed:
-            logger.info("The self trust relation was provisioned or repaired")
-    except MissingAccount as error:
-        # The service does not create the account. A machine where it is
-        # missing was not installed from the SEAPATH ISO, and inventing a user
-        # with privileges nobody reviewed is a second problem, not a recovery.
-        logger.error(
-            "Could not provision the self trust, so this node cannot converge "
-            "anything: %s",
-            error,
-        )
-    except OSError as error:
-        logger.error("Could not provision the self trust: %s", error)
+    _provision_self_trust(trust, hostname, addresses)
 
     try:
         known_hosts.ensure_local(
             settings.known_hosts_file,
             settings.ssh_config_dir,
-            [hostname, *addresses, "127.0.0.1", "localhost"],
+            _local_names(hostname, addresses),
         )
     except OSError as error:
         logger.error("Could not record the local host keys: %s", error)
@@ -205,3 +190,60 @@ def run_startup_tasks(
             "Run %s was going when the service stopped, and is relaunchable",
             record.id,
         )
+
+
+def refresh_local_trust(
+    hostname: str,
+    reader: HostReader,
+    trust: TrustService,
+    settings,
+) -> None:
+    """Bring the self trust and `known_hosts` up to this node's addresses now.
+
+    Called before every run. The start reads the addresses once, and a service
+    that starts before the administration address is up, or outlives a change
+    of it, records none: the run into this very machine then ends on `Host key
+    verification failed`, and the `from=` clause would refuse it right after.
+    Both calls are idempotent and write nothing when nothing moved.
+
+    Never raises. A launch goes ahead when the repair fails: the run then fails
+    on the connection and says so, which is where the operator looks.
+    """
+    try:
+        addresses = node_addresses(reader)
+    except Exception as error:  # pragma: no cover - defensive
+        logger.error("Could not read this node's addresses: %s", error)
+        return
+    _provision_self_trust(trust, hostname, addresses)
+    try:
+        known_hosts.add_local(
+            settings.known_hosts_file,
+            settings.ssh_config_dir,
+            _local_names(hostname, addresses),
+        )
+    except OSError as error:
+        logger.error("Could not record the local host keys: %s", error)
+
+
+def _local_names(hostname: str, addresses: list[str]) -> list[str]:
+    return [hostname, *addresses, "127.0.0.1", "localhost"]
+
+
+def _provision_self_trust(
+    trust: TrustService, hostname: str, addresses: list[str]
+) -> None:
+    try:
+        _, changed = trust.ensure_self_trust(hostname, addresses)
+        if changed:
+            logger.info("The self trust relation was provisioned or repaired")
+    except MissingAccount as error:
+        # The service does not create the account. A machine where it is
+        # missing was not installed from the SEAPATH ISO, and inventing a user
+        # with privileges nobody reviewed would only add a second problem.
+        logger.error(
+            "Could not provision the self trust, so this node cannot converge "
+            "anything: %s",
+            error,
+        )
+    except OSError as error:
+        logger.error("Could not provision the self trust: %s", error)

@@ -44,7 +44,11 @@ from app.core.auth import (
     RoleDirectory,
     UnixGroupDirectory,
 )
-from app.core.bootstrap import collections_root, run_startup_tasks
+from app.core.bootstrap import (
+    collections_root,
+    refresh_local_trust,
+    run_startup_tasks,
+)
 from app.core.errors import install_error_handlers
 from app.core.headers import SecurityHeadersMiddleware
 from app.core.logging import configure_logging
@@ -399,6 +403,9 @@ def create_app(
         # tests and a machine reinstalled under a running service is read
         # again rather than remembered.
         node_distribution=lambda: reader.node_identity().seapath_distro,
+        before_launch=lambda: refresh_local_trust(
+            hostname, reader, app.state.trust_service, settings
+        ),
     )
 
     # The inventory pushed to the other machines the inventory declares, over

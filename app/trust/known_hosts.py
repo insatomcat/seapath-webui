@@ -153,6 +153,39 @@ def recorded_names(known_hosts_file: Path) -> set[str]:
     return names
 
 
+def add_local(known_hosts_file: Path, ssh_config_dir: Path, names: list[str]) -> bool:
+    """Add this machine's host keys under names the file does not hold yet.
+
+    Returns whether the file changed. The launch time counterpart of
+    `ensure_local`, and a merge rather than a rewrite: between two starts the
+    file also holds the keys ssh learnt by itself for guests accepting theirs
+    on first use, and rewriting it before every run would send those guests
+    back to a first connection each time.
+    """
+    keys = read_local_host_keys(ssh_config_dir)
+    if not keys:
+        return False
+    try:
+        existing = set(known_hosts_file.read_text().splitlines())
+    except OSError:
+        existing = set()
+    missing = {
+        name: [key for key in keys if f"{name} {key}" not in existing]
+        for name in names
+        if name
+    }
+    missing = {name: pending for name, pending in missing.items() if pending}
+    if not missing:
+        return False
+    _merge_into_live(known_hosts_file, missing)
+    logger.info(
+        "Recorded the local host keys for %s in %s",
+        ", ".join(sorted(missing)),
+        known_hosts_file,
+    )
+    return True
+
+
 def _merge_into_live(known_hosts_file: Path, peers: dict[str, list[str]]) -> None:
     """Add the peer lines to the file ssh reads, keeping the local ones.
 

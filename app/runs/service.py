@@ -108,6 +108,7 @@ class RunService:
         seed_builder: Callable[[], str | None] = lambda: shutil.which(
             catalogue.SEED_TOOL
         ),
+        before_launch: Callable[[], None] = lambda: None,
     ) -> None:
         self._store = store
         self._adapter = adapter
@@ -130,6 +131,11 @@ class RunService:
         # distribution: the suite runs on a laptop that has no such tool, and
         # a precondition nobody can fake is a precondition nobody tests.
         self._seed_builder = seed_builder
+        # Brings the trust this node has with itself up to its current
+        # addresses, which the start alone cannot promise: an address that
+        # came up after it, or changed since, is one no run could reach this
+        # machine by. See `app.core.bootstrap.refresh_local_trust`.
+        self._before_launch = before_launch
         self._cancelled: set[str] = set()
         self._finished: list[Callable[[RunRecord], None]] = []
         # The runs whose own copy of the inventory was given a root password,
@@ -769,6 +775,9 @@ class RunService:
             raise ApiError("run_in_progress", str(error), 409) from error
 
         try:
+            # Under the lock, so the files it may rewrite are never moved
+            # under a run that is reading them.
+            self._before_launch()
             directory = self._store.create(record)
             # The inventory folder, its companion files and the artefacts, laid
             # out where Ansible looks for them. Done before the thread starts,

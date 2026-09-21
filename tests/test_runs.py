@@ -71,6 +71,7 @@ def build(
     tmp_path: Path,
     collections: Path | None = None,
     seed_builder=lambda: "/usr/bin/cloud-localds",
+    before_launch=lambda: None,
 ) -> RunService:
     return RunService(
         store=store,
@@ -91,6 +92,7 @@ def build(
         # absence is asked for by the one test that is about it rather than
         # inherited from whoever is running the suite.
         seed_builder=seed_builder,
+        before_launch=before_launch,
     )
 
 
@@ -537,6 +539,29 @@ def test_a_successful_run_is_recorded_with_its_reproducibility_pair(
     # nothing for a site running one.
     assert record.collection_version.startswith("2.0.0+")
     assert len(record.collection_version) == len("2.0.0+") + 12
+
+
+def test_the_local_trust_is_refreshed_under_the_lock_before_a_run(
+    store, inventory, trust, tmp_path
+) -> None:
+    # An address that came up after the start is one no run could reach this
+    # machine by, until the trust names it. The refresh runs holding the lock,
+    # so it never rewrites a file a running run is reading.
+    held: list[bool] = []
+
+    def refresh() -> None:
+        with pytest.raises(RunLocked):
+            store.acquire("another")
+        held.append(True)
+
+    service = build(
+        store, inventory, trust, fake.FakeRunAdapter(), tmp_path, before_launch=refresh
+    )
+
+    record = wait_for(service, service.launch("seapath_setup_main", "alice").id)
+
+    assert record.state is RunState.SUCCESS
+    assert held == [True]
 
 
 def test_a_run_that_ended_is_heard_by_every_listener(
