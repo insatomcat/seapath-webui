@@ -87,11 +87,19 @@
     }
   }
 
+  // The glyphs are SVG elements, which have no `hidden` property: assigning
+  // one only sets a script value and leaves the attribute where the template
+  // put it.
+  function showOnly(name) {
+    for (const [key, glyph] of Object.entries(glyphs)) {
+      glyph.toggleAttribute("hidden", key !== name);
+    }
+  }
+
   // A glyph alone, which the name carries for anything that reads the button
   // rather than looks at it.
   function showGlyph(name, named) {
-    glyphs.ask.hidden = name !== "ask";
-    glyphs.settled.hidden = name !== "settled";
+    showOnly(name);
     word.hidden = true;
     word.textContent = "";
     button.classList.add("version-glyph");
@@ -100,8 +108,7 @@
 
   // A word alone, which is its own name.
   function showWord(text) {
-    glyphs.ask.hidden = true;
-    glyphs.settled.hidden = true;
+    showOnly(null);
     word.textContent = text;
     word.hidden = false;
     button.classList.remove("version-glyph");
