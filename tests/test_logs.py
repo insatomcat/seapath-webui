@@ -24,13 +24,14 @@ from __future__ import annotations
 
 import json
 import shlex
+import subprocess
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.hosts.remote import RemoteRefused, RemoteRequest
+from app.hosts.remote import RemoteRefused, RemoteRequest, SshRemoteRunner
 from app.logs import journal
 from app.logs.journal import Query, Refused
 from app.runs.service import RunPaths
@@ -489,6 +490,77 @@ def test_a_machine_that_does_not_answer_is_a_row_and_not_a_failure(
     assert len(silent) == 1
     assert silent[0]["host"] == "elabo1"
     assert any("elabo1" in warning for warning in body["warnings"])
+
+
+def test_a_pattern_that_matches_nothing_is_an_empty_answer(
+    client: TestClient,
+) -> None:
+    # `journalctl --grep` exits 1 and prints nothing when no entry matches,
+    # the way grep does. The VMs page's Logs link reported that as four
+    # machines that did not answer.
+    no_match = RemoteRefused("ssh exited 1.", status=1, silent=True)
+    answers = Answers(
+        {
+            "192.168.200.125": no_match,
+            "192.168.200.126": no_match,
+            "192.168.200.127": entry(stamp=NOW, message="debian14 started"),
+        }
+    )
+    build(client, answers)
+    response = client.get(
+        "/api/v1/logs", params={"scope": "guests", "grep": "debian14"}
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert all(row["answered"] for row in body["machines"])
+    assert body["warnings"] == []
+    assert [item["message"] for item in body["entries"]] == ["debian14 started"]
+
+
+@pytest.mark.parametrize(
+    ("stderr", "silent"), [("", True), ("Failed to open journal.\n", False)]
+)
+def test_the_ssh_runner_says_how_the_far_end_exited(
+    monkeypatch: pytest.MonkeyPatch, stderr: str, silent: bool
+) -> None:
+    def completed(argv, **_):
+        return subprocess.CompletedProcess(argv, 1, stdout="", stderr=stderr)
+
+    monkeypatch.setattr(subprocess, "run", completed)
+    request = RemoteRequest(
+        address="192.168.200.126",
+        user="ansible",
+        command="true",
+        private_key_file=Path("/nowhere/id"),
+        known_hosts_file=Path("/nowhere/known_hosts"),
+    )
+    with pytest.raises(RemoteRefused) as refused:
+        SshRemoteRunner().run(request)
+    assert (refused.value.status, refused.value.silent) == (1, silent)
+
+
+def test_a_silent_exit_of_1_without_a_pattern_is_a_failure(
+    client: TestClient,
+) -> None:
+    refusal = RemoteRefused("ssh exited 1.", status=1, silent=True)
+    build(client, Answers({"192.168.200.126": refusal}))
+    body = client.get("/api/v1/logs", params={"scope": "guests"}).json()
+    assert [row["host"] for row in body["machines"] if not row["answered"]] == [
+        "elabo1"
+    ]
+
+
+def test_an_exit_of_1_that_says_why_is_a_failure_even_with_a_pattern(
+    client: TestClient,
+) -> None:
+    refusal = RemoteRefused("Failed to open journal.", status=1, silent=False)
+    build(client, Answers({"192.168.200.126": refusal}))
+    body = client.get(
+        "/api/v1/logs", params={"scope": "guests", "grep": "debian14"}
+    ).json()
+    assert [row["host"] for row in body["machines"] if not row["answered"]] == [
+        "elabo1"
+    ]
 
 
 def test_the_machines_are_asked_with_the_shorter_connect_timeout(

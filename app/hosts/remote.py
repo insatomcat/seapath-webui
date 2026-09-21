@@ -54,7 +54,20 @@ TIMEOUT_SECONDS = 30.0
 
 
 class RemoteRefused(Exception):
-    """The command could not be run, and the message says what ssh answered."""
+    """The command could not be run, and the message says what ssh answered.
+
+    `status` is the exit status when there was one, and `silent` says nothing
+    was printed on either stream. Together they let a caller tell a command
+    that answered "nothing" the way grep does, with a 1 and no word, from one
+    that failed and said why.
+    """
+
+    def __init__(
+        self, message: str, status: int | None = None, silent: bool = False
+    ) -> None:
+        super().__init__(message)
+        self.status = status
+        self.silent = silent
 
 
 @dataclass(frozen=True)
@@ -159,7 +172,11 @@ class SshRemoteRunner:
             # accepted, an account that refuses the key and a command that
             # failed are three different repairs.
             reason = (completed.stderr or completed.stdout).strip()
-            raise RemoteRefused(reason or f"ssh exited {completed.returncode}.")
+            raise RemoteRefused(
+                reason or f"ssh exited {completed.returncode}.",
+                status=completed.returncode,
+                silent=not reason,
+            )
         return completed.stdout
 
 

@@ -384,17 +384,21 @@ class LogService:
                 )
             )
         except RemoteRefused as error:
-            logger.debug("No journal from %s: %s", target.host, error)
-            return (
-                MachineAnswer(
-                    host=target.host,
-                    address=target.address,
-                    answered=False,
-                    error=str(error),
-                ),
-                [],
-                [],
-            )
+            # `journalctl --grep` behaves like grep: when no entry matches, it
+            # exits 1 and prints nothing. That is an answer, and an empty one.
+            if not (query.grep is not None and error.status == 1 and error.silent):
+                logger.debug("No journal from %s: %s", target.host, error)
+                return (
+                    MachineAnswer(
+                        host=target.host,
+                        address=target.address,
+                        answered=False,
+                        error=str(error),
+                    ),
+                    [],
+                    [],
+                )
+            output = ""
         entries, skipped = journal.parse(output, target.host)
         return (
             MachineAnswer(
