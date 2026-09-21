@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.165 - 2026-09-21
+
+- fix: a sign in after an expired session asks for updates again
+- fix: the version glyph moves while the registry is asked
+
 ## 0.3.164 - 2026-09-20
 
 - fix: read a moving guest on the node it runs on
