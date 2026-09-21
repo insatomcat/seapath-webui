@@ -435,14 +435,38 @@
     if (!where) {
       return box;
     }
+    const name = document.createElement("span");
+    name.textContent = where;
+    // A pinned guest is a fifth state that the other four do not describe:
+    // `pinned_host` is a rule of its own rather than a placement, so it is
+    // neither something the cluster chose nor something a move or a return
+    // can change, and the row offers neither.
+    const pin = pinOf(guest);
+    if (pin) {
+      name.className = "placement pinned";
+      name.title = explainPin(guest.name, pin);
+      box.append(name);
+      return box;
+    }
     const held = preferenceOf(guest);
     const declared = guest.preferred_host || "";
-    const name = document.createElement("span");
     name.className = "placement " + placementState(held, declared, where);
-    name.textContent = where;
     name.title = explain(guest.name, held, declared, where);
     box.append(name);
     return box;
+  }
+
+  function explainPin(name, pin) {
+    return (
+      pin.id +
+      ". The inventory entry pins " +
+      name +
+      " to " +
+      pin.node +
+      " with pinned_host, so it runs there or nowhere and the cluster never " +
+      "moves it. Moving it means changing pinned_host on its entry and " +
+      "deploying it again."
+    );
   }
 
   // The four states the colour says, and the only thing it says. An entry that

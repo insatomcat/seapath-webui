@@ -1590,9 +1590,14 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
     assert '", which is the placement its inventory entry declares."' in script
     assert "Return writes " in script
     assert "leaves the placement to Pacemaker" in script
+    # A pinned guest is read from its `pin-` constraint before any of the
+    # four: pinned_host fixes the machine, and no move or return applies.
+    assert 'name.className = "placement pinned";' in script
+    assert "name.title = explainPin(guest.name, pin);" in script
+    assert "so it runs there or nowhere and the cluster never " in script
 
     # A colour nobody has been told the meaning of is a decoration, so the
-    # four are keyed under the table.
+    # five are keyed under the table.
     body = signed_in.get("/vms").text
     css = signed_in.get("/static/style.css").text
 
@@ -1600,10 +1605,12 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
     assert "held where the inventory declares" in body
     assert "cluster and inventory disagree" in body
     assert "not the machine the constraint names" in body
+    assert '<span class="placement pinned">node</span> pinned there' in body
     assert ".placement.free {\n  color: var(--accent);\n}" in css
     assert ".placement.kept {\n  color: var(--ok);\n}" in css
     assert ".placement.adrift {\n  color: var(--warn);\n}" in css
     assert ".placement.displaced {\n  color: var(--bad);\n}" in css
+    assert ".placement.pinned {\n  color: var(--isolated);\n}" in css
     # And the dotted underline, which is what says a node carries a sentence.
     assert ".placement {\n  text-decoration: underline dotted;" in css
 

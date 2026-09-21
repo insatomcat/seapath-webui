@@ -3429,7 +3429,7 @@ td.meta-key code.reserved {
    where the cluster holds it exactly where its inventory entry says, amber
    where the two disagree either way round, red where the guest is running on
    a machine its own constraint does not name, which means the one it names
-   could not take it. The reading used to be a badge spelling that out beside
+   could not take it, purple where pinned_host fixes the machine outright. The reading used to be a badge spelling that out beside
    every node name, and a sentence per row made this column the widest in the
    table. The sentence is on hover now, and the dotted underline is what says
    there is one to read. */
@@ -3459,7 +3459,11 @@ td.placed {
   color: var(--bad);
 }
 
-/* The key to those four, under the table, because a colour nobody has been
+.placement.pinned {
+  color: var(--isolated);
+}
+
+/* The key to those five, under the table, because a colour nobody has been
    told the meaning of is a decoration. */
 .placement-key {
   display: flex;
