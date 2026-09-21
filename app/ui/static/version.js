@@ -39,8 +39,9 @@
   const word = button.querySelector("[data-version-label]");
   const running = document.querySelector('meta[name="version"]').content;
   const KEY = "seapath-webui-latest:" + running;
-  // Set once the session asked on its own. Signing out clears the storage of
-  // the tab, so the next session asks again.
+  // Set once the session asked on its own. Signing in clears the storage of
+  // the tab, so the next session asks again, including one that follows an
+  // expiry rather than a sign out.
   const ASKED = "seapath-webui-asked:" + running;
   const SETTLED_MS = 4000;
 

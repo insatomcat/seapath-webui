@@ -16,6 +16,15 @@
         username: document.getElementById("username").value,
         password: document.getElementById("password").value,
       });
+      // A session that expired sent this tab here without signing out, so
+      // what the previous one kept is still in its storage: the panels it was
+      // showing, and the mark that stops the version check from asking again.
+      // A new session starts from nothing, whichever way the last one ended.
+      try {
+        sessionStorage.clear();
+      } catch (storage) {
+        /* Nothing was stored either. */
+      }
       window.location.assign("./");
     } catch (failure) {
       // The message is written for the operator, so it is shown as it comes.
