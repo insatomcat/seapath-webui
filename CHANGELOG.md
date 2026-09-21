@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.170 - 2026-09-21
+
+- feat: a pinned guest has a colour of its own on the VMs page
+
 ## 0.3.169 - 2026-09-21
 
 - feat: read a machine through its metrics proxy, one path per exporter
