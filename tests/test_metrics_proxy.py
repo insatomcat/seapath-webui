@@ -1,11 +1,11 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Reading a machine that serves its exporters behind one collector.
+"""Reading a machine that serves its exporters behind its metrics proxy.
 
 Two things are under test here and they fail differently. The rewrite, which
-decides that a machine is read through its collector and turns the four URLs a
-page asks it for into one request. And the trust, which is what makes that one
+decides that a machine is read through its proxy and sends each URL a page
+asks it for to the path of that exporter. And the trust, which is what makes that one
 request a verified one: the certificate is read over the SSH connection a run
 already makes, kept, and checked on every scrape afterwards.
 
@@ -32,13 +32,13 @@ from cryptography.x509.oid import NameOID
 
 from app.cluster.exporters import (
     CachingMetricsClient,
-    CollectorClient,
+    MetricsProxyClient,
     ScrapeCache,
     UrllibMetricsClient,
 )
 from app.cluster.trust import (
     CERTIFICATE_PATH,
-    CollectorTrust,
+    MetricsProxyTrust,
     SshCertificateFetcher,
     TrustRefused,
 )
@@ -149,18 +149,23 @@ def _paths(tmp_path: Path) -> RunPaths:
     )
 
 
-def test_a_collected_machine_is_read_through_its_collector() -> None:
+ROUTES = {9100: "node", 9177: "libvirt_exporter", 9664: "ha", 9283: "ceph"}
+
+
+def test_a_proxied_machine_is_read_through_its_proxy() -> None:
     inner = RecordingClient()
-    client = CollectorClient(inner, collected=lambda _: True, port=9464)
+    client = MetricsProxyClient(inner, proxied=lambda _: True, port=9464, routes=ROUTES)
 
     client.fetch("http://10.0.0.1:9100/metrics")
 
-    assert inner.urls == ["https://10.0.0.1:9464/metrics"]
+    assert inner.urls == ["https://10.0.0.1:9464/metrics/node"]
 
 
-def test_a_machine_without_a_collector_is_read_as_before() -> None:
+def test_a_machine_without_a_proxy_is_read_as_before() -> None:
     inner = RecordingClient()
-    client = CollectorClient(inner, collected=lambda _: False, port=9464)
+    client = MetricsProxyClient(
+        inner, proxied=lambda _: False, port=9464, routes=ROUTES
+    )
 
     client.fetch("http://10.0.0.1:9100/metrics")
 
@@ -169,32 +174,60 @@ def test_a_machine_without_a_collector_is_read_as_before() -> None:
 
 def test_a_cluster_is_migrated_one_machine_at_a_time() -> None:
     inner = RecordingClient()
-    client = CollectorClient(
-        inner, collected=lambda address: address == "10.0.0.1", port=9464
+    client = MetricsProxyClient(
+        inner,
+        proxied=lambda address: address == "10.0.0.1",
+        port=9464,
+        routes=ROUTES,
     )
 
     client.fetch("http://10.0.0.1:9100/metrics")
     client.fetch("http://10.0.0.2:9100/metrics")
 
     assert inner.urls == [
-        "https://10.0.0.1:9464/metrics",
+        "https://10.0.0.1:9464/metrics/node",
         "http://10.0.0.2:9100/metrics",
     ]
 
 
-def test_the_four_ports_of_one_machine_become_one_request() -> None:
-    """The rewrite sits in front of the scrape window, which is what makes it one."""
+def test_each_exporter_is_asked_on_its_own_path() -> None:
     inner = RecordingClient()
-    client = CollectorClient(
+    client = MetricsProxyClient(
         CachingMetricsClient(inner, ScrapeCache(window_seconds=60)),
-        collected=lambda _: True,
+        proxied=lambda _: True,
         port=9464,
+        routes=ROUTES,
     )
 
-    for port in (9100, 9177, 9664, 9283):
+    for port in (9100, 9177, 9664, 9283, 9100):
         client.fetch(f"http://10.0.0.1:{port}/metrics")
 
-    assert inner.urls == ["https://10.0.0.1:9464/metrics"]
+    assert inner.urls == [
+        "https://10.0.0.1:9464/metrics/node",
+        "https://10.0.0.1:9464/metrics/libvirt_exporter",
+        "https://10.0.0.1:9464/metrics/ha",
+        "https://10.0.0.1:9464/metrics/ceph",
+    ]
+
+
+def test_an_ipv6_address_is_bracketed() -> None:
+    inner = RecordingClient()
+    client = MetricsProxyClient(inner, proxied=lambda _: True, port=9464, routes=ROUTES)
+
+    client.fetch("http://[fd00::1]:9664/metrics")
+
+    assert inner.urls == ["https://[fd00::1]:9464/metrics/ha"]
+
+
+def test_a_port_the_proxy_has_no_path_for_is_a_sentence() -> None:
+    inner = RecordingClient()
+    client = MetricsProxyClient(inner, proxied=lambda _: True, port=9464, routes=ROUTES)
+
+    text, error = client.fetch("http://10.0.0.1:9882/metrics")
+
+    assert text is None
+    assert error == "its metrics proxy serves nothing for port 9882"
+    assert inner.urls == []
 
 
 def test_the_certificate_is_read_over_the_connection_a_run_makes(
@@ -211,7 +244,7 @@ def test_the_certificate_is_read_over_the_connection_a_run_makes(
     assert request.address == "10.0.0.1"
     assert request.user == "ansible"
     assert request.command == (
-        "sudo -n /bin/sh -c 'cat /etc/otelcol/cert.d/servercert.pem'"
+        "sudo -n /bin/sh -c 'cat /etc/seapath-metrics-proxy/cert.d/servercert.pem'"
     )
     assert request.private_key_file == tmp_path / "id_ed25519"
     assert request.known_hosts_file == tmp_path / "known_hosts"
@@ -241,10 +274,12 @@ def test_a_machine_that_cannot_be_reached_is_refused(tmp_path: Path) -> None:
 def test_the_certificate_is_pinned_once_and_kept(tmp_path: Path) -> None:
     _, _, pem = _self_signed(tmp_path, "node")
     fetcher = FakeFetcher(pem)
-    trust = CollectorTrust(store_dir=tmp_path / "pins", fetcher=fetcher)
+    trust = MetricsProxyTrust(store_dir=tmp_path / "pins", fetcher=fetcher)
 
     trust.context_for("10.0.0.1")
-    CollectorTrust(store_dir=tmp_path / "pins", fetcher=fetcher).context_for("10.0.0.1")
+    MetricsProxyTrust(store_dir=tmp_path / "pins", fetcher=fetcher).context_for(
+        "10.0.0.1"
+    )
 
     pinned = tmp_path / "pins" / "10.0.0.1.pem"
     assert pinned.read_text() == pem
@@ -255,7 +290,7 @@ def test_the_certificate_is_pinned_once_and_kept(tmp_path: Path) -> None:
 def test_a_site_ca_pins_nothing(tmp_path: Path) -> None:
     ca_file, _, _ = _self_signed(tmp_path, "site")
     fetcher = FakeFetcher("unused")
-    trust = CollectorTrust(
+    trust = MetricsProxyTrust(
         store_dir=tmp_path / "pins", ca_file=ca_file, fetcher=fetcher
     )
 
@@ -266,7 +301,7 @@ def test_a_site_ca_pins_nothing(tmp_path: Path) -> None:
 
 
 def test_a_machine_with_no_certificate_to_read_is_a_result(tmp_path: Path) -> None:
-    trust = CollectorTrust(
+    trust = MetricsProxyTrust(
         store_dir=tmp_path / "pins",
         fetcher=FakeFetcher("", refusal="its certificate could not be read over SSH"),
     )
@@ -279,7 +314,7 @@ def test_a_machine_with_no_certificate_to_read_is_a_result(tmp_path: Path) -> No
 
 
 def test_an_address_that_is_not_one_is_refused(tmp_path: Path) -> None:
-    trust = CollectorTrust(store_dir=tmp_path / "pins", fetcher=FakeFetcher("x"))
+    trust = MetricsProxyTrust(store_dir=tmp_path / "pins", fetcher=FakeFetcher("x"))
 
     with pytest.raises(TrustRefused):
         trust.pinned_path("../../etc/shadow")
@@ -287,7 +322,7 @@ def test_an_address_that_is_not_one_is_refused(tmp_path: Path) -> None:
 
 def test_a_pinned_certificate_is_what_the_scrape_verifies(tmp_path: Path) -> None:
     cert_file, key_file, pem = _self_signed(tmp_path, "node")
-    trust = CollectorTrust(store_dir=tmp_path / "pins", fetcher=FakeFetcher(pem))
+    trust = MetricsProxyTrust(store_dir=tmp_path / "pins", fetcher=FakeFetcher(pem))
     client = UrllibMetricsClient(trust)
 
     with _serving(cert_file, key_file) as port:
@@ -305,7 +340,7 @@ def test_a_replaced_certificate_is_read_again_and_pinned(tmp_path: Path) -> None
     pins.mkdir()
     (pins / "127.0.0.1.pem").write_text(stale)
     fetcher = FakeFetcher(current)
-    client = UrllibMetricsClient(CollectorTrust(store_dir=pins, fetcher=fetcher))
+    client = UrllibMetricsClient(MetricsProxyTrust(store_dir=pins, fetcher=fetcher))
 
     with _serving(cert_file, key_file) as port:
         text, error = client.fetch(f"https://127.0.0.1:{port}/metrics")
@@ -321,7 +356,7 @@ def test_a_certificate_that_still_does_not_verify_is_a_result(tmp_path: Path) ->
     cert_file, key_file, _ = _self_signed(tmp_path, "served")
     fetcher = FakeFetcher(other)
     client = UrllibMetricsClient(
-        CollectorTrust(store_dir=tmp_path / "pins", fetcher=fetcher)
+        MetricsProxyTrust(store_dir=tmp_path / "pins", fetcher=fetcher)
     )
 
     with _serving(cert_file, key_file) as port:

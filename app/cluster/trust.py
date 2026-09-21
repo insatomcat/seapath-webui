@@ -1,11 +1,11 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""Trusting the certificate a node's collector answers with.
+"""Trusting the certificate a node's metrics proxy answers with.
 
-`deploy_otel_collector` puts one OpenTelemetry collector on each node, in
-front of the exporters, and moves those exporters to the loopback: the node
-then serves everything this service reads on a single TLS port. The role
+`deploy_metrics_proxy` puts one TLS reverse proxy on each node, in front of
+the exporters, and moves those exporters to the loopback: the node then
+serves everything this service reads on a single TLS port. The role
 signs that certificate on the node itself unless a site hands it one, so
 there is no authority here to verify it against, and accepting whatever a
 machine presents would hand the whole reading to anyone who can answer on
@@ -18,7 +18,7 @@ read over that connection and kept, and every later scrape is verified
 against the copy. It is the model the SSH host keys themselves use, and the
 authority is the one this service already has.
 
-A site with a PKI sets `collector_ca_file` and none of this runs: every node's
+A site with a PKI sets `metrics_proxy_ca_file` and none of this runs: every node's
 certificate is verified against that CA, and nothing is fetched or kept.
 
 Two consequences worth stating, because both are operational rather than
@@ -44,11 +44,11 @@ from app.runs.service import RunPaths
 
 logger = logging.getLogger(__name__)
 
-# Where `deploy_otel_collector` installs what it serves. The directory is
+# Where `deploy_metrics_proxy` installs what it serves. The directory is
 # root's, which is why reading the certificate takes the same `sudo -n /bin/sh`
 # rule the journal reading takes: the `ansible` account holds arbitrary root
 # already, because Ansible needs it.
-CERTIFICATE_PATH = "/etc/otelcol/cert.d/servercert.pem"
+CERTIFICATE_PATH = "/etc/seapath-metrics-proxy/cert.d/servercert.pem"
 
 _PEM_HEADER = "-----BEGIN CERTIFICATE-----"
 
@@ -58,7 +58,7 @@ class TrustRefused(Exception):
 
 
 class CertificateFetcher(Protocol):
-    """Reads one node's collector certificate, or explains why it could not."""
+    """Reads one node's metrics proxy certificate, or explains why it could not."""
 
     def fetch(self, address: str) -> str: ...
 
@@ -114,7 +114,7 @@ class SshCertificateFetcher:
         return answer
 
 
-class CollectorTrust:
+class MetricsProxyTrust:
     """One verified TLS context per machine, and where it came from.
 
     Contexts are kept because building one parses a certificate and every panel
@@ -193,7 +193,7 @@ class CollectorTrust:
         # The certificate is public material, the key it goes with never leaves
         # the node, and an operator comparing a fingerprint reads this file.
         path.chmod(0o644)
-        logger.info("Pinned the collector certificate of %s", address)
+        logger.info("Pinned the metrics proxy certificate of %s", address)
 
     def _verifying(self, ca_file: Path) -> ssl.SSLContext:
         try:

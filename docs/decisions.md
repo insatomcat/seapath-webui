@@ -4949,7 +4949,7 @@ router, and the refusals above live there. The fake runner answers from
 recorded journal lines, so the suite reaches no machine, as every other adapter
 does.
 
-## D64 - Settled: a machine serving its exporters behind a collector is read over TLS, on a certificate read over SSH
+## D64 - Superseded in part by [D65](#d65): a machine serving its exporters behind a collector is read over TLS, on a certificate read over SSH
 
 `deploy_otel_collector` puts one OpenTelemetry collector on each SEAPATH node,
 scraping that node's exporters on the loopback and serving all of them on a
@@ -4998,3 +4998,29 @@ the machine cannot disagree about which of the two shapes a node is in.
 and the TLS half of the client, and the suite exercises both against a real
 HTTPS server holding a real certificate: a fake socket would only assert that
 the tests believe Python verifies it.
+
+## D65 - Settled: the collector gives way to a proxy, and each exporter keeps its own path
+
+`deploy_otel_collector` became `deploy_metrics_proxy`: one nginx per node that
+serves each exporter on its own path of the same TLS port, `/metrics/<job>`,
+and forwards the bytes. The collector converted every exposition to its own
+data model and back, and that round trip had behaviour of its own. Its
+accumulator kept serving a series the exporter had dropped until the series
+expired, which showed a guest on the node it had left and on the node it had
+reached at once. The goal was one port and one TLS policy, and the proxy
+reaches it with nothing in between.
+
+What D64 settled about trust stands: the certificate is read over SSH, pinned
+under `state_dir`, re-read once when it stops verifying, and replaced by a site
+CA when there is one. Only the names changed (`metrics_proxy_port`,
+`metrics_proxy_ca_file`, `deploy_metrics_proxy_enabled`), along with the path
+the certificate is read from, `/etc/seapath-metrics-proxy/cert.d`. A copy
+pinned from a collector stops verifying against the proxy and is re-pinned on
+the first scrape, which is the renewal path D64 already has.
+
+What changes is the rewrite. A URL names its exporter by port, so the port now
+picks the path on the proxy, and the four URLs a page asks one machine for stay
+four requests. D64 counted their merging as a gain. It was a consequence of
+reading an aggregate, and the scrape window still merges the requests a page
+repeats. A port the proxy has no path for is answered here as a sentence
+rather than sent to an address where nothing listens any more.

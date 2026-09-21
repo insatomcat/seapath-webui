@@ -32,7 +32,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Protocol
 
 from app.cluster import metrics
-from app.cluster.trust import CollectorTrust, TrustRefused
+from app.cluster.trust import MetricsProxyTrust, TrustRefused
 
 logger = logging.getLogger(__name__)
 
@@ -61,14 +61,14 @@ class UrllibMetricsClient:
     a node that cannot be reached is an ordinary state on a cluster being
     built, and the page says which one rather than failing whole.
 
-    A node running a collector answers over TLS, and the certificate it
+    A node behind its metrics proxy answers over TLS, and the certificate it
     answers with is verified against the copy `app/cluster/trust.py` read over
     SSH. A failure to verify is the one error retried here, once, because the
     role replaces a certificate before it expires and a site can install its
     own: the copy is re-read over SSH and the request made again.
     """
 
-    def __init__(self, trust: CollectorTrust | None = None) -> None:
+    def __init__(self, trust: MetricsProxyTrust | None = None) -> None:
         self._trust = trust
 
     def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
@@ -114,14 +114,13 @@ class UrllibMetricsClient:
             return None, str(error), False
 
 
-class CollectorClient:
-    """Reads a machine through its collector, when that machine has one.
+class MetricsProxyClient:
+    """Reads a machine through its metrics proxy, when that machine has one.
 
-    `deploy_otel_collector` moves the exporters of a node to the loopback and
-    serves all of them on one TLS port, so the four URLs the panels of a page
-    ask a machine for become one. The rewrite sits in front of the scrape
-    window rather than behind it, which is what makes them one request rather
-    than four requests to the same place.
+    `deploy_metrics_proxy` moves the exporters of a node to the loopback and
+    serves each of them on its own path of one TLS port, `/metrics/<job>`. The
+    URL a panel asks for names the exporter by its port, so the port picks the
+    path and the request goes to the proxy instead.
 
     A cluster is migrated one machine at a time, so this is asked per address:
     a node still serving its exporters directly is read as before.
@@ -130,23 +129,30 @@ class CollectorClient:
     def __init__(
         self,
         client: MetricsClient,
-        collected: Callable[[str], bool],
+        proxied: Callable[[str], bool],
         port: int,
+        routes: dict[int, str],
     ) -> None:
         self._client = client
-        self._collected = collected
+        self._proxied = proxied
         self._port = port
+        self._routes = routes
 
     def fetch(self, url: str, timeout: float = 2.0) -> tuple[str | None, str]:
-        return self._client.fetch(self._rewritten(url), timeout=timeout)
-
-    def _rewritten(self, url: str) -> str:
         parts = urllib.parse.urlsplit(url)
         host = parts.hostname
-        if not host or not self._collected(host):
-            return url
+        if not host or not self._proxied(host):
+            return self._client.fetch(url, timeout=timeout)
+        job = self._routes.get(parts.port or 0)
+        if job is None:
+            # An exporter the proxy has no path for is on the loopback of that
+            # machine and nowhere else, so asking its old address would only
+            # time out on a closed port.
+            return None, f"its metrics proxy serves nothing for port {parts.port}"
         literal = f"[{host}]" if ":" in host else host
-        return f"https://{literal}:{self._port}{parts.path}"
+        return self._client.fetch(
+            f"https://{literal}:{self._port}/metrics/{job}", timeout=timeout
+        )
 
 
 class Exposition:
