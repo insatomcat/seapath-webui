@@ -471,6 +471,27 @@ button[aria-busy="true"] {
   stroke-linejoin: round;
 }
 
+/* The registry is being asked. The glyph stays in place so the bar does not
+   reflow, and the arrow falls towards its line, which is the only cue left
+   now that the question is no longer a word. */
+.version-button[aria-busy="true"] [data-version-glyph="ask"] path:not(:last-child) {
+  animation: version-fall 0.9s ease-in-out infinite;
+}
+
+@keyframes version-fall {
+  50% {
+    transform: translateY(1.6px);
+  }
+}
+
+/* The disabled rule's dimming says the button is out of reach, which is the
+   cue that survives without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .version-button[aria-busy="true"] [data-version-glyph="ask"] path {
+    animation: none;
+  }
+}
+
 /* A newer version, or one pinned and not deployed: the one button of the bar
    that asks for an act, drawn as one. */
 .version-button.version-due {
