@@ -3595,12 +3595,6 @@ tr.severity-warning .tag {
   color: var(--warn);
 }
 
-/* A link into the Logs page, drawn as the secondary buttons it stands among.
-   A link rather than a button because it is a navigation, and an operator
-   reading a guest's lines wants it in a tab of its own beside the table they
-   came from. The element selectors on `button` therefore do not reach it, and
-   the three declarations it needs are repeated here rather than the button
-   rules being widened to anchors. */
 /* A link in a pane's heading sits beside the reread control rather than
    claiming the free space: `.button-link` takes that space for the heading it
    was written for, and here the lead line already has it. */
@@ -3608,15 +3602,28 @@ tr.severity-warning .tag {
   margin-left: 0;
 }
 
+/* A link into the Logs page, drawn as the secondary buttons it stands among.
+   A link rather than a button because it is a navigation, and an operator
+   reading a guest's lines wants it in a tab of its own beside the table they
+   came from. The element selectors on `button` therefore do not reach it, and
+   what `td button` and `button.secondary` give the buttons beside it is
+   repeated here rather than the button rules being widened to anchors, the
+   narrow screen's padding included. */
 a.act-link {
   display: inline-block;
-  padding: 0.5rem 0.9rem;
+  padding: 0.15rem 0.5rem;
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 4px;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 400;
   text-decoration: none;
+}
+
+@media (max-width: 49.6rem) {
+  table.stacked td a.act-link {
+    padding: 0.3rem 0.7rem;
+  }
 }
 
 a.act-link:hover {
