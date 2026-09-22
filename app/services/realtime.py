@@ -31,13 +31,19 @@ from enum import Enum
 from pydantic import BaseModel, Field
 
 from app.cluster.pool import ClusterPool, NodePool, PoolReader
+from app.core.errors import ApiError
+from app.core.logging import audit_event
 from app.hosts.models import CpuReading, Reading, RealtimeReading
 from app.hosts.reader import HostReader
+from app.inventory.editor import Scope
 from app.inventory.model import NodeConfig, Role
+from app.inventory.repository import Commit
+from app.inventory.resolve import Group, groups, members
 from app.inventory.service import InventoryService
 from app.runs.cyclictest import CyclictestResult
 from app.runs.hwlatdetect import HwlatdetectResult
 from app.runs.models import RunRecord, RunState
+from app.runs.scope import RunScope
 from app.runs.service import RunService
 from app.services import checks as checks_module
 from app.services.checks import SEAPATH_PROFILE, Check, Kind, Status, cpu_list
@@ -72,6 +78,33 @@ class RealtimeConformance(Reading):
     @property
     def warning_count(self) -> int:
         return sum(1 for check in self.checks if check.status is Status.WARNING)
+
+
+class AllocationStrategy(str, Enum):
+    """How `seapath-alloc` orders the isolated threads it hands out.
+
+    The three values `deploy_seapath_alloc` accepts for
+    `seapath_alloc_strategy`, which it writes to `/etc/seapath/alloc.yaml`.
+    The allocator reads that file at each allocation, so a new strategy
+    applies to the next guest started or container pinned on the machine, and
+    what is already pinned stays where it is.
+    """
+
+    SPREADING = "spreading"
+    """One thread per physical core, the role's default."""
+    PACKING = "packing"
+    """Both hyperthreads of a core before the next core."""
+    REPACKING = "repacking"
+    """Spreading, but an `exclusive_physical` request with no free pair
+    compacts the logical threads of the guests already running to free one."""
+
+
+STRATEGY_VARIABLE = "seapath_alloc_strategy"
+STRATEGY_PLAYBOOK = "seapath_setup_deploy_seapath_alloc"
+
+
+class UnknownMachine(Exception):
+    """The inventory declares no machine by that name."""
 
 
 class MeasurementKind(str, Enum):
@@ -194,9 +227,19 @@ class RealtimeService:
         nodes = self._pool.read(
             [(name, node.ansible_host) for name, node in hosts.items()]
         )
+        # The file is read for where the strategy is written only when some
+        # machine receives one, which most inventories never declare.
+        table = (
+            groups(self._inventory.raw())
+            if any(STRATEGY_VARIABLE in node.extra for node in hosts.values())
+            else {}
+        )
         for node in nodes:
             declared = hosts.get(node.host)
             node.declared_isolcpus = declared.isolcpus if declared else None
+            if declared is not None and STRATEGY_VARIABLE in declared.extra:
+                node.alloc_strategy = declared.extra[STRATEGY_VARIABLE]
+                node.alloc_strategy_on = _declared_on(table, node.host)
             self._judge(node, declared, state.this_host)
         if state.this_host is None or state.this_host not in hosts:
             # The machine the browser is pointed at, when the inventory has no
@@ -214,6 +257,63 @@ class RealtimeService:
             inventory_commit=state.commit,
             available=any(node.cpus for node in nodes),
         )
+
+    def set_strategy(
+        self,
+        host: str,
+        strategy: AllocationStrategy,
+        author: str,
+        expected_head: str | None = None,
+    ) -> tuple[Commit | None, RunRecord | None]:
+        """Write one machine's `seapath_alloc_strategy`, and put it on the machine.
+
+        One commit on the machine's own entry, then one run of
+        `seapath_setup_deploy_seapath_alloc` narrowed to it, which templates
+        `/etc/seapath/alloc.yaml` from the committed value. Written on the host
+        rather than on a group, since the page asks it of one machine and a
+        group value would change the others behind the operator's back.
+
+        Nothing is committed when the machine already receives this value, the
+        role default included, and nothing is run either. The playbook's
+        availability is asked before the commit, so the inventory never says
+        something no run from here can apply.
+        """
+        state = self._inventory.state()
+        if state.inventory is None or host not in state.inventory.hosts:
+            raise UnknownMachine(f"{host} is not a machine of the inventory.")
+        received = state.inventory.hosts[host].extra.get(STRATEGY_VARIABLE)
+        if (received or AllocationStrategy.SPREADING.value) == strategy.value:
+            return None, None
+        offered = self._runs.playbooks({STRATEGY_PLAYBOOK})
+        if offered and not offered[0].available:
+            raise ApiError(
+                "precondition_failed",
+                offered[0].unmet[0],
+                409,
+                {"unmet": offered[0].unmet, "codes": offered[0].unmet_codes},
+            )
+        commit = self._inventory.write_variables(
+            [(Scope(kind="host", name=host), {STRATEGY_VARIABLE: strategy.value})],
+            {host: {STRATEGY_VARIABLE: strategy.value}},
+            f"realtime: {strategy.value} CPU allocation on {host}\n\n"
+            "Written to /etc/seapath/alloc.yaml by deploy_seapath_alloc, and "
+            "read by seapath-alloc at the next allocation on the machine.",
+            author,
+            expected_head=expected_head,
+        )
+        if commit is None:
+            return None, None
+        audit_event(
+            "realtime.alloc_strategy",
+            host=host,
+            strategy=strategy.value,
+            commit=commit.hash,
+            user=author,
+        )
+        record = self._runs.launch(
+            STRATEGY_PLAYBOOK, author, scope=RunScope(hosts=[host])
+        )
+        return commit, record
 
     def _judge(
         self, node: NodePool, declared: NodeConfig | None, this_host: str | None
@@ -366,3 +466,19 @@ class RealtimeService:
             state.this_host,
             state.commit,
         )
+
+
+def _declared_on(table: dict[str, Group], host: str) -> str | None:
+    """Where the inventory sets the strategy one machine receives.
+
+    `host` for its own entry, which wins over any group. Otherwise the first
+    group carrying it that the machine belongs to, which is where a site that
+    followed the role's README wrote it: `group_vars/hypervisors`.
+    """
+    for group in table.values():
+        if STRATEGY_VARIABLE in group.hosts.get(host, {}):
+            return "host"
+    for name, group in sorted(table.items()):
+        if STRATEGY_VARIABLE in group.variables and host in members(table, name):
+            return name
+    return None

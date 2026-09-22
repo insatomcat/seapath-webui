@@ -123,6 +123,15 @@ class NodePool(BaseModel):
     invisible any other way.
     """
     observed_isolcpus: str = ""
+    alloc_strategy: str | None = None
+    """`seapath_alloc_strategy` as this node receives it from the inventory.
+
+    None when nothing declares it, and the role then writes its own default.
+    The exporter does not publish the strategy `/etc/seapath/alloc.yaml`
+    holds, so this is what the node was told rather than what it runs with.
+    """
+    alloc_strategy_on: str | None = None
+    """Where the value comes from: `host`, or the group that declares it."""
     kernel: str = ""
     preemption: str = ""
 

@@ -521,3 +521,94 @@ def test_a_guest_measurement_is_a_history_of_its_own(
     ]
     # And it is not one of the machine measurements.
     assert signed_in.get("/api/v1/realtime/measurements?kind=cyclictest").json() == []
+
+
+# The allocation strategy, set from the pool it governs. A commit on the
+# machine's entry and a run of the upstream role narrowed to it, nothing else.
+
+STRATEGY_ON_GROUP = GUESTS.replace(
+    "    hypervisors:\n      hosts:\n        seapath-machine:\n",
+    "    hypervisors:\n      vars:\n        seapath_alloc_strategy: packing\n"
+    "      hosts:\n        seapath-machine:\n",
+)
+
+
+def test_the_pool_says_which_strategy_each_node_receives_and_from_where(
+    signed_in: TestClient,
+) -> None:
+    node = signed_in.get("/api/v1/realtime/pool").json()["nodes"][0]
+    # Nothing declares it, and the role writes its own default then.
+    assert node["alloc_strategy"] is None
+    assert node["alloc_strategy_on"] is None
+
+    signed_in.post("/api/v1/inventory/import", json={"document": STRATEGY_ON_GROUP})
+    node = signed_in.get("/api/v1/realtime/pool").json()["nodes"][0]
+    assert node["alloc_strategy"] == "packing"
+    assert node["alloc_strategy_on"] == "hypervisors"
+
+
+def test_a_strategy_is_committed_on_the_host_and_applied_by_the_role(
+    signed_in: TestClient, run_adapter
+) -> None:
+    signed_in.post("/api/v1/inventory/import", json={"document": STRATEGY_ON_GROUP})
+
+    answer = signed_in.put(
+        "/api/v1/realtime/pool/seapath-machine/strategy",
+        json={"strategy": "repacking"},
+    )
+    assert answer.status_code == 200, answer.text
+    body = answer.json()
+    assert body["commit"]
+    wait_for(signed_in, body["run_id"])
+
+    request = run_adapter.requests[0]
+    assert request.playbook == "seapath.ansible.seapath_setup_deploy_seapath_alloc"
+    assert request.limit == "seapath-machine"
+    # On the host entry, which overrides the group for this machine alone, and
+    # the group value the site wrote is left where it was.
+    raw = signed_in.get("/api/v1/inventory/raw").text
+    assert "seapath_alloc_strategy: packing" in raw
+    node = signed_in.get("/api/v1/realtime/pool").json()["nodes"][0]
+    assert node["alloc_strategy"] == "repacking"
+    assert node["alloc_strategy_on"] == "host"
+
+
+def test_the_strategy_a_machine_already_receives_commits_and_runs_nothing(
+    signed_in: TestClient, run_adapter
+) -> None:
+    # The role default counts: spreading is what the machine was told when
+    # nothing names a strategy.
+    body = signed_in.put(
+        "/api/v1/realtime/pool/seapath-machine/strategy",
+        json={"strategy": "spreading"},
+    ).json()
+
+    assert body["commit"] is None
+    assert body["run_id"] is None
+    assert run_adapter.requests == []
+
+
+def test_a_strategy_the_role_does_not_know_is_refused(signed_in: TestClient) -> None:
+    answer = signed_in.put(
+        "/api/v1/realtime/pool/seapath-machine/strategy",
+        json={"strategy": "balanced"},
+    )
+    assert answer.status_code == 422
+
+
+def test_a_strategy_for_a_machine_the_inventory_lacks_is_refused(
+    signed_in: TestClient,
+) -> None:
+    answer = signed_in.put(
+        "/api/v1/realtime/pool/elsewhere/strategy", json={"strategy": "packing"}
+    )
+    assert answer.status_code == 404
+    assert answer.json()["error"]["code"] == "unknown_host"
+
+
+def test_a_viewer_may_not_change_a_strategy(signed_in_viewer: TestClient) -> None:
+    answer = signed_in_viewer.put(
+        "/api/v1/realtime/pool/seapath-machine/strategy",
+        json={"strategy": "packing"},
+    )
+    assert answer.status_code == 403

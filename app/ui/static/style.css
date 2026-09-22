@@ -2984,6 +2984,23 @@ button.secondary {
   color: var(--warn);
 }
 
+.pool-strategy {
+  margin: 0.3rem 0 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  max-width: 26rem;
+}
+
+.pool-strategy select {
+  margin-left: 0.25rem;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.pool-strategy strong {
+  color: var(--text);
+}
+
 /* A verdict this service will not soften. `warning` is amber and means worth a
    look; a cluster that has lost quorum, a resource Pacemaker will not start
    anywhere, or a Ceph cluster in HEALTH_ERR are not that. They were drawn

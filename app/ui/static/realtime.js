@@ -16,7 +16,9 @@
 //
 // Nothing here writes to a host. The launch button posts to /runs, which is
 // the same path the Deployment page uses, so there is one lock, one history and
-// one confirmation across everything that touches a machine.
+// one confirmation across everything that touches a machine. The allocation
+// strategy under each node of the pool is a commit on its entry and a run of
+// deploy_seapath_alloc, started by the service on the same path.
 
 (function () {
   // Three measurements, kept apart because they answer different questions:
@@ -134,6 +136,9 @@
     machines: [],
     isolated: [],
     thisHost: null,
+    // The inventory commit the pool on screen was read against, which is what
+    // a strategy change names as the version it was made from.
+    poolCommit: null,
     // The guests a run could reach, which is a shorter list than the group: an
     // entry carries an address only when someone wrote one on it.
     guests: [],
@@ -702,6 +707,7 @@
 
   function drawPool(pool) {
     element("map-loading").hidden = true;
+    state.poolCommit = pool.inventory_commit;
 
     // The same reading answers both panels, so the cluster is asked once. Each
     // node's exporter carries its pool and its tuning in one exposition, and
@@ -855,6 +861,11 @@
       box.append(status);
     }
 
+    const strategy = renderStrategy(node);
+    if (strategy) {
+      box.append(strategy);
+    }
+
     const notes = [];
     if (node.hard_fallbacks) {
       notes.push(
@@ -875,6 +886,130 @@
       box.append(line);
     }
     return box;
+  }
+
+  // The three values deploy_seapath_alloc accepts for seapath_alloc_strategy,
+  // each with what it does in the words of that role's README.
+  const STRATEGIES = {
+    spreading: "one thread per physical core, the best isolation from the sibling",
+    packing: "both hyperthreads of a core before the next core",
+    repacking:
+      "spreading, and a guest asking for a whole core when no pair is free " +
+      "compacts the threads of the guests already running to free one",
+  };
+  const DEFAULT_STRATEGY = "spreading";
+
+  // What the inventory gives this node, and for an admin the control that
+  // changes it. Only on a machine of the inventory whose allocator answered:
+  // the run that applies it plays that machine, and a node with no pool has
+  // no allocator to read the file yet.
+  function renderStrategy(node) {
+    if (!state.machines.includes(node.host)) {
+      return null;
+    }
+    const current = node.alloc_strategy || DEFAULT_STRATEGY;
+    const origin = !node.alloc_strategy
+      ? "the role default, nothing declares it"
+      : node.alloc_strategy_on === "host"
+        ? "set on this machine's entry"
+        : node.alloc_strategy_on
+          ? "set on the group " + node.alloc_strategy_on
+          : "from the inventory";
+
+    const line = document.createElement("p");
+    line.className = "pool-strategy";
+    const label = document.createElement("label");
+    label.append("Allocation ");
+    if (state.canLaunch) {
+      const select = document.createElement("select");
+      Object.keys(STRATEGIES).forEach((name) => {
+        const option = document.createElement("option");
+        option.value = name;
+        option.textContent = name;
+        option.title = STRATEGIES[name];
+        select.append(option);
+      });
+      select.value = current;
+      select.title = STRATEGIES[current];
+      select.addEventListener("change", () =>
+        confirmStrategy(node, current, select)
+      );
+      label.append(select);
+    } else {
+      const value = document.createElement("strong");
+      value.textContent = current;
+      value.title = STRATEGIES[current] || "";
+      label.append(value);
+    }
+    line.append(label, " " + origin + ".");
+    return line;
+  }
+
+  function confirmStrategy(node, current, select) {
+    const chosen = select.value;
+    const modal = element("strategy-confirm");
+    const go = element("strategy-confirm-go");
+    const error = element("strategy-confirm-error");
+    error.hidden = true;
+
+    element("strategy-confirm-title").textContent =
+      chosen + " allocation on " + node.host;
+    element("strategy-effect").textContent =
+      "seapath-alloc will hand out isolated CPUs " +
+      STRATEGIES[chosen] +
+      ", instead of " +
+      STRATEGIES[current] +
+      ". It is read at the next allocation: guests and containers already " +
+      "pinned keep their cores until they are started again" +
+      (chosen === "repacking"
+        ? ", except the ones a repacking moves to free a core"
+        : "") +
+      ".";
+    // Where it lands, and what the run does beside it, since the playbook is
+    // the whole of deploy_seapath_alloc rather than the one file.
+    element("strategy-disruption").textContent =
+      "Commits seapath_alloc_strategy: " +
+      chosen +
+      " on " +
+      node.host +
+      "'s entry" +
+      (node.alloc_strategy_on && node.alloc_strategy_on !== "host"
+        ? ", which overrides the group " +
+          node.alloc_strategy_on +
+          " for this machine alone"
+        : "") +
+      ", then runs deploy_seapath_alloc on " +
+      node.host +
+      " only. That run also reinstalls the allocator from the collection " +
+      "installed on this node, as Apply the dynamic CPU pinning does.";
+
+    const cancel = () => {
+      select.value = current;
+      modal.hidden = true;
+    };
+    element("strategy-cancel").onclick = cancel;
+    go.disabled = false;
+    go.onclick = async () => {
+      go.disabled = true;
+      try {
+        const answer = await API.put(
+          "/realtime/pool/" + encodeURIComponent(node.host) + "/strategy",
+          { strategy: chosen },
+          state.poolCommit ? { "If-Match": state.poolCommit } : undefined
+        );
+        modal.hidden = true;
+        if (answer.run_id) {
+          RunWatch.open(answer.run_id, () => loadPool(true));
+        } else {
+          await loadPool(true);
+        }
+      } catch (failure) {
+        error.textContent = failure.message;
+        error.hidden = false;
+        go.disabled = false;
+      }
+    };
+    modal.hidden = false;
   }
 
   function renderSlot(slot) {

@@ -191,6 +191,7 @@ carrying production traffic the first time it is run.
 | 27 | The ACPI row reads the same on every column, and the same from every node's page | D36. Podman masks `/sys/firmware`, so the reading a container makes of itself differed from the one its own exporter published, and only a real container reproduces that | |
 | 28 | Stopping `node-exporter` on the node serving the page leaves that column answered from its own files, while the other columns fall back to their reason | The other half of D36. The fallback needs a real `/proc` and a real `/sys` under a real mask, which no fake provides | |
 | 29 | With the exporter stopped, a machine whose tuned profile comes from the distribution rather than from `configure_hypervisor` still reads as installed | The `/usr/lib/tuned` mount, on the fallback path. Only a real container, whose own `/usr` carries no tuned, distinguishes a mounted profile directory from a missing one | |
+| 30 | Choosing `packing` under one node of the CPU pool asks for confirmation naming that node, commits `seapath_alloc_strategy` on its entry, and runs `deploy_seapath_alloc` on it alone; `/etc/seapath/alloc.yaml` then reads `allocation_strategy: packing` there and nowhere else, and the next guest started on it fills both threads of a core | The template, the allocator reading the file at the next allocation, and a real pair of hyperthreads | |
 
 ### Result
 

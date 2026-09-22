@@ -107,6 +107,9 @@ the whole screen.
         <code>seapath-alloc</code> publishes what it pinned: this container
         cannot see the threads itself. The same reading carries each machine's
         tuning, which is what the conformance view compares with the inventory.
+        The allocation strategy under each node is the one its inventory entry
+        gives it; changing it commits the entry and runs deploy_seapath_alloc
+        on that machine alone.
       </span>
     </p>
   </section>
@@ -238,6 +241,21 @@ the whole screen.
       </div>
     </div>
   </section>
+
+  {# A strategy is a commit and a run on one machine, so it is confirmed like
+     one, with the machine named. #}
+  <div class="modal" id="strategy-confirm" data-dismiss="strategy-cancel" hidden>
+    <div class="modal-body">
+      <h2 id="strategy-confirm-title"></h2>
+      <p id="strategy-effect"></p>
+      <p id="strategy-disruption"></p>
+      <p class="error" id="strategy-confirm-error" hidden></p>
+      <div class="actions">
+        <button type="button" id="strategy-cancel" class="secondary">Cancel</button>
+        <button type="button" id="strategy-confirm-go">Apply</button>
+      </div>
+    </div>
+  </div>
 
   <div class="modal" id="measure-confirm" data-dismiss="measure-cancel" hidden>
     <div class="modal-body">
