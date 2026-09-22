@@ -11,8 +11,8 @@ convergence uses: `crm` runs on a cluster member, never inside this container,
 which is the line AGENTS.md draws. What a machine should be is still the
 inventory and a run, and none of those acts touches it.
 
-The inventory decides who is asked. Every host it declares with an address is
-asked in parallel, so a member whose exporter is down is a line on the page
+The inventory decides who is asked. Every member of `cluster_machines` with an
+address is asked in parallel, so a member whose exporter is down is a line on the page
 rather than a page that fails. It also answers the one question the CIB cannot:
 which node a guest is *declared* to prefer, which is what a placement returned
 to the cluster is returned to. See D34.
@@ -76,10 +76,11 @@ class ClusterService:
         if state.inventory is None:
             return PacemakerCluster(error=_NO_INVENTORY, inventory_commit=state.commit)
 
+        hosts = state.inventory.hosts
         targets = [
-            (name, node.ansible_host)
-            for name, node in state.inventory.hosts.items()
-            if node.ansible_host
+            (name, hosts[name].ansible_host)
+            for name in state.inventory.cluster_hosts()
+            if hosts[name].ansible_host
         ]
         expositions = read_all(self._client, targets, self._port, timeout=self._timeout)
         reach = [

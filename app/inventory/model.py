@@ -254,6 +254,19 @@ class Inventory(BaseModel):
             if name in self.hosts and self.hosts[name].role is Role.HYPERVISOR
         ]
 
+    def cluster_hosts(self) -> list[str]:
+        """The machines a reading of Pacemaker or Ceph asks, in file order.
+
+        The members of `cluster_machines`, since no other machine runs
+        `ha_cluster_exporter` or a Ceph manager: a standalone machine the same
+        file manages beside the cluster only answered 404, on every page load,
+        as a line of its own under the cluster. A file naming no member is
+        asked whole, so a cluster formed before the file described it is still
+        found.
+        """
+        members = [name for name in self.hosts if name in self.cluster_members]
+        return members or list(self.hosts)
+
     def guest_names(self) -> list[str]:
         return list(self.guests)
 

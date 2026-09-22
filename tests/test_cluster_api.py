@@ -243,3 +243,42 @@ def test_both_views_are_in_the_openapi_document(signed_in: TestClient) -> None:
         "post"
     }
     assert set(document["paths"]["/api/v1/cluster/resources/refresh"]) == {"post"}
+
+
+def test_a_machine_outside_the_cluster_is_not_asked_for_it() -> None:
+    # An administration machine the file manages beside the cluster runs no
+    # ha_cluster_exporter and no Ceph manager. Asked anyway, it was a line of
+    # its own under the cluster, answering 404 on every page load.
+    from app.inventory.parser import parse
+
+    inventory = parse(
+        """
+all:
+  hosts:
+    admin-box:
+      ansible_host: 10.0.0.9
+    node1:
+      ansible_host: 10.0.0.1
+    node2:
+      ansible_host: 10.0.0.2
+  children:
+    cluster_machines:
+      hosts:
+        node1:
+        node2:
+    standalone_machine:
+      hosts:
+        admin-box:
+"""
+    )
+
+    assert inventory.cluster_hosts() == ["node1", "node2"]
+
+
+def test_a_file_naming_no_member_is_asked_whole() -> None:
+    # A cluster formed before the file described it is still found.
+    from app.inventory.parser import parse
+
+    inventory = parse("all:\n  hosts:\n    node1:\n      ansible_host: 10.0.0.1\n")
+
+    assert inventory.cluster_hosts() == ["node1"]

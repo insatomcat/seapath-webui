@@ -66,10 +66,11 @@ class StorageService:
         if state.inventory is None:
             return CephCluster(error=_NO_INVENTORY, inventory_commit=state.commit)
 
+        hosts = state.inventory.hosts
         targets = [
-            (name, node.ansible_host)
-            for name, node in state.inventory.hosts.items()
-            if node.ansible_host
+            (name, hosts[name].ansible_host)
+            for name in state.inventory.cluster_hosts()
+            if hosts[name].ansible_host
         ]
         expositions = read_all(self._client, targets, self._port, timeout=self._timeout)
         serving = next(
