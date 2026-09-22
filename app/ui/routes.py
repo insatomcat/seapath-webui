@@ -7,11 +7,11 @@ The pages are thin. Everything they display comes from `/api/v1`, which is the
 same surface an automation client uses, so a screen can never show something
 the API cannot answer.
 
-The top bar is the one exception, and a deliberate one: its three strings are
-the same on every page between two runs, so the document carries them instead
-of fetching them. They are the values `/auth/me` and `/node` answer, read from
-the same session and the same service, so the rule above still holds: nothing
-is on a screen that the API could not have said.
+The top bar is the one exception, and a deliberate one: its strings are the
+same on every page between two runs, so the document carries them instead of
+fetching them. They are the values `/auth/me`, `/node` and `/inventory` answer,
+read from the same session and the same service, so the rule above still
+holds: nothing is on a screen that the API could not have said.
 """
 
 from __future__ import annotations
@@ -165,7 +165,7 @@ class _StampedStatics(StaticFiles):
 
 
 def _topbar(request: Request, session: Session) -> dict[str, str]:
-    """The three strings of the top bar, said in the document that carries it.
+    """The strings of the top bar, said in the document that carries it.
 
     They are the same three on every page between two runs: who is signed in
     changes when somebody signs in, the name and the mode when a machine is
@@ -184,12 +184,25 @@ def _topbar(request: Request, session: Session) -> dict[str, str]:
     /proc or /etc could not be read. The name resolved at start up answers for
     the header then, and the badge says what the Node page says of a machine
     whose /etc/corosync is not mounted.
+
+    The inventory's mode is said beside the machine's, because the two are
+    different facts and one badge read as both: a machine that is in no
+    cluster can hold, and apply, an inventory that describes one. Empty when
+    there is no file yet, or one that does not parse. It is also what decides
+    which pages the bar offers: a file describing no cluster has no Pacemaker
+    for the Cluster page to show and no RBD pool for the Backup page to export.
     """
     who = {
         "username": session.username,
         "role": session.role.value,
         "identity": f"{session.username} ({session.role.value})",
     }
+    try:
+        mode = request.app.state.inventory_service.mode()
+    except Exception as error:
+        logger.warning("The top bar could not read the inventory: %s", error)
+        mode = None
+    who["inventory_mode"] = mode.value if mode is not None else ""
     try:
         node = request.app.state.node_service.summary()
     except Exception as error:

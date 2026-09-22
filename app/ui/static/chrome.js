@@ -100,9 +100,9 @@ const Chrome = (function () {
     document.getElementById("node-name").textContent = node.hostname;
     const page = document.querySelector("title").dataset.page;
     document.title = ["SEAPATH", node.hostname, page].filter(Boolean).join(" - ");
-    const mode = document.getElementById("node-mode");
-    mode.textContent = node.mode;
-    mode.className = "badge badge-" + node.mode;
+    document.getElementById("node-mode").textContent = node.mode;
+    document.getElementById("node-mode-badge").className =
+      "badge badge-" + node.mode;
   }
 
   function isAdmin(me) {

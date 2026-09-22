@@ -32,7 +32,7 @@ from app.inventory.editor import (
     set_variables,
 )
 from app.inventory.fidelity import Divergence, unintended_changes
-from app.inventory.model import GUEST_GROUP, Inventory, NodeConfig
+from app.inventory.model import GUEST_GROUP, Inventory, Mode, NodeConfig
 from app.inventory.parser import InvalidInventory, parse
 from app.inventory.renderer import render
 from app.inventory.repository import INVENTORY_FILENAME, Commit, InventoryRepository
@@ -325,6 +325,22 @@ class InventoryService:
             content=document, message=message, author=author
         )
         return commit, inventory
+
+    def mode(self) -> Mode | None:
+        """Whether the file describes a cluster or a standalone machine.
+
+        What the top bar says beside the machine's own mode, on every page, so
+        it is the parse alone: `state` validates and scans the folder, which
+        no page header needs. `None` when there is no file yet, or one that
+        does not parse, since neither says anything about the machines.
+        """
+        document = self._repository.read()
+        if not document.strip():
+            return None
+        try:
+            return parse(document).mode
+        except InvalidInventory:
+            return None
 
     def raw(self) -> str:
         return self._repository.read()

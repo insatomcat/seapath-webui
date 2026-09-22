@@ -260,7 +260,8 @@ def test_the_header_arrives_with_the_document_that_carries_it(
     # every screen and blinked the header through its placeholders on the way
     # back to the values it had a second ago. The service holds all three.
     assert f'id="node-name" class="node-name">{reader.hostname}<' in body
-    assert f'class="badge badge-{reader.mode.value}">{reader.mode.value}<' in body
+    assert f'class="badge badge-{reader.mode.value}"' in body
+    assert f'id="node-mode">{reader.mode.value}<' in body
     assert 'id="identity">admin (admin)<' in body
     # The two halves apart as well as rendered, because a page that gates an
     # action on the role compares it.
@@ -2863,3 +2864,46 @@ def test_a_run_links_to_the_journal_of_the_window_it_occupied(
     # line worth reading is usually the one just before the task failed.
     assert "(record.machines || []).forEach" in script
     assert "Date.parse(record.started_at) - 60000" in script
+
+
+def test_the_bar_says_the_inventory_mode_beside_the_machine_one(
+    signed_in: TestClient,
+) -> None:
+    # A machine in no cluster can hold, and apply, the inventory of one, which
+    # is the case of an administration machine. One badge read as both.
+    body = signed_in.get("/").text
+    assert '<span class="badge-key">node</span>' in body
+    assert '<span class="badge-key">inventory</span> standalone</span>' in body
+
+    _as_cluster(signed_in)
+    body = signed_in.get("/").text
+    assert '<span class="badge-key">inventory</span> cluster</span>' in body
+
+
+def test_a_standalone_inventory_is_offered_no_cluster_or_backup_page(
+    signed_in: TestClient,
+) -> None:
+    # Pacemaker, corosync, Ceph and RBD images: nothing either page reads
+    # exists on the machines such a file describes.
+    body = signed_in.get("/").text
+    assert 'href="cluster"' not in body
+    assert 'href="backup"' not in body
+    # Still served, for a link kept from before.
+    assert signed_in.get("/cluster").status_code == 200
+
+    _as_cluster(signed_in)
+    body = signed_in.get("/").text
+    assert 'href="cluster"' in body
+    assert 'href="backup"' in body
+
+
+def _as_cluster(client: TestClient) -> None:
+    document = client.get("/api/v1/inventory/raw").text
+    response = client.post(
+        "/api/v1/inventory/import",
+        json={
+            "document": document
+            + "\ncluster_machines:\n  hosts:\n    seapath-machine:\n"
+        },
+    )
+    assert response.status_code == 200, response.text

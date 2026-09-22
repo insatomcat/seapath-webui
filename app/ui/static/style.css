@@ -344,6 +344,12 @@ button[aria-busy="true"] {
   color: var(--warn);
 }
 
+/* What a badge of the bar is about, the machine or its inventory, said
+   quieter than what it says of it. */
+.badge-key {
+  color: var(--muted);
+}
+
 /* The theme switch. Three states and not two: "follow the system" is a
    position an operator can come back to, and a switch that only toggles
    light and dark has no way back to it once it has been touched. The three
