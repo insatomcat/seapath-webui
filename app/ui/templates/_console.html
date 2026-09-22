@@ -34,10 +34,10 @@ whether this session may open one.
     </div>
     <div class="console-screen" id="console-screen"></div>
     <p class="legend" id="console-serial-note" hidden>
-      This is the guest's serial port, opened by <code>vm-mgr console</code>
-      on the machine named above. In a cluster it asks Pacemaker where the guest
-      runs and reaches that libvirt as <code>libvirtadmin</code>; on a
-      standalone machine it reads its own. Libvirt allows one
+      This is the guest's serial port, opened on the machine named above. In a
+      cluster <code>vm-mgr console</code> asks Pacemaker where the guest runs
+      and reaches that libvirt as <code>libvirtadmin</code>; on a standalone
+      machine <code>virsh console</code> reads its own. Libvirt allows one
       such session per guest. Detach, or <code>Ctrl+]</code>, leaves it, and a
       guest with no serial console in its XML shows nothing at all.
     </p>

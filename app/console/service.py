@@ -27,7 +27,8 @@ A guest's serial console is the same connection with one fixed command at the
 end of it: `vm-mgr console`, as root, on a machine that can reach the guest's
 libvirt. `vm_manager` finds the hypervisor through Pacemaker and reaches it as
 `libvirtadmin`, with the root key `add_libvirtadmin_user` provisioned, so this
-service reimplements none of it and adds no trust. See D52.
+service reimplements none of it and adds no trust. See D52. A standalone guest
+has no Pacemaker to ask, and is attached with `virsh console` on its machine.
 
 A guest's graphic console is that connection again, to the hypervisor that runs
 the guest, with a relay at the end of it: the VNC server listens on that
@@ -122,7 +123,7 @@ class OpenedDisplay:
     guest: str
 
 
-def serial_command(guest: str) -> str:
+def serial_command(guest: str, cluster: bool = True) -> str:
     """What the far end runs for a guest's serial console, quoted once per shell.
 
     `sudo /bin/sh -c` because that is the whole of the rule the ISO grants the
@@ -130,8 +131,17 @@ def serial_command(guest: str) -> str:
     error rather than a password prompt. `exec` so that `virsh` leaving, on
     `Ctrl+]` or when the guest's console goes away, ends the session with no
     shell left behind it on the hypervisor.
+
+    A standalone guest is attached with `virsh` on its own machine, which is
+    the call `vm_manager` makes in its libvirt mode. `vm-mgr` picks that mode
+    only where the Ceph and Pacemaker bindings fail to import, and the Debian
+    ISO installs them on every machine, standalone included: there it asked
+    `crm_mon` for a cluster that does not exist, and the console never opened.
     """
-    inner = f"exec vm-mgr console {shlex.quote(guest)}"
+    if cluster:
+        inner = f"exec vm-mgr console {shlex.quote(guest)}"
+    else:
+        inner = f"exec virsh -c qemu:///system console {shlex.quote(guest)}"
     return f"sudo -n /bin/sh -c {shlex.quote(inner)}"
 
 
@@ -386,8 +396,8 @@ class ConsoleService:
             ),
         )
 
-    def serial_route(self, guest: str) -> ConsoleTarget:
-        """The machine a guest's serial console is opened from.
+    def serial_route(self, guest: str) -> tuple[ConsoleTarget, str]:
+        """The machine a guest's serial console is opened from, and what it runs.
 
         A cluster guest from a hypervisor of the cluster, this one when it is
         one: `vm-mgr` asks Pacemaker where the guest runs and goes there
@@ -398,13 +408,14 @@ class ConsoleService:
         """
         inventory = self._guest_inventory(guest, "serial console")
         targets = self.targets()
-        if inventory.deployment_of(guest) is Mode.CLUSTER:
+        cluster = inventory.deployment_of(guest) is Mode.CLUSTER
+        if cluster:
             candidates = inventory.placement_hosts()
         else:
             candidates = self._standalone_candidates(inventory, guest, targets[0].name)
         target = self._reachable(targets, candidates)
         if target is not None:
-            return target
+            return target, serial_command(guest, cluster)
         raise ConsoleUnavailable(
             "no_hypervisor",
             f"No machine this node can reach runs vm-mgr for {guest}: "
@@ -435,7 +446,10 @@ class ConsoleService:
         serial: str | None = None,
     ) -> OpenedConsole:
         self._check_enabled()
-        target = self.serial_route(serial) if serial else self.resolve(host)
+        if serial:
+            target, command = self.serial_route(serial)
+        else:
+            target, command = self.resolve(host), ""
         extra = self._admit(target)
         columns, lines = clamp_window(columns, lines)
         request = ConsoleRequest(
@@ -444,7 +458,7 @@ class ConsoleService:
             private_key_file=self._private_key_file,
             known_hosts_file=self._known_hosts_file,
             extra_key_files=extra,
-            command=serial_command(serial) if serial else "",
+            command=command,
             columns=columns,
             lines=lines,
         )

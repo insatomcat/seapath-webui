@@ -502,7 +502,8 @@ def test_the_names_a_known_hosts_file_holds_keys_for(tmp_path: Path) -> None:
     assert known_hosts.recorded_names(tmp_path / "missing") == set()
 
 
-# A guest's serial console: `vm-mgr console` at the end of the same connection.
+# A guest's serial console: `vm-mgr console` at the end of the same connection,
+# and `virsh console` for a guest with no cluster around it.
 STANDALONE = """
 all:
   hosts:
@@ -578,7 +579,12 @@ def test_a_standalone_guests_serial_console_runs_on_this_machine(
     request = console_adapter.opened[0]
     assert request.address == "127.0.0.1"
     assert request.extra_key_files == ()
-    assert request.command.endswith("'exec vm-mgr console ABBICT'")
+    # `vm-mgr` there would take its cluster mode, since the ISO installs the
+    # Ceph and Pacemaker bindings everywhere, and ask `crm_mon` for a cluster
+    # the machine is not in.
+    assert request.command == (
+        "sudo -n /bin/sh -c 'exec virsh -c qemu:///system console ABBICT'"
+    )
 
 
 def test_a_shell_carries_no_command(
@@ -677,7 +683,7 @@ def test_a_standalone_guest_is_reached_where_libvirt_reports_it(
 ) -> None:
     service = _standalone_service(tmp_path, TWO_STANDALONE, located="box3")
 
-    assert service.serial_route("guest").name == "box3"
+    assert service.serial_route("guest")[0].name == "box3"
 
 
 def test_an_unlocated_guest_among_several_machines_is_tried_on_this_one(
@@ -688,4 +694,4 @@ def test_an_unlocated_guest_among_several_machines_is_tried_on_this_one(
     # be a different guest of the same name.
     service = _standalone_service(tmp_path, TWO_STANDALONE, located=None)
 
-    assert service.serial_route("guest").name == "box1"
+    assert service.serial_route("guest")[0].name == "box1"
