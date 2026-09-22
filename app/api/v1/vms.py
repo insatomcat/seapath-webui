@@ -26,6 +26,12 @@ from app.inventory.model import Mode
 from app.inventory.service import GuestExists, ImportRefused, RefusedWrite
 from app.runs.actions import Action
 from app.runs.service import RunService
+from app.services.domain_xml import (
+    DomainXml,
+    DomainXmlService,
+    InvalidDomain,
+    NoDomain,
+)
 from app.services.metadata import (
     InvalidMetadata,
     MetadataService,
@@ -367,6 +373,19 @@ def stop(request: Request, name: str, user: User = operator) -> ActionResponse:
     return _act(request, name, Action.STOP, user)
 
 
+@router.post("/{name}/restart", status_code=202)
+def restart(request: Request, name: str, user: User = operator) -> ActionResponse:
+    """Shut a standalone guest down and start it again, as a run.
+
+    What makes a new definition or pinning profile take effect: libvirt reads
+    the first, and the seapath-alloc hook the second, when the guest starts
+    from shut off. A cluster guest's equivalent is `reconfigure`, since its
+    configuration is read when Pacemaker creates its resource.
+    """
+    _standalone(request, name)
+    return _act(request, name, Action.RESTART, user)
+
+
 def _in_cluster(request: Request, name: str) -> None:
     """A guest Pacemaker can hold, which is the only kind these two act on."""
     if not _service(request).in_cluster(name):
@@ -678,3 +697,147 @@ def reconfigure(request: Request, name: str, user: User = operator) -> ActionRes
     down and coming back. The confirmation says so before it happens.
     """
     return _act(request, name, Action.RECONFIGURE, user)
+
+
+def _standalone(request: Request, name: str) -> None:
+    _known(request, name)
+    if _service(request).deployment_of(name) is Mode.CLUSTER:
+        raise ApiError(
+            "not_standalone",
+            f"{name} is a cluster guest. Pacemaker holds it, and what applies "
+            "its configuration is reconfigure, from the Metadata window.",
+            409,
+        )
+
+
+def _domains(request: Request) -> DomainXmlService:
+    return request.app.state.domain_xml_service
+
+
+class DomainWrite(BaseModel):
+    """A guest's libvirt domain, as `virsh edit` would leave it."""
+
+    xml: str = Field(description="The whole `<domain>`, as `virsh dumpxml` gives it")
+
+
+class DefineResponse(BaseModel):
+    """The run that defines the domain, or none when nothing moved."""
+
+    guest: str
+    changed: bool
+    run_id: str | None = None
+    state: str | None = None
+
+
+@router.get("/{name}/xml", response_model=DomainXml)
+def domain_xml(request: Request, name: str, user: User = admin) -> DomainXml:
+    """A standalone guest's persistent definition, as its machine holds it.
+
+    `virsh dumpxml --inactive` over the SSH path a run takes, read as this
+    request is served. The inactive definition is what `virsh edit` edits: the
+    running domain carries what libvirt added when it started it. A cluster
+    guest's domain lives in the metadata of its image instead.
+    """
+    _standalone(request, name)
+    try:
+        return _domains(request).read(name)
+    except NoDomain as error:
+        raise ApiError("no_domain", str(error), 409) from error
+
+
+@router.put("/{name}/xml", response_model=DefineResponse)
+def define_domain(
+    request: Request, name: str, payload: DomainWrite, user: User = admin
+) -> DefineResponse:
+    """Define a standalone guest again from an edited XML, as a run.
+
+    The domain is read again and the XML checked against it: the same
+    `<name>`, and the `<uuid>` libvirt holds it under. The run is one task of
+    `community.libvirt.virt`, `command: define`, which is what
+    `deploy_vms_standalone` creates the domain with, and the XML is written
+    into the run's own tree. The guest keeps running with its old definition
+    until it is shut down and started, `POST /vms/{name}/restart`.
+
+    The inventory is not changed. A guest created again from its entry gets
+    the domain its template renders. See D66.
+    """
+    _standalone(request, name)
+    try:
+        record = _domains(request).define(name, payload.xml, user.username)
+    except InvalidDomain as error:
+        raise ApiError("invalid_domain", str(error), 400) from error
+    except NoDomain as error:
+        raise ApiError("no_domain", str(error), 409) from error
+    if record is None:
+        return DefineResponse(guest=name, changed=False)
+    return DefineResponse(
+        guest=name, changed=True, run_id=record.id, state=record.state.value
+    )
+
+
+class ProfileWrite(BaseModel):
+    """A standalone guest's seapath-alloc profile."""
+
+    profile: str | None = Field(
+        default=None,
+        description=(
+            "The profile as YAML, a mapping starting with `version: 1`. Empty "
+            "or absent takes `vm_pinning_profile` out of the entry, and the "
+            "next deployment removes the file"
+        ),
+    )
+
+
+class ProfileResponse(BaseModel):
+    guest: str
+    commit: str | None = None
+    message: str | None = None
+    playbook: str = Field(description="The catalogue entry that writes it out")
+
+
+@router.put("/{name}/pinning-profile", response_model=ProfileResponse)
+def write_profile(
+    request: Request,
+    name: str,
+    payload: ProfileWrite,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> ProfileResponse:
+    """Write a standalone guest's `vm_pinning_profile`, as one commit.
+
+    `deploy_vms_standalone` writes it to `/etc/seapath/alloc.d/<guest>.yaml`
+    on every run, so the answer names that playbook; the seapath-alloc hook
+    reads the file when the guest starts, so the change reaches a running
+    guest with `POST /vms/{name}/restart`. No commit when the entry already
+    said exactly this. A cluster guest answers `400 invalid_guest`: its
+    profile is `_seapath_alloc` in the metadata of its image.
+    """
+    service = _service(request)
+    try:
+        commit = service.set_pinning_profile(
+            name, payload.profile, user.username, if_match
+        )
+    except UnknownGuest as error:
+        raise ApiError("unknown_guest", str(error), 404) from error
+    except InvalidGuest as error:
+        raise ApiError("invalid_guest", str(error), 400) from error
+    except RefusedWrite as error:
+        raise ApiError(
+            "refused_write",
+            str(error),
+            409,
+            {"divergences": [d.model_dump() for d in error.divergences]},
+        ) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+    return ProfileResponse(
+        guest=name,
+        commit=commit.hash if commit else None,
+        message=commit.message if commit else None,
+        playbook=service.deploy_playbook(name),
+    )

@@ -672,10 +672,20 @@ port. See [D52](decisions.md#d52).
 | 2 | **Serial console** on the VMs page shows the guest's login prompt after `Enter`, and a login works | The websocket, the pty and a real serial port together | Pending |
 | 3 | **Detach** ends the session with the panel saying so, and Reconnect opens a new one straight away | `Ctrl+]` reaching `virsh` through xterm.js and ssh, and libvirt releasing the console | Pending |
 | 4 | A second browser opening the same guest's serial console gets libvirt's refusal in the terminal, and the first session is untouched | The one session per domain libvirt enforces | Pending |
-| 5 | A standalone machine's guest opens its serial console from that machine | The local branch of `vm_manager` | Pending |
+| 5 | A standalone machine's guest opens its serial console from that machine, with `virsh console` | `vm-mgr console` failed there on ccvadmin, asking `crm_mon` for a cluster: the bindings the ISO installs put `vm_manager` in its cluster mode | Pending |
 | 6 | A guest declared with a root password answers `root` and that password at its serial console | cloud-init reading `hashed_passwd`, the hash computed here rather than by `mkpasswd`, and agetty letting root in on the serial line. The suite asserts the hash against the algorithm's published vectors and can assert nothing about the guest that boots with it | Pending |
 | 6b | After that deployment, `git log -p` on the inventory and the working tree both hold no `$6$` string, and the run's own copy of the inventory holds none either once the run has ended | The hash living in the run's staged copy alone, and being wiped from it. The property the whole design is for, and the one a test on a laptop can only half prove | Pending |
 | 7 | The same guest still refuses a password over SSH, and the `ansible` account still gets in by key | `ssh_pwauth` left as the image set it, which is what says this password reaches the console alone | Pending |
+
+## A standalone guest's domain and pinning profile
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | The XML window of a standalone guest on ccvadmin opens with the domain `virsh dumpxml --inactive` prints there | The `sudo` rule, `virsh` and the SSH path together | Pending |
+| 2 | An edited `<vcpu>` defined from the window, then Shut down and start, leaves the guest running with the new count, and `virsh dumpxml` shows it | `community.libvirt.virt define` over a domain that exists, and libvirt applying it at the next start | Pending |
+| 3 | The restart run fails with the wait task's message on a guest that ignores ACPI, and leaves it running | The `until` on `command: status` against a real guest | Pending |
+| 4 | A pinning profile committed from the window, then `deploy_vms_standalone`, writes `/etc/seapath/alloc.d/<guest>.yaml`, and after Shut down and start the guest's vCPUs sit where the profile says | The role's task, the seapath-alloc hook and the CPU pool together | Pending |
+| 5 | Exporting the inventory after step 4 and running `deploy_vms_standalone` from a control machine changes nothing | The acceptance criterion: the profile is a variable and the domain edit is outside the inventory by design, so neither may show up as a change | Pending |
 
 ## A guest's graphic console
 

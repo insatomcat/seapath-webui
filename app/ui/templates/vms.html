@@ -545,6 +545,61 @@ image and losing its disk. D31 records the bounds.
   </div>
 </div>
 
+{# A standalone guest's domain, as `virsh edit` shows it: the inactive
+   definition its machine holds, read over SSH as the window opens. Saving is a
+   run of the module the standalone role defines domains with, and the
+   definition takes effect at the next start from shut off, which is offered
+   once the run is launched. The inventory is not changed. See D66. #}
+<div class="modal" id="domain" data-dismiss="domain-cancel" hidden>
+  <div class="modal-body wide tall">
+    <h2 id="domain-title"></h2>
+    <p class="lead" id="domain-lead"></p>
+    <div class="loading" id="domain-loading" hidden>Asking libvirt</div>
+    <textarea id="domain-xml" spellcheck="false" wrap="off" aria-label="Domain XML"></textarea>
+    <p class="help">
+      Defined again with <code>community.libvirt.virt</code>, as a run. The
+      guest keeps running with the definition it started with until it is shut
+      down and started. The inventory still describes the guest its template
+      renders, so a guest created again from its entry loses this edit.
+    </p>
+    <div class="card-actions" id="domain-pending" hidden>
+      <button type="button" id="domain-restart">Shut down and start</button>
+      <span class="legend" id="domain-pending-note"></span>
+    </div>
+    <div class="actions">
+      <button type="button" id="domain-cancel" class="secondary">Close</button>
+      <button type="button" id="domain-go">Define it</button>
+    </div>
+    <p class="error" id="domain-error" hidden></p>
+  </div>
+</div>
+
+{# A standalone guest's seapath-alloc profile, `vm_pinning_profile` in its
+   entry. Saving is a commit; the deployment run writes it to
+   /etc/seapath/alloc.d, and the hook reads it when the guest starts, so the
+   window offers both acts in that order once the commit is made. #}
+<div class="modal" id="profile" data-dismiss="profile-cancel" hidden>
+  <div class="modal-body wide tall">
+    <h2 id="profile-title"></h2>
+    <textarea id="profile-text" spellcheck="false" wrap="off" aria-label="Pinning profile"></textarea>
+    <p class="help">
+      The profile <code>deploy_seapath_alloc</code> documents, starting with
+      <code>version: 1</code>. Empty takes it out of the entry, and the next
+      deployment removes the file.
+    </p>
+    <div class="card-actions" id="profile-pending" hidden>
+      <button type="button" id="profile-deploy">1. Run <span id="profile-playbook"></span></button>
+      <button type="button" id="profile-restart" class="secondary">2. Shut down and start</button>
+      <span class="legend" id="profile-pending-note"></span>
+    </div>
+    <div class="actions">
+      <button type="button" id="profile-cancel" class="secondary">Close</button>
+      <button type="button" id="profile-go">Commit it</button>
+    </div>
+    <p class="error" id="profile-error" hidden></p>
+  </div>
+</div>
+
 {# One value, edited. Wide and tall on purpose: the two biggest keys hold a
    libvirt domain each, and editing one in a three line box is how a closing
    tag goes missing. #}

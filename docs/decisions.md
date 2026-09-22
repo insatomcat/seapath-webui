@@ -5024,3 +5024,75 @@ four requests. D64 counted their merging as a gain. It was a consequence of
 reading an aggregate, and the scrape window still merges the requests a page
 repeats. A port the proxy has no path for is answered here as a sentence
 rather than sent to an address where nothing listens any more.
+
+## D66 - Settled: a standalone guest's domain is defined again by a run, and its pinning profile is an entry
+
+A standalone guest had nothing in place of the Metadata window. Its domain is
+what `deploy_vms_standalone` defined once from `vm_template`, and its pinning
+profile is `vm_pinning_profile` in its entry. Both had to change on a guest
+that exists, without losing its disk.
+
+**The pinning profile is an ordinary variable.** The role writes it to
+`/etc/seapath/alloc.d/<guest>.yaml` on every run, with no condition on the
+guest being new, and removes the file of a guest that no longer names one. So
+the window commits the variable on the guest's entry and offers the
+deployment run, and the seapath-alloc hook reads the file when the guest
+starts. Nothing here reaches the machine outside that run. A cluster guest is
+refused: `deploy_vms_cluster` hands the profile to `vm_manager` at creation
+only, and the one it runs with is `_seapath_alloc` in the metadata of its
+image, which D31 already covers.
+
+The deployment run is the whole playbook, so it also creates a declared guest
+the machine lacks and starts every guest whose entry does not say `enable:
+false`, a guest stopped by hand included. The confirmation says so.
+
+**The domain has no path through the inventory.** The role skips every guest
+libvirt already has unless its entry carries `force`, and `force` destroys the
+guest, copies its image again and loses what it wrote. The same gap D31 found
+for a cluster guest's metadata. Editing the template instead would change
+every guest a site builds from it, and would edit a template rather than the
+domain libvirt holds, with its UUID and the addresses libvirt assigned.
+
+So the window is `virsh edit` in two halves. The reading is `virsh dumpxml
+--inactive` over the SSH path a run takes, through `hosts/remote.py` like the
+journal (D63) and the local volumes (D58): one command, built here, the guest's
+name quoted into it. The writing is a run of one task, `community.libvirt.virt`
+with `command: define`, the module and command the standalone role creates the
+domain with, on the machine holding it. The XML is written into the run's own
+tree, so the definition sent is part of the record. It is an act made once, in
+the sense AGENTS.md gives it: the value is given to the run and recorded with
+it, and the inventory does not claim it.
+
+The bounds:
+
+- a standalone guest the inventory declares, on a standalone machine of the
+  file, and nothing else;
+- the domain is read again before the run and the XML is checked against it:
+  the same `<name>`, since another one would define a second guest beside
+  this one, and the `<uuid>` libvirt holds, which libvirt would refuse anyway,
+  later and less clearly; an XML identical to it launches nothing;
+- `--inactive` and no `--security-info`, so a display password stays on the
+  machine;
+- administrators only, for the read as well, since it opens an SSH session.
+
+A definition takes effect at the next start from shut off, and a reboot from
+inside the guest is not one. The window therefore offers **Shut down and
+start**, a run of three calls of the same module: `shutdown`, `status` polled
+until libvirt reports it shut off, for up to five minutes, then `running`.
+`shutdown` only asks the guest through ACPI, so a start right behind it would
+find it running and do nothing. A guest that ignores ACPI fails the run and is
+left running.
+
+The acceptance criterion holds. The profile is a variable a conventional
+control machine applies the same way. The domain edit is outside the
+inventory, as the metadata of D31 is: running the same playbooks from
+elsewhere leaves it alone, because the role skips a guest that exists. A guest
+created again from its entry gets the domain its template renders, and the
+window says so.
+
+The serial console of a standalone guest runs `virsh console` rather than
+`vm-mgr console`. `vm_manager` picks its libvirt mode only when the Ceph and
+Pacemaker bindings fail to import, and the Debian ISO installs them on every
+machine: on ccvadmin, `vm-mgr console` asked `crm_mon` for a cluster the
+machine is not in. `virsh console` is the call its libvirt mode makes.
+

@@ -319,7 +319,11 @@
       button.type = "button";
       button.className = "secondary";
       button.textContent = "Serial console";
-      button.title = "Open " + guest.name + "'s serial console with vm-mgr console";
+      button.title =
+        "Open " +
+        guest.name +
+        "'s serial console with " +
+        (guest.deployment === "cluster" ? "vm-mgr console" : "virsh console");
       button.addEventListener("click", () => Console.openSerial(guest.name));
       cell.append(cell.childNodes.length ? " " : "", button);
     }
@@ -750,6 +754,7 @@
     stop: "Stop",
     start: "Start",
     reconfigure: "Apply",
+    restart: "Shut down and start",
     disable: "Disable",
     enable: "Enable",
     delete: "Delete",
@@ -777,6 +782,12 @@
       "and it is an outage: Pacemaker reads those keys only when it creates " +
       "the resource, so there is no way to apply one without the guest going " +
       "down and coming back.",
+    restart:
+      "Asks the guest to shut down through ACPI, waits up to five minutes " +
+      "for libvirt to report it shut off, then starts it. That is what makes " +
+      "a new definition or pinning profile take effect: both are read when " +
+      "the guest starts from shut off, and a reboot from inside it is " +
+      "neither. Whatever the guest serves stops in between.",
     start:
       "Starts the guest. In a cluster this asks Pacemaker to run it and " +
       "Pacemaker chooses the node, which is not necessarily the one it last " +
@@ -914,11 +925,15 @@
   // Read from Ceph as the request is served, so the window opens filled.
   let openGuest = null;
 
-  function metaButton(name, deployment) {
+  function metaButton(name, deployment, guest) {
     const cell = document.createElement("td");
     if (deployment !== "cluster") {
       // The metadata is on an RBD image, and a standalone machine has no Ceph
-      // to hold one. Saying nothing here beats a button that always fails.
+      // to hold one. What stands in for it is the domain libvirt holds and the
+      // profile the entry carries, for a guest the inventory declares.
+      if (guest && canWrite) {
+        standaloneButtons(cell, guest);
+      }
       return cell;
     }
     const button = document.createElement("button");
@@ -929,6 +944,182 @@
     cell.append(button);
     return cell;
   }
+
+  // A standalone guest's two windows. The domain is offered once a machine
+  // reports it, since before that there is nothing for `virsh dumpxml` to
+  // read; the profile is an entry of the inventory and always is.
+  function standaloneButtons(cell, guest) {
+    if (guest.domain) {
+      const xml = document.createElement("button");
+      xml.type = "button";
+      xml.className = "secondary";
+      xml.textContent = "XML";
+      xml.title = "Edit " + guest.name + "'s libvirt domain, as virsh edit does";
+      xml.addEventListener("click", () => openDomain(guest.name));
+      cell.append(xml, " ");
+    }
+    const profile = document.createElement("button");
+    profile.type = "button";
+    profile.className = "secondary";
+    profile.textContent = "Pinning profile";
+    profile.title =
+      "Edit vm_pinning_profile, which the deployment writes to " +
+      "/etc/seapath/alloc.d/" + guest.name + ".yaml";
+    profile.addEventListener("click", () => openProfile(guest));
+    cell.append(profile);
+  }
+
+  let domainGuest = null;
+
+  async function openDomain(name) {
+    domainGuest = name;
+    element("domain-title").textContent = "Domain of " + name;
+    element("domain-lead").textContent = "";
+    element("domain-error").hidden = true;
+    element("domain-pending").hidden = true;
+    element("domain-xml").value = "";
+    element("domain-go").disabled = true;
+    element("domain").hidden = false;
+    element("domain-loading").hidden = false;
+    try {
+      const read = await API.get(
+        "/vms/" + encodeURIComponent(name) + "/xml"
+      );
+      element("domain-lead").textContent =
+        "The inactive definition " + read.host + " holds, read just now.";
+      element("domain-xml").value = read.xml;
+      element("domain-go").disabled = false;
+    } catch (failure) {
+      showWindowError("domain-error", failure.message);
+    } finally {
+      element("domain-loading").hidden = true;
+    }
+  }
+
+  function showWindowError(id, message) {
+    const error = element(id);
+    error.textContent = message;
+    error.hidden = !message;
+  }
+
+  element("domain-go").addEventListener("click", async () => {
+    const go = element("domain-go");
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    showWindowError("domain-error", "");
+    try {
+      const answer = await API.put(
+        "/vms/" + encodeURIComponent(domainGuest) + "/xml",
+        { xml: element("domain-xml").value }
+      );
+      if (!answer.changed) {
+        showWindowError(
+          "domain-error",
+          "This is the definition libvirt already holds, so nothing was run."
+        );
+        return;
+      }
+      RunWatch.open(answer.run_id);
+      element("domain-pending").hidden = false;
+      element("domain-pending-note").textContent =
+        "Once the run has ended, " + domainGuest + " runs with its old " +
+        "definition until it is shut down and started.";
+    } catch (failure) {
+      showWindowError("domain-error", failure.message);
+    } finally {
+      go.disabled = false;
+      go.removeAttribute("aria-busy");
+    }
+  });
+
+  element("domain-cancel").addEventListener("click", () => {
+    element("domain").hidden = true;
+  });
+
+  element("domain-restart").addEventListener("click", () => {
+    element("domain").hidden = true;
+    confirmAct(domainGuest, "restart");
+  });
+
+  let profileGuest = null;
+  let profilePlaybook = "";
+
+  function openProfile(guest) {
+    profileGuest = guest.name;
+    element("profile-title").textContent = "Pinning profile of " + guest.name;
+    element("profile-text").value = guest.pinning_profile || "";
+    element("profile-error").hidden = true;
+    element("profile-pending").hidden = true;
+    element("profile").hidden = false;
+    element("profile-text").focus();
+  }
+
+  element("profile-go").addEventListener("click", async () => {
+    const go = element("profile-go");
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    showWindowError("profile-error", "");
+    try {
+      const commit = lastView && lastView.inventory_commit;
+      const answer = await API.put(
+        "/vms/" + encodeURIComponent(profileGuest) + "/pinning-profile",
+        { profile: element("profile-text").value },
+        commit ? { "If-Match": commit } : undefined
+      );
+      if (!answer.commit) {
+        showWindowError(
+          "profile-error",
+          "The entry already says exactly this, so nothing was committed."
+        );
+        return;
+      }
+      profilePlaybook = answer.playbook;
+      element("profile-playbook").textContent = answer.playbook;
+      element("profile-pending").hidden = false;
+      element("profile-pending-note").textContent =
+        "Committed. The run writes it to /etc/seapath/alloc.d, and the " +
+        "seapath-alloc hook reads it when the guest starts from shut off.";
+      refresh(true).catch((failure) => showBanner(failure.message));
+    } catch (failure) {
+      showWindowError("profile-error", failure.message);
+    } finally {
+      go.disabled = false;
+      go.removeAttribute("aria-busy");
+    }
+  });
+
+  // The whole deployment playbook, since writing the profiles out is one of
+  // its tasks and not a play of its own. What else it does is said before it
+  // runs, the start of a guest stopped by hand above all.
+  element("profile-deploy").addEventListener("click", () => {
+    // Over the profile window rather than instead of it, so the second step
+    // is still there once the run is launched.
+    confirm({
+      title: "Run " + profilePlaybook,
+      body:
+        "Writes the pinning profile of every guest to /etc/seapath/alloc.d " +
+        "and removes the file of a guest that no longer names one. It also " +
+        "creates any declared guest the machine does not have yet, and starts " +
+        "every guest whose entry does not say enable: false.",
+      note:
+        "A guest stopped by hand is started by this run. A running guest " +
+        "keeps its old profile until it is shut down and started.",
+      label: "Run it",
+      act: async () => {
+        const started = await API.post("/runs", { playbook: profilePlaybook });
+        RunWatch.open(started.run_id);
+      },
+    });
+  });
+
+  element("profile-restart").addEventListener("click", () => {
+    element("profile").hidden = true;
+    confirmAct(profileGuest, "restart");
+  });
+
+  element("profile-cancel").addEventListener("click", () => {
+    element("profile").hidden = true;
+  });
 
   async function openMetadata(name) {
     openGuest = name;
@@ -1184,7 +1375,7 @@
         ...(creation ? [creationCell(guest)] : []),
         acts(guest),
         placement(guest),
-        metaButton(guest.name, guest.deployment),
+        metaButton(guest.name, guest.deployment, guest),
       ]);
     });
     element("guest-table").hidden = !(view.guests || []).length;

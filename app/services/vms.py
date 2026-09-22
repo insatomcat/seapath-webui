@@ -47,7 +47,7 @@ from app.cluster.libvirt import reporting as libvirt_reporting
 from app.cluster.rbd import RbdClient, RbdUnavailable, image_of
 from app.core.logging import audit_event
 from app.inventory import cloudinit
-from app.inventory.editor import guest_entries
+from app.inventory.editor import Scope, guest_entries
 from app.inventory.files import UnsafePath
 from app.inventory.model import (
     CLUSTER_GUEST_GROUP,
@@ -197,6 +197,13 @@ class GuestView(BaseModel):
     resource: PacemakerResource | None = None
     """Pacemaker's line for it, absent when nothing reports one."""
 
+    pinning_profile: str | None = None
+    """`vm_pinning_profile` from its entry, the seapath-alloc profile as text.
+
+    Carried for a standalone guest, whose profile the deployment writes to
+    `/etc/seapath/alloc.d` on every run, so editing the entry is how it
+    changes. A cluster guest's is read from its image, where `vm_manager`
+    wrote it once."""
     preferred_host: str | None = None
     """Where the entry says Pacemaker should run it, when it says."""
     pinned_host: str | None = None
@@ -774,6 +781,79 @@ class VmService:
             )
         return commit
 
+    def set_pinning_profile(
+        self,
+        name: str,
+        profile: str | None,
+        author: str,
+        expected_head: str | None = None,
+    ) -> Commit | None:
+        """Write a standalone guest's `vm_pinning_profile`, or take it out.
+
+        One commit on the guest's own entry. `deploy_vms_standalone` writes
+        the variable to `/etc/seapath/alloc.d/<guest>.yaml` on every run, and
+        removes the file of a guest that no longer names one, so a run of it
+        is what reaches the machine; the seapath-alloc hook reads the file
+        when the guest starts. A cluster guest is refused: `deploy_vms_cluster`
+        hands the profile to `vm_manager` at creation only, and the one it
+        runs with is `_seapath_alloc` in the metadata of its image.
+        """
+        state = self._inventory.state()
+        if state.inventory is None or name not in state.inventory.guests:
+            raise UnknownGuest(
+                f"No guest called {name!r} is declared in this inventory."
+            )
+        if state.inventory.deployment_of(name) is Mode.CLUSTER:
+            raise InvalidGuest(
+                f"{name} is a cluster guest, whose profile is `_seapath_alloc` "
+                "in the metadata of its image. The Metadata window edits it."
+            )
+        text = (profile or "").strip()
+        if text:
+            _check_profile(text)
+            # A block scalar ends with a newline, and the file the role writes
+            # is the value as it is.
+            text += "\n"
+        entry = state.inventory.guests[name].extra.get("vm_pinning_profile")
+        if (_profile_text(entry) or "") == text:
+            return None
+        variable = "vm_pinning_profile"
+        subject = (
+            f"vms: pinning profile of {name}"
+            if text
+            else f"vms: no pinning profile for {name}"
+        )
+        message = (
+            f"{subject}\n\n"
+            "Written to /etc/seapath/alloc.d by the next deploy_vms_standalone "
+            "run, and read by the seapath-alloc hook when the guest starts."
+        )
+        if text:
+            commit = self._inventory.write_variables(
+                [(Scope(kind="host", name=name), {variable: text})],
+                {name: {variable: text}},
+                message,
+                author,
+                expected_head=expected_head,
+            )
+        else:
+            commit = self._inventory.write_variables(
+                [],
+                {name: {variable: None}},
+                message,
+                author,
+                removals={name: [variable]},
+                expected_head=expected_head,
+            )
+        if commit is not None:
+            audit_event(
+                "vms.pinning_profile",
+                guest=name,
+                commit=commit.hash,
+                user=author,
+            )
+        return commit
+
     def delete_sources(
         self, name: str, author: str
     ) -> tuple[list[SourceFile], list[Commit]]:
@@ -977,18 +1057,7 @@ class VmService:
 
         profile = variables.get("vm_pinning_profile")
         if profile:
-            try:
-                parsed = yaml.safe_load(profile)
-            except yaml.YAMLError as error:
-                raise InvalidGuest(
-                    f"The pinning profile is not YAML: {error}"
-                ) from error
-            if not isinstance(parsed, dict):
-                raise InvalidGuest(
-                    "The pinning profile is a mapping, the one "
-                    "`deploy_seapath_alloc` documents, starting with "
-                    "`version: 1`."
-                )
+            _check_profile(profile)
 
     def guests(self) -> GuestsView:
         state = self._inventory.state()
@@ -1067,6 +1136,9 @@ class VmService:
                     enable=guest.enable,
                     ansible_host=guest.ansible_host,
                     seeded=guest.cloud_init is not None,
+                    pinning_profile=_profile_text(
+                        guest.extra.get("vm_pinning_profile")
+                    ),
                     preferred_host=guest.extra.get("preferred_host"),
                     pinned_host=guest.extra.get("pinned_host"),
                     files=files.get(name, []),
@@ -1251,3 +1323,30 @@ class VmService:
             held,
             _FROM_PACEMAKER,
         )
+
+
+def _check_profile(profile: str) -> None:
+    """Refuse a profile the seapath-alloc hook could not read."""
+    try:
+        parsed = yaml.safe_load(profile)
+    except yaml.YAMLError as error:
+        raise InvalidGuest(f"The pinning profile is not YAML: {error}") from error
+    if not isinstance(parsed, dict):
+        raise InvalidGuest(
+            "The pinning profile is a mapping, the one "
+            "`deploy_seapath_alloc` documents, starting with "
+            "`version: 1`."
+        )
+
+
+def _profile_text(value: object) -> str | None:
+    """A profile as the text the role writes, whichever way the entry spells it.
+
+    The form writes a block scalar. A hand written entry may give a mapping,
+    which the role renders through Jinja, and it is shown here as YAML.
+    """
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return yaml.safe_dump(value, sort_keys=False, default_flow_style=False)

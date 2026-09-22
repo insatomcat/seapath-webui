@@ -73,6 +73,7 @@ from app.services.backup import BackupService
 from app.services.backup_trust import BackupTrustService
 from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
+from app.services.domain_xml import DomainXmlService
 from app.services.local_storage import LocalStorageService
 from app.services.logs import LogService
 from app.services.metadata import MetadataService
@@ -526,6 +527,18 @@ def create_app(
         # The RBD groups, which tell a guest taken out of the cluster from one
         # never deployed: Pacemaker has no resource for either.
         rbd=rbd_client,
+    )
+    # A standalone guest's libvirt domain, read with `virsh dumpxml` over the
+    # SSH path a run takes and defined again by a run of the module the
+    # standalone role defines with. The `virsh edit` a cluster guest gets from
+    # its metadata. See D66.
+    app.state.domain_xml_service = DomainXmlService(
+        inventory=app.state.inventory_service,
+        remote=remote,
+        keys=app.state.run_service.paths,
+        ansible_user=settings.ansible_user,
+        locate=lambda guest: _domain_host(app, guest),
+        launch=app.state.run_service.launch_generated,
     )
     # A deployment run that created a guest takes the lines only its creation
     # read out of the guest's entry, as one commit by the operator who launched

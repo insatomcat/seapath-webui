@@ -334,7 +334,7 @@ is where this service answers "who changed what, and when".
 | WS | `/node/console/ws` | The console itself: a shell on this machine, on the entry `?host=` names, or the serial console of the guest `?serial=` names |
 | WS | `/node/console/graphic` | The graphic console of the guest `?guest=` names: its VNC display, for noVNC |
 | GET | `/vms/displays` | Which cluster guests have a VNC display, read from the domain XML Ceph holds |
-| GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
+| GET | `/cluster` | The Pacemaker cluster as its coordinator reports it: members with their statuses and votes, resources with the node each runs on, their roles and their failure counts, location constraints, Corosync quorum and ring errors, fencing, SBD devices, and when the CIB last changed. `reach` lists every machine that was asked and what it answered: the members of `cluster_machines`, or every machine of a file that names none, since no other machine runs the exporter. Read from each node's `ha_cluster_exporter`. See [D29](decisions.md#d29) |
 | GET | `/storage` | The Ceph cluster as its active manager reports it: health with the checks Ceph itself is raising, raw and used capacity, monitors and their quorum, managers, OSDs with host, device class, usage and latency, pools, and placement group states. `available: false` with a sentence when the cluster has no Ceph, which is a supported configuration |
 | GET | `/conformance` | Result of the last check run per host, and its age |
 | POST | `/cluster/resources/{name}/refresh` | Clear one resource's operation history, failures included, and ask Pacemaker to probe it again: `crm resource refresh <name>` on a cluster member, as a run. `operator`. 202 with the `run_id` to watch, `404 unknown_resource` for a name the cluster does not report, `409 no_cluster` when none answered. See [D29](decisions.md#d29) |
@@ -591,8 +591,13 @@ for a cluster guest, this machine when it is a hypervisor of the cluster,
 otherwise the first one with an accepted host key; for a standalone guest, the
 machine whose libvirt exporter reports the domain, the only standalone machine,
 or this one among several. It connects there as for a shell and runs one fixed
-command, `sudo -n /bin/sh -c 'exec vm-mgr console <guest>'`, so `vm_manager`
-finds the hypervisor and attaches to the serial port. The `ready` event then
+command. For a cluster guest it is `sudo -n /bin/sh -c 'exec vm-mgr console
+<guest>'`, so `vm_manager` finds the hypervisor and attaches to the serial
+port. For a standalone guest it is `sudo -n /bin/sh -c 'exec virsh -c
+qemu:///system console <guest>'`, the call `vm_manager` makes in its libvirt
+mode: `vm-mgr` takes its cluster mode wherever the Ceph and Pacemaker bindings
+import, which the Debian ISO installs on every machine, and then asks
+`crm_mon` for a cluster a standalone machine is not in. The `ready` event then
 carries `serial`, the guest's name, and `host` names the machine it went
 through. A name that is not a guest of the inventory closes with `4404`
 (`unknown_guest`), and a guest no reachable machine can serve with `4409`
@@ -701,6 +706,10 @@ domain and the resource.
 | GET | `/vms/{name}/metadata` | Everything the guest's RBD image carries, read from Ceph as the request is served. `viewer` |
 | PUT | `/vms/{name}/metadata` | Add, change or remove one key. `value` writes it, no `value` removes it. Answers with the metadata and what moved. `admin` |
 | POST | `/vms/{name}/reconfigure` | Stop the guest, rebuild its Pacemaker resource from the metadata and start it. `202` with the run. `operator` |
+| POST | `/vms/{name}/restart` | Shut a standalone guest down through ACPI, wait up to five minutes for libvirt to report it shut off, and start it: what applies a new definition or pinning profile. `202` with the run; `409 not_standalone` for a cluster guest, whose equivalent is `reconfigure`. `operator` |
+| GET | `/vms/{name}/xml` | A standalone guest's persistent definition, `virsh dumpxml --inactive` on the machine holding it, over the SSH path a run takes. `host` names that machine. `409 not_standalone` for a cluster guest, `409 no_domain` when no machine can be asked. `admin` |
+| PUT | `/vms/{name}/xml` | Define a standalone guest again from an edited `xml`, as a run of `community.libvirt.virt` `command: define` on its machine. The domain is read again first: an XML naming another domain, or another `<uuid>` than libvirt holds, is `400 invalid_domain`, and one identical to it answers `changed: false` with no run. Takes effect at the next start from shut off. The inventory is not changed. See [D66](decisions.md#d66). `admin` |
+| PUT | `/vms/{name}/pinning-profile` | Write a standalone guest's `vm_pinning_profile`, as one commit on its entry, `If-Match` on the commit hash; an empty `profile` takes it out. Answers with the commit, none when the entry already said this, and `playbook`, the deployment that writes it to `/etc/seapath/alloc.d`. `400 invalid_guest` for a profile that is not a YAML mapping, and for a cluster guest, whose profile is `_seapath_alloc` in its image's metadata. `admin` |
 
 Reading is open to the `viewer` role. `POST /vms` is an administrator's act,
 because it commits the desired state and the run that follows creates a

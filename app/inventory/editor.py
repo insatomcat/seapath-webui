@@ -135,14 +135,42 @@ def set_variables(document: str, scope: Scope, variables: dict[str, Any]) -> str
         splices = _group_variables(lines, loaded, scope.name, variables)
     else:
         mapping = _host_mapping(loaded, scope.name)
-        if mapping is None:
-            raise UneditableInventory(
-                f"{scope.name} has no entry of its own in this inventory, so "
-                "there is nowhere to write its variables."
-            )
-        splices = _splices(lines, mapping, variables)
+        if mapping is not None:
+            splices = _splices(lines, mapping, variables)
+        else:
+            splices = _bare_host(lines, loaded, scope.name, variables)
 
     return _apply(lines, splices)
+
+
+def _bare_host(
+    lines: list[str], loaded: Any, host: str, variables: dict[str, Any]
+) -> list[_Splice]:
+    """The first variables of a host declared by its name alone.
+
+    `ABBICT:` with nothing under it is how a guest that already runs is
+    declared, and how most hand written files list their guests. Its line is
+    replaced by the same key with the variables under it, the way an empty
+    `vars:` is replaced above.
+    """
+    for group in _group_bodies(loaded):
+        hosts = group.get("hosts")
+        if not (isinstance(hosts, dict) and host in hosts and hosts[host] is None):
+            continue
+        written = {
+            variable: value for variable, value in variables.items() if not _gone(value)
+        }
+        if not written:
+            return []
+        key_line, key_column = hosts.lc.key(host)
+        replacement = [f"{' ' * key_column}{host}:\n"]
+        for variable, value in sorted(written.items()):
+            replacement.extend(_emit(variable, value, key_column + 2))
+        return [_Splice(key_line, key_line + 1, replacement)]
+    raise UneditableInventory(
+        f"{host} has no entry of its own in this inventory, so there is "
+        "nowhere to write its variables."
+    )
 
 
 def _group_variables(

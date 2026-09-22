@@ -46,6 +46,7 @@ GENERATOR = "seapath-webui"
 class Action(str, Enum):
     START = "start"
     STOP = "stop"
+    RESTART = "restart"
     RECONFIGURE = "reconfigure"
     ENABLE = "enable"
     DISABLE = "disable"
@@ -100,6 +101,20 @@ _SPECS: dict[Action, ActionSpec] = {
             "Starts the guest. In a cluster this asks Pacemaker to run it and "
             "Pacemaker chooses the node, which is not necessarily the one it "
             "last ran on."
+        ),
+    ),
+    Action.RESTART: ActionSpec(
+        verb="Shut down and start",
+        title="Shut down and start {name}",
+        disruption=(
+            "Asks the guest to shut down through ACPI, waits up to five "
+            "minutes for libvirt to report it shut off, then starts it. That "
+            "is what makes a new definition or pinning profile take effect: "
+            "libvirt reads the definition, and the seapath-alloc hook the "
+            "profile, when the guest starts from shut off, and a reboot from "
+            "inside the guest is neither. Whatever the guest serves stops in "
+            "between. A guest that ignores ACPI is left running and the run "
+            "fails, saying so."
         ),
     ),
     Action.RECONFIGURE: ActionSpec(
@@ -573,6 +588,28 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
                     "command": action.value,
                 },
             }
+        ]
+    if action is Action.RESTART:
+        # Three calls of the module `deploy_vms_standalone` starts guests with.
+        # `shutdown` only asks the guest and returns, so the start would find
+        # it still running and do nothing: the status is polled in between.
+        return [
+            {
+                "name": f"Shut {guest} down",
+                "community.libvirt.virt": {"name": guest, "state": "shutdown"},
+            },
+            {
+                "name": f"Wait for {guest} to be shut off",
+                "community.libvirt.virt": {"name": guest, "command": "status"},
+                "register": "seapath_webui_domain",
+                "until": "seapath_webui_domain.status == 'shutdown'",
+                "retries": 60,
+                "delay": 5,
+            },
+            {
+                "name": f"Start {guest}",
+                "community.libvirt.virt": {"name": guest, "state": "running"},
+            },
         ]
     return [{"name": title, **_task(action, guest, mode)}]
 

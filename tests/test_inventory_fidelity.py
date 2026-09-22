@@ -719,3 +719,31 @@ def test_any_machine_in_the_inventory_can_be_edited(
     assert resolved["node2"]["ansible_host"] == "10.132.159.71"
     assert resolved["node3"]["ansible_host"] == "10.132.159.72"
     assert resolved["node1"]["ansible_host"] == "10.132.159.60"
+
+
+def test_a_host_declared_by_its_name_alone_gets_its_first_variables() -> None:
+    # `ABBICT:` with nothing under it is how a running guest is declared. The
+    # line becomes the same key with the variable under it, and the lines
+    # around it are left byte for byte.
+    document = "VMs:\n" "  hosts:\n" "    ABBICT:\n" "    EITCS:\n"
+
+    edited = set_variables(
+        document,
+        Scope("host", "ABBICT"),
+        {"vm_pinning_profile": "version: 1\n"},
+    )
+
+    assert edited == (
+        "VMs:\n"
+        "  hosts:\n"
+        "    ABBICT:\n"
+        "      vm_pinning_profile: |\n"
+        "        version: 1\n"
+        "    EITCS:\n"
+    )
+    assert (
+        unintended_changes(
+            document, edited, {"ABBICT": {"vm_pinning_profile": "version: 1\n"}}
+        )
+        == []
+    )
