@@ -545,56 +545,41 @@ image and losing its disk. D31 records the bounds.
   </div>
 </div>
 
-{# A standalone guest's domain, as `virsh edit` shows it: the inactive
-   definition its machine holds, read over SSH as the window opens. Saving is a
-   run of the module the standalone role defines domains with, and the
-   definition takes effect at the next start from shut off, which is offered
-   once the run has succeeded. The inventory is not changed. See D66. #}
-<div class="modal" id="domain" data-dismiss="domain-cancel" hidden>
+{# A standalone guest's domain and its pinning profile, one window each and
+   one gesture each. Saving asks, when something changed, whether the guest is
+   restarted to apply it, since both are read when it starts from shut off;
+   then one run does the whole of it, and it goes on whether or not anybody
+   watches it. The domain is read from the machine as the window opens and
+   never enters the inventory; the profile is committed to the inventory
+   first and the run writes it from there. See D66. #}
+{% macro guest_editor(id, label, help) %}
+<div class="modal" id="{{ id }}" data-dismiss="{{ id }}-cancel" hidden>
   <div class="modal-body wide tall">
-    <h2 id="domain-title"></h2>
-    <p class="lead" id="domain-lead"></p>
-    <div class="loading" id="domain-loading" hidden>Asking libvirt</div>
-    <textarea id="domain-xml" spellcheck="false" wrap="off" aria-label="Domain XML"></textarea>
-    <p class="help">
-      Defined again with <code>community.libvirt.virt</code>, as a run. The
-      guest keeps running with the definition it started with until it is shut
-      down and started. The inventory still describes the guest its template
-      renders, so a guest created again from its entry loses this edit.
-    </p>
-    <div class="actions">
-      <button type="button" id="domain-cancel" class="secondary">Close</button>
-      <button type="button" id="domain-go">Define it</button>
+    <h2 id="{{ id }}-title"></h2>
+    <p class="lead" id="{{ id }}-lead" hidden></p>
+    <div class="loading" id="{{ id }}-loading" hidden>Asking the machine</div>
+    <textarea id="{{ id }}-text" spellcheck="false" wrap="off" aria-label="{{ label }}"></textarea>
+    <p class="help">{{ help }}</p>
+    <div class="actions" id="{{ id }}-edit">
+      <button type="button" id="{{ id }}-cancel" class="secondary">Close</button>
+      <button type="button" id="{{ id }}-save">Save</button>
     </div>
-    <p class="error" id="domain-error" hidden></p>
+    {# The one question a change asks. The run is the same either way, and
+       only its end differs. #}
+    <div id="{{ id }}-ask" hidden>
+      <p class="warning" id="{{ id }}-ask-text"></p>
+      <div class="actions">
+        <button type="button" id="{{ id }}-back" class="secondary">Back</button>
+        <button type="button" id="{{ id }}-later" class="secondary">Apply at its next start</button>
+        <button type="button" id="{{ id }}-restart">Apply and restart it now</button>
+      </div>
+    </div>
+    <p class="error" id="{{ id }}-error" hidden></p>
   </div>
 </div>
-
-{# A standalone guest's seapath-alloc profile, `vm_pinning_profile` in its
-   entry. Saving is a commit; the deployment run writes it to
-   /etc/seapath/alloc.d, and the hook reads it when the guest starts, so the
-   window offers both acts in that order once the commit is made. #}
-<div class="modal" id="profile" data-dismiss="profile-cancel" hidden>
-  <div class="modal-body wide tall">
-    <h2 id="profile-title"></h2>
-    <textarea id="profile-text" spellcheck="false" wrap="off" aria-label="Pinning profile"></textarea>
-    <p class="help">
-      The profile <code>deploy_seapath_alloc</code> documents, starting with
-      <code>version: 1</code>. Empty takes it out of the entry, and the next
-      deployment removes the file.
-    </p>
-    <div class="card-actions" id="profile-pending" hidden>
-      <button type="button" id="profile-deploy">1. Run <span id="profile-playbook"></span></button>
-      <button type="button" id="profile-restart" class="secondary">2. Shut down and start</button>
-      <span class="legend" id="profile-pending-note"></span>
-    </div>
-    <div class="actions">
-      <button type="button" id="profile-cancel" class="secondary">Close</button>
-      <button type="button" id="profile-go">Commit it</button>
-    </div>
-    <p class="error" id="profile-error" hidden></p>
-  </div>
-</div>
+{% endmacro %}
+{{ guest_editor("domain", "Domain XML", "Defined with community.libvirt.virt on the machine holding the guest. The inventory still describes the guest its template renders, so a guest created again from its entry loses this edit.") }}
+{{ guest_editor("profile", "Pinning profile", "The profile deploy_seapath_alloc documents, starting with version: 1. It is committed to the guest's entry, then written to /etc/seapath/alloc.d on its machine. Empty takes it out, and removes the file.") }}
 
 {# One value, edited. Wide and tall on purpose: the two biggest keys hold a
    libvirt domain each, and editing one in a three line box is how a closing

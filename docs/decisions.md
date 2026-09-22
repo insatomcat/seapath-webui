@@ -5025,50 +5025,80 @@ reading an aggregate, and the scrape window still merges the requests a page
 repeats. A port the proxy has no path for is answered here as a sentence
 rather than sent to an address where nothing listens any more.
 
-## D66 - Settled: a standalone guest's domain is defined again by a run, and its pinning profile is an entry
+## D66 - Settled: a standalone guest's domain and pinning profile are each one run, ending with a restart when asked
 
 A standalone guest had nothing in place of the Metadata window. Its domain is
 what `deploy_vms_standalone` defined once from `vm_template`, and its pinning
 profile is `vm_pinning_profile` in its entry. Both had to change on a guest
 that exists, without losing its disk.
 
-**The pinning profile is an ordinary variable.** The role writes it to
-`/etc/seapath/alloc.d/<guest>.yaml` on every run, with no condition on the
-guest being new, and removes the file of a guest that no longer names one. So
-the window commits the variable on the guest's entry and offers the run
-that writes it, and the seapath-alloc hook reads the file when the guest
-starts. Nothing here reaches the machine outside that run. A cluster guest is
-refused: `deploy_vms_cluster` hands the profile to `vm_manager` at creation
-only, and the one it runs with is `_seapath_alloc` in the metadata of its
-image, which D31 already covers.
+### One gesture, one run
 
-The run that writes it is `seapath_setup_deploy_seapath_alloc`, narrowed to
-the guest's machine. The two tasks first lived in `deploy_vms_standalone`
-alone, so a profile change meant the whole VM deployment, which also creates a
-declared guest the machine lacks and starts every guest whose entry does not
-say `enable: false`, a guest stopped by hand included. Upstream they moved to
-`tasks/profiles.yml` of `deploy_seapath_alloc`, which already owns
-`/etc/seapath/alloc.d` and plays them on `standalone_machine`, and
-`deploy_vms_standalone` includes the same file before it starts its guests. A
-collection without that file still gets the deployment playbook, and the
-confirmation then says what else it does.
+Both windows work the same way. The operator edits and saves. When something
+changed, the window asks one question: apply it at the guest's next start, or
+restart the guest now. Both the definition and the profile are read when the
+guest starts from shut off, and a reboot from inside it is not that. Then one
+run does all of it, the restart at its end when it was asked for, and the
+window closes onto that run. It goes on whether or not anybody keeps watching:
+nothing is left for the operator to come back and launch.
 
-**The domain has no path through the inventory.** The role skips every guest
-libvirt already has unless its entry carries `force`, and `force` destroys the
-guest, copies its image again and loses what it wrote. The same gap D31 found
-for a cluster guest's metadata. Editing the template instead would change
-every guest a site builds from it, and would edit a template rather than the
-domain libvirt holds, with its UUID and the addresses libvirt assigned.
+The first version of this did the opposite, and it was wrong on every count
+an operator noticed at once. The definition was a run and the restart a
+button offered afterwards, which was lost the moment the run window was
+closed. The profile was two buttons for two runs, the second to be pressed
+only once the first had ended. And the two windows, doing the same thing,
+did it two different ways.
 
-So the window is `virsh edit` in two halves. The reading is `virsh dumpxml
---inactive` over the SSH path a run takes, through `hosts/remote.py` like the
-journal (D63) and the local volumes (D58): one command, built here, the guest's
-name quoted into it. The writing is a run of one task, `community.libvirt.virt`
-with `command: define`, the module and command the standalone role creates the
-domain with, on the machine holding it. The XML is written into the run's own
-tree, so the definition sent is part of the record. It is an act made once, in
-the sense AGENTS.md gives it: the value is given to the run and recorded with
-it, and the inventory does not claim it.
+The restart is three calls of `community.libvirt.virt`, the module the
+standalone role starts guests with: `shutdown`, `status` polled until libvirt
+reports the guest shut off, for up to five minutes, then `running`.
+`shutdown` only asks the guest through ACPI, so a start right behind it would
+find it running and do nothing. A guest that ignores ACPI fails the run and
+is left running.
+
+### The pinning profile is an entry, and a play of two tasks writes it
+
+The window commits `vm_pinning_profile` on the guest's entry, so the
+inventory stays where the profile is written. The run that follows puts it on
+the machine: the two tasks `deploy_vms_standalone` writes
+`/etc/seapath/alloc.d/<guest>.yaml` with, on that one guest, with the value
+read from the inventory the run stages, `hostvars` of the committed entry.
+What lands on the machine is what the role writes from the same file, so a
+convergence afterwards changes nothing, and the acceptance criterion holds.
+
+Those two tasks are a role's, repeated here, which AGENTS.md otherwise
+forbids. It is done knowingly, because each upstream way to run them is
+wrong for this act. The VM deployment also creates any declared guest the
+machine lacks and starts every guest whose entry does not say `enable:
+false`, a guest stopped by hand included. Moving the tasks into
+`deploy_seapath_alloc` upstream was tried and dropped: its playbook redeploys
+seapath-alloc itself, which is not what changing one file asked for either.
+The bound is the file: one path, one guest, the value the inventory
+holds, and nothing else on the machine.
+
+A cluster guest is refused: `deploy_vms_cluster` hands the profile to
+`vm_manager` at creation only, and the one it runs with is `_seapath_alloc`
+in the metadata of its image, which D31 covers.
+
+### The domain has no path through the inventory
+
+The role skips every guest libvirt already has unless its entry carries
+`force`, and `force` destroys the guest, copies its image again and loses
+what it wrote. The same gap D31 found for a cluster guest's metadata.
+Editing the template instead would change every guest a site builds from it,
+and would edit a template rather than the domain libvirt holds, with its UUID
+and the addresses libvirt assigned.
+
+So the window is `virsh edit` in its two halves. `virsh edit` is `virsh
+dumpxml --inactive`, an editor, and `virsh define` of the result. The reading
+is the first, over the SSH path a run takes, through `hosts/remote.py` like
+the journal (D63) and the local volumes (D58): one command, built here, the
+guest's name quoted into it. The writing is the last, as a run of
+`community.libvirt.virt` with `command: define`, the module and command the
+standalone role creates the domain with, on the machine holding it. The XML
+is written into the run's own tree, so the definition sent is part of the
+record. It is an act made once, in the sense AGENTS.md gives it: the value is
+given to the run and recorded with it, and the inventory does not claim it.
 
 The bounds:
 
@@ -5082,24 +5112,14 @@ The bounds:
   machine;
 - administrators only, for the read as well, since it opens an SSH session.
 
-A definition takes effect at the next start from shut off, and a reboot from
-inside the guest is not one. Once the run defining it has succeeded, the page
-therefore asks for **Shut down and start**, over the run's own window, a run of three calls of the same module: `shutdown`, `status` polled
-until libvirt reports it shut off, for up to five minutes, then `running`.
-`shutdown` only asks the guest through ACPI, so a start right behind it would
-find it running and do nothing. A guest that ignores ACPI fails the run and is
-left running.
+Running the same playbooks from elsewhere leaves the edit alone, because the
+role skips a guest that exists. A guest created again from its entry gets the
+domain its template renders, and the window says so.
 
-The acceptance criterion holds. The profile is a variable a conventional
-control machine applies the same way. The domain edit is outside the
-inventory, as the metadata of D31 is: running the same playbooks from
-elsewhere leaves it alone, because the role skips a guest that exists. A guest
-created again from its entry gets the domain its template renders, and the
-window says so.
+### The serial console
 
-The serial console of a standalone guest runs `virsh console` rather than
-`vm-mgr console`. `vm_manager` picks its libvirt mode only when the Ceph and
+A standalone guest's serial console runs `virsh console` rather than `vm-mgr
+console`. `vm_manager` picks its libvirt mode only when the Ceph and
 Pacemaker bindings fail to import, and the Debian ISO installs them on every
 machine: on ccvadmin, `vm-mgr console` asked `crm_mon` for a cluster the
 machine is not in. `virsh console` is the call its libvirt mode makes.
-

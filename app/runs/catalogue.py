@@ -1170,17 +1170,16 @@ def playbook_file(collections_path: Path, entry: PlaybookEntry) -> Path:
     return Path(collections_path).joinpath(*_COLLECTION_DIRECTORY, f"{name}.yaml")
 
 
-def role_present(collections_path: Path, role: str, tasks: str = "main.yml") -> bool:
+def role_present(collections_path: Path, role: str) -> bool:
     """Whether the installed collection carries a role of that name.
 
     `tasks/main.yml` rather than the directory, because `ansible-galaxy` lays
     the tree out file by file: a directory an interrupted install left behind
-    is not a role that runs. `tasks` names another task file, for a role that
-    gained one: a collection older than it runs the role and does not do it.
+    is not a role that runs.
     """
     return (
         Path(collections_path)
-        .joinpath(*_COLLECTION_DIRECTORY[:-1], "roles", role, "tasks", tasks)
+        .joinpath(*_COLLECTION_DIRECTORY[:-1], "roles", role, "tasks", "main.yml")
         .is_file()
     )
 

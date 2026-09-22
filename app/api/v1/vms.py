@@ -25,7 +25,6 @@ from app.inventory import cloudinit
 from app.inventory.model import Mode
 from app.inventory.service import GuestExists, ImportRefused, RefusedWrite
 from app.runs.actions import Action
-from app.runs.catalogue import role_present
 from app.runs.service import RunService
 from app.services.domain_xml import (
     DomainXml,
@@ -719,6 +718,14 @@ class DomainWrite(BaseModel):
     """A guest's libvirt domain, as `virsh edit` would leave it."""
 
     xml: str = Field(description="The whole `<domain>`, as `virsh dumpxml` gives it")
+    restart: bool = Field(
+        default=False,
+        description=(
+            "End the run with the guest shut down and started, which is what "
+            "applies the definition. Otherwise it applies at the next start "
+            "from shut off"
+        ),
+    )
 
 
 class DefineResponse(BaseModel):
@@ -756,15 +763,18 @@ def define_domain(
     `<name>`, and the `<uuid>` libvirt holds it under. The run is one task of
     `community.libvirt.virt`, `command: define`, which is what
     `deploy_vms_standalone` creates the domain with, and the XML is written
-    into the run's own tree. The guest keeps running with its old definition
-    until it is shut down and started, `POST /vms/{name}/restart`.
+    into the run's own tree. With `restart`, the same run then shuts the guest
+    down and starts it, which applies the definition; without it, the guest
+    takes it at its next start from shut off.
 
     The inventory is not changed. A guest created again from its entry gets
     the domain its template renders. See D66.
     """
     _standalone(request, name)
     try:
-        record = _domains(request).define(name, payload.xml, user.username)
+        record = _domains(request).define(
+            name, payload.xml, user.username, payload.restart
+        )
     except InvalidDomain as error:
         raise ApiError("invalid_domain", str(error), 400) from error
     except NoDomain as error:
@@ -784,7 +794,14 @@ class ProfileWrite(BaseModel):
         description=(
             "The profile as YAML, a mapping starting with `version: 1`. Empty "
             "or absent takes `vm_pinning_profile` out of the entry, and the "
-            "next deployment removes the file"
+            "run removes the file"
+        ),
+    )
+    restart: bool = Field(
+        default=False,
+        description=(
+            "End the run with the guest shut down and started, which is when "
+            "the seapath-alloc hook reads the profile"
         ),
     )
 
@@ -793,36 +810,10 @@ class ProfileResponse(BaseModel):
     guest: str
     commit: str | None = None
     message: str | None = None
-    playbook: str = Field(description="The catalogue entry that writes it out")
-    host: str | None = Field(
-        default=None,
-        description=(
-            "The machine to narrow that run to, as a `scope` host of "
-            "`POST /runs`, when the playbook is the alloc one and the machine "
-            "holding the guest can be named"
-        ),
+    run_id: str | None = Field(
+        default=None, description="The run writing it to the machine"
     )
-
-
-# The alloc role writes the standalone profiles from this task file since the
-# collection that added it. An older collection runs the role and writes none.
-_PROFILE_ROLE = "deploy_seapath_alloc"
-_PROFILE_TASKS = "profiles.yml"
-_PROFILE_PLAYBOOK = "seapath_setup_deploy_seapath_alloc"
-
-
-def _profile_run(request: Request, name: str) -> tuple[str, str | None]:
-    """The run that writes a standalone guest's profile, and where.
-
-    The alloc playbook, narrowed to the guest's machine, which touches no
-    guest. With a collection that predates its profile tasks, the guest's own
-    deployment, which writes it too and also starts every enabled guest.
-    """
-    if role_present(
-        request.app.state.collections_root(), _PROFILE_ROLE, _PROFILE_TASKS
-    ):
-        return _PROFILE_PLAYBOOK, _domains(request).machine(name)
-    return _service(request).deploy_playbook(name), None
+    state: str | None = None
 
 
 @router.put("/{name}/pinning-profile", response_model=ProfileResponse)
@@ -833,19 +824,32 @@ def write_profile(
     if_match: str | None = Header(default=None, alias="If-Match"),
     user: User = admin,
 ) -> ProfileResponse:
-    """Write a standalone guest's `vm_pinning_profile`, as one commit.
+    """Write a standalone guest's `vm_pinning_profile`, and put it on the machine.
 
-    `seapath_setup_deploy_seapath_alloc` writes it to
-    `/etc/seapath/alloc.d/<guest>.yaml` without touching a guest, so the
-    answer names that playbook and the machine to narrow it to; with a
-    collection older than those tasks, `deploy_vms_standalone`, which writes
-    it on every run too. The seapath-alloc hook
-    reads the file when the guest starts, so the change reaches a running
-    guest with `POST /vms/{name}/restart`. No commit when the entry already
-    said exactly this. A cluster guest answers `400 invalid_guest`: its
-    profile is `_seapath_alloc` in the metadata of its image.
+    One commit on the guest's entry, then one run on the machine holding the
+    guest: the two tasks `deploy_vms_standalone` writes
+    `/etc/seapath/alloc.d/<guest>.yaml` with, reading the value from the
+    committed inventory, and with `restart` the guest shut down and started,
+    since the seapath-alloc hook reads the file when it starts. No commit and
+    no run when the entry already said exactly this. A cluster guest answers
+    `400 invalid_guest`: its profile is `_seapath_alloc` in the metadata of
+    its image. See D66.
     """
     service = _service(request)
+    domains = _domains(request)
+    try:
+        service.check_known(name)
+    except UnknownGuest as error:
+        raise ApiError("unknown_guest", str(error), 404) from error
+    if service.deployment_of(name) is not Mode.CLUSTER and not domains.machine(name):
+        # Refused before the commit, so the entry never says something no run
+        # could put on a machine.
+        raise ApiError(
+            "no_domain",
+            f"No machine can be named for {name}: no libvirt exporter reports "
+            "it and the inventory has more than one standalone machine.",
+            409,
+        )
     try:
         commit = service.set_pinning_profile(
             name, payload.profile, user.username, if_match
@@ -868,11 +872,13 @@ def write_profile(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
-    playbook, host = _profile_run(request, name)
+    if commit is None:
+        return ProfileResponse(guest=name)
+    record = domains.write_profile(name, user.username, payload.restart)
     return ProfileResponse(
         guest=name,
-        commit=commit.hash if commit else None,
-        message=commit.message if commit else None,
-        playbook=playbook,
-        host=host,
+        commit=commit.hash,
+        message=commit.message,
+        run_id=record.id,
+        state=record.state.value,
     )

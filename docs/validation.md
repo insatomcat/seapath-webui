@@ -682,10 +682,11 @@ port. See [D52](decisions.md#d52).
 | # | Check | Why it cannot be tested against a fake | Result |
 |---|---|---|---|
 | 1 | The XML window of a standalone guest on ccvadmin opens with the domain `virsh dumpxml --inactive` prints there | The `sudo` rule, `virsh` and the SSH path together | Pending |
-| 2 | An edited `<vcpu>` defined from the window, then Shut down and start, leaves the guest running with the new count, and `virsh dumpxml` shows it | `community.libvirt.virt define` over a domain that exists, and libvirt applying it at the next start | Pending |
-| 3 | The restart run fails with the wait task's message on a guest that ignores ACPI, and leaves it running | The `until` on `command: status` against a real guest | Pending |
-| 4 | A pinning profile committed from the window, then `seapath_setup_deploy_seapath_alloc` narrowed to the machine, starts or stops no guest, writes `/etc/seapath/alloc.d/<guest>.yaml`, and after Shut down and start the guest's vCPUs sit where the profile says | The role's task, the seapath-alloc hook and the CPU pool together | Pending |
-| 5 | Exporting the inventory after step 4 and running `deploy_vms_standalone` and `seapath_setup_deploy_seapath_alloc` from a control machine changes nothing | The acceptance criterion: the profile is a variable and the domain edit is outside the inventory by design, so neither may show up as a change | Pending |
+| 2 | An edited `<vcpu>` saved with "Apply and restart" is one run that defines the domain, shuts the guest down, and starts it with the new count, which `virsh dumpxml` then shows | `community.libvirt.virt define` over a domain that exists, and libvirt applying it at the start the same run makes | Pending |
+| 3 | Saved with "Apply at its next start", the run defines the domain and leaves the guest running; closing the run window mid run changes nothing about it | The run going on without anybody watching | Pending |
+| 4 | The restart fails with the wait task's message on a guest that ignores ACPI, and leaves it running | The `until` on `command: status` against a real guest | Pending |
+| 5 | A pinning profile saved with "Apply and restart" is one commit and one run that writes `/etc/seapath/alloc.d/<guest>.yaml` and restarts the guest, and its vCPUs then sit where the profile says | The value read from `hostvars` in the staged inventory, the seapath-alloc hook and the CPU pool together | Pending |
+| 6 | Exporting the inventory after step 5 and running `deploy_vms_standalone` from a control machine changes nothing | The acceptance criterion: the file the play writes is the one the role writes from the same entry | Pending |
 
 ## A guest's graphic console
 

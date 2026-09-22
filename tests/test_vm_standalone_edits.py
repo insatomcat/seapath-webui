@@ -12,7 +12,6 @@ that makes either take effect. See D66.
 from __future__ import annotations
 
 import shlex
-from pathlib import Path
 
 import yaml
 from fastapi.testclient import TestClient
@@ -234,10 +233,8 @@ def test_a_pinning_profile_is_a_commit_on_the_guests_entry(
     body = response.json()
     assert body["commit"]
     assert body["message"].startswith("vms: pinning profile of ABBICT")
-    # This collection predates the alloc role's profile tasks, so the run that
-    # writes it is the deployment, which does so on every run.
-    assert body["playbook"] == "deploy_vms_standalone"
-    assert body["host"] is None
+    # And the run that puts it on the machine, launched by the same request.
+    assert body["run_id"]
     assert _entries(signed_in)["ABBICT"]["vm_pinning_profile"] == PROFILE
     guests = {g["name"]: g for g in signed_in.get("/api/v1/vms").json()["guests"]}
     assert guests["ABBICT"]["pinning_profile"] == PROFILE
@@ -256,6 +253,7 @@ def test_the_same_profile_again_is_no_commit(
     )
 
     assert again.json()["commit"] is None
+    assert again.json()["run_id"] is None
 
 
 def test_an_empty_profile_takes_the_variable_out(
@@ -296,27 +294,73 @@ def test_a_cluster_guests_profile_is_its_metadata(signed_in: TestClient) -> None
     assert "Metadata window" in response.json()["error"]["message"]
 
 
-def test_a_collection_with_the_alloc_profile_tasks_writes_it_alone(
-    signed_in: TestClient, remote_runner: FakeRemoteRunner, collections_path: Path
+def test_the_profile_run_writes_the_committed_value_and_nothing_else(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner, settings: Settings
 ) -> None:
-    # The alloc playbook touches no guest, where the deployment starts every
-    # enabled one, a guest stopped by hand included. Narrowed to the machine
-    # holding the guest.
-    tasks = collections_path.joinpath(
-        "ansible_collections/seapath/ansible/roles/deploy_seapath_alloc/tasks"
-    )
-    tasks.mkdir(parents=True, exist_ok=True)
-    (tasks / "profiles.yml").write_text("---\n")
+    # The two tasks the standalone role writes the file with, on one guest,
+    # reading the value from the inventory the run stages: what lands on the
+    # machine is what the role would write, so a convergence changes nothing.
     _standalone(signed_in, remote_runner)
 
     body = signed_in.put(
         "/api/v1/vms/ABBICT/pinning-profile", json={"profile": PROFILE}
     ).json()
 
-    assert body["playbook"] == "seapath_setup_deploy_seapath_alloc"
-    assert body["host"] == "seapath-machine"
-    run = signed_in.post(
-        "/api/v1/runs",
-        json={"playbook": body["playbook"], "scope": {"hosts": [body["host"]]}},
+    wait_for(signed_in, body["run_id"])
+    play = _written(settings, body["run_id"], "vm_pinning_profile")[0]
+    assert play["hosts"] == "seapath-machine"
+    assert play["vars"] == {"seapath_webui_guest": "ABBICT"}
+    copy, remove = play["tasks"]
+    assert copy["ansible.builtin.copy"]["content"] == (
+        "{{ hostvars[seapath_webui_guest].vm_pinning_profile }}"
     )
-    assert run.status_code == 202, run.text
+    assert copy["ansible.builtin.copy"]["dest"] == (
+        "/etc/seapath/alloc.d/{{ seapath_webui_guest }}.yaml"
+    )
+    assert remove["ansible.builtin.file"]["state"] == "absent"
+    assert remove["when"] == (
+        "hostvars[seapath_webui_guest].vm_pinning_profile is not defined"
+    )
+
+
+def test_asking_for_a_restart_ends_the_same_run_with_it(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner, settings: Settings
+) -> None:
+    # One run whatever was chosen, so it goes on in the background and nobody
+    # has to come back to launch a second one.
+    _standalone(signed_in, remote_runner)
+    edited = DOMAIN.replace("<vcpu placement='static'>2", "<vcpu placement='static'>4")
+
+    defined = signed_in.put(
+        "/api/v1/vms/ABBICT/xml", json={"xml": edited, "restart": True}
+    ).json()
+    profiled = signed_in.put(
+        "/api/v1/vms/ABBICT/pinning-profile",
+        json={"profile": PROFILE, "restart": True},
+    ).json()
+
+    for run_id, record in (
+        (defined["run_id"], "vm_define"),
+        (profiled["run_id"], "vm_pinning_profile"),
+    ):
+        wait_for(signed_in, run_id)
+        tasks = _written(settings, run_id, record)[0]["tasks"]
+        assert [task["name"] for task in tasks[-3:]] == [
+            "Shut ABBICT down",
+            "Wait for ABBICT to be shut off",
+            "Start ABBICT",
+        ]
+
+
+def test_without_a_restart_the_guest_is_left_running(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner, settings: Settings
+) -> None:
+    _standalone(signed_in, remote_runner)
+
+    body = signed_in.put(
+        "/api/v1/vms/ABBICT/pinning-profile", json={"profile": PROFILE}
+    ).json()
+
+    wait_for(signed_in, body["run_id"])
+    tasks = _written(settings, body["run_id"], "vm_pinning_profile")[0]["tasks"]
+    assert not any("community.libvirt.virt" in task for task in tasks)

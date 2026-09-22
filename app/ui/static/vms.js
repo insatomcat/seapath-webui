@@ -762,7 +762,6 @@
     stop: "Stop",
     start: "Start",
     reconfigure: "Apply",
-    restart: "Shut down and start",
     disable: "Disable",
     enable: "Enable",
     delete: "Delete",
@@ -790,12 +789,6 @@
       "and it is an outage: Pacemaker reads those keys only when it creates " +
       "the resource, so there is no way to apply one without the guest going " +
       "down and coming back.",
-    restart:
-      "Asks the guest to shut down through ACPI, waits up to five minutes " +
-      "for libvirt to report it shut off, then starts it. That is what makes " +
-      "a new definition or pinning profile take effect: both are read when " +
-      "the guest starts from shut off, and a reboot from inside it is " +
-      "neither. Whatever the guest serves stops in between.",
     start:
       "Starts the guest. In a cluster this asks Pacemaker to run it and " +
       "Pacemaker chooses the node, which is not necessarily the one it last " +
@@ -963,7 +956,7 @@
       xml.className = "secondary";
       xml.textContent = "XML";
       xml.title = "Edit " + guest.name + "'s libvirt domain, as virsh edit does";
-      xml.addEventListener("click", () => openDomain(guest.name));
+      xml.addEventListener("click", () => DOMAIN.open(guest));
       cell.append(xml, " ");
     }
     const profile = document.createElement("button");
@@ -971,202 +964,129 @@
     profile.className = "secondary";
     profile.textContent = "Pinning profile";
     profile.title =
-      "Edit vm_pinning_profile, which the deployment writes to " +
-      "/etc/seapath/alloc.d/" + guest.name + ".yaml";
-    profile.addEventListener("click", () => openProfile(guest));
+      "Edit vm_pinning_profile, written to /etc/seapath/alloc.d/" +
+      guest.name + ".yaml";
+    profile.addEventListener("click", () => PROFILE.open(guest));
     cell.append(profile);
   }
 
-  let domainGuest = null;
+  // One editor, two subjects, and the same gesture for both: edit, Save, and
+  // when something changed, say whether the guest is restarted to apply it.
+  // Both are read when the guest starts from shut off. Then one run does all
+  // of it, the restart at its end when asked for, and the window closes onto
+  // the run, which goes on whether or not anybody keeps watching it.
+  function guestEditor(id, { title, load, save }) {
+    let guest = null;
+    let original = "";
 
-  async function openDomain(name) {
-    domainGuest = name;
-    element("domain-title").textContent = "Domain of " + name;
-    element("domain-lead").textContent = "";
-    element("domain-error").hidden = true;
-    element("domain-xml").value = "";
-    element("domain-go").disabled = true;
-    element("domain").hidden = false;
-    element("domain-loading").hidden = false;
-    try {
-      const read = await API.get(
-        "/vms/" + encodeURIComponent(name) + "/xml"
-      );
-      element("domain-lead").textContent =
-        "The inactive definition " + read.host + " holds, read just now.";
-      element("domain-xml").value = read.xml;
-      element("domain-go").disabled = false;
-    } catch (failure) {
-      showWindowError("domain-error", failure.message);
-    } finally {
-      element("domain-loading").hidden = true;
+    function show(part) {
+      element(id + "-edit").hidden = part !== "edit";
+      element(id + "-ask").hidden = part !== "ask";
     }
-  }
 
-  function showWindowError(id, message) {
-    const error = element(id);
-    error.textContent = message;
-    error.hidden = !message;
-  }
+    function fail(message) {
+      const error = element(id + "-error");
+      error.textContent = message;
+      error.hidden = !message;
+    }
 
-  element("domain-go").addEventListener("click", async () => {
-    const go = element("domain-go");
-    go.disabled = true;
-    go.setAttribute("aria-busy", "true");
-    showWindowError("domain-error", "");
-    try {
-      const answer = await API.put(
-        "/vms/" + encodeURIComponent(domainGuest) + "/xml",
-        { xml: element("domain-xml").value }
-      );
-      if (!answer.changed) {
-        showWindowError(
-          "domain-error",
-          "This is the definition libvirt already holds, so nothing was run."
-        );
+    async function open(row) {
+      guest = row.name;
+      element(id + "-title").textContent = title(guest);
+      element(id + "-lead").hidden = true;
+      element(id + "-text").value = "";
+      element(id + "-save").disabled = true;
+      fail("");
+      show("edit");
+      element(id).hidden = false;
+      element(id + "-loading").hidden = false;
+      try {
+        const loaded = await load(row);
+        original = loaded.text;
+        element(id + "-text").value = loaded.text;
+        if (loaded.lead) {
+          element(id + "-lead").textContent = loaded.lead;
+          element(id + "-lead").hidden = false;
+        }
+        element(id + "-save").disabled = false;
+        element(id + "-text").focus();
+      } catch (failure) {
+        fail(failure.message);
+      } finally {
+        element(id + "-loading").hidden = true;
+      }
+    }
+
+    element(id + "-save").addEventListener("click", () => {
+      fail("");
+      if (element(id + "-text").value.trim() === original.trim()) {
+        fail("Nothing changed, so there is nothing to apply.");
         return;
       }
-      // The window is done with once the run is launched. The restart that
-      // applies the definition is asked for when the run has succeeded, over
-      // the run's own window, since that is where the operator is looking:
-      // offered beside the editor, it sat under the run and went unseen.
-      const guest = domainGuest;
-      const runId = answer.run_id;
-      element("domain").hidden = true;
-      RunWatch.open(runId, () => offerRestart(guest, runId));
-    } catch (failure) {
-      showWindowError("domain-error", failure.message);
-    } finally {
-      go.disabled = false;
-      go.removeAttribute("aria-busy");
-    }
-  });
-
-  async function offerRestart(guest, runId) {
-    let record = null;
-    try {
-      record = await API.get("/runs/" + encodeURIComponent(runId));
-    } catch (failure) {
-      return;
-    }
-    if (record.state !== "success") {
-      return;
-    }
-    element("run-watch").hidden = true;
-    confirm({
-      title: "Shut down and start " + guest,
-      body: DISRUPTION.restart,
-      note:
-        "libvirt now holds the new definition of " + guest + ", and the guest " +
-        "is still running with the one it started with. Without this, the " +
-        "new one takes effect whenever the guest is next shut down and " +
-        "started, which a reboot from inside it is not.",
-      label: "Shut down and start",
-      act: async () => {
-        const started = await API.post(
-          "/vms/" + encodeURIComponent(guest) + "/restart"
-        );
-        RunWatch.open(started.run_id);
-      },
+      element(id + "-ask-text").textContent =
+        guest + " reads this when it starts from shut off, and a reboot from " +
+        "inside it is not that. Restarting it now shuts it down through ACPI " +
+        "and starts it again at the end of the same run: whatever it serves " +
+        "stops in between.";
+      element(id + "-restart").textContent = "Apply and restart " + guest;
+      show("ask");
     });
+
+    async function apply(restart) {
+      const buttons = [id + "-restart", id + "-later", id + "-back"].map(element);
+      buttons.forEach((button) => (button.disabled = true));
+      fail("");
+      try {
+        const answer = await save(guest, element(id + "-text").value, restart);
+        if (!answer.run_id) {
+          fail("The machine already holds exactly this, so nothing was run.");
+          show("edit");
+          return;
+        }
+        element(id).hidden = true;
+        RunWatch.open(answer.run_id);
+        refresh(true).catch((failure) => showBanner(failure.message));
+      } catch (failure) {
+        fail(failure.message);
+      } finally {
+        buttons.forEach((button) => (button.disabled = false));
+      }
+    }
+
+    element(id + "-restart").addEventListener("click", () => apply(true));
+    element(id + "-later").addEventListener("click", () => apply(false));
+    element(id + "-back").addEventListener("click", () => show("edit"));
+    element(id + "-cancel").addEventListener("click", () => {
+      element(id).hidden = true;
+    });
+
+    return { open };
   }
 
-  element("domain-cancel").addEventListener("click", () => {
-    element("domain").hidden = true;
+  const DOMAIN = guestEditor("domain", {
+    title: (name) => "Domain of " + name,
+    load: async (row) => {
+      const read = await API.get("/vms/" + encodeURIComponent(row.name) + "/xml");
+      return {
+        text: read.xml,
+        lead: "The inactive definition " + read.host + " holds, read just now.",
+      };
+    },
+    save: (name, xml, restart) =>
+      API.put("/vms/" + encodeURIComponent(name) + "/xml", { xml, restart }),
   });
 
-  let profileGuest = null;
-  let profilePlaybook = "";
-  let profileHost = null;
-
-  function openProfile(guest) {
-    profileGuest = guest.name;
-    element("profile-title").textContent = "Pinning profile of " + guest.name;
-    element("profile-text").value = guest.pinning_profile || "";
-    element("profile-error").hidden = true;
-    element("profile-pending").hidden = true;
-    element("profile").hidden = false;
-    element("profile-text").focus();
-  }
-
-  element("profile-go").addEventListener("click", async () => {
-    const go = element("profile-go");
-    go.disabled = true;
-    go.setAttribute("aria-busy", "true");
-    showWindowError("profile-error", "");
-    try {
+  const PROFILE = guestEditor("profile", {
+    title: (name) => "Pinning profile of " + name,
+    load: async (row) => ({ text: row.pinning_profile || "" }),
+    save: (name, profile, restart) => {
       const commit = lastView && lastView.inventory_commit;
-      const answer = await API.put(
-        "/vms/" + encodeURIComponent(profileGuest) + "/pinning-profile",
-        { profile: element("profile-text").value },
+      return API.put(
+        "/vms/" + encodeURIComponent(name) + "/pinning-profile",
+        { profile, restart },
         commit ? { "If-Match": commit } : undefined
       );
-      if (!answer.commit) {
-        showWindowError(
-          "profile-error",
-          "The entry already says exactly this, so nothing was committed."
-        );
-        return;
-      }
-      profilePlaybook = answer.playbook;
-      profileHost = answer.host || null;
-      element("profile-playbook").textContent = answer.playbook;
-      element("profile-pending").hidden = false;
-      element("profile-pending-note").textContent =
-        "Committed. The run writes it to /etc/seapath/alloc.d, and the " +
-        "seapath-alloc hook reads it when the guest starts from shut off.";
-      refresh(true).catch((failure) => showBanner(failure.message));
-    } catch (failure) {
-      showWindowError("profile-error", failure.message);
-    } finally {
-      go.disabled = false;
-      go.removeAttribute("aria-busy");
-    }
-  });
-
-  // The alloc playbook, narrowed to the guest's machine: it writes the
-  // profiles and touches no guest. A collection older than its profile tasks
-  // leaves only the deployment playbook, which writes them too and starts
-  // every enabled guest, so the confirmation says which of the two this is.
-  element("profile-deploy").addEventListener("click", () => {
-    const alloc = profilePlaybook === "seapath_setup_deploy_seapath_alloc";
-    // Over the profile window rather than instead of it, so the second step
-    // is still there once the run is launched.
-    confirm({
-      title:
-        "Run " + profilePlaybook + (profileHost ? " on " + profileHost : ""),
-      body: alloc
-        ? "Writes the pinning profile of every standalone guest of that " +
-          "machine to /etc/seapath/alloc.d, and removes the file of a guest " +
-          "that no longer names one. It also brings seapath-alloc itself to " +
-          "what the inventory says, as a convergence would. No guest is " +
-          "started or stopped."
-        : "The collection this node runs writes the profiles only from the " +
-          "deployment playbook. It writes every guest's profile, creates any " +
-          "declared guest the machine does not have yet, and starts every " +
-          "guest whose entry does not say enable: false.",
-      note: alloc
-        ? "A running guest keeps its old profile until it is shut down and " +
-          "started."
-        : "A guest stopped by hand is started by this run.",
-      label: "Run it",
-      act: async () => {
-        const started = await API.post("/runs", {
-          playbook: profilePlaybook,
-          scope: profileHost ? { hosts: [profileHost] } : null,
-        });
-        RunWatch.open(started.run_id);
-      },
-    });
-  });
-
-  element("profile-restart").addEventListener("click", () => {
-    element("profile").hidden = true;
-    confirmAct(profileGuest, "restart");
-  });
-
-  element("profile-cancel").addEventListener("click", () => {
-    element("profile").hidden = true;
+    },
   });
 
   async function openMetadata(name) {

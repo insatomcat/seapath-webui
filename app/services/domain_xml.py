@@ -1,7 +1,7 @@
 # Copyright (C) 2026, RTE (http://www.rte-france.com)
 # SPDX-License-Identifier: Apache-2.0
 
-"""The libvirt domain of a standalone guest, read and defined again.
+"""A standalone guest's domain and pinning profile, changed as one run each.
 
 What `virsh edit` does, split in the two halves this service may do: the
 reading is one `ssh` and one `virsh dumpxml` over the path a run takes, and the
@@ -14,10 +14,12 @@ already has unless its entry carries `force`, which copies the disk image again
 and so loses whatever the guest wrote. An existing guest whose domain has to
 change without losing its disk had no path at all.
 
-Defining a domain changes its persistent configuration and leaves the running
-one alone: libvirt applies it at the next start from shut off. So the page
-offers the shut down and start that applies it as an act of its own, only once
-a definition moved something.
+Its pinning profile is the inventory's, and reaches the machine by a play of
+two tasks, the ones the standalone role writes the file with.
+
+Both take effect when the guest starts from shut off, so each run can end with
+the guest shut down and started, when the operator asks for it in the same
+gesture. One run, whatever was chosen, followed or left in the background.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from pydantic import BaseModel
 from app.hosts.remote import RemoteRefused, RemoteRequest, RemoteRunner
 from app.inventory.model import Mode
 from app.inventory.service import InventoryService
-from app.runs.actions import GENERATOR
+from app.runs.actions import GENERATOR, restart_tasks
 from app.runs.catalogue import PlaybookEntry, Precondition, Preview, Reboots
 from app.runs.models import RunRecord
 from app.runs.service import RunPaths
@@ -44,7 +46,8 @@ logger = logging.getLogger(__name__)
 #: a few kilobytes; this takes any of them and refuses a file pasted by mistake.
 MAX_XML_BYTES = 256 * 1024
 
-RECORD = "vm_define"
+DEFINE_RECORD = "vm_define"
+PROFILE_RECORD = "vm_pinning_profile"
 
 
 class InvalidDomain(Exception):
@@ -115,22 +118,17 @@ def checked(guest: str, xml: str, current: str) -> str:
     return xml
 
 
-def define_entry(guest: str, host: str) -> PlaybookEntry:
+def _entry(
+    record: str, title: str, host: str, disruption: str, restart: bool
+) -> PlaybookEntry:
     return PlaybookEntry(
-        id=RECORD,
-        playbook=f"{GENERATOR}.{RECORD}",
-        title=f"Define {guest} again on {host}",
+        id=record,
+        playbook=f"{GENERATOR}.{record}",
+        title=title,
         targets=[host],
         preview=Preview.NONE,
         reboots=Reboots.NO,
-        disruption=(
-            f"Replaces the persistent definition of {guest} on {host} with the "
-            "XML edited here. The guest keeps running as it was started: "
-            "libvirt applies a definition at the next start from shut off, "
-            "which is the shut down and start offered once this ends. The "
-            "inventory is not changed, so a guest created again from its "
-            "entry gets the domain its template renders."
-        ),
+        disruption=disruption + (_RESTART if restart else _NEXT_START),
         requires=[
             Precondition.INVENTORY_VALID,
             Precondition.SELF_TRUST,
@@ -140,27 +138,118 @@ def define_entry(guest: str, host: str) -> PlaybookEntry:
     )
 
 
-def define_play(guest: str, host: str, xml: str) -> str:
-    """One task, the module and the command `deploy_vms_standalone` defines with.
+_RESTART = (
+    " Then the guest is shut down through ACPI and started again, which is "
+    "what applies it: whatever it serves stops in between, and a guest that "
+    "ignores ACPI for five minutes fails the run and keeps running."
+)
+_NEXT_START = (
+    " The guest keeps running as it is, and takes the change the next time it "
+    "starts from shut off. A reboot from inside it is not one."
+)
 
-    Dumped rather than templated, so nothing in the XML becomes YAML of its own,
-    and written into the run's staged tree, so the definition sent is part of
-    the run's record.
-    """
+
+def _play(guest: str, host: str, title: str, tasks: list[dict], restart: bool) -> str:
+    """The generated play, dumped rather than templated, so nothing a value
+    carries becomes YAML of its own. Written into the run's staged tree, so
+    what was sent is part of the run's record."""
     document = [
         {
-            "name": f"Define {guest} again on {host}",
+            "name": title,
             "hosts": host,
             "gather_facts": False,
             "become": True,
-            "tasks": [
-                {
-                    "name": f"Define {guest} from the edited XML",
-                    "community.libvirt.virt": {"command": "define", "xml": xml},
-                }
-            ],
+            "tasks": tasks + (restart_tasks(guest) if restart else []),
         }
     ]
+    return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
+
+
+def _title(what: str, guest: str, host: str, restart: bool) -> str:
+    return f"{what} {guest} on {host}" + (", then restart it" if restart else "")
+
+
+def define_entry(guest: str, host: str, restart: bool = False) -> PlaybookEntry:
+    return _entry(
+        DEFINE_RECORD,
+        _title("Define", guest, host, restart),
+        host,
+        f"Replaces the persistent definition of {guest} on {host} with the XML "
+        "edited here. The inventory is not changed, so a guest created again "
+        "from its entry gets the domain its template renders.",
+        restart,
+    )
+
+
+def define_play(guest: str, host: str, xml: str, restart: bool = False) -> str:
+    """The module and the command `deploy_vms_standalone` defines with."""
+    return _play(
+        guest,
+        host,
+        _title("Define", guest, host, restart),
+        [
+            {
+                "name": f"Define {guest} from the edited XML",
+                "community.libvirt.virt": {"command": "define", "xml": xml},
+            }
+        ],
+        restart,
+    )
+
+
+def profile_entry(guest: str, host: str, restart: bool = False) -> PlaybookEntry:
+    return _entry(
+        PROFILE_RECORD,
+        _title("Write the pinning profile of", guest, host, restart),
+        host,
+        f"Writes the pinning profile the inventory gives {guest} to "
+        f"/etc/seapath/alloc.d/{guest}.yaml on {host}, or removes that file "
+        "when the entry names none. Nothing else on the machine is touched.",
+        restart,
+    )
+
+
+def profile_play(guest: str, host: str, restart: bool = False) -> str:
+    """The file `deploy_vms_standalone` writes, and nothing else it does.
+
+    The two tasks are the role's own, on one guest: the content is read from
+    the inventory at run time, `hostvars` of the committed entry, so what lands
+    on the machine is what the role would write from the same file and a
+    convergence afterwards changes nothing. The whole role, or the alloc one
+    that writes the same tasks, also creates guests, starts them, or
+    redeploys seapath-alloc, and none of that is what an operator changing
+    one profile asked for. D66 records why this play exists.
+    """
+    variable = "hostvars[seapath_webui_guest].vm_pinning_profile"
+    path = "/etc/seapath/alloc.d/{{ seapath_webui_guest }}.yaml"
+    document = yaml.safe_load(
+        _play(
+            guest,
+            host,
+            _title("Write the pinning profile of", guest, host, restart),
+            [
+                {
+                    "name": f"Write the pinning profile of {guest}",
+                    "ansible.builtin.copy": {
+                        "content": "{{ " + variable + " }}",
+                        "dest": path,
+                        "owner": "root",
+                        "group": "root",
+                        "mode": "0644",
+                    },
+                    "when": f"{variable} is defined",
+                },
+                {
+                    "name": f"Remove the pinning profile of {guest}",
+                    "ansible.builtin.file": {"path": path, "state": "absent"},
+                    "when": f"{variable} is not defined",
+                },
+            ],
+            restart,
+        )
+    )
+    # The name travels as a play variable, so no template is built from it.
+    document[0]["vars"] = {"seapath_webui_guest": guest}
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 
@@ -200,25 +289,43 @@ class DomainXmlService:
             ) from error
         return DomainXml(guest=guest, host=host, xml=xml)
 
-    def define(self, guest: str, xml: str, author: str) -> RunRecord | None:
+    def define(
+        self, guest: str, xml: str, author: str, restart: bool = False
+    ) -> RunRecord | None:
         """Launch the run that defines the domain, or `None` if nothing moved.
 
         The domain is read again first, rather than trusted from the page: what
         the definition is checked against, and compared with, is what libvirt
-        holds now.
+        holds now. `restart` ends the same run with the guest shut down and
+        started, which is what applies it.
         """
         current = self.read(guest)
         definition = checked(guest, xml, current.xml)
         if _same(definition, current.xml):
             return None
-        if self._launch is None:
-            raise NoDomain("This service has no run path to define it with.")
-        return self._launch(
-            define_entry(guest, current.host),
+        return self._run(
+            define_entry(guest, current.host, restart),
             author,
-            define_play(guest, current.host, definition),
+            define_play(guest, current.host, definition, restart),
             guest,
         )
+
+    def write_profile(
+        self, guest: str, author: str, restart: bool = False
+    ) -> RunRecord:
+        """Launch the run that writes the committed profile to the machine."""
+        host, _ = self._machine(guest)
+        return self._run(
+            profile_entry(guest, host, restart),
+            author,
+            profile_play(guest, host, restart),
+            guest,
+        )
+
+    def _run(self, entry: PlaybookEntry, author: str, play: str, guest: str):
+        if self._launch is None:
+            raise NoDomain("This service has no run path to reach the machine.")
+        return self._launch(entry, author, play, guest)
 
     def machine(self, guest: str) -> str | None:
         """The standalone machine holding the guest, when one can be named."""

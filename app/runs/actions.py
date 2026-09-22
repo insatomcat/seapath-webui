@@ -590,28 +590,37 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
             }
         ]
     if action is Action.RESTART:
-        # Three calls of the module `deploy_vms_standalone` starts guests with.
-        # `shutdown` only asks the guest and returns, so the start would find
-        # it still running and do nothing: the status is polled in between.
-        return [
-            {
-                "name": f"Shut {guest} down",
-                "community.libvirt.virt": {"name": guest, "state": "shutdown"},
-            },
-            {
-                "name": f"Wait for {guest} to be shut off",
-                "community.libvirt.virt": {"name": guest, "command": "status"},
-                "register": "seapath_webui_domain",
-                "until": "seapath_webui_domain.status == 'shutdown'",
-                "retries": 60,
-                "delay": 5,
-            },
-            {
-                "name": f"Start {guest}",
-                "community.libvirt.virt": {"name": guest, "state": "running"},
-            },
-        ]
+        return restart_tasks(guest)
     return [{"name": title, **_task(action, guest, mode)}]
+
+
+def restart_tasks(guest: str) -> list[dict]:
+    """A standalone guest shut down and started, which is what applies a new
+    definition or pinning profile: both are read when it starts from shut off.
+
+    Three calls of the module `deploy_vms_standalone` starts guests with.
+    `shutdown` only asks the guest and returns, so the start would find it
+    still running and do nothing: the status is polled in between, for five
+    minutes, and a guest that ignores ACPI fails the run and keeps running.
+    """
+    return [
+        {
+            "name": f"Shut {guest} down",
+            "community.libvirt.virt": {"name": guest, "state": "shutdown"},
+        },
+        {
+            "name": f"Wait for {guest} to be shut off",
+            "community.libvirt.virt": {"name": guest, "command": "status"},
+            "register": "seapath_webui_domain",
+            "until": "seapath_webui_domain.status == 'shutdown'",
+            "retries": 60,
+            "delay": 5,
+        },
+        {
+            "name": f"Start {guest}",
+            "community.libvirt.virt": {"name": guest, "state": "running"},
+        },
+    ]
 
 
 def _task(action: Action, guest: str, mode: Mode) -> dict:
