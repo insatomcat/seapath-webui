@@ -220,6 +220,13 @@ class DomainXmlService:
             guest,
         )
 
+    def machine(self, guest: str) -> str | None:
+        """The standalone machine holding the guest, when one can be named."""
+        try:
+            return self._machine(guest)[0]
+        except NoDomain:
+            return None
+
     def _machine(self, guest: str) -> tuple[str, str]:
         """The standalone machine holding the guest's domain, and its address.
 

@@ -54,8 +54,16 @@
   // Which cluster guests have a VNC display, by name, once Ceph answered.
   let displays = null;
 
+  // Whether the file declares both kinds of guest, which is the only case the
+  // filter has anything to choose between. Otherwise it is not offered, and
+  // a choice this browser kept from another inventory narrows nothing: it
+  // would hide every guest behind a control that is not there.
+  function split(view) {
+    return ((view && view.deployments) || []).length > 1;
+  }
+
   function shown(deployment) {
-    return filter === "all" || filter === deployment;
+    return !split(lastView) || filter === "all" || filter === deployment;
   }
 
   function element(id) {
@@ -976,7 +984,6 @@
     element("domain-title").textContent = "Domain of " + name;
     element("domain-lead").textContent = "";
     element("domain-error").hidden = true;
-    element("domain-pending").hidden = true;
     element("domain-xml").value = "";
     element("domain-go").disabled = true;
     element("domain").hidden = false;
@@ -1019,11 +1026,14 @@
         );
         return;
       }
-      RunWatch.open(answer.run_id);
-      element("domain-pending").hidden = false;
-      element("domain-pending-note").textContent =
-        "Once the run has ended, " + domainGuest + " runs with its old " +
-        "definition until it is shut down and started.";
+      // The window is done with once the run is launched. The restart that
+      // applies the definition is asked for when the run has succeeded, over
+      // the run's own window, since that is where the operator is looking:
+      // offered beside the editor, it sat under the run and went unseen.
+      const guest = domainGuest;
+      const runId = answer.run_id;
+      element("domain").hidden = true;
+      RunWatch.open(runId, () => offerRestart(guest, runId));
     } catch (failure) {
       showWindowError("domain-error", failure.message);
     } finally {
@@ -1032,17 +1042,42 @@
     }
   });
 
+  async function offerRestart(guest, runId) {
+    let record = null;
+    try {
+      record = await API.get("/runs/" + encodeURIComponent(runId));
+    } catch (failure) {
+      return;
+    }
+    if (record.state !== "success") {
+      return;
+    }
+    element("run-watch").hidden = true;
+    confirm({
+      title: "Shut down and start " + guest,
+      body: DISRUPTION.restart,
+      note:
+        "libvirt now holds the new definition of " + guest + ", and the guest " +
+        "is still running with the one it started with. Without this, the " +
+        "new one takes effect whenever the guest is next shut down and " +
+        "started, which a reboot from inside it is not.",
+      label: "Shut down and start",
+      act: async () => {
+        const started = await API.post(
+          "/vms/" + encodeURIComponent(guest) + "/restart"
+        );
+        RunWatch.open(started.run_id);
+      },
+    });
+  }
+
   element("domain-cancel").addEventListener("click", () => {
     element("domain").hidden = true;
   });
 
-  element("domain-restart").addEventListener("click", () => {
-    element("domain").hidden = true;
-    confirmAct(domainGuest, "restart");
-  });
-
   let profileGuest = null;
   let profilePlaybook = "";
+  let profileHost = null;
 
   function openProfile(guest) {
     profileGuest = guest.name;
@@ -1074,6 +1109,7 @@
         return;
       }
       profilePlaybook = answer.playbook;
+      profileHost = answer.host || null;
       element("profile-playbook").textContent = answer.playbook;
       element("profile-pending").hidden = false;
       element("profile-pending-note").textContent =
@@ -1088,25 +1124,37 @@
     }
   });
 
-  // The whole deployment playbook, since writing the profiles out is one of
-  // its tasks and not a play of its own. What else it does is said before it
-  // runs, the start of a guest stopped by hand above all.
+  // The alloc playbook, narrowed to the guest's machine: it writes the
+  // profiles and touches no guest. A collection older than its profile tasks
+  // leaves only the deployment playbook, which writes them too and starts
+  // every enabled guest, so the confirmation says which of the two this is.
   element("profile-deploy").addEventListener("click", () => {
+    const alloc = profilePlaybook === "seapath_setup_deploy_seapath_alloc";
     // Over the profile window rather than instead of it, so the second step
     // is still there once the run is launched.
     confirm({
-      title: "Run " + profilePlaybook,
-      body:
-        "Writes the pinning profile of every guest to /etc/seapath/alloc.d " +
-        "and removes the file of a guest that no longer names one. It also " +
-        "creates any declared guest the machine does not have yet, and starts " +
-        "every guest whose entry does not say enable: false.",
-      note:
-        "A guest stopped by hand is started by this run. A running guest " +
-        "keeps its old profile until it is shut down and started.",
+      title:
+        "Run " + profilePlaybook + (profileHost ? " on " + profileHost : ""),
+      body: alloc
+        ? "Writes the pinning profile of every standalone guest of that " +
+          "machine to /etc/seapath/alloc.d, and removes the file of a guest " +
+          "that no longer names one. It also brings seapath-alloc itself to " +
+          "what the inventory says, as a convergence would. No guest is " +
+          "started or stopped."
+        : "The collection this node runs writes the profiles only from the " +
+          "deployment playbook. It writes every guest's profile, creates any " +
+          "declared guest the machine does not have yet, and starts every " +
+          "guest whose entry does not say enable: false.",
+      note: alloc
+        ? "A running guest keeps its old profile until it is shut down and " +
+          "started."
+        : "A guest stopped by hand is started by this run.",
       label: "Run it",
       act: async () => {
-        const started = await API.post("/runs", { playbook: profilePlaybook });
+        const started = await API.post("/runs", {
+          playbook: profilePlaybook,
+          scope: profileHost ? { hosts: [profileHost] } : null,
+        });
         RunWatch.open(started.run_id);
       },
     });
@@ -1399,7 +1447,7 @@
     });
     counts.all = (view.guests || []).length;
     const box = element("filter");
-    box.hidden = !counts.all;
+    box.hidden = !counts.all || !split(view);
     box.querySelectorAll("button").forEach((button) => {
       const name = button.dataset.filter;
       const label = name.charAt(0).toUpperCase() + name.slice(1);

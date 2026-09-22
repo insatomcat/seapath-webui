@@ -5035,16 +5035,23 @@ that exists, without losing its disk.
 **The pinning profile is an ordinary variable.** The role writes it to
 `/etc/seapath/alloc.d/<guest>.yaml` on every run, with no condition on the
 guest being new, and removes the file of a guest that no longer names one. So
-the window commits the variable on the guest's entry and offers the
-deployment run, and the seapath-alloc hook reads the file when the guest
+the window commits the variable on the guest's entry and offers the run
+that writes it, and the seapath-alloc hook reads the file when the guest
 starts. Nothing here reaches the machine outside that run. A cluster guest is
 refused: `deploy_vms_cluster` hands the profile to `vm_manager` at creation
 only, and the one it runs with is `_seapath_alloc` in the metadata of its
 image, which D31 already covers.
 
-The deployment run is the whole playbook, so it also creates a declared guest
-the machine lacks and starts every guest whose entry does not say `enable:
-false`, a guest stopped by hand included. The confirmation says so.
+The run that writes it is `seapath_setup_deploy_seapath_alloc`, narrowed to
+the guest's machine. The two tasks first lived in `deploy_vms_standalone`
+alone, so a profile change meant the whole VM deployment, which also creates a
+declared guest the machine lacks and starts every guest whose entry does not
+say `enable: false`, a guest stopped by hand included. Upstream they moved to
+`tasks/profiles.yml` of `deploy_seapath_alloc`, which already owns
+`/etc/seapath/alloc.d` and plays them on `standalone_machine`, and
+`deploy_vms_standalone` includes the same file before it starts its guests. A
+collection without that file still gets the deployment playbook, and the
+confirmation then says what else it does.
 
 **The domain has no path through the inventory.** The role skips every guest
 libvirt already has unless its entry carries `force`, and `force` destroys the
@@ -5076,8 +5083,8 @@ The bounds:
 - administrators only, for the read as well, since it opens an SSH session.
 
 A definition takes effect at the next start from shut off, and a reboot from
-inside the guest is not one. The window therefore offers **Shut down and
-start**, a run of three calls of the same module: `shutdown`, `status` polled
+inside the guest is not one. Once the run defining it has succeeded, the page
+therefore asks for **Shut down and start**, over the run's own window, a run of three calls of the same module: `shutdown`, `status` polled
 until libvirt reports it shut off, for up to five minutes, then `running`.
 `shutdown` only asks the guest through ACPI, so a start right behind it would
 find it running and do nothing. A guest that ignores ACPI fails the run and is

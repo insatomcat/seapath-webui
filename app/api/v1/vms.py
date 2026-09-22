@@ -25,6 +25,7 @@ from app.inventory import cloudinit
 from app.inventory.model import Mode
 from app.inventory.service import GuestExists, ImportRefused, RefusedWrite
 from app.runs.actions import Action
+from app.runs.catalogue import role_present
 from app.runs.service import RunService
 from app.services.domain_xml import (
     DomainXml,
@@ -793,6 +794,35 @@ class ProfileResponse(BaseModel):
     commit: str | None = None
     message: str | None = None
     playbook: str = Field(description="The catalogue entry that writes it out")
+    host: str | None = Field(
+        default=None,
+        description=(
+            "The machine to narrow that run to, as a `scope` host of "
+            "`POST /runs`, when the playbook is the alloc one and the machine "
+            "holding the guest can be named"
+        ),
+    )
+
+
+# The alloc role writes the standalone profiles from this task file since the
+# collection that added it. An older collection runs the role and writes none.
+_PROFILE_ROLE = "deploy_seapath_alloc"
+_PROFILE_TASKS = "profiles.yml"
+_PROFILE_PLAYBOOK = "seapath_setup_deploy_seapath_alloc"
+
+
+def _profile_run(request: Request, name: str) -> tuple[str, str | None]:
+    """The run that writes a standalone guest's profile, and where.
+
+    The alloc playbook, narrowed to the guest's machine, which touches no
+    guest. With a collection that predates its profile tasks, the guest's own
+    deployment, which writes it too and also starts every enabled guest.
+    """
+    if role_present(
+        request.app.state.collections_root(), _PROFILE_ROLE, _PROFILE_TASKS
+    ):
+        return _PROFILE_PLAYBOOK, _domains(request).machine(name)
+    return _service(request).deploy_playbook(name), None
 
 
 @router.put("/{name}/pinning-profile", response_model=ProfileResponse)
@@ -805,8 +835,11 @@ def write_profile(
 ) -> ProfileResponse:
     """Write a standalone guest's `vm_pinning_profile`, as one commit.
 
-    `deploy_vms_standalone` writes it to `/etc/seapath/alloc.d/<guest>.yaml`
-    on every run, so the answer names that playbook; the seapath-alloc hook
+    `seapath_setup_deploy_seapath_alloc` writes it to
+    `/etc/seapath/alloc.d/<guest>.yaml` without touching a guest, so the
+    answer names that playbook and the machine to narrow it to; with a
+    collection older than those tasks, `deploy_vms_standalone`, which writes
+    it on every run too. The seapath-alloc hook
     reads the file when the guest starts, so the change reaches a running
     guest with `POST /vms/{name}/restart`. No commit when the entry already
     said exactly this. A cluster guest answers `400 invalid_guest`: its
@@ -835,9 +868,11 @@ def write_profile(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
+    playbook, host = _profile_run(request, name)
     return ProfileResponse(
         guest=name,
         commit=commit.hash if commit else None,
         message=commit.message if commit else None,
-        playbook=service.deploy_playbook(name),
+        playbook=playbook,
+        host=host,
     )

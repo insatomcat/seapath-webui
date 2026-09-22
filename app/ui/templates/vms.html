@@ -549,7 +549,7 @@ image and losing its disk. D31 records the bounds.
    definition its machine holds, read over SSH as the window opens. Saving is a
    run of the module the standalone role defines domains with, and the
    definition takes effect at the next start from shut off, which is offered
-   once the run is launched. The inventory is not changed. See D66. #}
+   once the run has succeeded. The inventory is not changed. See D66. #}
 <div class="modal" id="domain" data-dismiss="domain-cancel" hidden>
   <div class="modal-body wide tall">
     <h2 id="domain-title"></h2>
@@ -562,10 +562,6 @@ image and losing its disk. D31 records the bounds.
       down and started. The inventory still describes the guest its template
       renders, so a guest created again from its entry loses this edit.
     </p>
-    <div class="card-actions" id="domain-pending" hidden>
-      <button type="button" id="domain-restart">Shut down and start</button>
-      <span class="legend" id="domain-pending-note"></span>
-    </div>
     <div class="actions">
       <button type="button" id="domain-cancel" class="secondary">Close</button>
       <button type="button" id="domain-go">Define it</button>

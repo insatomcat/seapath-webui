@@ -12,6 +12,7 @@ that makes either take effect. See D66.
 from __future__ import annotations
 
 import shlex
+from pathlib import Path
 
 import yaml
 from fastapi.testclient import TestClient
@@ -233,8 +234,10 @@ def test_a_pinning_profile_is_a_commit_on_the_guests_entry(
     body = response.json()
     assert body["commit"]
     assert body["message"].startswith("vms: pinning profile of ABBICT")
-    # The run that writes it to /etc/seapath/alloc.d, like any other variable.
+    # This collection predates the alloc role's profile tasks, so the run that
+    # writes it is the deployment, which does so on every run.
     assert body["playbook"] == "deploy_vms_standalone"
+    assert body["host"] is None
     assert _entries(signed_in)["ABBICT"]["vm_pinning_profile"] == PROFILE
     guests = {g["name"]: g for g in signed_in.get("/api/v1/vms").json()["guests"]}
     assert guests["ABBICT"]["pinning_profile"] == PROFILE
@@ -291,3 +294,29 @@ def test_a_cluster_guests_profile_is_its_metadata(signed_in: TestClient) -> None
 
     assert response.status_code == 400
     assert "Metadata window" in response.json()["error"]["message"]
+
+
+def test_a_collection_with_the_alloc_profile_tasks_writes_it_alone(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner, collections_path: Path
+) -> None:
+    # The alloc playbook touches no guest, where the deployment starts every
+    # enabled one, a guest stopped by hand included. Narrowed to the machine
+    # holding the guest.
+    tasks = collections_path.joinpath(
+        "ansible_collections/seapath/ansible/roles/deploy_seapath_alloc/tasks"
+    )
+    tasks.mkdir(parents=True, exist_ok=True)
+    (tasks / "profiles.yml").write_text("---\n")
+    _standalone(signed_in, remote_runner)
+
+    body = signed_in.put(
+        "/api/v1/vms/ABBICT/pinning-profile", json={"profile": PROFILE}
+    ).json()
+
+    assert body["playbook"] == "seapath_setup_deploy_seapath_alloc"
+    assert body["host"] == "seapath-machine"
+    run = signed_in.post(
+        "/api/v1/runs",
+        json={"playbook": body["playbook"], "scope": {"hosts": [body["host"]]}},
+    )
+    assert run.status_code == 202, run.text
