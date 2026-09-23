@@ -36,6 +36,7 @@ import yaml
 
 from app.inventory.model import Mode
 from app.runs.catalogue import PlaybookEntry, Precondition, Preview, Reboots
+from app.runs.software import REBOOT_DELAY
 
 # What the recorded playbook name says. Deliberately not `seapath.ansible.*`:
 # this play was written here, and a run record that claimed otherwise would
@@ -61,6 +62,7 @@ class Action(str, Enum):
     CLEAR = "clear"
     STANDBY = "standby"
     ONLINE = "online"
+    REBOOT = "reboot"
 
 
 @dataclass(frozen=True)
@@ -304,6 +306,24 @@ _SPECS: dict[Action, ActionSpec] = {
             "well stay where it is."
         ),
     ),
+    Action.REBOOT: ActionSpec(
+        verb="Reboot",
+        subject="node",
+        prefix="node",
+        record="node_reboot",
+        on_host=True,
+        title="Reboot {name}",
+        disruption=(
+            "Reboots the machine serving this page, a few seconds after the "
+            "run ends, so the run records its status first. Every guest it "
+            "runs goes down with it: in a cluster Pacemaker moves them to the "
+            "other members as the machine shuts down, unless it was put in "
+            "standby first, and Ceph marks its OSDs down until it is back. A "
+            "standalone machine's guests stop, and those that start at boot "
+            "come back with it. This page goes away until the machine and "
+            "this service are up again."
+        ),
+    ),
 }
 
 
@@ -350,7 +370,7 @@ def entry(
         # There is nothing to preview: the play makes one call and the answer
         # is what the cluster does with it.
         preview=Preview.NONE,
-        reboots=Reboots.NO,
+        reboots=Reboots.YES if action is Action.REBOOT else Reboots.NO,
         disruption=detail.disruption,
         requires=requires,
         reviewed=True,
@@ -472,6 +492,25 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
                 "ansible.builtin.command": {"argv": ["crm", "node", verb, guest]},
                 # The attribute is written whatever the node was doing, so
                 # there is nothing here for Ansible to call unchanged.
+                "changed_when": True,
+            }
+        ]
+    if action is Action.REBOOT:
+        # Scheduled rather than done, the way the Updates page reboots this
+        # machine: the run is driven from it, and `ansible.builtin.reboot`
+        # would wait for a machine whose controller went down with it. The
+        # timer is a transient systemd unit, so nothing of it is left behind.
+        return [
+            {
+                "name": "Schedule the reboot and end the run",
+                "ansible.builtin.command": {
+                    "argv": [
+                        "systemd-run",
+                        f"--on-active={REBOOT_DELAY}",
+                        "systemctl",
+                        "reboot",
+                    ]
+                },
                 "changed_when": True,
             }
         ]

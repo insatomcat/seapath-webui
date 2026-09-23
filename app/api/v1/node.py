@@ -7,11 +7,13 @@ Every reading is open to the viewer role, which is the whole point of having
 one. Configuration lives elsewhere, and from M1 it is reached by editing the
 inventory and running a playbook.
 
-One endpoint here writes, and what it writes is the inventory: pinning the
-version of this service that the machines should run. It is an administrator's
-act, it produces a commit like every other change to the desired state, and it
-changes no machine on its own. Applying it is a run of
+Two endpoints here write. Pinning the version of this service that the
+machines should run writes the inventory: it is an administrator's act, it
+produces a commit like every other change to the desired state, and it changes
+no machine on its own. Applying it is a run of
 `seapath_setup_deploy_seapath_webui`, launched and confirmed like any other.
+Rebooting this machine is a run as well, a generated play of one task, so it
+reaches the machine over the SSH path a convergence takes and leaves a record.
 
 What is here is what this machine *is*, which is what the inventory form needs.
 What it is *doing* comes from prometheus-node-exporter, which every node runs.
@@ -28,6 +30,7 @@ from app.core.security import require_role
 from app.hosts.models import CpuReading, DisksReading, NetworkReading
 from app.inventory.repository import RepositoryError, StaleWrite
 from app.inventory.service import RefusedWrite
+from app.runs.actions import Action
 from app.services.node import NodeService, NodeSummary
 from app.services.update import (
     AvailableRelease,
@@ -38,7 +41,8 @@ from app.services.update import (
 )
 
 # Pinning the version of this service is an administrator's act, the way
-# every other write to the desired state is.
+# every other write to the desired state is, and so is rebooting this machine,
+# the way an update that reboots it is.
 admin = Depends(require_role(Role.ADMIN))
 
 router = APIRouter(
@@ -54,6 +58,15 @@ def _service(request: Request) -> NodeService:
 
 def _update(request: Request) -> UpdateService:
     return request.app.state.update_service
+
+
+class RebootResponse(BaseModel):
+    """The run that reboots this machine, watched like any other."""
+
+    run_id: str
+    state: str
+    host: str
+    """The machine as the inventory names it, which is what the run plays."""
 
 
 class PinRequest(BaseModel):
@@ -122,6 +135,31 @@ def pin(
         raise ApiError("stale_write", str(error), 409) from error
     except RepositoryError as error:
         raise ApiError("repository_error", str(error), 409) from error
+
+
+@router.post("/reboot", status_code=202, response_model=RebootResponse)
+def reboot(request: Request, user: User = admin) -> RebootResponse:
+    """Reboot the machine serving this page, as a run.
+
+    One task, `systemd-run --on-active` scheduling `systemctl reboot`, which is
+    how an update reboots this machine too: the run is driven from here and
+    has to end, with its status written, before the machine goes down. An
+    administrator's act, the role that updates and so reboots the machines.
+    """
+    this_host = request.app.state.inventory_service.state().this_host
+    if this_host is None:
+        raise ApiError(
+            "unknown_machine",
+            (
+                "No entry of the inventory is this machine, so no run can "
+                "reach it. Reboot it from its console."
+            ),
+            409,
+        )
+    record = request.app.state.run_service.launch_action(
+        Action.REBOOT, this_host, user.username, host=this_host
+    )
+    return RebootResponse(run_id=record.id, state=record.state.value, host=this_host)
 
 
 @router.get("/cpu", response_model=CpuReading)

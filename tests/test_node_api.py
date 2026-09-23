@@ -6,7 +6,10 @@
 from __future__ import annotations
 
 import pytest
+import yaml
 from fastapi.testclient import TestClient
+
+from tests.conftest import sign_in
 
 _ENDPOINTS = [
     "/api/v1/node",
@@ -89,3 +92,59 @@ def test_the_docs_page_asks_for_the_specification_relatively(
     assert page.status_code == 200
     assert "url: 'openapi.json'" in page.text
     assert "'/api/v1/openapi.json'" not in page.text
+
+
+# Rebooting this machine, the one act the page offers.
+
+
+def _reboot_play(settings, run: dict) -> dict:
+    written = list((settings.runs_dir / run["run_id"]).rglob("node_reboot.yaml"))
+    assert len(written) == 1, written
+    document = yaml.safe_load(written[0].read_text())
+    assert len(document) == 1
+    return document[0]
+
+
+def test_a_reboot_is_scheduled_on_this_machine_by_a_run(
+    signed_in: TestClient, settings
+) -> None:
+    """One task, on the machine the inventory says this one is.
+
+    Scheduled rather than done, so the run driven from this machine ends with
+    its status written before the machine goes down.
+    """
+    response = signed_in.post("/api/v1/node/reboot")
+
+    assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["host"] == "seapath-machine"
+    assert signed_in.get(f"/api/v1/runs/{body['run_id']}").status_code == 200
+
+    play = _reboot_play(settings, body)
+    assert play["hosts"] == "seapath-machine"
+    assert play["name"] == "Reboot seapath-machine"
+    assert play["become"] is True
+    assert play["tasks"] == [
+        {
+            "name": "Schedule the reboot and end the run",
+            "ansible.builtin.command": {
+                "argv": ["systemd-run", "--on-active=15", "systemctl", "reboot"]
+            },
+            "changed_when": True,
+        }
+    ]
+
+
+@pytest.mark.parametrize("username", ["operator", "viewer"])
+def test_only_an_administrator_reboots_the_machine(
+    client: TestClient, username: str
+) -> None:
+    sign_in(client, username)
+
+    assert client.post("/api/v1/node/reboot").status_code == 403
+
+
+def test_the_reboot_is_in_the_openapi_document(signed_in: TestClient) -> None:
+    document = signed_in.get("/api/v1/openapi.json").json()
+
+    assert set(document["paths"]["/api/v1/node/reboot"]) == {"post"}

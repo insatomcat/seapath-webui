@@ -1,8 +1,9 @@
 // Copyright (C) 2026, RTE (http://www.rte-france.com)
 // SPDX-License-Identifier: Apache-2.0
 
-// The node view. It reads, it never writes: the only request that is not a GET
-// is signing out. Configuration arrives at M1, as inventory edits and runs.
+// The node view. It reads, and the one act it offers is rebooting this machine,
+// which is a run like any other and is watched as one. Configuration arrives
+// as inventory edits and runs.
 //
 // What the machine *is*, which is what the inventory form is filled from. What
 // it is *doing* is in Grafana, off the node exporter every node runs.
@@ -100,6 +101,11 @@
     // cluster join is watched landing: the reading it takes on its own timer is
     // what keeps the two strings up there true, at no cost.
     Chrome.saw(node);
+    machine = node;
+    // An administrator's act, the role that updates and so reboots machines.
+    document.getElementById("reboot-open").hidden = !Chrome.isAdmin(
+      Chrome.current()
+    );
 
     fillList(document.getElementById("summary"), [
       ["Hostname", text(node.hostname)],
@@ -200,6 +206,65 @@
     });
   }
 
+  // What the reboot confirmation says, from the last reading: the machine by
+  // the name it answers to, and the mode that decides where its guests go.
+  let machine = null;
+
+  function confirmReboot() {
+    const name = machine ? machine.hostname : "this machine";
+    const cluster = machine && machine.mode === "cluster";
+    document.getElementById("reboot-title").textContent = "Reboot " + name;
+    document.getElementById("reboot-disruption").textContent =
+      "Reboots " +
+      name +
+      ", a few seconds after the run ends so the run records its status " +
+      "first. This page goes away until the machine and this service are " +
+      "up again. " +
+      (cluster
+        ? "Every guest it runs goes down with it: Pacemaker moves them to " +
+          "the other members as it shuts down, and Ceph marks its OSDs down " +
+          "until it is back."
+        : "Every guest it runs stops, and those that start at boot come " +
+          "back with it.");
+    const note = document.getElementById("reboot-note");
+    note.textContent = cluster
+      ? "Putting it in standby from the Cluster page first moves its guests " +
+        "while the machine is still up, and keeps Pacemaker from placing " +
+        "them back until it is brought online."
+      : "";
+    note.hidden = !cluster;
+    document.getElementById("reboot-error").hidden = true;
+    const go = document.getElementById("reboot-go");
+    go.disabled = false;
+    document.getElementById("reboot").hidden = false;
+  }
+
+  document.getElementById("reboot-go").addEventListener("click", async () => {
+    const go = document.getElementById("reboot-go");
+    go.disabled = true;
+    go.setAttribute("aria-busy", "true");
+    try {
+      const started = await API.post("/node/reboot");
+      document.getElementById("reboot").hidden = true;
+      RunWatch.open(started.run_id);
+    } catch (failure) {
+      const error = document.getElementById("reboot-error");
+      error.textContent = failure.message;
+      error.hidden = false;
+      go.disabled = false;
+    } finally {
+      go.removeAttribute("aria-busy");
+    }
+  });
+
+  document.getElementById("reboot-cancel").addEventListener("click", () => {
+    document.getElementById("reboot").hidden = true;
+  });
+
+  document
+    .getElementById("reboot-open")
+    .addEventListener("click", confirmReboot);
+
   const KEPT = "node";
 
   // The four readings this page is made of. `answers` is a promise per card,
@@ -255,8 +320,8 @@
   }
 
   // This machine as this browser last read it, drawn before anything is asked.
-  // Nothing is held: the one control on this page opens a shell on this node,
-  // which is not an act aimed at any row of a reading. What is on screen says
+  // Nothing is held: neither control on this page, a shell on this node and
+  // its reboot, is an act aimed at any row of a reading. What is on screen says
   // its age until the reading lands, and the reading is five seconds away at
   // most, because this page reads itself on a timer.
   const kept = Kept.held(KEPT);

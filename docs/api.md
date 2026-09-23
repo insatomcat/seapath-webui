@@ -328,6 +328,7 @@ is where this service answers "who changed what, and when".
 | GET | `/node/update` | Which version of this service the inventory names for this machine (`seapath_webui_image`), which version is answering, and whether an apply would replace it. A reference pinned by digest carries no version, and the answer says so rather than guessing. The seed writes that variable from the quadlet the machine boots on, so a node nobody has edited already names a version. See [D23](decisions.md#d23) |
 | GET | `/node/update/latest` | The highest version the registry holds for the image this machine's reference names, next to the version the inventory pins. One HTTPS GET to that registry, and nothing else. A node with no route to one answers with a sentence saying so, which is a supported state here |
 | POST | `/node/update` | Write a version as the image tag of every machine that names one, keeping each machine's repository. The tag is written on the group that already carries the variable when the pin covers every machine of that group and they pull from one repository, and the host lines repeating it are removed, so the file names the version once. `admin`. A commit in the inventory and nothing more: the answer names the playbook that applies it, and applying it is a run an operator confirms like any other. See [D23](decisions.md#d23) |
+| POST | `/node/reboot` | Reboot this machine, as a run: one generated task on the entry of the inventory that is this machine, `systemd-run --on-active=15 systemctl reboot`, so the run ends with its status written before the machine goes down. `admin`. `409 unknown_machine` when no entry is this machine |
 | GET | `/node/cpu` | Topology, isolated set, per core busy ratio |
 | GET | `/node/network` | Interfaces, addresses, link state, default route |
 | GET | `/node/disks` | Block devices with their claim state and stable `by-path` name, feeding the OSD selector |
@@ -361,9 +362,11 @@ window off for a site that wants none. See [D45](decisions.md#d45) and
 [D37](decisions.md#d37).
 
 Every reading is open to the `viewer` role, which is the whole point of having
-one. The one write in the table is `POST /node/update`, and what it writes is
-the inventory: it changes no machine, and the run that does is confirmed the
-way every other convergence is.
+one. Two requests in the table write. `POST /node/update` writes the
+inventory: it changes no machine, and the run that does is confirmed the way
+every other convergence is. `POST /node/reboot` is a run itself, one scheduled
+reboot the way the Updates page schedules this machine's, and the page
+confirms it naming the machine and what goes down with it.
 
 Both cluster readings are GET. Every act beside them is a run: one generated
 task on `cluster_machines[0]`, over the SSH path a convergence uses, under the

@@ -43,6 +43,9 @@ SPDX-License-Identifier: Apache-2.0
         <select id="console-host"></select>
       </label>
       <p class="legend" id="console-note"></p>
+      <button id="reboot-open" type="button" class="secondary" hidden>
+        Reboot this machine
+      </button>
     </div>
   </section>
 
@@ -93,6 +96,22 @@ SPDX-License-Identifier: Apache-2.0
 
   {{ console_modal() }}
 </main>
+
+{# A reboot reaches a live hypervisor and every guest on it, so it asks once
+   and names the machine and what goes down with it, the way every act that
+   reaches a machine does. #}
+<div class="modal" id="reboot" data-dismiss="reboot-cancel" hidden>
+  <div class="modal-body">
+    <h2 id="reboot-title"></h2>
+    <p id="reboot-disruption"></p>
+    <p class="warning" id="reboot-note" hidden></p>
+    <p class="error" id="reboot-error" hidden></p>
+    <div class="actions">
+      <button type="button" id="reboot-cancel" class="secondary">Cancel</button>
+      <button type="button" id="reboot-go">Reboot</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
