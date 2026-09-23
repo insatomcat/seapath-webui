@@ -222,7 +222,8 @@
         ? "Disks: " +
           disks.map((disk) => disk.device + " " + bytes(disk.capacity_bytes)).join(", ")
         : domain.running
-          ? "No disk reported."
+          ? "Its disks were not reported on this reading, which a busy " +
+            "exporter does. Re-read the guests to ask again."
           : "The disks of a guest that is not running are not reported.") +
       "\nRead from libvirt-exporter on " + domain.host + ".";
     return node;

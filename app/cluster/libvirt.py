@@ -182,21 +182,33 @@ def _disks(series: dict[str, list[metrics.Sample]]) -> dict[str, list[LibvirtDis
     it reports the ISO it holds, and an empty drive repeats the capacity of
     the device read before it. The metadata series lists the disks alone, so
     it is what says which capacities are a disk the guest owns.
+
+    A scrape that meets another one on a busy exporter publishes every block
+    series of a domain as 0 rather than leaving them out, and a page reading
+    alongside Prometheus meets one often. No disk the guest sees is empty, so
+    a 0 is a reading that failed, and it costs the domain all of its disks for
+    this reading: a sum of the others would be a size the guest does not have.
     """
     listed = {
         (sample.labels.get("domain", ""), sample.labels.get("target_device", ""))
         for sample in series.get(_DISK, [])
     }
     found: dict[str, list[LibvirtDisk]] = {}
+    failed: set[str] = set()
     for sample in series.get(_CAPACITY, []):
         key = (sample.labels.get("domain", ""), sample.labels.get("target_device", ""))
-        if all(key) and key in listed:
-            found.setdefault(key[0], []).append(
-                LibvirtDisk(device=key[1], capacity_bytes=int(sample.value))
-            )
+        if not all(key) or key not in listed:
+            continue
+        if sample.value <= 0:
+            failed.add(key[0])
+            continue
+        found.setdefault(key[0], []).append(
+            LibvirtDisk(device=key[1], capacity_bytes=int(sample.value))
+        )
     return {
         name: sorted(items, key=lambda disk: disk.device)
         for name, items in found.items()
+        if name not in failed
     }
 
 
