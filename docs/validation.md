@@ -804,7 +804,7 @@ The parsers are held against expositions recorded on the demo cluster on
 2026-09-23, from `ccv-admin` and `ccv1`, and the page was drawn against the
 fakes, which advance those recordings at the pace they had since boot. What no
 fake shows is a rate: two real readings five seconds apart, taken through the
-metrics proxy by the service in its container. See [D67](decisions.md#d67).
+metrics proxy by the recorder in the service's container. See [D67](decisions.md#d67).
 
 ### Checklist
 
@@ -815,7 +815,7 @@ metrics proxy by the service in its container. See [D67](decisions.md#d67).
 | 3 | The housekeeping and isolated percentages agree with `mpstat -P ALL 5` on the same CPUs | The machine's own clock against the one the page divides by | Pending |
 | 4 | The network band agrees with `sar -n DEV 5` summed over the physical ports, and a team or bridge over them is not counted twice | The `addr_assign_type` of real ports, teams and bridges | Pending |
 | 5 | A guest started again during the window leaves one gap in its band and resumes, with no spike | A counter that really resets | Pending |
-| 6 | A page left open for an hour keeps five minutes of points, and switching to another tab stops the requests in the service's log | The browser's own timers and memory | Pending |
+| 6 | A tab switched away for two minutes finds the charts whole on its return, and fifteen minutes after the last page was closed the service stops reading the exporters | The recorder's thread against real time, and the exporters' own logs | Pending |
 
 ### Result
 

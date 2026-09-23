@@ -62,6 +62,14 @@ class Settings(BaseSettings):
     # the same `hypervisors` group as libvirt-exporter. What each container
     # consumes, read by the Usage page beside what each guest does.
     podman_exporter_port: int = 9882
+    # The Usage page's readings, taken by this service rather than by the
+    # browser, so a tab switched away and back finds the minutes it missed.
+    # Every `usage_period_seconds`, kept for `usage_window_seconds`, and only
+    # while a signed in request arrived in the last `usage_idle_seconds`: a
+    # service nobody is using scrapes nothing. See D67.
+    usage_period_seconds: float = 5.0
+    usage_window_seconds: float = 300.0
+    usage_idle_seconds: float = 900.0
     # How long the registry is given to answer when the Deployment page asks
     # which versions of this service exist. Short on purpose: a substation
     # hypervisor may have no route to a registry at all, and the operator

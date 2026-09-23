@@ -35,6 +35,7 @@ from app.cluster.rbd import CommandRbdClient, RbdClient
 from app.cluster.trust import MetricsProxyTrust, SshCertificateFetcher
 from app.console.adapter import ConsoleAdapter, SshConsoleAdapter
 from app.console.service import ConsoleService
+from app.core.activity import Activity
 from app.core.auth import (
     Authenticator,
     DevAuthenticator,
@@ -84,7 +85,7 @@ from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
 from app.services.software import SoftwareService
 from app.services.storage import StorageService
 from app.services.update import UpdateService
-from app.services.usage import UsageService
+from app.services.usage import UsageRecorder, UsageService
 from app.services.vms import DEPLOY_PLAYBOOK, VmService
 from app.trust.backup_server import FakeKeyInstaller, KeyInstaller, SshKeyInstaller
 from app.trust.service import TrustService
@@ -122,7 +123,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         runs=app.state.run_service,
         settings=settings,
     )
+    app.state.usage_recorder.start()
     yield
+    app.state.usage_recorder.stop()
     logger.info("seapath-webui stopping")
 
 
@@ -300,6 +303,9 @@ def create_app(
         secret=secret,
         ttl_seconds=settings.session_ttl_seconds,
     )
+    # When a signed in request last arrived, which is what keeps the usage
+    # recorder reading. See `app/core/activity.py`.
+    app.state.activity = Activity()
     # Named after this node rather than after the service, because an operator
     # holding an ssh tunnel to each of two clusters reaches both on localhost
     # and the browser keeps one cookie jar for the pair. See `CookieNames`.
@@ -503,6 +509,16 @@ def create_app(
         node_port=settings.node_exporter_port,
         libvirt_port=settings.libvirt_exporter_port,
         podman_port=settings.podman_exporter_port,
+    )
+    # Its readings are taken here, every period, while somebody signed in is
+    # using the service, and the last few minutes are kept in memory for the
+    # page. Started with the application, in `_lifespan`.
+    app.state.usage_recorder = UsageRecorder(
+        app.state.usage_service,
+        app.state.activity,
+        period_seconds=settings.usage_period_seconds,
+        window_seconds=settings.usage_window_seconds,
+        idle_seconds=settings.usage_idle_seconds,
     )
 
     # The cluster and the storage views: Pacemaker and Corosync from each

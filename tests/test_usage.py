@@ -22,9 +22,17 @@ from fastapi.testclient import TestClient
 from app.cluster import metrics, usage
 from app.cluster.exporters import Exposition
 from app.cluster.fake import FakeMetricsClient
+from app.core.activity import Activity
 from app.core.settings import Settings
 from app.main import create_app
-from app.services.usage import UsageService
+from app.services.usage import (
+    MachineUsage,
+    UsageRecorder,
+    UsageService,
+    UsageView,
+    rate,
+    step,
+)
 from tests.conftest import BASE_URL, sign_in
 from tests.test_scrape_window import CountingMetricsClient
 
@@ -427,6 +435,251 @@ def test_an_inventory_that_is_not_there_is_said() -> None:
     assert "no inventory" in view.note
 
 
+# What a pair of readings says
+
+
+def _reading(
+    at: float,
+    busy: float,
+    idle: float,
+    guest_cpu: float | None = None,
+    port: float = 0.0,
+    team: float = 0.0,
+) -> MachineUsage:
+    """One machine with two CPUs, one of them isolated, a port, a team over it
+    and one guest, read at `at` with the counters given."""
+    node = usage.NodeUsage(
+        read_at=at,
+        housekeeping=usage.CpuCounters(
+            cpus=1, total_seconds=busy + idle, idle_seconds=idle
+        ),
+        isolated=usage.CpuCounters(cpus=1, total_seconds=at, idle_seconds=at),
+        memory=usage.MemoryReading(
+            total_bytes=1000, available_bytes=600, hugepages_total_bytes=100
+        ),
+        disks=[usage.DiskCounters(device="sda", read_bytes=at * 10)],
+        interfaces=[
+            usage.InterfaceCounters(device="eno1", receive_bytes=port, kind="physical"),
+            usage.InterfaceCounters(device="team0", receive_bytes=team, kind="logical"),
+        ],
+    )
+    guests = []
+    if guest_cpu is not None:
+        guests.append(
+            usage.GuestUsage(
+                name="g", running=True, vcpus=2, cpu_seconds=guest_cpu, memory_bytes=50
+            )
+        )
+    return MachineUsage(
+        host="m",
+        address="a",
+        node=node,
+        guests=guests,
+        guests_read_at=at,
+        containers_read_at=at,
+    )
+
+
+def test_a_counter_that_went_down_gives_no_rate() -> None:
+    assert rate(10, 20, 5) == 2
+    assert rate(20, 10, 5) is None
+    assert rate(None, 10, 5) is None
+    assert rate(10, 20, 0) is None
+
+
+def test_the_first_reading_has_its_memory_and_no_rate() -> None:
+    result = step(None, _reading(100, busy=10, idle=90, guest_cpu=5), at=100)
+
+    assert result.point.memory is not None
+    assert result.point.memory.used == 400
+    assert result.point.memory.reserved == 100
+    assert result.point.cpu is None
+    assert result.point.network_in is None
+    assert result.point.workloads["vm:g"].cpu is None
+    assert result.point.workloads["vm:g"].memory == 50
+
+
+def test_two_readings_give_the_cpus_busy_on_each_side() -> None:
+    before = _reading(100, busy=10, idle=90, guest_cpu=5)
+    after = _reading(110, busy=15, idle=95, guest_cpu=8)
+
+    result = step(before, after, at=110)
+
+    assert result.point.cpu is not None
+    assert result.point.cpu.housekeeping == pytest.approx(0.5)
+    assert result.point.cpu.isolated == 0
+    assert result.point.workloads["vm:g"].cpu == pytest.approx(0.3)
+    [load] = result.workloads
+    assert (load.key, load.kind, load.vcpus) == ("vm:g", "vm", 2)
+    assert result.disks[0].read == pytest.approx(10)
+
+
+def test_the_machine_traffic_is_its_physical_ports_alone() -> None:
+    """team0 carries eno1's traffic again, and counting both doubles it."""
+    before = _reading(100, busy=0, idle=0, port=0, team=0)
+    after = _reading(110, busy=0, idle=0, port=1000, team=1000)
+
+    result = step(before, after, at=110)
+
+    assert result.point.network_in == pytest.approx(100)
+    rates = {link.device: link.receive for link in result.interfaces}
+    assert rates == {"eno1": pytest.approx(100), "team0": pytest.approx(100)}
+
+
+def test_a_guest_started_again_gives_no_cpu_for_that_interval() -> None:
+    before = _reading(100, busy=10, idle=90, guest_cpu=500)
+    after = _reading(110, busy=15, idle=95, guest_cpu=2)
+
+    result = step(before, after, at=110)
+
+    assert result.point.workloads["vm:g"].cpu is None
+    assert result.point.cpu is not None
+
+
+# The recorder
+
+
+class _Clock:
+    def __init__(self, now: float = 1000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class _Readings:
+    """A service answering one machine whose counters grow with the clock."""
+
+    def __init__(self, clock: _Clock) -> None:
+        self.clock = clock
+        self.taken = 0
+
+    def usage(self) -> UsageView:
+        self.taken += 1
+        at = self.clock.now
+        return UsageView(
+            machines=[_reading(at, busy=at / 4, idle=at * 3 / 4, guest_cpu=at / 10)],
+            this_host="m",
+        )
+
+
+def _recorder(
+    clock: _Clock, activity: Activity | None = None
+) -> tuple[UsageRecorder, _Readings]:
+    readings = _Readings(clock)
+    recorder = UsageRecorder(
+        readings,  # type: ignore[arg-type]
+        activity or Activity(clock=clock),
+        period_seconds=5,
+        window_seconds=60,
+        idle_seconds=900,
+        clock=clock,
+    )
+    return recorder, readings
+
+
+def test_the_recorder_reads_only_while_somebody_is_here() -> None:
+    clock = _Clock()
+    activity = Activity(clock=clock)
+    recorder, readings = _recorder(clock, activity)
+
+    assert recorder.tick() is False
+    assert readings.taken == 0
+
+    activity.mark()
+    assert recorder.tick() is True
+    assert readings.taken == 1
+
+    clock.now += 901
+    assert recorder.tick() is False
+    assert readings.taken == 1
+
+
+def test_a_page_after_a_quiet_spell_takes_a_reading_itself() -> None:
+    clock = _Clock()
+    recorder, readings = _recorder(clock)
+
+    history = recorder.history()
+
+    assert readings.taken == 1
+    [machine] = history.machines
+    assert len(machine.points) == 1
+    assert machine.latest.host == "m"
+    assert history.now == clock.now
+
+
+def test_a_page_asking_again_at_once_costs_the_machines_nothing() -> None:
+    clock = _Clock()
+    recorder, readings = _recorder(clock)
+
+    recorder.history()
+    clock.now += 1
+    recorder.history()
+
+    assert readings.taken == 1
+
+
+def test_the_window_keeps_the_rates_of_each_pair_and_drops_what_left_it() -> None:
+    clock = _Clock()
+    recorder, _ = _recorder(clock)
+    for _ in range(20):
+        recorder.sample()
+        clock.now += 5
+
+    [machine] = recorder.history().machines
+
+    assert all(point.at >= clock.now - 60 for point in machine.points)
+    assert len(machine.points) in (12, 13)
+    point = machine.points[-1]
+    assert point.cpu is not None
+    assert point.cpu.housekeeping == pytest.approx(0.25)
+    assert point.workloads["vm:g"].cpu == pytest.approx(0.1)
+
+
+def test_since_answers_the_points_a_page_does_not_hold() -> None:
+    clock = _Clock()
+    recorder, _ = _recorder(clock)
+    for _ in range(4):
+        recorder.sample()
+        clock.now += 5
+    clock.now -= 5
+    held = recorder.history().machines[0].points
+
+    clock.now += 5
+    recorder.sample()
+    newer = recorder.history(since=held[-1].at).machines[0].points
+
+    assert [point.at for point in newer] == [clock.now]
+
+
+def test_a_reading_after_a_gap_is_not_divided_across_it() -> None:
+    clock = _Clock()
+    recorder, _ = _recorder(clock)
+    recorder.sample()
+    clock.now += 5
+    recorder.sample()
+    clock.now += 60
+    recorder.sample()
+
+    points = recorder.history().machines[0].points
+
+    assert points[-2].cpu is not None
+    assert points[-1].cpu is None
+
+
+def test_a_signed_in_request_marks_somebody_as_here(
+    client: TestClient,
+) -> None:
+    activity = client.app.state.activity  # type: ignore[attr-defined]
+    assert client.get("/api/v1/node").status_code == 401
+    assert activity.within(60) is False
+
+    sign_in(client, "viewer")
+    assert client.get("/api/v1/node").status_code == 200
+
+    assert activity.within(60) is True
+
+
 # The API
 
 
@@ -434,9 +687,14 @@ def test_a_viewer_may_read_the_usage(signed_in_viewer: TestClient) -> None:
     response = signed_in_viewer.get("/api/v1/usage")
 
     assert response.status_code == 200
-    [machine] = response.json()["machines"]
+    payload = response.json()
+    assert payload["period_seconds"] == 5
+    assert payload["window_seconds"] == 300
+    [machine] = payload["machines"]
     assert machine["host"] == "seapath-machine"
-    assert machine["node"]["housekeeping"]["cpus"] == 8
+    assert machine["latest"]["node"]["housekeeping"]["cpus"] == 8
+    assert len(machine["points"]) == 1
+    assert any(load["key"] == "vm:PODEV" for load in machine["workloads"])
 
 
 def test_the_usage_may_not_be_read_signed_out(client: TestClient) -> None:
@@ -471,30 +729,26 @@ def counted(
         yield sign_in(test_client, "admin"), scrapes
 
 
-def test_every_reading_of_the_usage_reaches_the_machines(
+def test_two_pages_reading_the_usage_cost_the_machines_one_reading(
     counted: tuple[TestClient, CountingMetricsClient],
 ) -> None:
-    """Two readings inside the scrape window are still two scrapes.
-
-    A rate divides the difference between two answers by the time between
-    them. An answer the window kept is an earlier reading given again, and
-    divided by the time since, it is a machine that did nothing.
-    """
+    """The recorder reads, and the pages read what it kept: two browsers on
+    the page are one scrape of each exporter per period between them."""
     signed_in, scrapes = counted
 
     assert signed_in.get("/api/v1/usage").status_code == 200
     assert signed_in.get("/api/v1/usage").status_code == 200
 
-    assert scrapes.scrapes_of(9100) == 2
-    assert scrapes.scrapes_of(9177) == 2
-    assert scrapes.scrapes_of(9882) == 2
+    assert scrapes.scrapes_of(9100) == 1
+    assert scrapes.scrapes_of(9177) == 1
+    assert scrapes.scrapes_of(9882) == 1
 
 
 def test_the_usage_reading_leaves_the_window_of_the_other_pages_alone(
     counted: tuple[TestClient, CountingMetricsClient],
 ) -> None:
     """It goes around the window rather than emptying it: the pages that
-    share one scrape keep sharing it while this one reads every five seconds."""
+    share one scrape keep sharing it while the recorder reads every period."""
     signed_in, scrapes = counted
 
     assert signed_in.get("/api/v1/realtime/pool").status_code == 200

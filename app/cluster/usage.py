@@ -9,14 +9,13 @@ and `prometheus-podman-exporter` for each container. All three are deployed by
 `deploy_prometheus_exporters` on every hypervisor, and the page reads them the
 way the others read theirs: one GET each, on a port that is already open.
 
-What comes out of here is counters and the moment they were read.
-A rate needs two readings and a memory of the first, and that memory lives in
-the browser that asked for both: this service answers each reading and forgets
-it. D67 says why the line sits there.
+What comes out of here is counters and the moment they were read. The rates
+are taken from two of them by the recorder in `app/services/usage.py`, and
+D67 says why it keeps five minutes and no more.
 
 Every figure is kept as the exporter said it, in bytes and seconds. A counter
 the exporter did not publish is None rather than 0, because 0 is a value a
-counter has, and the browser divides by the difference between two of them.
+counter has, and a rate divides by the difference between two of them.
 """
 
 from __future__ import annotations

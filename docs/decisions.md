@@ -1424,9 +1424,8 @@ memory is a monitoring system. The Grafana dashboards draw them because they
 have a time series database behind them. This page has one scrape, and says so.
 
 *Revised in part by [D67](#d67): the Usage page draws rates over the last five
-minutes, with the memory of the first reading held by the browser that asked
-and nothing kept here. The histories past that, and the Ceph ones above, stay
-with the dashboards.*
+minutes, which this service keeps in memory while somebody is using it. The
+histories past that, and the Ceph ones above, stay with the dashboards.*
 
 **One combined "cluster health" verdict.** Pacemaker and Ceph fail
 independently and are repaired by different people with different urgency. A
@@ -5134,7 +5133,7 @@ Pacemaker bindings fail to import, and the Debian ISO installs them on every
 machine: on ccvadmin, `vm-mgr console` asked `crm_mon` for a cluster the
 machine is not in. `virsh console` is the call its libvirt mode makes.
 
-## D67 - Settled: the Usage page draws rates from two readings its browser keeps
+## D67 - Settled: the Usage page draws rates from five minutes this service keeps while somebody uses it
 
 An operator looking at a hypervisor asks what it is consuming and which guest
 or container is consuming it. None of the pages answered: the VMs page says
@@ -5145,21 +5144,29 @@ needs two scrapes and a memory of the first, and a service that keeps that
 memory is a monitoring system." This decision revises that refusal, and keeps
 the reasoning under it.
 
-### The memory is the browser's
+### Five minutes, in memory, while somebody is here
 
-The service answers counters and the moment each was read, and remembers
-nothing: `GET /usage` is a function of the machines at the time it is asked.
-The page reads it every five seconds while it is on screen, keeps five minutes
-of answers in the tab's memory, and divides each pair. Leaving the page, or
-closing the tab, forgets all of it.
+A recorder in this service takes a reading of every machine every five
+seconds, and keeps the last five minutes of what each pair of readings says:
+the CPUs busy on each side, the memory, the disk and port bytes per second,
+and each workload's share. `GET /usage` answers what it kept, and a page that
+already holds the window asks with `since` for the points it lacks.
+
+It reads only while somebody signed in has asked this service anything in the
+last fifteen minutes. Every request carrying a live session marks it, and a
+session alone does not: it lasts eight hours from the sign in, whether or not
+a browser is still open on it, and a recorder kept going by it would scrape
+every machine every five seconds through the night after an operator went
+home. The first page after a quiet spell takes a reading itself, so it draws
+one point at once and the rates from the next.
 
 That holds the property D29 was protecting. What makes a monitoring system is
 the state it keeps: a history that outlives the person looking at it, and
-thresholds evaluated against it when nobody is. This service holds neither.
-There is no second source of truth, because nothing is stored to disagree with
-Prometheus, and there is no alert, because a page nobody has open computes
-nothing. `/node/cpu` has divided two polls of `/proc/stat` since [D13](#d13),
-on the same argument at the scale of one machine.
+thresholds evaluated against it when nobody is. What is kept here is five
+minutes, in memory, gone at a restart and gone a quarter of an hour after the
+last operator left, and nothing is evaluated against it. `/node/cpu` has
+divided two polls of `/proc/stat` in this service since [D13](#d13), on the
+same argument at the scale of one machine.
 
 History past five minutes, capacity trends and alerting stay in Prometheus and
 the Grafana dashboards, as [D13](#d13) settled. The footnote of the page says
@@ -5184,18 +5191,19 @@ path like the others ([D65](#d65)).
 
 ### Every reading reaches the machines
 
-A rate divides by the time between two readings, so this reading never goes
+A rate divides by the time between two readings, so the recorder never goes
 through the scrape window of [D45](#d45). An answer the window kept, divided
-by the time since it was first read, is a machine that did nothing. The
-reading does not empty the window either, so the pages that share one scrape
-keep sharing it.
+by the time since it was first read, is a machine that did nothing. It does
+not empty the window either, so the pages that share one scrape keep sharing
+it.
 
-The cost is a scrape of three exporters per machine every five seconds, for as
-long as a page is on screen, which is a third of the interval Prometheus scrapes
-at by default. A hidden tab asks nothing, and the page has a Pause control.
-Five seconds was chosen over the ten of the reread timer ([D37](#d37)) because
-a figure per second over ten seconds hides the burst an operator opened the
-page to see.
+The cost is a scrape of three exporters per machine every five seconds while
+somebody uses the service, whatever the number of browsers on the page, which
+is a third of the interval Prometheus scrapes at by default. Five seconds was
+chosen over the ten of the reread timer ([D37](#d37)) because a figure per
+second over ten seconds hides the burst an operator opened the page to see.
+`usage_period_seconds`, `usage_window_seconds` and `usage_idle_seconds` set
+the three durations.
 
 Each exporter is timed on its own. The machine is timed by `node_time_seconds`,
 its clock at the scrape, since the answer reaches this service later by however
@@ -5243,10 +5251,14 @@ domain whose reads and writes are both 0 has no disk reading for that answer.
 settled why it is not asked: this repository does not deploy it and cannot
 know its address.
 
-**A memory in the service.** Keeping the previous answer server side would give
-the first rate one reading sooner. It would also be state shared by every
-browser at once, each reading at its own pace, and state that outlives the page
-nobody has open, which is the monitoring system D29 refused.
+**A memory in the browser.** The first version kept the five minutes in the
+page and read the machines from it. Every tab switched away left a hole in the
+charts for as long as it was hidden, a page opened started empty, and two
+operators on the page cost the machines two readings per period.
+
+**Reading while a session is open.** A session lasts eight hours from the sign
+in and outlives the browser, so it says nothing about whether anybody is
+there.
 
 **Stacking disk and network by workload.** A guest's traffic between two guests
 on one machine never reaches a port, and a container on the host's network has

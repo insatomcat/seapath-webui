@@ -3,19 +3,19 @@
 
 """What every machine, and each guest and container on it, is consuming.
 
-Counters, and the moment each was read. A rate is the difference between two
-readings of this endpoint divided by the difference between their times, and
-the caller keeps the first: this service answers each reading and remembers
-none. See D67.
+The last few minutes of it, as this service read them: a reading every few
+seconds while somebody signed in is using the service, and what each pair of
+readings says per second. Kept in memory for the window and nowhere else. See
+D67.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from app.core.auth import Role
 from app.core.security import require_role
-from app.services.usage import UsageService, UsageView
+from app.services.usage import UsageHistory, UsageRecorder
 
 router = APIRouter(
     prefix="/usage",
@@ -24,25 +24,35 @@ router = APIRouter(
 )
 
 
-def _service(request: Request) -> UsageService:
-    return request.app.state.usage_service
+def _recorder(request: Request) -> UsageRecorder:
+    return request.app.state.usage_recorder
 
 
-@router.get("", response_model=UsageView)
-def usage(request: Request) -> UsageView:
-    """Every machine's counters, its guests' and its containers'.
+@router.get("", response_model=UsageHistory)
+def usage(
+    request: Request,
+    since: float | None = Query(
+        default=None,
+        description=(
+            "Only the points taken after this moment, on the clock `now` and "
+            "`at` are given on. What a page already holding the window sends, "
+            "with the `at` of the last point it has."
+        ),
+    ),
+) -> UsageHistory:
+    """Every machine's last few minutes, and each workload's share of them.
 
-    Every machine the inventory names with an address is asked, on three
-    ports at once: node_exporter, libvirt-exporter and
-    prometheus-podman-exporter. Each is read now, never from the few seconds
-    of answers the other pages share, because a rate divides by the time
-    between two readings. So this takes no `fresh`: every reading is one.
+    `points` are the readings of the window, oldest first: each carries the
+    memory, and, against the reading before it, the CPUs busy on the
+    housekeeping and the isolated side, the disk and physical port bytes per
+    second, and each running workload's CPU and memory, by `vm:<name>` or
+    `container:<name>`. A point after a gap in the readings has no rates.
 
-    Each counter is as the exporter published it, in bytes or seconds since
-    some start, and None where it published none. `node.read_at` is the
-    machine's own clock at the scrape; `guests_read_at` and
-    `containers_read_at` are this service's, since neither exporter publishes
-    a clock. A counter lower than in the previous reading was reset, by a
-    reboot or a restarted guest, and gives no rate for that interval.
+    `latest` is the last reading as the exporters gave it, and `workloads`,
+    `disks` and `interfaces` are the rates it gave, for the tables.
+
+    Asking marks somebody as using the service, which keeps the readings
+    going. The first request after a quiet spell takes a reading itself, so
+    its answer carries one point and the rates start with the next.
     """
-    return _service(request).usage()
+    return _recorder(request).history(since)

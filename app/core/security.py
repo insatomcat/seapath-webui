@@ -71,7 +71,14 @@ def get_cookie_names_from(connection: HTTPConnection) -> CookieNames:
 # class both share.
 def current_session(connection: HTTPConnection) -> Session | None:
     cookie = connection.cookies.get(get_cookie_names_from(connection).session)
-    return get_sessions_from(connection).resolve(cookie)
+    session = get_sessions_from(connection).resolve(cookie)
+    if session is not None:
+        # What keeps the usage recorder reading: somebody signed in is using
+        # the service. Absent from an application built without one.
+        activity = getattr(connection.app.state, "activity", None)
+        if activity is not None:
+            activity.mark()
+    return session
 
 
 def require_user(request: Request) -> User:

@@ -9,10 +9,10 @@ libvirt-exporter and each container from prometheus-podman-exporter, on the
 same machine.
 
 Every figure here that is per second is a rate, and a rate is two readings.
-The page reads every five seconds while it is on screen and keeps the last
-five minutes in this browser, which is where the first of each pair is
-remembered: the service answers each reading and keeps nothing. History beyond
-the window, and alerting, stay in Prometheus. See D67.
+The service reads every machine every five seconds while somebody signed in is
+using it, and keeps the last five minutes in memory, so the page draws the
+window the moment it opens and a tab switched away finds it whole on its
+return. History beyond the window, and alerting, stay in Prometheus. See D67.
 
 The layout is the Cluster page's (D28): a tab per machine, carrying the one
 line an operator reads from it, and the machine it points at gets the screen.
@@ -37,9 +37,8 @@ line an operator reads from it, and the machine it points at gets the screen.
     <div class="pane-head">
       <p class="pane-lead" id="machine-lead"></p>
       <span class="usage-clock" id="clock"></span>
-      {# Reading every five seconds is what the page is for, so it starts
-         reading when it opens. Pausing freezes the charts where they are,
-         which is what an operator wants while hovering one. #}
+      {# Pausing freezes the charts where they are, which is what an operator
+         wants while hovering one. The service goes on reading. #}
       <button type="button" class="secondary" id="pause" aria-pressed="false">
         Pause
       </button>
@@ -174,12 +173,13 @@ line an operator reads from it, and the machine it points at gets the screen.
     </div>
     <p class="pane-foot">
       <span class="pane-foot-note">
-        Read every five seconds while this page is on screen, from
-        <code>node_exporter</code>, <code>libvirt-exporter</code> and
-        <code>prometheus-podman-exporter</code> on each machine: the exporters
-        <code>deploy_prometheus_exporters</code> installs. The last five minutes
-        are kept in this browser and nowhere else, and are gone when the page
-        is left. History and alerting are Prometheus's. A guest's CPU is every
+        Read every five seconds from <code>node_exporter</code>,
+        <code>libvirt-exporter</code> and <code>prometheus-podman-exporter</code>
+        on each machine, the exporters <code>deploy_prometheus_exporters</code>
+        installs, for as long as somebody signed in has used this service in
+        the last fifteen minutes. The last five minutes are kept in this
+        service's memory and nowhere else. History and alerting are
+        Prometheus's. A guest's CPU is every
         thread of its QEMU process; its memory is what that process holds, and
         a guest backed by hugepages holds them in the machine's hugepage pool
         instead. What no workload accounts for is the machine's own: the

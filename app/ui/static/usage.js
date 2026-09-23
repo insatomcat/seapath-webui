@@ -3,39 +3,39 @@
 
 // The Usage page: what each machine consumes, and which workload consumes it.
 //
-// The service answers counters, in seconds and bytes since some start, and the
-// moment each was read. Everything per second on this page is the difference
-// between two of its answers over the time between them, so this script is
-// where the first answer of each pair is remembered. It keeps five minutes of
-// them, for the charts, and forgets them when the page is left. See D67.
-//
-// One reading asks every machine at once, since the tab of each machine says
-// what it is doing, and draws the machine the bar points at.
+// The service reads every machine every five seconds while somebody signed in
+// is using it, and keeps the last five minutes of what each pair of readings
+// says per second. This page asks for what it kept and draws it: the whole
+// window the first time, and after that the points taken since the last one
+// it holds, so a tab switched away and back finds the minutes it missed. See
+// D67.
 
 (function () {
-  // Five seconds: a figure per second over a longer interval hides the burst
-  // an operator opened the page to see, and a shorter one asks node_exporter
-  // to walk /proc and /sys on every machine more often than Prometheus does.
+  // How often the page asks for what the service has read since. The service
+  // reads on its own period, which the answer names.
   const PERIOD_MS = 5000;
-  // What the charts show, and what this browser keeps.
-  const WINDOW_MS = 5 * 60 * 1000;
-  // A pair of readings further apart than this spans a pause or a hidden tab,
-  // and the chart leaves a gap rather than drawing one flat average across it.
-  const GAP_MS = PERIOD_MS * 3;
+  // What the charts show, until the answer says what the service keeps.
+  let windowMs = 5 * 60 * 1000;
+  // Two points further apart than this are a time the service was not
+  // reading, and the chart leaves a gap there.
+  let gapMs = PERIOD_MS * 3;
   // How many workloads get a colour of their own on a machine. The rest are
   // one band, "Other workloads", on the charts and a grey swatch in the table.
   const SLOTS = 6;
   const SVG = "http://www.w3.org/2000/svg";
 
-  // Per machine: the answers read, oldest first, each with the time this
-  // browser received it, which is what the charts are laid out against.
-  const readings = new Map();
+  // Per machine: the points held, oldest first, and the last answer about it.
+  const points = new Map();
+  const machines = new Map();
   // Per machine: which workload holds which colour. Assigned once and kept,
   // so a workload keeps its colour when others come and go.
   const slots = new Map();
 
   let selected = null;
   let latest = null;
+  // The service's clock at the last answer, which the points are on.
+  let serverNow = 0;
+  let lastAt = null;
   let timer = null;
   let inFlight = false;
   let paused = false;
@@ -92,207 +92,31 @@
     return `${count} ${word}${count === 1 ? "" : "s"}`;
   }
 
-  // Rates
+  // Points
 
-  // Counts per second between two readings of one counter. None when either
-  // reading lacks it, or when it went down: a counter that goes down was
-  // reset, by a reboot or a guest started again, and the interval holds
-  // nothing that can be divided.
-  function rate(before, after, seconds) {
-    if (
-      before === null ||
-      before === undefined ||
-      after === null ||
-      after === undefined ||
-      !(seconds > 0) ||
-      after < before
-    ) {
-      return null;
-    }
-    return (after - before) / seconds;
-  }
-
-  function sum(values) {
-    let total = null;
-    values.forEach((value) => {
-      if (value !== null && value !== undefined) {
-        total = (total || 0) + value;
-      }
-    });
-    return total;
-  }
-
-  function workloadKey(kind, name) {
-    return `${kind}:${name}`;
-  }
-
-  // Every running workload of one answer, by key, with its counters.
-  function workloadsOf(machine) {
-    const found = new Map();
-    machine.guests.forEach((guest) => {
-      if (guest.running) {
-        found.set(workloadKey("vm", guest.name), {
-          kind: "vm",
-          name: guest.name,
-          item: guest,
-          at: machine.guests_read_at,
-        });
-      }
-    });
-    machine.containers.forEach((container) => {
-      if (container.running) {
-        found.set(workloadKey("ct", container.name), {
-          kind: "ct",
-          name: container.name,
-          item: container,
-          at: machine.containers_read_at,
-        });
-      }
-    });
-    return found;
-  }
-
-  // What one answer says on its own, and what it says against the one before
-  // it. The memory is a gauge and needs no pair; everything per second does.
-  function point(previous, current) {
-    const node = current.machine.node;
-    const result = {
-      x: current.received,
-      memory: null,
-      cpu: null,
-      disk: null,
-      network: null,
-      workloads: new Map(),
+  // A point as the service sends it, with the figures the charts add up
+  // derived once rather than at every draw.
+  function adopt(raw) {
+    const cpu = raw.cpu
+      ? Object.assign({}, raw.cpu, {
+          cpus: raw.cpu.housekeeping_cpus + raw.cpu.isolated_cpus,
+          busy: raw.cpu.housekeeping + raw.cpu.isolated,
+        })
+      : null;
+    return {
+      x: raw.at * 1000,
+      cpu,
+      memory: raw.memory,
+      disk_read: raw.disk_read,
+      disk_write: raw.disk_write,
+      network_in: raw.network_in,
+      network_out: raw.network_out,
+      workloads: new Map(Object.entries(raw.workloads || {})),
     };
-    const now = workloadsOf(current.machine);
-    now.forEach((entry, key) => {
-      result.workloads.set(key, {
-        kind: entry.kind,
-        name: entry.name,
-        memory: entry.item.memory_bytes,
-        vcpus: entry.item.vcpus === undefined ? null : entry.item.vcpus,
-        cpu: null,
-        diskRead: null,
-        diskWrite: null,
-        netIn: null,
-        netOut: null,
-      });
-    });
-    if (node) {
-      const memory = node.memory;
-      if (memory.total_bytes && memory.available_bytes !== null) {
-        result.memory = {
-          total: memory.total_bytes,
-          used: memory.total_bytes - memory.available_bytes,
-          reserved: memory.hugepages_total_bytes || 0,
-        };
-      }
-    }
-
-    const before = previous && previous.machine;
-    if (!before || current.received - previous.received > GAP_MS) {
-      return result;
-    }
-    const was = workloadsOf(before);
-    now.forEach((entry, key) => {
-      const old = was.get(key);
-      if (!old) {
-        return;
-      }
-      const seconds = entry.at - old.at;
-      const into = result.workloads.get(key);
-      into.cpu = rate(old.item.cpu_seconds, entry.item.cpu_seconds, seconds);
-      into.diskRead = rate(
-        old.item.disk_read_bytes,
-        entry.item.disk_read_bytes,
-        seconds
-      );
-      into.diskWrite = rate(
-        old.item.disk_written_bytes,
-        entry.item.disk_written_bytes,
-        seconds
-      );
-      into.netIn = rate(
-        old.item.network_receive_bytes,
-        entry.item.network_receive_bytes,
-        seconds
-      );
-      into.netOut = rate(
-        old.item.network_transmit_bytes,
-        entry.item.network_transmit_bytes,
-        seconds
-      );
-    });
-
-    const oldNode = before.node;
-    if (!node || !oldNode) {
-      return result;
-    }
-    const seconds = node.read_at - oldNode.read_at;
-    const busy = (side) => {
-      const total = rate(oldNode[side].total_seconds, node[side].total_seconds, seconds);
-      const idle = rate(oldNode[side].idle_seconds, node[side].idle_seconds, seconds);
-      if (total === null || idle === null || node[side].cpus === 0) {
-        return null;
-      }
-      return Math.max(total - idle, 0);
-    };
-    const housekeeping = busy("housekeeping");
-    const isolated = busy("isolated");
-    if (housekeeping !== null) {
-      result.cpu = {
-        cpus: node.housekeeping.cpus + node.isolated.cpus,
-        housekeepingCpus: node.housekeeping.cpus,
-        isolatedCpus: node.isolated.cpus,
-        housekeeping,
-        isolated: isolated || 0,
-        busy: housekeeping + (isolated || 0),
-      };
-    }
-
-    const disks = new Map(oldNode.disks.map((disk) => [disk.device, disk]));
-    const perDisk = node.disks.map((disk) => {
-      const old = disks.get(disk.device);
-      return {
-        device: disk.device,
-        read: old ? rate(old.read_bytes, disk.read_bytes, seconds) : null,
-        write: old ? rate(old.written_bytes, disk.written_bytes, seconds) : null,
-        busy: old ? rate(old.io_time_seconds, disk.io_time_seconds, seconds) : null,
-      };
-    });
-    result.disk = {
-      devices: perDisk,
-      read: sum(perDisk.map((disk) => disk.read)),
-      write: sum(perDisk.map((disk) => disk.write)),
-    };
-
-    const links = new Map(
-      oldNode.interfaces.map((link) => [link.device, link])
-    );
-    const perLink = node.interfaces.map((link) => {
-      const old = links.get(link.device);
-      return {
-        device: link.device,
-        rx: old ? rate(old.receive_bytes, link.receive_bytes, seconds) : null,
-        tx: old ? rate(old.transmit_bytes, link.transmit_bytes, seconds) : null,
-      };
-    });
-    const physical = new Set(
-      node.interfaces
-        .filter((link) => link.kind === "physical")
-        .map((link) => link.device)
-    );
-    result.network = {
-      links: perLink,
-      rx: sum(perLink.filter((l) => physical.has(l.device)).map((l) => l.rx)),
-      tx: sum(perLink.filter((l) => physical.has(l.device)).map((l) => l.tx)),
-    };
-    return result;
   }
 
   function pointsOf(host) {
-    const list = readings.get(host) || [];
-    return list.map((current, index) => point(list[index - 1], current));
+    return points.get(host) || [];
   }
 
   // Colours
@@ -416,7 +240,7 @@
       svg.append(label);
     });
     const x = (time) =>
-      LEFT + ((time - (now - WINDOW_MS)) / WINDOW_MS) * (WIDTH - LEFT - RIGHT);
+      LEFT + ((time - (now - windowMs)) / windowMs) * (WIDTH - LEFT - RIGHT);
     const y = (value) => base - (Math.min(value, top) / top) * (base - TOP);
     return { x, y, base };
   }
@@ -428,7 +252,7 @@
     let current = [];
     points.forEach((item, index) => {
       const previous = points[index - 1];
-      const broken = previous && item.x - previous.x > GAP_MS;
+      const broken = previous && item.x - previous.x > gapMs;
       if (!has(item) || broken) {
         if (current.length) {
           found.push(current);
@@ -746,12 +570,12 @@
         {
           className: "usage-s1",
           label: "Read",
-          value: (item) => (item.disk ? item.disk.read : null),
+          value: (item) => item.disk_read,
         },
         {
           className: "usage-s2 dashed",
           label: "Write",
-          value: (item) => (item.disk ? item.disk.write : null),
+          value: (item) => item.disk_write,
         },
       ],
       format: perSecond,
@@ -767,12 +591,12 @@
         {
           className: "usage-s1",
           label: "In",
-          value: (item) => (item.network ? item.network.rx : null),
+          value: (item) => item.network_in,
         },
         {
           className: "usage-s2 dashed",
           label: "Out",
-          value: (item) => (item.network ? item.network.tx : null),
+          value: (item) => item.network_out,
         },
       ],
       format: perSecond,
@@ -844,11 +668,12 @@
     return node;
   }
 
-  function drawWorkloads(host, machine, last) {
+  function drawWorkloads(host, history) {
+    const machine = history.latest;
     const body = element("workload-rows");
     body.replaceChildren();
     const held = slots.get(host) || new Map();
-    const loads = last ? Array.from(last.workloads.entries()) : [];
+    const loads = history.workloads.map((load) => [load.key, load]);
     loads.sort((a, b) => {
       const byCpu = (b[1].cpu || 0) - (a[1].cpu || 0);
       return byCpu !== 0 ? byCpu : (b[1].memory || 0) - (a[1].memory || 0);
@@ -870,10 +695,10 @@
         cell(kind),
         cpu,
         cell(bytes(load.memory), "num"),
-        cell(perSecond(load.diskRead), "num"),
-        cell(perSecond(load.diskWrite), "num"),
-        cell(perSecond(load.netIn), "num"),
-        cell(perSecond(load.netOut), "num"),
+        cell(perSecond(load.disk_read), "num"),
+        cell(perSecond(load.disk_write), "num"),
+        cell(perSecond(load.network_in), "num"),
+        cell(perSecond(load.network_out), "num"),
       ]);
     });
     if (!loads.length) {
@@ -929,19 +754,20 @@
     });
   }
 
-  function drawDisks(node, last) {
+  function drawDisks(node, history) {
     const body = element("disk-rows");
     body.replaceChildren();
-    const rates = new Map(
-      last && last.disk ? last.disk.devices.map((disk) => [disk.device, disk]) : []
-    );
+    const rates = new Map(history.disks.map((disk) => [disk.device, disk]));
     node.disks.forEach((disk) => {
       const now = rates.get(disk.device) || {};
       row(body, [
         cell(disk.device),
         cell(perSecond(now.read), "num"),
         cell(perSecond(now.write), "num"),
-        cell(percent(now.busy === undefined ? null : Math.min(now.busy, 1)), "num"),
+        cell(
+          percent(now.busy === undefined || now.busy === null ? null : Math.min(now.busy, 1)),
+          "num"
+        ),
       ]);
     });
   }
@@ -953,29 +779,25 @@
     loopback: "Loopback",
   };
 
-  function drawInterfaces(node, last) {
+  function drawInterfaces(node, history) {
     const body = element("interface-rows");
     body.replaceChildren();
     const all = element("show-all-interfaces").checked;
-    const rates = new Map(
-      last && last.network
-        ? last.network.links.map((link) => [link.device, link])
-        : []
-    );
+    const rates = new Map(history.interfaces.map((link) => [link.device, link]));
     node.interfaces
       .filter((link) => all || link.kind === "physical")
       .forEach((link) => {
         const now = rates.get(link.device) || {};
-        const busiest = Math.max(now.rx || 0, now.tx || 0);
+        const busiest = Math.max(now.receive || 0, now.transmit || 0);
         row(body, [
           cell(link.device),
           cell(KINDS[link.kind] || link.kind),
           cell(link.operstate || "–"),
           cell(link.speed_bytes ? `${formatBits(link.speed_bytes)}` : "–", "num"),
-          cell(perSecond(now.rx), "num"),
-          cell(perSecond(now.tx), "num"),
+          cell(perSecond(now.receive), "num"),
+          cell(perSecond(now.transmit), "num"),
           cell(
-            link.speed_bytes && now.rx !== undefined
+            link.speed_bytes && now.receive !== undefined && now.receive !== null
               ? percent(busiest / link.speed_bytes)
               : "–",
             "num"
@@ -1025,7 +847,8 @@
     if (!latest) {
       return;
     }
-    const machine = latest.machines.find((item) => item.host === selected);
+    const history = machines.get(selected);
+    const machine = history ? history.latest : null;
     element("machine-loading").hidden = true;
     const blocked = element("machine-blocked");
     const body = element("machine-body");
@@ -1040,7 +863,7 @@
       blocked.textContent =
         `${machine.host} (${machine.address}): node_exporter did not answer` +
         (machine.node_reach.error ? `: ${machine.node_reach.error}.` : ".") +
-        " The page reads it again every five seconds.";
+        " It is read again every five seconds.";
       blocked.hidden = false;
       body.hidden = true;
       element("machine-lead").textContent = "";
@@ -1049,10 +872,9 @@
     blocked.hidden = true;
     body.hidden = false;
 
-    const points = pointsOf(machine.host);
-    const last = points[points.length - 1];
+    const held = pointsOf(machine.host);
+    const last = held[held.length - 1];
     assignSlots(machine.host, last);
-    const now = Date.now();
 
     const cpus = node.housekeeping.cpus + node.isolated.cpus;
     const lead = [
@@ -1071,7 +893,9 @@
     stats.replaceChildren();
     const cpu = last && last.cpu;
     if (cpu) {
-      const share = cpu.housekeepingCpus ? cpu.housekeeping / cpu.housekeepingCpus : null;
+      const share = cpu.housekeeping_cpus
+        ? cpu.housekeeping / cpu.housekeeping_cpus
+        : null;
       stats.append(
         stat(
           node.isolated.cpus ? "Housekeeping CPUs" : "CPU",
@@ -1081,7 +905,7 @@
       );
       if (node.isolated.cpus) {
         stats.append(
-          stat("Isolated CPUs", percent(cpu.isolated / cpu.isolatedCpus))
+          stat("Isolated CPUs", percent(cpu.isolated / cpu.isolated_cpus))
         );
       }
     }
@@ -1092,23 +916,29 @@
         stat("Memory used", percent(share), share >= 0.9 ? "warn" : null)
       );
     }
-    if (last && last.disk) {
+    if (last && last.disk_read !== null) {
       stats.append(
-        stat("Disk read / write", `${perSecond(last.disk.read)} / ${perSecond(last.disk.write)}`)
+        stat(
+          "Disk read / write",
+          `${perSecond(last.disk_read)} / ${perSecond(last.disk_write)}`
+        )
       );
     }
-    if (last && last.network) {
+    if (last && last.network_in !== null) {
       stats.append(
-        stat("Network in / out", `${perSecond(last.network.rx)} / ${perSecond(last.network.tx)}`)
+        stat(
+          "Network in / out",
+          `${perSecond(last.network_in)} / ${perSecond(last.network_out)}`
+        )
       );
     }
     element("machine-waiting").hidden = Boolean(cpu);
 
-    drawCharts(machine.host, points, now);
-    drawWorkloads(machine.host, machine, last);
+    drawCharts(machine.host, held, serverNow);
+    drawWorkloads(machine.host, history);
     drawFilesystems(node);
-    drawDisks(node, last);
-    drawInterfaces(node, last);
+    drawDisks(node, history);
+    drawInterfaces(node, history);
     drawReach(machine);
   }
 
@@ -1124,12 +954,13 @@
 
   // The bar
 
-  function summary(machine) {
+  function summary(history) {
+    const machine = history.latest;
     if (!machine.node) {
       return ["error", `No answer: ${machine.node_reach.error || "node_exporter is down"}`];
     }
-    const points = pointsOf(machine.host);
-    const last = points[points.length - 1];
+    const held = pointsOf(machine.host);
+    const last = held[held.length - 1];
     const parts = [];
     if (last && last.cpu) {
       parts.push(`CPU ${percent(last.cpu.busy / last.cpu.cpus)}`);
@@ -1197,21 +1028,37 @@
 
   // Reading
 
-  function remember(view) {
-    const received = Date.now();
+  // What an answer adds: the points after the last one held, appended, and
+  // the ones that left the window dropped. The first answer, and the first
+  // after a reload, carries the whole window.
+  function merge(view) {
+    serverNow = view.now * 1000;
+    windowMs = view.window_seconds * 1000;
+    gapMs = view.period_seconds * 1000 * 3;
+    const present = new Set();
     view.machines.forEach((machine) => {
-      const list = readings.get(machine.host) || [];
-      list.push({ received, machine });
-      while (list.length && received - list[0].received > WINDOW_MS + PERIOD_MS) {
+      present.add(machine.host);
+      machines.set(machine.host, machine);
+      const list = points.get(machine.host) || [];
+      machine.points.forEach((raw) => {
+        const item = adopt(raw);
+        if (!list.length || item.x > list[list.length - 1].x) {
+          list.push(item);
+        }
+        if (lastAt === null || raw.at > lastAt) {
+          lastAt = raw.at;
+        }
+      });
+      while (list.length && list[0].x < serverNow - windowMs) {
         list.shift();
       }
-      readings.set(machine.host, list);
+      points.set(machine.host, list);
     });
-    // A machine taken out of the inventory takes its history with it.
-    const present = new Set(view.machines.map((machine) => machine.host));
-    Array.from(readings.keys()).forEach((host) => {
+    // A machine taken out of the inventory takes its minutes with it.
+    Array.from(machines.keys()).forEach((host) => {
       if (!present.has(host)) {
-        readings.delete(host);
+        machines.delete(host);
+        points.delete(host);
         slots.delete(host);
       }
     });
@@ -1223,7 +1070,9 @@
     }
     inFlight = true;
     try {
-      const view = await API.get("/usage");
+      const view = await API.get(
+        lastAt === null ? "/usage" : `/usage?since=${encodeURIComponent(lastAt)}`
+      );
       showBanner("");
       latest = view;
       if (!view.machines.length) {
@@ -1233,14 +1082,17 @@
         blocked.hidden = false;
         return;
       }
-      remember(view);
+      merge(view);
       if (!view.machines.some((machine) => machine.host === selected)) {
         const here = view.machines.find((machine) => machine.host === view.this_host);
         selected = (here || view.machines[0]).host;
       }
       drawViews();
       drawMachine();
-      element("clock").textContent = `Read at ${new Date().toLocaleTimeString()}`;
+      const taken = lastAt === null ? null : new Date(lastAt * 1000);
+      element("clock").textContent = taken
+        ? `Read at ${taken.toLocaleTimeString()}`
+        : "";
     } catch (error) {
       // The charts keep what was read before, which is the honest thing to
       // show, and say here that the reading stopped.
@@ -1277,7 +1129,8 @@
     }
   });
 
-  // A tab nobody is looking at asks nothing of the machines.
+  // A tab nobody is looking at asks nothing. The service goes on reading for
+  // as long as somebody uses it, and coming back fetches what it read.
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
       stop();

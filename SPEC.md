@@ -134,10 +134,9 @@ Proxmox clone:
 
   The Usage page moves the line by one step, and D67 says where. It draws
   rates over the last five minutes, per machine and per guest and container,
-  from two readings of those same expositions, and the first of each pair is
-  remembered by the browser that asked for both. This service still keeps
-  nothing, and history past those five minutes and alerting stay in
-  Prometheus.
+  from pairs of readings of those same expositions. This service keeps those
+  five minutes in memory, and reads only while somebody signed in is using
+  it. History past them and alerting stay in Prometheus.
 
 ### Deliberately deferred
 
