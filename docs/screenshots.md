@@ -35,22 +35,29 @@ Real time and Cluster are application layouts (D28): the shell is the viewport
 and one panel is on screen at a time, so a full-page capture would only grab
 the first panel. Switch the tab, then clip to the visible card's real bottom.
 Cluster's three views, `members`, `resources` and `storage`, are
-`8-cluster-membership.png`, `9-cluster-resources.png` and
-`10-cluster-storage.png`. The five views of Real time, in the tab order, which
+`9-cluster-membership.png`, `10-cluster-resources.png` and
+`11-cluster-storage.png`. The five views of Real time, in the tab order, which
 is also the file numbering:
 
 | `data-view`        | file                              |
 | ------------------ | --------------------------------- |
-| `checks`           | `13-1-realtime-conformance.png`   |
-| `pool`             | `13-2-realtime-cpu-pool.png`      |
-| `cyclictest`       | `13-3-realtime-latency.png`       |
-| `guest_cyclictest` | `13-4-realtime-guest-latency.png` |
-| `hwlatdetect`      | `13-5-realtime-firmware.png`      |
+| `checks`           | `15-1-realtime-conformance.png`   |
+| `pool`             | `15-2-realtime-cpu-pool.png`      |
+| `cyclictest`       | `15-3-realtime-latency.png`       |
+| `guest_cyclictest` | `15-4-realtime-guest-latency.png` |
+| `hwlatdetect`      | `15-5-realtime-firmware.png`      |
 
 When a view or a page is added or renamed, keep the file numbers following the
 tab order, and update the README captions and this table together. The pages
 follow the top bar: Node 1, Inventory 2, Deployment 3 to 5, VMs 6, Containers
-7, Cluster 8 to 10, Backup 11, Updates 12, Real time 13, Runs 14.
+7, Usage 8, Cluster 9 to 11, Logs 12, Backup 13, Updates 14, Real time 15,
+Runs 16.
+
+An image can only show what the demo cluster holds. The Latency and Firmware
+views show a measurement run from the node serving the page, and the package
+list shows a machine with an upgrade pending: when the cluster has none, keep
+the previous image rather than committing an empty view, and say so in the
+commit.
 
 ## The script
 
@@ -66,11 +73,11 @@ const GATE = { username: process.env.GATE_USER, password: process.env.GATE_PASS 
 const APP_USER = process.env.APP_USER, APP_PASS = process.env.APP_PASS;
 
 const VIEWS = [
-  ['checks', '13-1-realtime-conformance'],
-  ['pool', '13-2-realtime-cpu-pool'],
-  ['cyclictest', '13-3-realtime-latency'],
-  ['guest_cyclictest', '13-4-realtime-guest-latency'],
-  ['hwlatdetect', '13-5-realtime-firmware'],
+  ['checks', '15-1-realtime-conformance'],
+  ['pool', '15-2-realtime-cpu-pool'],
+  ['cyclictest', '15-3-realtime-latency'],
+  ['guest_cyclictest', '15-4-realtime-guest-latency'],
+  ['hwlatdetect', '15-5-realtime-firmware'],
 ];
 
 (async () => {
@@ -117,14 +124,20 @@ not need the per-view clip. Clip them to the bottom of `footer.footer` plus
 the image. Select it by its class: the Node page has a `<footer>` of its own
 inside a card. The Node page is served at the root, `BASE + '/'`.
 
-`12-updates.png` is the Updates page as the last check left it; no check is
-launched for it. `12-1-updates-packages.png` has `node1`'s count clicked open,
+`14-updates.png` is the Updates page as the last check left it; no check is
+launched for it. `14-1-updates-packages.png` has `node1`'s count clicked open,
 scrolled back to the top, and is clipped 16 rows into the package list rather
 than to the footer, since a list of a hundred packages says nothing more than
 its first rows do. Scroll back to the top before the capture: a full-page shot
 taken while scrolled paints the sticky top bar in the middle of the image.
 
-`14-runs.png` and `14-1-runs-results.png` show the `backup_full` run, opened
+`8-usage.png` is captured once the charts hold their five minutes, which they
+do on arrival while somebody has used the service in the last quarter hour.
+`12-logs.png` is the Logs page with the `cluster` scope over the last six
+hours, read with **Read**, and clipped 25 rows into the entries rather than to
+the footer, for the reason the package list is.
+
+`16-runs.png` and `16-1-runs-results.png` show the `backup_full` run, opened
 with `runs?run=<id>`; the second has the per host table unfolded by a click on
 `#hosts-summary`.
 
@@ -144,8 +157,8 @@ shows at both sides.
 | `6-2-vm-run.png`               | VMs, then `RunWatch.open("<id>")` from `page.evaluate`, with the id of a finished `deploy_vms_cluster` run from `GET api/v1/runs`, and 8 s for the stream to replay. |
 | `7-1-add-container.png`        | Containers, `#add`, empty. Close with Cancel. |
 | `7-2-container-quadlet.png`    | Containers, the first `.quadlet-open` link. |
-| `11-1-backup-list.png`         | Backup, **Show the backups**, once `#catalogue-table` is shown. A read over SSH, no run. Never press Restore. |
-| `14-2-runs-time.png`           | Runs, `runs?run=<id>` of the same finished `deploy_vms_cluster` run, then **Where the time went**. |
+| `13-1-backup-list.png`         | Backup, **Show the backups**, once `#catalogue-table` is shown. A read over SSH, no run. Never press Restore. |
+| `16-2-runs-time.png`           | Runs, `runs?run=<id>` of the same finished `deploy_vms_cluster` run, then **Where the time went**. |
 
 The run window replays a run that already happened, so no playbook is launched
 to take this picture: these are live substation hypervisors.

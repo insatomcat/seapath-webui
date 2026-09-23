@@ -49,7 +49,11 @@ the UI runs is what the CI tests.
 **Node** describes what the machine is. The hostname and the distribution, the
 isolated and housekeeping CPUs as the kernel command line and `sysfs` report
 them, the disks under the stable `by-path` name Ceph wants, and the interfaces.
-It is read only, and the console button opens a shell on the `ansible` account
+It reads, and offers two acts. **Reboot this machine** is an administrator's: a
+run of one task that schedules the reboot a few seconds after the run ends, the
+way an update reboots this machine, so the run records its status before the
+machine goes down, and the confirmation says where the guests go. The console
+button opens a shell on the `ansible` account
 for the times a page is not enough, on this machine or on any other machine or
 guest of the inventory a run reaches over SSH. That account may run `/bin/sh`
 as root with no password, the rule Ansible's escalation uses, so `sudo sh` in a
@@ -150,7 +154,9 @@ and the column stays away. The node it runs on says in its
 colour what holds it there: blue where nothing does and the cluster placed it,
 green where a constraint holds it exactly where its inventory entry declares,
 amber where the cluster and the inventory disagree, with the whole sentence on
-hover. The address a run reaches it at
+hover. A Specs column gives its size, the vCPUs, the memory and the disks
+summed, each disk on hover, as `libvirt-exporter` reports the running domain,
+so a guest that is shut off shows no disk. The address a run reaches it at
 sits beside them, with whether the entry carries a cloud-init seed and a
 **Console** button for a shell inside the guest at that address. **Serial
 console** is for the guest that no longer answers there: it runs
@@ -248,6 +254,17 @@ reads the image before and after and says what moved. Applying a change stops th
 rebuilds its Pacemaker resource, so it is a second button that names the outage
 and appears only when something did move.
 
+A standalone guest has no RBD image and so no metadata. Its row offers its
+libvirt domain and its pinning profile instead. The profile is
+`vm_pinning_profile` on its inventory entry, committed like any edit and put
+on the machine by a run of the two tasks `deploy_vms_standalone` writes it
+with. The domain has no path through the inventory, since the role skips a
+guest libvirt already has: the window reads `virsh dumpxml --inactive` over the
+SSH path a run takes, checks the edit keeps the name and UUID libvirt holds,
+and defines it with a run of `community.libvirt.virt`. Both are read when the
+guest starts from shut off, so saving either asks once whether to shut the
+guest down and start it, and one run does all of it. See D66.
+
 Starting and stopping a guest are there too, one button per row, offered as
 whichever of the two would change something. Each is a run: one task calling
 the upstream module, over the SSH path a convergence uses, under the same lock
@@ -316,7 +333,22 @@ on one member and starts on the other.
 
 ![A quadlet opened from its row: where it is uploaded, where the inventory keeps it, and the file podman reads](img/7-2-container-quadlet.png)
 
-![The Cluster page, Membership: quorum, votes and fencing, over the nodes and the machines asked](img/8-cluster-membership.png)
+![The Usage page: one card per machine, then the selected machine's CPU and memory stacked by workload, its disk and port traffic, and what each guest and container consumes](img/8-usage.png)
+
+**Usage** says how busy each machine is and which guest or container is making
+it so. A card per machine of the inventory carries its CPU, memory and what it
+runs, and the machine selected below it gets five minutes of charts: CPU and
+memory stacked by workload, with the isolated and housekeeping CPUs summed
+apart, then disk and physical port traffic. Under them sit a table of what
+each guest and container consumes, the file systems, the disks and the
+interfaces. It is read from `node_exporter`, `libvirt-exporter` and
+`prometheus-podman-exporter`, which the monitoring playbook already installs on
+every machine. The service reads them every five seconds and keeps the last
+five minutes in memory, and only while somebody signed in has used it in the
+last fifteen minutes, so a page opened late starts full and two operators cost
+the machines one reading. History and alerting stay Prometheus's. See D67.
+
+![The Cluster page, Membership: quorum, votes and fencing, over the nodes and the machines asked](img/9-cluster-membership.png)
 
 **Cluster** is what the machines are doing right now, which is the one question
 the other pages cannot answer: which node that VM is on, whether the cluster
@@ -358,11 +390,24 @@ them writes a file on a host or touches the inventory. Evicting an OSD is not
 offered, for the reason `docs/ceph.md` gives, and adding a machine or a disk
 stays an inventory change and a run.
 
-![The Cluster page, Resources: one row per Pacemaker resource, with Refresh, Move and Return](img/9-cluster-resources.png)
+![The Cluster page, Resources: one row per Pacemaker resource, with Refresh, Move and Return](img/10-cluster-resources.png)
 
-![The Cluster page, Storage: Ceph health and capacity, over the monitors, the managers and the OSDs](img/10-cluster-storage.png)
+![The Cluster page, Storage: Ceph health and capacity, over the monitors, the managers and the OSDs](img/11-cluster-storage.png)
 
-![The Backup page: where the backups go and whether a full one fits, the staging directories on the member that runs them, and what a full backup would weigh](img/11-backup.png)
+![The Logs page: the scope, the window and the machines to ask, over the journal entries of every machine interleaved by their own timestamps](img/12-logs.png)
+
+**Logs** reads the journal of every machine of the inventory at once, over the
+SSH connection a run makes, and interleaves what they printed by their own
+timestamps, which the cluster's PTP clocks make meaningful. A scope picks a
+subsystem, the guests and their placement, membership, Ceph, time, the kernel,
+logins, this service, or everything, and a Units field takes unit names or
+globs in its place, since a Ceph daemon carries the cluster's identifier in its
+unit name. A pattern narrows either. Every query carries a match on a journal
+field, which is what keeps a reading to milliseconds on a journal of hundreds
+of megabytes. Nothing is stored and nothing is installed: a site that needs
+the journal of a machine that is gone still sends it to a collector. See D63.
+
+![The Backup page: where the backups go and whether a full one fits, the staging directories on the member that runs them, and what a full backup would weigh](img/13-backup.png)
 
 **Backup** is the `backup_restore` role of the collection, which upstream is
 four scripts and a whiptail menu on every machine. The scripts are kept, and the
@@ -403,7 +448,7 @@ the members' keys to the server's `authorized_keys` with the account's password
 typed once, neither stored nor logged. That append is the one write this
 service makes on a machine outside the inventory. See D57.
 
-![Show the backups: what the backup server holds, one row per full backup and guest, with the dates each can be restored to](img/11-1-backup-list.png)
+![Show the backups: what the backup server holds, one row per full backup and guest, with the dates each can be restored to](img/13-1-backup-list.png)
 
 **Show the backups** asks the server what it holds, over one SSH connection
 through the member, and opens the listing in a window that says when it was
@@ -413,7 +458,7 @@ about to be replaced and the date its changes are replayed up to, and the
 restore is a run of `restore_vm.sh`, which recreates the guest with
 `vm-mgr create --force`. See D54.
 
-![The Updates page: one row per machine of the inventory, its kernel, what an upgrade would bring and its last update, under the date of the check](img/12-updates.png)
+![The Updates page: one row per machine of the inventory, its kernel, what an upgrade would bring and its last update, under the date of the check](img/14-updates.png)
 
 **Updates** says what an upgrade would bring to each machine and runs it.
 **Check for updates** is a run that refreshes the package lists and asks apt to
@@ -424,7 +469,7 @@ was last updated and how that run ended. The page draws the last check with its
 date and author, and marks a machine updated since then rather than listing
 packages it already has.
 
-![What is pending on one machine, opened under the table: each package, the version installed, the version the upgrade brings and the repository it comes from](img/12-1-updates-packages.png)
+![What is pending on one machine, opened under the table: each package, the version installed, the version the upgrade brings and the repository it comes from](img/14-1-updates-packages.png)
 
 The count in a row opens the packages behind it. **Update the selected
 machines** sends the upstream `seapath_update_debian` playbook to the machines
@@ -439,7 +484,7 @@ finishes the update itself once its new system is up. With a
 collection whose playbook still finishes on the controller, the page offers it
 only from another member. See D59, D60 and D61.
 
-![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/13-1-realtime-conformance.png)
+![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/15-1-realtime-conformance.png)
 
 **Real time** answers whether the machines came out of a convergence with the
 tuning they were told to have. One row per check, one column per machine: each
@@ -477,8 +522,13 @@ guest, interrupt, container or shared slot. `seapath-alloc` computes that on
 each host and publishes it, and this container could not compute it if it
 wanted to, since occupancy is the affinity of every QEMU thread in `/proc`.
 Asking the exporter is the opposite of holding a second source of truth for it.
+Under each machine sits the allocation strategy `seapath-alloc` hands out
+isolated CPUs with, spreading, packing or repacking, and where it is set. An
+administrator changes it there: the value is committed on that machine's entry
+and the alloc playbook runs on that machine alone, and what is already pinned
+stays in place.
 
-![The Real time page, CPU pool: one column per physical core and one cell per thread, on every machine the inventory declares](img/13-2-realtime-cpu-pool.png)
+![The Real time page, CPU pool: one column per physical core and one cell per thread, on every machine the inventory declares](img/15-2-realtime-cpu-pool.png)
 
 It is the one page laid out as an application rather than as a document. Five
 views, Conformance, CPU pool, Latency, Guest latency and Firmware, and a bar of
@@ -489,9 +539,9 @@ forty-eight threads need. Every reading is fetched before the first tab is
 drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
 [docs/decisions.md](docs/decisions.md).
 
-![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/13-3-realtime-latency.png)
+![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/15-3-realtime-latency.png)
 
-![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/13-5-realtime-firmware.png)
+![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/15-5-realtime-firmware.png)
 
 Latency and Firmware carry a form, which the other two views have no use for.
 Reading what a machine publishes costs one HTTP GET; a measurement asks the
@@ -523,9 +573,9 @@ packages are written into its cloud-init seed, which the upstream role builds
 and the guest applies on its first boot. See D41 and D48 in
 [docs/decisions.md](docs/decisions.md).
 
-![The Real time page, Guest latency: what cyclictest measured inside one guest, over the form and this node's public key that make a guest measurable](img/13-4-realtime-guest-latency.png)
+![The Real time page, Guest latency: what cyclictest measured inside one guest, over the form and this node's public key that make a guest measurable](img/15-4-realtime-guest-latency.png)
 
-![The Runs page: the history on the left, one run and its task stream on the right](img/14-runs.png)
+![The Runs page: the history on the left, one run and its task stream on the right](img/16-runs.png)
 
 **Runs** is what happened. Every run keeps the playbook, who launched it, the
 inventory commit it ran against and the exact `ansible-playbook` command, so a
@@ -533,9 +583,17 @@ run can be read months later or replayed from a control machine. The event
 stream becomes the per host recap Ansible prints at the end, the task stream as
 it arrives, and where the time went. The log is downloadable whole.
 
-![The per host recap Ansible prints at the end, opened under the run](img/14-1-runs-results.png)
+![The per host recap Ansible prints at the end, opened under the run](img/16-1-runs-results.png)
 
-![Where the time went: the tasks of a run, ordered by the seconds each took](img/14-2-runs-time.png)
+![Where the time went: the tasks of a run, ordered by the seconds each took](img/16-2-runs-time.png)
+
+The top bar names the machine serving the page, whether it is a cluster
+member, and what the inventory describes, since one machine can hold and apply
+the inventory of a cluster it is not part of. An inventory that describes no
+cluster drops Cluster and Backup from the menu. An administrator also finds a
+version button there: it asks the registry for a newer seapath-webui when a
+session opens and on each click, and when there is one, a click pins it in the
+inventory and launches the playbook that deploys it.
 
 Every page is drawn in the palette the operator's system asks for, and the
 switch in the top bar overrides it in either direction or hands the choice
