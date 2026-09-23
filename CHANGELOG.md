@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.180 - 2026-09-23
+
+- feat: reboot this machine from the Node page
+- fix: widen the VMs page so the guest table's last buttons show
+- docs: reshoot the README, with the Usage and Logs pages
+
 ## 0.3.179 - 2026-09-23
 
 - feat: keep the Usage page's five minutes in the service
