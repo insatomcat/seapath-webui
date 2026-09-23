@@ -1697,6 +1697,54 @@ def test_a_standalone_guest_carries_what_libvirt_says_about_it(
     assert guests["ABBICT"]["domain"]["vcpus"] == 2
 
 
+def test_a_guest_carries_its_memory_and_the_size_of_its_disks(
+    signed_in: TestClient,
+) -> None:
+    # What the table sums into one cell: the vCPUs, the memory libvirt lets it
+    # have, and the capacity of each disk the guest sees.
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["ABBICT"]["domain"]["maximum_memory_bytes"] == 8274313216
+    assert guests["ABBICT"]["domain"]["disks"] == [
+        {"device": "vda", "capacity_bytes": 96636764160}
+    ]
+
+
+def test_a_cdrom_drive_is_not_counted_as_a_disk(signed_in: TestClient) -> None:
+    # The capacity series reports EITCS's empty `sda` drive with the size of
+    # its disk. Counting it would double the guest's storage.
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert [disk["device"] for disk in guests["EITCS"]["domain"]["disks"]] == ["vda"]
+
+
+def test_a_domain_that_is_shut_off_publishes_no_disk(signed_in: TestClient) -> None:
+    # The exporter reads block information on running domains only.
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    domains = {
+        domain["name"]: domain
+        for domain in signed_in.get("/api/v1/vms").json()["undeclared_domains"]
+    }
+
+    assert domains["VMUADMIN"]["vcpus"] == 2
+    assert domains["VMUADMIN"]["disks"] == []
+
+
 def test_a_domain_that_is_shut_off_is_told_from_one_nothing_reported(
     signed_in: TestClient,
 ) -> None:

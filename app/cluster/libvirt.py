@@ -37,6 +37,8 @@ _STATE = "libvirt_domain_info_state"
 _INFO = "libvirt_domain_info"
 _MEMORY = "libvirt_domain_info_maximum_memory_bytes"
 _VCPUS = "libvirt_domain_info_virtual_cpus"
+_DISK = "libvirt_domain_block_stats_info"
+_CAPACITY = "libvirt_domain_block_stats_capacity_bytes"
 _UP = "libvirt_up"
 
 # libvirt's own domain state codes, which the exporter publishes as the value
@@ -64,6 +66,15 @@ _STATES = {
 _RUNNING = frozenset({1, 2})
 
 
+class LibvirtDisk(BaseModel):
+    """One disk of a domain, by the device name the guest sees."""
+
+    device: str
+    """`vda`, `sda` and their family, the domain's `<target dev>`."""
+    capacity_bytes: int
+    """The size the guest sees, whatever the image occupies underneath."""
+
+
 class LibvirtDomain(BaseModel):
     """One domain, as the machine running it describes it."""
 
@@ -79,6 +90,12 @@ class LibvirtDomain(BaseModel):
     vcpus: int | None = None
     machine_type: str | None = None
     """`pc-q35-10.0` and its family, from the domain's `os_type_machine`."""
+    disks: list[LibvirtDisk] = Field(default_factory=list)
+    """Its disks, empty for a domain that is not running.
+
+    The exporter asks libvirt for block information on active domains only,
+    so a guest that is shut off publishes its vCPUs and memory and no disk.
+    """
 
 
 class LibvirtReading(BaseModel):
@@ -130,6 +147,7 @@ def reporting(exposition: Exposition) -> bool:
 def _domains(series: dict[str, list[metrics.Sample]], host: str) -> list[LibvirtDomain]:
     memory = _by_domain(series.get(_MEMORY, []))
     vcpus = _by_domain(series.get(_VCPUS, []))
+    disks = _disks(series)
     machines = {
         sample.labels.get("domain", ""): sample.labels.get("os_type_machine", "")
         for sample in series.get(_INFO, [])
@@ -151,9 +169,35 @@ def _domains(series: dict[str, list[metrics.Sample]], host: str) -> list[Libvirt
                 maximum_memory_bytes=_whole(memory.get(name)),
                 vcpus=_whole(vcpus.get(name)),
                 machine_type=machines.get(name) or None,
+                disks=disks.get(name, []),
             )
         )
     return sorted(found, key=lambda domain: domain.name)
+
+
+def _disks(series: dict[str, list[metrics.Sample]]) -> dict[str, list[LibvirtDisk]]:
+    """The capacity of every disk, by domain, CD-ROM drives left out.
+
+    The capacity series covers every block device, and a CD-ROM drive is one:
+    it reports the ISO it holds, and an empty drive repeats the capacity of
+    the device read before it. The metadata series lists the disks alone, so
+    it is what says which capacities are a disk the guest owns.
+    """
+    listed = {
+        (sample.labels.get("domain", ""), sample.labels.get("target_device", ""))
+        for sample in series.get(_DISK, [])
+    }
+    found: dict[str, list[LibvirtDisk]] = {}
+    for sample in series.get(_CAPACITY, []):
+        key = (sample.labels.get("domain", ""), sample.labels.get("target_device", ""))
+        if all(key) and key in listed:
+            found.setdefault(key[0], []).append(
+                LibvirtDisk(device=key[1], capacity_bytes=int(sample.value))
+            )
+    return {
+        name: sorted(items, key=lambda disk: disk.device)
+        for name, items in found.items()
+    }
 
 
 def _by_domain(samples: list[metrics.Sample]) -> dict[str, float]:

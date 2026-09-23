@@ -3401,6 +3401,13 @@ td.meta-key code.reserved {
   font-style: italic;
 }
 
+/* A guest's size on one line, so the three figures read as one phrase rather
+   than stacking in a narrow column. */
+.vms td.specs {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* VMs. Two tables, and the wide one carries a badge that reads as a sentence.
    In the 62rem column a single page gives, that sentence broke after every
    second word, Move and Return broke onto two lines, three rows were four

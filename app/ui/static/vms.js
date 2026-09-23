@@ -180,6 +180,54 @@
     return node;
   }
 
+  // Binary units, as libvirt and `qemu-img` print them: a disk created as
+  // 50G reads back as 50 GiB rather than 53.7 GB.
+  function bytes(value) {
+    const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+    let index = 0;
+    let scaled = value;
+    while (scaled >= 1024 && index < units.length - 1) {
+      scaled /= 1024;
+      index += 1;
+    }
+    const digits = scaled >= 100 || Number.isInteger(scaled) || index === 0 ? 0 : 1;
+    return scaled.toFixed(digits) + " " + units[index];
+  }
+
+  // What the domain is sized at, as the machine running it reports it: the
+  // vCPUs, the memory, and the disks summed, each disk on hover. Nothing for
+  // a guest no machine reports, and no disk for one that is shut off, whose
+  // block devices the exporter does not read.
+  function specsCell(domain) {
+    const node = document.createElement("td");
+    if (!domain) {
+      return node;
+    }
+    const parts = [];
+    if (domain.vcpus) {
+      parts.push(domain.vcpus + " vCPU");
+    }
+    if (domain.maximum_memory_bytes) {
+      parts.push(bytes(domain.maximum_memory_bytes));
+    }
+    const disks = domain.disks || [];
+    if (disks.length) {
+      const total = disks.reduce((sum, disk) => sum + disk.capacity_bytes, 0);
+      parts.push(bytes(total));
+    }
+    node.textContent = parts.join(" · ");
+    node.className = "specs";
+    node.title =
+      (disks.length
+        ? "Disks: " +
+          disks.map((disk) => disk.device + " " + bytes(disk.capacity_bytes)).join(", ")
+        : domain.running
+          ? "No disk reported."
+          : "The disks of a guest that is not running are not reported.") +
+      "\nRead from libvirt-exporter on " + domain.host + ".";
+    return node;
+  }
+
   // The address the entry gives the guest, and where that address comes from.
   // Read off the inventory: a guest publishes no exporter, so what it is
   // answering on right now is not something this page knows, and the cell
@@ -1336,6 +1384,7 @@
         state(guest),
         nodeCell(guest),
         addressCell(guest),
+        specsCell(guest.domain),
         ...(creation ? [creationCell(guest)] : []),
         acts(guest),
         placement(guest),
@@ -1398,8 +1447,15 @@
     // A domain a machine runs and no inventory declares, on a machine
     // Pacemaker does not answer for. Same finding, other reading.
     domains.forEach((domain) => {
+      // Its size on hover rather than in a column: this table sits in the
+      // narrow column, where one more cell pushes the buttons out of view.
+      const name = cell(domain.name);
+      const specs = specsCell(domain);
+      if (specs.textContent) {
+        name.title = specs.textContent + "\n" + specs.title;
+      }
       row(rows, [
-        cell(domain.name),
+        name,
         cell(domain.host),
         // No role: a role is what Pacemaker gives a resource, and nothing
         // holds one for this domain. Its state is libvirt's, in the same

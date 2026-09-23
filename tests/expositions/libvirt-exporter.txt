@@ -7,6 +7,13 @@
 # machine runs and the inventory does not declare, which is the guest most
 # likely to need stopping. And it is shut off, which is a state the page has to
 # tell apart from a guest nothing reported.
+#
+# The capacities and the metadata lines of every domain but ABBICT and EITCS
+# were read from the same machine
+# later, on 2026-09-23. A third fact is in them: `sda` and `sdb` are CD-ROM
+# drives, which the capacity series reports and the metadata series does not.
+# EITCS's and EITDeb13's `sda` are empty drives, and repeat the capacity of
+# the disk read before them. VMUADMIN, shut off, publishes no capacity.
 # HELP libvirt_up Whether scraping libvirt's metrics was successful.
 # TYPE libvirt_up gauge
 libvirt_up 1
@@ -53,10 +60,28 @@ libvirt_domain_info_virtual_cpus{domain="EITCS"} 2
 libvirt_domain_info_virtual_cpus{domain="EITDeb13"} 2
 libvirt_domain_info_virtual_cpus{domain="PODEV"} 3
 libvirt_domain_info_virtual_cpus{domain="VMUADMIN"} 2
+# HELP libvirt_domain_block_stats_capacity_bytes Logical size in bytes of the block device	backing image.
+# TYPE libvirt_domain_block_stats_capacity_bytes gauge
+libvirt_domain_block_stats_capacity_bytes{domain="ABBICT",target_device="vda"} 9.663676416e+10
+libvirt_domain_block_stats_capacity_bytes{domain="ABBICT2",target_device="vda"} 9.663676416e+10
+libvirt_domain_block_stats_capacity_bytes{domain="ABBICT3",target_device="vda"} 9.663676416e+10
+libvirt_domain_block_stats_capacity_bytes{domain="ABBICT4",target_device="sda"} 5.061216256e+09
+libvirt_domain_block_stats_capacity_bytes{domain="ABBICT4",target_device="sdb"} 7.89645312e+08
+libvirt_domain_block_stats_capacity_bytes{domain="ABBICT4",target_device="vda"} 1.073741824e+11
+libvirt_domain_block_stats_capacity_bytes{domain="EITCS",target_device="sda"} 5.36870912e+10
+libvirt_domain_block_stats_capacity_bytes{domain="EITCS",target_device="vda"} 5.36870912e+10
+libvirt_domain_block_stats_capacity_bytes{domain="EITDeb13",target_device="sda"} 3.221225472e+10
+libvirt_domain_block_stats_capacity_bytes{domain="EITDeb13",target_device="vda"} 3.221225472e+10
+libvirt_domain_block_stats_capacity_bytes{domain="PODEV",target_device="vda"} 9.663676416e+10
 # HELP libvirt_domain_block_stats_info Metadata information on block devices.
 # TYPE libvirt_domain_block_stats_info gauge
 libvirt_domain_block_stats_info{disk_type="file",domain="ABBICT",driver_cache="",driver_discard="",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/ABBICT.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+libvirt_domain_block_stats_info{disk_type="file",domain="ABBICT2",driver_cache="",driver_discard="",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/ABBICT2.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+libvirt_domain_block_stats_info{disk_type="file",domain="ABBICT3",driver_cache="",driver_discard="",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/ABBICT3.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+libvirt_domain_block_stats_info{disk_type="file",domain="ABBICT4",driver_cache="",driver_discard="",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/ABBICT4.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
 libvirt_domain_block_stats_info{disk_type="file",domain="EITCS",driver_cache="",driver_discard="unmap",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/EITCS.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+libvirt_domain_block_stats_info{disk_type="file",domain="EITDeb13",driver_cache="",driver_discard="unmap",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/EITDeb13.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
+libvirt_domain_block_stats_info{disk_type="file",domain="PODEV",driver_cache="",driver_discard="",driver_name="qemu",driver_type="qcow2",serial="",source_file="/data/vm/PODEV.qcow2",source_protocol="",target_bus="virtio",target_device="vda"} 1
 # HELP libvirt_domain_timed_out Whether scraping libvirt's domain metrics has timed out.
 # TYPE libvirt_domain_timed_out gauge
 libvirt_domain_timed_out{domain="ABBICT"} 0
