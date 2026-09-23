@@ -244,14 +244,14 @@ class GuestView(BaseModel):
 
 
 class DisplaysView(BaseModel):
-    """Which cluster guests have a VNC display, from the XML Ceph holds."""
+    """Which guests have a VNC display, from the XML that defines them."""
 
     guests: dict[str, bool | None] = Field(default_factory=dict)
-    """Keyed by guest, for each cluster guest whose image exists.
+    """Keyed by guest, for each one whose definition was found.
 
-    None where Ceph did not answer for it. A standalone guest is absent: its
-    definition is in its machine's libvirt, which this reads nothing of, and
-    the console asks that libvirt when it opens.
+    A cluster guest's is the XML Ceph holds on its image, and a standalone
+    guest's is the domain its machine's libvirt runs. None where Ceph or the
+    machine did not answer, and the page then offers no console.
     """
 
 

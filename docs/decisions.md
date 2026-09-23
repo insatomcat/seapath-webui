@@ -4664,10 +4664,15 @@ created from here at all: they were defined by hand, from an XML of their own.
 The definition that holds is the one `vm_manager` keeps in the `xml` metadata
 of the guest's system image, which Pacemaker's agent gives libvirt at every
 start. So the VMs page asks Ceph for it, one `rbd image-meta list` per cluster
-guest on a request of its own, `GET /vms/displays`, and offers the button on a
-cluster guest whose XML has a VNC display, or whose image Ceph did not answer
-for. A standalone guest's definition is in its machine's libvirt, which nothing
-here reads, so the button is offered on every standalone guest that runs.
+guest on a request of its own, `GET /vms/displays`. A standalone guest's
+definition is in its machine's libvirt, and the same request reads it there
+with `virsh dumpxml`, over the path [D66](#d66) reads a domain with: one ssh
+per machine the libvirt exporter reports guests on, asking for all of them at
+once, and the running definition rather than the inactive one, since that is
+what the console would open. The button is offered on a guest whose definition
+has a VNC display, and on no other. A definition Ceph or the machine did not
+hand over offers nothing either: the button used to be shown on the benefit of
+the doubt, and the refusal it then led to was a worse answer than its absence.
 
 What is running decides whether the console opens. A domain only takes a new
 definition when it restarts, and the libvirt exporter does not say what it

@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 import shlex
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from xml.etree import ElementTree
 
 import yaml
@@ -39,12 +40,22 @@ from app.runs.actions import GENERATOR, restart_tasks
 from app.runs.catalogue import PlaybookEntry, Precondition, Preview, Reboots
 from app.runs.models import RunRecord
 from app.runs.service import RunPaths
+from app.services.vms import has_vnc_display
 
 logger = logging.getLogger(__name__)
 
 #: What a domain may weigh here. A domain with a dozen disks and interfaces is
 #: a few kilobytes; this takes any of them and refuses a file pasted by mistake.
 MAX_XML_BYTES = 256 * 1024
+
+#: What opens each domain in a reading of several, on a line of its own. A line
+#: `virsh dumpxml` prints starts with `<` or with spaces, never with this.
+DOMAIN_MARK = "#domain "
+
+#: How many machines are asked at once for the graphic consoles, and how long
+#: each is given to answer the connection: the page waits for the slowest.
+_DISPLAY_READERS = 8
+_DISPLAY_CONNECT_TIMEOUT = 5
 
 DEFINE_RECORD = "vm_define"
 PROFILE_RECORD = "vm_pinning_profile"
@@ -79,6 +90,35 @@ def dumpxml_command(guest: str) -> str:
     """
     inner = f"exec virsh -c qemu:///system dumpxml --inactive {shlex.quote(guest)}"
     return f"sudo -n /bin/sh -c {shlex.quote(inner)}"
+
+
+def domains_command(guests: list[str]) -> str:
+    """Several guests' domains in one reading, each after a line naming it.
+
+    The running definition rather than `--inactive`, since whether a graphic
+    console opens is decided by what runs. A guest libvirt does not hold
+    prints its line and nothing under it, and `exit 0` keeps that from failing
+    the reading of the others. No `--security-info`, as for `dumpxml_command`.
+    """
+    reads = [
+        f"echo {shlex.quote(DOMAIN_MARK + guest)}; "
+        f"virsh -c qemu:///system dumpxml {shlex.quote(guest)} 2>/dev/null"
+        for guest in guests
+    ]
+    inner = "; ".join([*reads, "exit 0"])
+    return f"sudo -n /bin/sh -c {shlex.quote(inner)}"
+
+
+def split_domains(output: str) -> dict[str, str]:
+    """What `domains_command` printed, by guest, empty for a guest with none."""
+    found: dict[str, list[str]] = {}
+    lines: list[str] | None = None
+    for line in output.splitlines():
+        if line.startswith(DOMAIN_MARK):
+            lines = found.setdefault(line[len(DOMAIN_MARK) :], [])
+        elif lines is not None:
+            lines.append(line)
+    return {guest: "\n".join(lines).strip() for guest, lines in found.items()}
 
 
 def checked(guest: str, xml: str, current: str) -> str:
@@ -288,6 +328,63 @@ class DomainXmlService:
                 f"{host} did not hand over {guest}'s domain: {error}"
             ) from error
         return DomainXml(guest=guest, host=host, xml=xml)
+
+    def displays(self, located: dict[str, str]) -> dict[str, bool | None]:
+        """Which standalone guests run with a VNC display, for the console button.
+
+        `located` is where each guest's libvirt exporter reports its domain,
+        which is where the console would open. One ssh per machine, asking
+        for every guest it holds at once. `None` for the guests of a machine
+        that did not answer, and a guest libvirt does not hold is left out.
+        See D62.
+        """
+        inventory = self._inventory.state().inventory
+        if inventory is None:
+            return {}
+        by_host: dict[str, list[str]] = {}
+        for guest, host in located.items():
+            if (
+                guest in inventory.guests
+                and inventory.deployment_of(guest) is not Mode.CLUSTER
+                and host in inventory.hosts
+                and host not in inventory.cluster_members
+            ):
+                by_host.setdefault(host, []).append(guest)
+        if not by_host:
+            return {}
+
+        def read(host: str, guests: list[str]) -> dict[str, bool | None]:
+            address = (inventory.hosts[host].ansible_host or "").strip()
+            if not address or "{{" in address:
+                return dict.fromkeys(guests)
+            try:
+                output = self._remote.run(
+                    RemoteRequest(
+                        address=address,
+                        user=self._user,
+                        command=domains_command(guests),
+                        private_key_file=self._keys.private_key_file,
+                        known_hosts_file=self._keys.known_hosts_file,
+                        extra_key_files=self._keys.extra_key_files(),
+                        connect_timeout=_DISPLAY_CONNECT_TIMEOUT,
+                    )
+                )
+            except RemoteRefused as error:
+                logger.info("Could not read the domains on %s: %s", host, error)
+                return dict.fromkeys(guests)
+            domains = split_domains(output)
+            return {
+                guest: has_vnc_display(domains[guest])
+                for guest in guests
+                if domains.get(guest)
+            }
+
+        found: dict[str, bool | None] = {}
+        workers = min(_DISPLAY_READERS, len(by_host))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for answer in pool.map(read, by_host.keys(), by_host.values()):
+                found.update(answer)
+        return found
 
     def define(
         self, guest: str, xml: str, author: str, restart: bool = False

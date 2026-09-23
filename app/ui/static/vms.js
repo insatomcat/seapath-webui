@@ -51,7 +51,7 @@
   // The last reading, so a change of filter redraws without asking the
   // cluster again.
   let lastView = null;
-  // Which cluster guests have a VNC display, by name, once Ceph answered.
+  // Which guests have a VNC display, by name, once their definitions were read.
   let displays = null;
 
   // Whether the file declares both kinds of guest, which is the only case the
@@ -335,10 +335,10 @@
       button.addEventListener("click", () => Console.openSerial(guest.name));
       cell.append(cell.childNodes.length ? " " : "", button);
     }
-    // Its screen, the one way into a Windows guest whose network is down. A
-    // cluster guest shows it when the XML Ceph holds for it has a VNC display,
-    // or when Ceph did not say; a standalone guest's definition is its
-    // machine's, read by nothing here, so the console asks when it opens.
+    // Its screen, the one way into a Windows guest whose network is down.
+    // Offered when the guest's definition has a VNC display: the XML Ceph
+    // holds for a cluster guest, the domain its machine runs for a standalone
+    // one. A definition nobody could read offers nothing.
     if (Graphic.permitted() && (guest.resource || guest.domain) && hasDisplay(guest)) {
       const button = document.createElement("button");
       button.type = "button";
@@ -375,11 +375,7 @@
   }
 
   function hasDisplay(guest) {
-    if (guest.deployment !== "cluster") {
-      return true;
-    }
-    return displays !== null && displays[guest.name] !== undefined &&
-      displays[guest.name] !== false;
+    return displays !== null && displays[guest.name] === true;
   }
 
   function runtimeActs(guest) {
@@ -2058,8 +2054,9 @@
     draw(view);
     Kept.keep(KEPT, view);
     Kept.release();
-    // Drawn again once Ceph said which guests have a screen: one `rbd` per
-    // guest, which the table does not wait for.
+    // Drawn again once the definitions said which guests have a screen: one
+    // `rbd` per cluster guest and one `ssh` per standalone machine, which the
+    // table does not wait for.
     if (await reading) {
       renderGuests(lastView);
     }

@@ -31,10 +31,13 @@ from app.console.adapter import ConsoleRequest, ssh_command
 from app.console.fake import FakeConsoleAdapter
 from app.console.service import RELAY, graphic_command
 from app.core.settings import Settings
+from app.hosts.remote import FakeRemoteRunner
+from app.services.domain_xml import domains_command, split_domains
 from app.services.vms import has_vnc_display
 from app.trust import known_hosts
 from tests.conftest import cookie_names
 from tests.test_console import CLUSTER, HOST_KEY, STANDALONE
+from tests.test_vms import STANDALONE_WITH_DOMAINS
 
 WS = "/api/v1/node/console/graphic"
 
@@ -464,12 +467,68 @@ def test_the_page_reads_the_screens_from_the_xml_ceph_holds(
     }
 
 
-def test_a_standalone_guest_is_not_read_from_ceph(signed_in: TestClient) -> None:
-    # Its definition is its machine's libvirt, and the console asks it there.
-    response = signed_in.post("/api/v1/inventory/import", json={"document": STANDALONE})
-    assert response.status_code == 200, response.text
+def test_the_domains_of_a_machine_are_read_in_one_command() -> None:
+    # The running definition, not `--inactive`, and no password a display
+    # carries. A guest libvirt does not hold fails nothing for the others.
+    command = domains_command(["ABBICT", "a'b; reboot"])
 
-    assert signed_in.get("/api/v1/vms/displays").json() == {"guests": {}}
+    argv = shlex.split(command)
+    assert argv[:4] == ["sudo", "-n", "/bin/sh", "-c"]
+    assert argv[4] == (
+        "echo '#domain ABBICT'; "
+        "virsh -c qemu:///system dumpxml ABBICT 2>/dev/null; "
+        "echo '#domain a'\"'\"'b; reboot'; "
+        "virsh -c qemu:///system dumpxml 'a'\"'\"'b; reboot' 2>/dev/null; "
+        "exit 0"
+    )
+
+
+def test_what_the_machine_printed_is_split_by_guest() -> None:
+    output = (
+        f"#domain ABBICT\n{WINDOWS_XML}\n#domain ghost\n#domain EITCS\n{LINUX_XML}\n"
+    )
+
+    assert split_domains(output) == {
+        "ABBICT": WINDOWS_XML.strip(),
+        "ghost": "",
+        "EITCS": LINUX_XML.strip(),
+    }
+
+
+def test_a_standalone_guest_is_read_from_its_machines_libvirt(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner
+) -> None:
+    # One ssh to the machine the exporter reports the guests on, for all of
+    # them. `ghost` is reported nowhere, so nothing is asked about it.
+    response = signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+    assert response.status_code == 200, response.text
+    remote_runner.answers["dumpxml"] = (
+        f"#domain ABBICT\n{WINDOWS_XML}\n#domain EITCS\n{LINUX_XML}\n"
+    )
+
+    answer = signed_in.get("/api/v1/vms/displays")
+
+    assert answer.status_code == 200, answer.text
+    assert answer.json() == {"guests": {"ABBICT": True, "EITCS": False}}
+    asked = [r for r in remote_runner.requests if "dumpxml" in r.command]
+    assert [r.address for r in asked] == ["192.168.200.125"]
+    assert "ghost" not in asked[0].command
+
+
+def test_a_machine_that_did_not_answer_is_said_as_unknown(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner
+) -> None:
+    response = signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+    assert response.status_code == 200, response.text
+    remote_runner.refusal = "Permission denied (publickey)."
+
+    answer = signed_in.get("/api/v1/vms/displays")
+
+    assert answer.json() == {"guests": {"ABBICT": None, "EITCS": None}}
 
 
 def test_the_vms_page_loads_the_panel_and_novnc_is_served(

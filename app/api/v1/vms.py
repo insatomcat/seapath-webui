@@ -208,13 +208,23 @@ def guests(request: Request) -> GuestsView:
 
 @router.get("/displays", response_model=DisplaysView)
 def displays(request: Request) -> DisplaysView:
-    """Which cluster guests have a VNC display, for the graphic console button.
+    """Which guests have a VNC display, for the graphic console button.
 
-    Read from the domain XML `vm_manager` keeps in each guest's RBD image
-    metadata, one `rbd` per guest, on a request of its own so the table is
-    drawn without waiting for it. See D62.
+    A cluster guest's from the domain XML `vm_manager` keeps in its RBD image
+    metadata, one `rbd` per guest. A standalone guest's from `virsh dumpxml`
+    on the machine its libvirt exporter reports it on, one `ssh` per machine.
+    On a request of its own, so the table is drawn without waiting for it.
+    See D62.
     """
-    return _service(request).displays()
+    service = _service(request)
+    view = service.displays()
+    located = {
+        guest.name: guest.domain.host
+        for guest in service.guests().guests
+        if guest.deployment != Mode.CLUSTER.value and guest.domain is not None
+    }
+    view.guests.update(_domains(request).displays(located))
+    return view
 
 
 @router.get("/ping", response_model=PingAnswer, dependencies=[admin])
