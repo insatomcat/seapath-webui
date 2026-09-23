@@ -3439,9 +3439,11 @@ td.meta-key code.reserved {
    lines tall, and the second table sat below the first on a screen that had
    30rem of empty margin on either side of both. So this page is wider than
    the others, and where the two fit beside each other they are laid out side
-   by side. */
+   by side. The Specs column made the guest table about 1020 px wide, which
+   the 80rem column it had until then could not hold at any window width, so
+   the buttons ending each row sat behind a horizontal scroll: it is 88rem. */
 .page.vms {
-  grid-template-columns: minmax(0, 80rem);
+  grid-template-columns: minmax(0, 88rem);
 }
 
 .page.vms > .column {
@@ -3451,10 +3453,10 @@ td.meta-key code.reserved {
   min-width: 0;
 }
 
-/* 83rem of a browser's own font size, which is the width the guest list and
+/* 90rem of a browser's own font size, which is the width the guest list and
    the column beside it both fit in. Below it the two stack, in the order they
    are read, and each takes the width of the page. */
-@media (min-width: 83rem) {
+@media (min-width: 90rem) {
   .page.vms {
     display: flex;
     flex-wrap: wrap;
@@ -3467,8 +3469,8 @@ td.meta-key code.reserved {
   }
 
   .page.vms > .column {
-    flex: 3 1 76rem;
-    max-width: 80rem;
+    flex: 3 1 82rem;
+    max-width: 88rem;
   }
 
   /* The undeclared guests and the note under them: read after the table

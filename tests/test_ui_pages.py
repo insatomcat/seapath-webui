@@ -1758,7 +1758,7 @@ def test_the_vms_page_reads_its_two_lists_side_by_side(
     # width the two stack, in the order they are read.
     assert '<div class="column">' in body
     assert '<div class="column aside">' in body
-    assert "@media (min-width: 83rem) {\n  .page.vms {\n    display: flex;" in css
+    assert "@media (min-width: 90rem) {\n  .page.vms {\n    display: flex;" in css
 
     # The node column says what holds a guest in the colour of the node name,
     # which costs the table no width. The badge it replaced was a sentence per
