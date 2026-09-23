@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.179 - 2026-09-23
+
+- feat: keep the Usage page's five minutes in the service
+
 ## 0.3.178 - 2026-09-23
 
 - feat: a Usage page with each machine's CPU, memory, disks and network
