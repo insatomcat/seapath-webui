@@ -1,0 +1,58 @@
+# Recorded from ccv1, a member of the demo cluster, with libvirt-exporter on
+# port 9177, on 2026-09-23. Trimmed to the families `app/cluster/usage.py`
+# reads. Two guests run and a third is shut off, and ABB15 has four
+# interfaces, whose counters the page adds up.
+# HELP libvirt_domain_block_stats_read_bytes_total Number of bytes read from a block device, in bytes.
+# TYPE libvirt_domain_block_stats_read_bytes_total counter
+libvirt_domain_block_stats_read_bytes_total{domain="ABB15",target_device="vda"} 9.84339968e+08
+libvirt_domain_block_stats_read_bytes_total{domain="debian13",target_device="vda"} 2.49427456e+08
+# HELP libvirt_domain_block_stats_write_bytes_total Number of bytes written from a block device, in bytes.
+# TYPE libvirt_domain_block_stats_write_bytes_total counter
+libvirt_domain_block_stats_write_bytes_total{domain="ABB15",target_device="vda"} 3.8382879232e+10
+libvirt_domain_block_stats_write_bytes_total{domain="debian13",target_device="vda"} 3.60682496e+08
+# HELP libvirt_domain_info_cpu_time_seconds_total Amount of CPU time used by the domain, in seconds.
+# TYPE libvirt_domain_info_cpu_time_seconds_total counter
+libvirt_domain_info_cpu_time_seconds_total{domain="ABB15"} 241534.53
+libvirt_domain_info_cpu_time_seconds_total{domain="debian13"} 2182.35
+libvirt_domain_info_cpu_time_seconds_total{domain="smartnic-fes-vm"} 0
+# HELP libvirt_domain_info_maximum_memory_bytes Maximum allowed memory of the domain, in bytes.
+# TYPE libvirt_domain_info_maximum_memory_bytes gauge
+libvirt_domain_info_maximum_memory_bytes{domain="ABB15"} 6.442450944e+09
+libvirt_domain_info_maximum_memory_bytes{domain="debian13"} 2.253389824e+09
+libvirt_domain_info_maximum_memory_bytes{domain="smartnic-fes-vm"} 1.073741824e+09
+# HELP libvirt_domain_info_memory_usage_bytes Memory usage of the domain, in bytes.
+# TYPE libvirt_domain_info_memory_usage_bytes gauge
+libvirt_domain_info_memory_usage_bytes{domain="ABB15"} 6.442450944e+09
+libvirt_domain_info_memory_usage_bytes{domain="debian13"} 2.2528e+09
+libvirt_domain_info_memory_usage_bytes{domain="smartnic-fes-vm"} 1.073741824e+09
+# HELP libvirt_domain_info_state Code of the domain state
+# TYPE libvirt_domain_info_state gauge
+libvirt_domain_info_state{domain="ABB15",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="debian13",state_desc="the domain is running"} 1
+libvirt_domain_info_state{domain="smartnic-fes-vm",state_desc="the domain is shut off"} 5
+# HELP libvirt_domain_info_virtual_cpus Number of virtual CPUs for the domain.
+# TYPE libvirt_domain_info_virtual_cpus gauge
+libvirt_domain_info_virtual_cpus{domain="ABB15"} 4
+libvirt_domain_info_virtual_cpus{domain="debian13"} 2
+libvirt_domain_info_virtual_cpus{domain="smartnic-fes-vm"} 2
+# HELP libvirt_domain_interface_stats_receive_bytes_total Number of bytes received on a network interface, in bytes.
+# TYPE libvirt_domain_interface_stats_receive_bytes_total counter
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABB15",target_device="vnet1"} 1.42158084e+08
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABB15",target_device="vnet2"} 342
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABB15",target_device="vnet3"} 342
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABB15",target_device="vnet4"} 1.260070373919e+12
+libvirt_domain_interface_stats_receive_bytes_total{domain="debian13",target_device="vnet0"} 1.14713432e+08
+# HELP libvirt_domain_interface_stats_transmit_bytes_total Number of bytes transmitted on a network interface, in bytes.
+# TYPE libvirt_domain_interface_stats_transmit_bytes_total counter
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABB15",target_device="vnet1"} 4.95012702e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABB15",target_device="vnet2"} 0
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABB15",target_device="vnet3"} 0
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABB15",target_device="vnet4"} 1.810092498e+09
+libvirt_domain_interface_stats_transmit_bytes_total{domain="debian13",target_device="vnet0"} 282836
+# HELP libvirt_domain_memory_stats_rss_bytes Resident Set Size of the process running the domain
+# TYPE libvirt_domain_memory_stats_rss_bytes gauge
+libvirt_domain_memory_stats_rss_bytes{domain="ABB15"} 6.638522368e+09
+libvirt_domain_memory_stats_rss_bytes{domain="debian13"} 2.34500096e+09
+# HELP libvirt_up Whether scraping libvirt's metrics was successful.
+# TYPE libvirt_up gauge
+libvirt_up 1

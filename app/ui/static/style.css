@@ -57,6 +57,21 @@
   --console-select: rgba(74, 158, 255, 0.3);
   --pool-ink: #0d1117;
 
+  /* The workloads of the Usage page, one colour each, in this order and never
+     cycled: the order is what keeps neighbours apart for a colour blind
+     reader. Checked against the panel of each palette. The last three are
+     what no single colour stands for: the workloads past the sixth, the
+     machine's own share, and the hugepage pool. */
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-other: #5d6b7d;
+  --series-machine: #394556;
+  --series-reserved: #7a5cd6;
+
   /* The top bar plus the footer plus the page's own padding, which is what a
      full height page has to subtract from the viewport to fit without a
      scrollbar. Written once here because three rules need the same number. */
@@ -94,6 +109,16 @@
   --bad-ink: #8f231f;
   --scrim: rgba(22, 32, 46, 0.45);
   --shadow: 0 6px 18px rgba(22, 32, 46, 0.16);
+
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-other: #a3adba;
+  --series-machine: #cdd4de;
+  --series-reserved: #5a3fbe;
 }
 
 * {
@@ -3707,4 +3732,231 @@ td.log-line .tag {
   table.journal.stacked td::before {
     content: none;
   }
+}
+
+/* The Usage page. Four charts in a grid, two by two where there is room, and
+   the tables under them. The panel scrolls as a whole: an operator reads the
+   charts, then goes down to find the workload a band belongs to. */
+.usage-clock {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 44rem), 1fr));
+  gap: 0.75rem;
+}
+
+.usage-chart {
+  margin: 0;
+  padding: 0.5rem 0.6rem 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+}
+
+.usage-chart figcaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.usage-chart-title {
+  font-weight: 600;
+}
+
+.usage-chart-scale {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+/* The tooltip is placed against this box, so it has to be the one that is
+   positioned. */
+.usage-plot {
+  position: relative;
+}
+
+.usage-svg .tick {
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-svg .grid {
+  stroke: var(--line-soft);
+  stroke-width: 1;
+}
+
+/* A band is outlined in the colour of the card under it, which is the gap
+   that keeps two neighbouring bands apart where their colours are close. */
+.usage-band {
+  stroke: var(--bg);
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.usage-line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.usage-line.dashed {
+  stroke-dasharray: 6 4;
+}
+
+.usage-cross {
+  stroke: var(--muted);
+  stroke-width: 1;
+  pointer-events: none;
+}
+
+.usage-tip {
+  position: absolute;
+  top: 0.25rem;
+  z-index: 2;
+  min-width: 16rem;
+  max-width: 24rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  font-size: 0.75rem;
+  pointer-events: none;
+  transform: translateX(0.6rem);
+}
+
+.usage-tip.flip {
+  transform: translateX(calc(-100% - 0.6rem));
+}
+
+.usage-tip-time {
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+}
+
+.usage-tip-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.usage-tip-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-tip-row strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  vertical-align: -0.05rem;
+}
+
+/* One rule per colour, read by the band, the line, the swatch in the legend
+   and the swatch in the table alike, so a workload is the same colour
+   everywhere it appears. */
+.usage-s1 { fill: var(--series-1); stroke: var(--series-1); background: var(--series-1); }
+.usage-s2 { fill: var(--series-2); stroke: var(--series-2); background: var(--series-2); }
+.usage-s3 { fill: var(--series-3); stroke: var(--series-3); background: var(--series-3); }
+.usage-s4 { fill: var(--series-4); stroke: var(--series-4); background: var(--series-4); }
+.usage-s5 { fill: var(--series-5); stroke: var(--series-5); background: var(--series-5); }
+.usage-s6 { fill: var(--series-6); stroke: var(--series-6); background: var(--series-6); }
+.usage-other { fill: var(--series-other); background: var(--series-other); }
+.usage-machine { fill: var(--series-machine); background: var(--series-machine); }
+.usage-reserved { fill: var(--series-reserved); background: var(--series-reserved); }
+
+/* A band keeps its outline in the card's colour whatever the rule above set
+   its stroke to. */
+.usage-band.usage-s1,
+.usage-band.usage-s2,
+.usage-band.usage-s3,
+.usage-band.usage-s4,
+.usage-band.usage-s5,
+.usage-band.usage-s6 {
+  stroke: var(--bg);
+}
+
+.usage-legend {
+  margin: 0.4rem 0 0.25rem;
+}
+
+.usage-legend .usage-swatch {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.usage-table td.num,
+.usage-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.usage-fill-head {
+  min-width: 12rem;
+}
+
+.usage-fill-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-fill {
+  flex: 0 0 6rem;
+  height: 0.45rem;
+  border-radius: 2px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.usage-fill > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.usage-fill > span.full {
+  background: var(--warn);
+}
+
+.usage-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/* The page scrolls as a document below the tabs: four charts and five
+   tables do not fit a pane that scrolls only its middle, and a chart cut in
+   half by the edge of a pane is one nobody can read. */
+.page.paned.usage {
+  height: auto;
+  overflow: visible;
+}
+
+.page.paned.usage > .card {
+  max-height: none;
+}
+
+.page.paned.usage .pane-body {
+  overflow: visible;
 }

@@ -90,3 +90,73 @@ libvirt_domain_timed_out{domain="VMUADMIN"} 0
 # TYPE libvirt_storage_pool_state gauge
 libvirt_storage_pool_state{storage_pool="default"} 2
 libvirt_storage_pool_state{storage_pool="vm"} 2
+#
+# The counters below were read from the same machine on 2026-09-23 for the
+# Usage page: CPU time, resident memory, and the block and interface bytes,
+# for the eight domains above. A ninth domain the machine had defined by then
+# was left out, so the file describes one machine at one time.
+# HELP libvirt_domain_block_stats_read_bytes_total Number of bytes read from a block device, in bytes.
+# TYPE libvirt_domain_block_stats_read_bytes_total counter
+libvirt_domain_block_stats_read_bytes_total{domain="ABBICT",target_device="vda"} 5.400944128e+09
+libvirt_domain_block_stats_read_bytes_total{domain="ABBICT2",target_device="vda"} 1.8511319552e+10
+libvirt_domain_block_stats_read_bytes_total{domain="ABBICT3",target_device="vda"} 1.5662296064e+10
+libvirt_domain_block_stats_read_bytes_total{domain="ABBICT4",target_device="vda"} 5.847902208e+09
+libvirt_domain_block_stats_read_bytes_total{domain="EITCS",target_device="vda"} 2.716506112e+09
+libvirt_domain_block_stats_read_bytes_total{domain="EITDeb13",target_device="vda"} 2.70204928e+08
+libvirt_domain_block_stats_read_bytes_total{domain="PODEV",target_device="vda"} 1.0780518912e+10
+# HELP libvirt_domain_block_stats_write_bytes_total Number of bytes written from a block device, in bytes.
+# TYPE libvirt_domain_block_stats_write_bytes_total counter
+libvirt_domain_block_stats_write_bytes_total{domain="ABBICT",target_device="vda"} 4.496530432e+09
+libvirt_domain_block_stats_write_bytes_total{domain="ABBICT2",target_device="vda"} 1.1712221184e+10
+libvirt_domain_block_stats_write_bytes_total{domain="ABBICT3",target_device="vda"} 2.5539008e+10
+libvirt_domain_block_stats_write_bytes_total{domain="ABBICT4",target_device="vda"} 8.021968896e+09
+libvirt_domain_block_stats_write_bytes_total{domain="EITCS",target_device="vda"} 2.701927424e+09
+libvirt_domain_block_stats_write_bytes_total{domain="EITDeb13",target_device="vda"} 4.02071552e+08
+libvirt_domain_block_stats_write_bytes_total{domain="PODEV",target_device="vda"} 1.3482850816e+10
+# HELP libvirt_domain_info_cpu_time_seconds_total Amount of CPU time used by the domain, in seconds.
+# TYPE libvirt_domain_info_cpu_time_seconds_total counter
+libvirt_domain_info_cpu_time_seconds_total{domain="ABBICT"} 7018.63
+libvirt_domain_info_cpu_time_seconds_total{domain="ABBICT2"} 13233.28
+libvirt_domain_info_cpu_time_seconds_total{domain="ABBICT3"} 13583.09
+libvirt_domain_info_cpu_time_seconds_total{domain="ABBICT4"} 110756.63
+libvirt_domain_info_cpu_time_seconds_total{domain="EITCS"} 4777.41
+libvirt_domain_info_cpu_time_seconds_total{domain="EITDeb13"} 3643.09
+libvirt_domain_info_cpu_time_seconds_total{domain="PODEV"} 75487.37
+libvirt_domain_info_cpu_time_seconds_total{domain="VMUADMIN"} 0
+# HELP libvirt_domain_info_memory_usage_bytes Memory usage of the domain, in bytes.
+# TYPE libvirt_domain_info_memory_usage_bytes gauge
+libvirt_domain_info_memory_usage_bytes{domain="ABBICT"} 8.27392e+09
+libvirt_domain_info_memory_usage_bytes{domain="ABBICT2"} 4.145741824e+09
+libvirt_domain_info_memory_usage_bytes{domain="ABBICT3"} 4.145741824e+09
+libvirt_domain_info_memory_usage_bytes{domain="ABBICT4"} 1.6433741824e+10
+libvirt_domain_info_memory_usage_bytes{domain="EITCS"} 4.294967296e+09
+libvirt_domain_info_memory_usage_bytes{domain="EITDeb13"} 2.147483648e+09
+libvirt_domain_info_memory_usage_bytes{domain="PODEV"} 1.2288e+10
+libvirt_domain_info_memory_usage_bytes{domain="VMUADMIN"} 4.145741824e+09
+# HELP libvirt_domain_interface_stats_receive_bytes_total Number of bytes received on a network interface, in bytes.
+# TYPE libvirt_domain_interface_stats_receive_bytes_total counter
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABBICT",target_device="ABBICT"} 1.63039206e+08
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABBICT2",target_device="ABBICT2"} 1.84127803e+08
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABBICT3",target_device="ABBICT3"} 1.84097565e+09
+libvirt_domain_interface_stats_receive_bytes_total{domain="ABBICT4",target_device="ABBICT4"} 1.88814683e+08
+libvirt_domain_interface_stats_receive_bytes_total{domain="EITCS",target_device="EITCS"} 3.33231152e+08
+libvirt_domain_interface_stats_receive_bytes_total{domain="EITDeb13",target_device="EITDEB13"} 1.34656987e+08
+libvirt_domain_interface_stats_receive_bytes_total{domain="PODEV",target_device="PODEV"} 4.32426236e+08
+# HELP libvirt_domain_interface_stats_transmit_bytes_total Number of bytes transmitted on a network interface, in bytes.
+# TYPE libvirt_domain_interface_stats_transmit_bytes_total counter
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABBICT",target_device="ABBICT"} 2.84477572e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABBICT2",target_device="ABBICT2"} 6.81422947e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABBICT3",target_device="ABBICT3"} 6.84858527e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="ABBICT4",target_device="ABBICT4"} 6.67864188e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="EITCS",target_device="EITCS"} 5.15096943e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="EITDeb13",target_device="EITDEB13"} 3.93648875e+08
+libvirt_domain_interface_stats_transmit_bytes_total{domain="PODEV",target_device="PODEV"} 7.06432095e+08
+# HELP libvirt_domain_memory_stats_rss_bytes Resident Set Size of the process running the domain
+# TYPE libvirt_domain_memory_stats_rss_bytes gauge
+libvirt_domain_memory_stats_rss_bytes{domain="ABBICT"} 8.334163968e+09
+libvirt_domain_memory_stats_rss_bytes{domain="ABBICT2"} 4.22455296e+09
+libvirt_domain_memory_stats_rss_bytes{domain="ABBICT3"} 4.224352256e+09
+libvirt_domain_memory_stats_rss_bytes{domain="ABBICT4"} 1.6441667584e+10
+libvirt_domain_memory_stats_rss_bytes{domain="EITCS"} 3.847159808e+09
+libvirt_domain_memory_stats_rss_bytes{domain="EITDeb13"} 7.31041792e+08
+libvirt_domain_memory_stats_rss_bytes{domain="PODEV"} 1.2340260864e+10

@@ -72,13 +72,14 @@ app/
   hosts/             the host adapters and their fakes
   cluster/           what the other machines publish: the exporter fan-out and
                      its parsers, for the CPU pool, the tuning, the systemd
-                     units, Pacemaker, Ceph
+                     units, Pacemaker, Ceph, and what machines, guests and
+                     containers consume
   console/           the shell this node serves over its own SSH path
   inventory/         git repository, schema, validation, discovery, forms
   trust/             invitations, CSR signing, SSH key provisioning, revocation
   runs/              ansible-runner driver, event stream, artefacts
   services/          node.py, realtime.py, cluster.py, storage.py, vms.py,
-                     containers.py, backup.py, software.py
+                     containers.py, backup.py, software.py, usage.py
   api/v1/            routers, one module per resource
   ui/                Jinja templates and static assets
 packaging/           the PAM service file the image ships

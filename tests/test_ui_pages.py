@@ -30,6 +30,7 @@ from app.ui.routes import stamp
         "/logs",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
     ],
 )
@@ -52,6 +53,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/logs", "logs.js"),
         ("/backup", "backup.js"),
         ("/realtime", "realtime.js"),
+        ("/usage", "usage.js"),
         ("/runs", "runs.js"),
     ],
 )
@@ -78,6 +80,7 @@ def test_each_page_loads_its_own_script_and_the_shared_chrome(
         "/cluster",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
     ],
 )
@@ -120,6 +123,7 @@ def test_every_script_a_page_loads_names_the_version_that_served_it(
         "/cluster",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
     ],
 )
@@ -1175,6 +1179,7 @@ _ROOT_ANCHORED = re.compile(
         "/containers",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
         "/login",
     ],
@@ -1203,6 +1208,7 @@ def test_no_page_anchors_a_url_to_the_root(signed_in: TestClient, path: str) -> 
         "vms.js",
         "containers.js",
         "backup.js",
+        "usage.js",
     ],
 )
 def test_no_script_anchors_a_url_to_the_root(signed_in: TestClient, asset: str) -> None:
@@ -1444,6 +1450,7 @@ def test_the_add_form_allows_a_live_migration_unless_it_is_unchecked(
         "/cluster",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
     ],
 )
@@ -2590,6 +2597,7 @@ def test_the_completion_is_the_assistant_switch_too(signed_in: TestClient) -> No
         "/cluster",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
     ],
 )
@@ -2720,6 +2728,7 @@ def test_a_run_that_ends_under_the_window_leaves_the_page_up_to_date(
         "/cluster",
         "/backup",
         "/realtime",
+        "/usage",
         "/runs",
     ],
 )

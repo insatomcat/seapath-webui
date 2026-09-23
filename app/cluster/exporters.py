@@ -158,7 +158,7 @@ class MetricsProxyClient:
 class Exposition:
     """What one exporter answered, parsed, or why it answered nothing."""
 
-    __slots__ = ("host", "address", "series", "error")
+    __slots__ = ("host", "address", "series", "error", "read_at")
 
     def __init__(
         self,
@@ -166,11 +166,17 @@ class Exposition:
         address: str,
         series: dict[str, list[metrics.Sample]] | None = None,
         error: str = "",
+        read_at: float = 0.0,
     ) -> None:
         self.host = host
         self.address = address
         self.series = series
         self.error = error
+        # When the answer arrived, on this service's clock. An exporter that
+        # publishes no clock of its own is timed by this, which is what a rate
+        # of its counters is taken over. Meaningless for an answer the scrape
+        # window kept, which is why the readings that divide by it bypass it.
+        self.read_at = read_at
 
     @property
     def answered(self) -> bool:
@@ -277,10 +283,13 @@ def _read(
 ) -> Exposition:
     url = f"http://{address}:{port}/metrics"
     text, error = client.fetch(url, timeout=timeout)
+    read_at = time.time()
     if text is None:
         logger.debug("No metrics from %s: %s", url, error)
-        return Exposition(host=host, address=address, error=error)
-    return Exposition(host=host, address=address, series=metrics.parse(text))
+        return Exposition(host=host, address=address, error=error, read_at=read_at)
+    return Exposition(
+        host=host, address=address, series=metrics.parse(text), read_at=read_at
+    )
 
 
 def value(

@@ -1,0 +1,195 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+What each machine is consuming, and which guest or container is consuming it.
+The CPU, the memory, the disks and the network of every machine the inventory
+names, read from its node_exporter, and beside them each guest from
+libvirt-exporter and each container from prometheus-podman-exporter, on the
+same machine.
+
+Every figure here that is per second is a rate, and a rate is two readings.
+The page reads every five seconds while it is on screen and keeps the last
+five minutes in this browser, which is where the first of each pair is
+remembered: the service answers each reading and keeps nothing. History beyond
+the window, and alerting, stay in Prometheus. See D67.
+
+The layout is the Cluster page's (D28): a tab per machine, carrying the one
+line an operator reads from it, and the machine it points at gets the screen.
+#}
+{% extends "base.html" %}
+{% block page_title %}Usage{% endblock %}
+
+{% block body %}
+<main class="page paned usage">
+  <p class="banner" id="banner" hidden></p>
+
+  {# One tab per machine, built from the first reading. #}
+  <nav class="views" id="views" aria-label="Machines">
+    <button type="button" class="view current" disabled>
+      <span class="dot status-unknown"></span>
+      <span class="view-name">Machines</span>
+      <span class="view-answer">Asking each machine's exporters</span>
+    </button>
+  </nav>
+
+  <section class="card pane" id="card-machine">
+    <div class="pane-head">
+      <p class="pane-lead" id="machine-lead"></p>
+      <span class="usage-clock" id="clock"></span>
+      {# Reading every five seconds is what the page is for, so it starts
+         reading when it opens. Pausing freezes the charts where they are,
+         which is what an operator wants while hovering one. #}
+      <button type="button" class="secondary" id="pause" aria-pressed="false">
+        Pause
+      </button>
+    </div>
+    <div class="loading" id="machine-loading">Asking each machine's exporters</div>
+    <p class="warning" id="machine-blocked" hidden></p>
+    <div class="pane-body" id="machine-body" hidden>
+      <div class="stats" id="machine-stats"></div>
+      <p class="help" id="machine-waiting" hidden>
+        A rate is the difference between two readings. The next one is five
+        seconds away, and the figures per second fill in when it arrives.
+      </p>
+
+      <div class="usage-charts">
+        <figure class="usage-chart" id="chart-cpu">
+          <figcaption>
+            <span class="usage-chart-title">CPU, by workload</span>
+            <span class="usage-chart-scale" data-scale></span>
+          </figcaption>
+          <div class="usage-plot" data-plot></div>
+        </figure>
+        <figure class="usage-chart" id="chart-memory">
+          <figcaption>
+            <span class="usage-chart-title">Memory, by workload</span>
+            <span class="usage-chart-scale" data-scale></span>
+          </figcaption>
+          <div class="usage-plot" data-plot></div>
+        </figure>
+        <figure class="usage-chart" id="chart-disk">
+          <figcaption>
+            <span class="usage-chart-title">Disks</span>
+            <span class="usage-chart-scale" data-scale></span>
+          </figcaption>
+          <div class="usage-plot" data-plot></div>
+        </figure>
+        <figure class="usage-chart" id="chart-network">
+          <figcaption>
+            <span class="usage-chart-title">Network, physical ports</span>
+            <span class="usage-chart-scale" data-scale></span>
+          </figcaption>
+          <div class="usage-plot" data-plot></div>
+        </figure>
+      </div>
+      <div class="chart-legend usage-legend" id="legend"></div>
+
+      <h3>Workloads</h3>
+      <p class="help" id="workloads-note"></p>
+      <div class="table-scroll">
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Kind</th>
+              <th class="num">CPU</th>
+              <th class="num">Memory</th>
+              <th class="num">Disk read</th>
+              <th class="num">Disk write</th>
+              <th class="num">Net in</th>
+              <th class="num">Net out</th>
+            </tr>
+          </thead>
+          <tbody id="workload-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>Filesystems</h3>
+      <div class="table-scroll">
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th>Mount point</th>
+              <th>Device</th>
+              <th>Type</th>
+              <th class="usage-fill-head">Used</th>
+              <th class="num">Free</th>
+              <th class="num">Size</th>
+            </tr>
+          </thead>
+          <tbody id="filesystem-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>Disks</h3>
+      <div class="table-scroll">
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th class="num">Read</th>
+              <th class="num">Write</th>
+              <th class="num">Busy</th>
+            </tr>
+          </thead>
+          <tbody id="disk-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>Interfaces</h3>
+      <label class="usage-toggle">
+        <input type="checkbox" id="show-all-interfaces">
+        Show the teams, bridges and VLANs, and the guests' and containers' ends
+      </label>
+      <div class="table-scroll">
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th>Interface</th>
+              <th>Kind</th>
+              <th>State</th>
+              <th class="num">Speed</th>
+              <th class="num">In</th>
+              <th class="num">Out</th>
+              <th class="num">Of the link</th>
+            </tr>
+          </thead>
+          <tbody id="interface-rows"></tbody>
+        </table>
+      </div>
+
+      <h3>Exporters asked</h3>
+      <div class="table-scroll">
+        <table class="usage-table">
+          <thead>
+            <tr>
+              <th>Exporter</th>
+              <th>Answer</th>
+            </tr>
+          </thead>
+          <tbody id="reach-rows"></tbody>
+        </table>
+      </div>
+    </div>
+    <p class="pane-foot">
+      <span class="pane-foot-note">
+        Read every five seconds while this page is on screen, from
+        <code>node_exporter</code>, <code>libvirt-exporter</code> and
+        <code>prometheus-podman-exporter</code> on each machine: the exporters
+        <code>deploy_prometheus_exporters</code> installs. The last five minutes
+        are kept in this browser and nowhere else, and are gone when the page
+        is left. History and alerting are Prometheus's. A guest's CPU is every
+        thread of its QEMU process; its memory is what that process holds, and
+        a guest backed by hugepages holds them in the machine's hugepage pool
+        instead. What no workload accounts for is the machine's own: the
+        kernel, the services, and this one.
+      </span>
+    </p>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+{{ script("usage.js") }}
+{% endblock %}

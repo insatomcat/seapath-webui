@@ -1,0 +1,108 @@
+# Recorded from ccv1, a member of the demo cluster, with
+# prometheus-podman-exporter on port 9882, on 2026-09-23. Trimmed like
+# podman-exporter.txt. The Ceph daemons cephadm runs are containers too, and
+# the exporter reports them beside the quadlets.
+# HELP podman_container_block_input_total Container block input in bytes.
+# TYPE podman_container_block_input_total counter
+podman_container_block_input_total{id="0a7ccc354956",pod_id="",pod_name=""} 73728
+podman_container_block_input_total{id="5af0218808fe",pod_id="",pod_name=""} 8.31488e+06
+podman_container_block_input_total{id="5bcd107f6d03",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="61e793ba0f3c",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="6e0e559f82cc",pod_id="",pod_name=""} 2.11337216e+08
+podman_container_block_input_total{id="8ebbaa24e86f",pod_id="",pod_name=""} 606208
+podman_container_block_input_total{id="a9e652b69be7",pod_id="",pod_name=""} 1.0027008e+07
+podman_container_block_input_total{id="af8d597a02a6",pod_id="",pod_name=""} 5.77172774912e+11
+podman_container_block_input_total{id="ca6e899f8277",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="e112f06654bf",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="f49a9f5528e3",pod_id="",pod_name=""} 0
+# HELP podman_container_block_output_total Container block output in bytes.
+# TYPE podman_container_block_output_total counter
+podman_container_block_output_total{id="0a7ccc354956",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="5af0218808fe",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="5bcd107f6d03",pod_id="",pod_name=""} 532480
+podman_container_block_output_total{id="61e793ba0f3c",pod_id="",pod_name=""} 253952
+podman_container_block_output_total{id="6e0e559f82cc",pod_id="",pod_name=""} 4.93836115968e+11
+podman_container_block_output_total{id="8ebbaa24e86f",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="a9e652b69be7",pod_id="",pod_name=""} 40960
+podman_container_block_output_total{id="af8d597a02a6",pod_id="",pod_name=""} 6.9009412096e+11
+podman_container_block_output_total{id="ca6e899f8277",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="e112f06654bf",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="f49a9f5528e3",pod_id="",pod_name=""} 16384
+# HELP podman_container_cpu_seconds_total total CPU time spent for container in seconds.
+# TYPE podman_container_cpu_seconds_total counter
+podman_container_cpu_seconds_total{id="0a7ccc354956",pod_id="",pod_name=""} 1152.466398
+podman_container_cpu_seconds_total{id="5af0218808fe",pod_id="",pod_name=""} 63.166169
+podman_container_cpu_seconds_total{id="5bcd107f6d03",pod_id="",pod_name=""} 115.764926
+podman_container_cpu_seconds_total{id="61e793ba0f3c",pod_id="",pod_name=""} 27.71988
+podman_container_cpu_seconds_total{id="6e0e559f82cc",pod_id="",pod_name=""} 2335.344601
+podman_container_cpu_seconds_total{id="8ebbaa24e86f",pod_id="",pod_name=""} 129.894273
+podman_container_cpu_seconds_total{id="a9e652b69be7",pod_id="",pod_name=""} 2235.721007
+podman_container_cpu_seconds_total{id="af8d597a02a6",pod_id="",pod_name=""} 9430.050258
+podman_container_cpu_seconds_total{id="ca6e899f8277",pod_id="",pod_name=""} 1407.295949
+podman_container_cpu_seconds_total{id="e112f06654bf",pod_id="",pod_name=""} 249.045687
+podman_container_cpu_seconds_total{id="f49a9f5528e3",pod_id="",pod_name=""} 45.205058
+# HELP podman_container_info Container information.
+# TYPE podman_container_info gauge
+podman_container_info{id="0a7ccc354956",image="quay.io/prometheus/node-exporter:latest",name="systemd-node-exporter",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="5af0218808fe",image="localhost:5000/ceph@sha256:55a5c2014b4db34589ad8886606409727f633319131bb663d37e0d489e350703",name="ceph-46613678-1b54-42ab-b3ac-5b2c1d285802-crash-ccv1",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="5bcd107f6d03",image="docker.io/insatomcat/insatomcat-exporter:latest",name="systemd-insatomcat-exporter",pod_id="",pod_name="",ports="127.0.0.1:9184->9184/tcp"} 1
+podman_container_info{id="61e793ba0f3c",image="docker.io/library/nginx:1.30.5-alpine-slim",name="seapath-metrics-proxy",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="6e0e559f82cc",image="localhost:5000/ceph@sha256:55a5c2014b4db34589ad8886606409727f633319131bb663d37e0d489e350703",name="ceph-46613678-1b54-42ab-b3ac-5b2c1d285802-mon-ccv1",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="8ebbaa24e86f",image="quay.io/navidys/prometheus-podman-exporter:latest",name="systemd-podman-exporter",pod_id="",pod_name="",ports="127.0.0.1:9882->9882/tcp"} 1
+podman_container_info{id="a9e652b69be7",image="localhost:5000/ceph@sha256:55a5c2014b4db34589ad8886606409727f633319131bb663d37e0d489e350703",name="ceph-46613678-1b54-42ab-b3ac-5b2c1d285802-mgr-ccv1",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="af8d597a02a6",image="localhost:5000/ceph@sha256:55a5c2014b4db34589ad8886606409727f633319131bb663d37e0d489e350703",name="ceph-46613678-1b54-42ab-b3ac-5b2c1d285802-osd-0",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="ca6e899f8277",image="docker.io/insatomcat/ha-cluster-exporter:0.0.1",name="systemd-ha_cluster_exporter",pod_id="",pod_name="",ports="127.0.0.1:9664->9664/tcp"} 1
+podman_container_info{id="e112f06654bf",image="ghcr.io/inovex/prometheus-libvirt-exporter:2.3.1",name="systemd-libvirt-exporter",pod_id="",pod_name="",ports="127.0.0.1:9177->9177/tcp"} 1
+podman_container_info{id="f49a9f5528e3",image="docker.io/insatomcat/seapath-webui:0.3.177",name="seapath-webui",pod_id="",pod_name="",ports=""} 1
+# HELP podman_container_mem_usage_bytes Container memory usage.
+# TYPE podman_container_mem_usage_bytes gauge
+podman_container_mem_usage_bytes{id="0a7ccc354956",pod_id="",pod_name=""} 1.2689408e+07
+podman_container_mem_usage_bytes{id="5af0218808fe",pod_id="",pod_name=""} 6.791168e+06
+podman_container_mem_usage_bytes{id="5bcd107f6d03",pod_id="",pod_name=""} 2.0860928e+07
+podman_container_mem_usage_bytes{id="61e793ba0f3c",pod_id="",pod_name=""} 2.53952e+06
+podman_container_mem_usage_bytes{id="6e0e559f82cc",pod_id="",pod_name=""} 4.73161728e+08
+podman_container_mem_usage_bytes{id="8ebbaa24e86f",pod_id="",pod_name=""} 1.2607488e+07
+podman_container_mem_usage_bytes{id="a9e652b69be7",pod_id="",pod_name=""} 4.14109696e+08
+podman_container_mem_usage_bytes{id="af8d597a02a6",pod_id="",pod_name=""} 4.316229632e+09
+podman_container_mem_usage_bytes{id="ca6e899f8277",pod_id="",pod_name=""} 9.445376e+06
+podman_container_mem_usage_bytes{id="e112f06654bf",pod_id="",pod_name=""} 9.363456e+06
+podman_container_mem_usage_bytes{id="f49a9f5528e3",pod_id="",pod_name=""} 1.11620096e+08
+# HELP podman_container_net_input_total Container network input in bytes.
+# TYPE podman_container_net_input_total counter
+podman_container_net_input_total{id="0a7ccc354956",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="5af0218808fe",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="5bcd107f6d03",pod_id="",pod_name=""} 1.1166697e+07
+podman_container_net_input_total{id="61e793ba0f3c",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="6e0e559f82cc",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="8ebbaa24e86f",pod_id="",pod_name=""} 1.0560942e+07
+podman_container_net_input_total{id="a9e652b69be7",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="af8d597a02a6",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="ca6e899f8277",pod_id="",pod_name=""} 9.990487e+06
+podman_container_net_input_total{id="e112f06654bf",pod_id="",pod_name=""} 1.1013668e+07
+podman_container_net_input_total{id="f49a9f5528e3",pod_id="",pod_name=""} 0
+# HELP podman_container_net_output_total Container network output in bytes.
+# TYPE podman_container_net_output_total counter
+podman_container_net_output_total{id="0a7ccc354956",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="5af0218808fe",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="5bcd107f6d03",pod_id="",pod_name=""} 4.3665103e+07
+podman_container_net_output_total{id="61e793ba0f3c",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="6e0e559f82cc",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="8ebbaa24e86f",pod_id="",pod_name=""} 8.5186558e+07
+podman_container_net_output_total{id="a9e652b69be7",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="af8d597a02a6",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="ca6e899f8277",pod_id="",pod_name=""} 4.4748718e+07
+podman_container_net_output_total{id="e112f06654bf",pod_id="",pod_name=""} 1.06038041e+08
+podman_container_net_output_total{id="f49a9f5528e3",pod_id="",pod_name=""} 0
+# HELP podman_container_state Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).
+# TYPE podman_container_state gauge
+podman_container_state{id="0a7ccc354956",pod_id="",pod_name=""} 2
+podman_container_state{id="5af0218808fe",pod_id="",pod_name=""} 2
+podman_container_state{id="5bcd107f6d03",pod_id="",pod_name=""} 2
+podman_container_state{id="61e793ba0f3c",pod_id="",pod_name=""} 2
+podman_container_state{id="6e0e559f82cc",pod_id="",pod_name=""} 2
+podman_container_state{id="8ebbaa24e86f",pod_id="",pod_name=""} 2
+podman_container_state{id="a9e652b69be7",pod_id="",pod_name=""} 2
+podman_container_state{id="af8d597a02a6",pod_id="",pod_name=""} 2
+podman_container_state{id="ca6e899f8277",pod_id="",pod_name=""} 2
+podman_container_state{id="e112f06654bf",pod_id="",pod_name=""} 2
+podman_container_state{id="f49a9f5528e3",pod_id="",pod_name=""} 2

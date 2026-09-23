@@ -84,6 +84,7 @@ from app.services.registry import FakeTagSource, RegistryTagSource, TagSource
 from app.services.software import SoftwareService
 from app.services.storage import StorageService
 from app.services.update import UpdateService
+from app.services.usage import UsageService
 from app.services.vms import DEPLOY_PLAYBOOK, VmService
 from app.trust.backup_server import FakeKeyInstaller, KeyInstaller, SshKeyInstaller
 from app.trust.service import TrustService
@@ -454,24 +455,23 @@ def create_app(
     # The rewrite sits in front of the scrape window, so a page asking one
     # machine for the same exporter twice still makes one request. The paths
     # are the job names `deploy_metrics_proxy` serves each exporter under.
+    network = metrics_client or (
+        FakeMetricsClient()
+        if settings.use_fakes
+        else UrllibMetricsClient(app.state.metrics_proxy_trust)
+    )
+    routes = {
+        settings.node_exporter_port: "node",
+        settings.libvirt_exporter_port: "libvirt_exporter",
+        settings.podman_exporter_port: "podman_exporter",
+        settings.ha_cluster_exporter_port: "ha",
+        settings.ceph_exporter_port: "ceph",
+    }
     exporters = MetricsProxyClient(
-        CachingMetricsClient(
-            metrics_client
-            or (
-                FakeMetricsClient()
-                if settings.use_fakes
-                else UrllibMetricsClient(app.state.metrics_proxy_trust)
-            ),
-            app.state.scrapes,
-        ),
+        CachingMetricsClient(network, app.state.scrapes),
         proxied=_proxied(app.state.inventory_service),
         port=settings.metrics_proxy_port,
-        routes={
-            settings.node_exporter_port: "node",
-            settings.libvirt_exporter_port: "libvirt_exporter",
-            settings.ha_cluster_exporter_port: "ha",
-            settings.ceph_exporter_port: "ceph",
-        },
+        routes=routes,
     )
 
     # The real time page, which reads both halves of the same question: the
@@ -486,6 +486,23 @@ def create_app(
         # The one reading that leaves this machine: each node's exporter, for
         # the CPU pool seapath-alloc computes and this container cannot.
         pool=PoolReader(client=exporters, port=settings.node_exporter_port),
+    )
+
+    # What each machine and each workload on it consumes. The one reading that
+    # goes around the scrape window: its answers are divided by the time
+    # between two of them, and a kept answer carries the time of another
+    # reading. See D67.
+    app.state.usage_service = UsageService(
+        inventory=app.state.inventory_service,
+        client=MetricsProxyClient(
+            network,
+            proxied=_proxied(app.state.inventory_service),
+            port=settings.metrics_proxy_port,
+            routes=routes,
+        ),
+        node_port=settings.node_exporter_port,
+        libvirt_port=settings.libvirt_exporter_port,
+        podman_port=settings.podman_exporter_port,
     )
 
     # The cluster and the storage views: Pacemaker and Corosync from each

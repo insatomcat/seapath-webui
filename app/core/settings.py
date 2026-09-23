@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # the state of Pacemaker and Corosync. Same reasoning as above: the port a
     # cluster already has open, asked rather than duplicated.
     ha_cluster_exporter_port: int = 9664
+    # Where `deploy_prometheus_exporters` puts prometheus-podman-exporter, on
+    # the same `hypervisors` group as libvirt-exporter. What each container
+    # consumes, read by the Usage page beside what each guest does.
+    podman_exporter_port: int = 9882
     # How long the registry is given to answer when the Deployment page asks
     # which versions of this service exist. Short on purpose: a substation
     # hypervisor may have no route to a registry at all, and the operator

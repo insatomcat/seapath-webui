@@ -292,6 +292,10 @@ def install(app: FastAPI) -> None:
     def updates(request: Request):
         return _page(request, "updates.html", "updates")
 
+    @app.get("/usage", response_class=HTMLResponse, include_in_schema=False)
+    def usage(request: Request):
+        return _page(request, "usage.html", "usage")
+
     @app.get("/realtime", response_class=HTMLResponse, include_in_schema=False)
     def realtime(request: Request):
         return _page(request, "realtime.html", "realtime")

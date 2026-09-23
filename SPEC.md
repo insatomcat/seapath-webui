@@ -132,6 +132,13 @@ Proxmox clone:
   second source of truth. D13, D26, D27 and D29 in
   [decisions.md](docs/decisions.md) are that boundary, held four times.
 
+  The Usage page moves the line by one step, and D67 says where. It draws
+  rates over the last five minutes, per machine and per guest and container,
+  from two readings of those same expositions, and the first of each pair is
+  remembered by the browser that asked for both. This service still keeps
+  nothing, and history past those five minutes and alerting stay in
+  Prometheus.
+
 ### Deliberately deferred
 
 Arbitrary cluster sizes. The reference inventory encodes a **three node ring**:

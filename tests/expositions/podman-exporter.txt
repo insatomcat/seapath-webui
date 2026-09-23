@@ -1,0 +1,79 @@
+# Recorded from ccv-admin with prometheus-podman-exporter on port 9882, as
+# deploy_prometheus_exporters deploys it, on 2026-09-23. Trimmed to the
+# families `app/cluster/usage.py` reads.
+#
+# Every series but podman_container_info names a container by its short id,
+# and only the info series carries the name. The containers here are the
+# exporters' own quadlets, the metrics proxy and seapath-webui itself.
+# HELP podman_container_block_input_total Container block input in bytes.
+# TYPE podman_container_block_input_total counter
+podman_container_block_input_total{id="00740a13068b",pod_id="",pod_name=""} 163840
+podman_container_block_input_total{id="5192e88e05ae",pod_id="",pod_name=""} 3.2653312e+07
+podman_container_block_input_total{id="75275558e387",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="7d277aec59b0",pod_id="",pod_name=""} 8192
+podman_container_block_input_total{id="9b39a1d56d1f",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="aea5ad7cdb4f",pod_id="",pod_name=""} 0
+podman_container_block_input_total{id="e406493e896f",pod_id="",pod_name=""} 188416
+# HELP podman_container_block_output_total Container block output in bytes.
+# TYPE podman_container_block_output_total counter
+podman_container_block_output_total{id="00740a13068b",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="5192e88e05ae",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="75275558e387",pod_id="",pod_name=""} 8192
+podman_container_block_output_total{id="7d277aec59b0",pod_id="",pod_name=""} 532480
+podman_container_block_output_total{id="9b39a1d56d1f",pod_id="",pod_name=""} 0
+podman_container_block_output_total{id="aea5ad7cdb4f",pod_id="",pod_name=""} 16384
+podman_container_block_output_total{id="e406493e896f",pod_id="",pod_name=""} 0
+# HELP podman_container_cpu_seconds_total total CPU time spent for container in seconds.
+# TYPE podman_container_cpu_seconds_total counter
+podman_container_cpu_seconds_total{id="00740a13068b",pod_id="",pod_name=""} 1105.083809
+podman_container_cpu_seconds_total{id="5192e88e05ae",pod_id="",pod_name=""} 8.39561
+podman_container_cpu_seconds_total{id="75275558e387",pod_id="",pod_name=""} 21.196116
+podman_container_cpu_seconds_total{id="7d277aec59b0",pod_id="",pod_name=""} 196.840903
+podman_container_cpu_seconds_total{id="9b39a1d56d1f",pod_id="",pod_name=""} 592.636327
+podman_container_cpu_seconds_total{id="aea5ad7cdb4f",pod_id="",pod_name=""} 4.858808
+podman_container_cpu_seconds_total{id="e406493e896f",pod_id="",pod_name=""} 95.150096
+# HELP podman_container_info Container information.
+# TYPE podman_container_info gauge
+podman_container_info{id="00740a13068b",image="quay.io/prometheus/node-exporter:latest",name="systemd-node-exporter",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="5192e88e05ae",image="docker.io/insatomcat/ha-cluster-exporter:0.0.1",name="systemd-ha_cluster_exporter",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="75275558e387",image="docker.io/library/nginx:1.30.5-alpine-slim",name="seapath-metrics-proxy",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="7d277aec59b0",image="docker.io/insatomcat/insatomcat-exporter:latest",name="systemd-insatomcat-exporter",pod_id="",pod_name="",ports="127.0.0.1:9184->9184/tcp"} 1
+podman_container_info{id="9b39a1d56d1f",image="ghcr.io/inovex/prometheus-libvirt-exporter:2.3.1",name="systemd-libvirt-exporter",pod_id="",pod_name="",ports="127.0.0.1:9177->9177/tcp"} 1
+podman_container_info{id="aea5ad7cdb4f",image="docker.io/insatomcat/seapath-webui:0.3.177",name="seapath-webui",pod_id="",pod_name="",ports=""} 1
+podman_container_info{id="e406493e896f",image="quay.io/navidys/prometheus-podman-exporter:latest",name="systemd-podman-exporter",pod_id="",pod_name="",ports="127.0.0.1:9882->9882/tcp"} 1
+# HELP podman_container_mem_usage_bytes Container memory usage.
+# TYPE podman_container_mem_usage_bytes gauge
+podman_container_mem_usage_bytes{id="00740a13068b",pod_id="",pod_name=""} 1.1931648e+07
+podman_container_mem_usage_bytes{id="5192e88e05ae",pod_id="",pod_name=""} 5.357568e+06
+podman_container_mem_usage_bytes{id="75275558e387",pod_id="",pod_name=""} 2.473984e+06
+podman_container_mem_usage_bytes{id="7d277aec59b0",pod_id="",pod_name=""} 2.0865024e+07
+podman_container_mem_usage_bytes{id="9b39a1d56d1f",pod_id="",pod_name=""} 1.386496e+07
+podman_container_mem_usage_bytes{id="aea5ad7cdb4f",pod_id="",pod_name=""} 8.7064576e+07
+podman_container_mem_usage_bytes{id="e406493e896f",pod_id="",pod_name=""} 1.435648e+07
+# HELP podman_container_net_input_total Container network input in bytes.
+# TYPE podman_container_net_input_total counter
+podman_container_net_input_total{id="00740a13068b",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="5192e88e05ae",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="75275558e387",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="7d277aec59b0",pod_id="",pod_name=""} 1.1174325e+07
+podman_container_net_input_total{id="9b39a1d56d1f",pod_id="",pod_name=""} 1.2252313e+07
+podman_container_net_input_total{id="aea5ad7cdb4f",pod_id="",pod_name=""} 0
+podman_container_net_input_total{id="e406493e896f",pod_id="",pod_name=""} 1.0567718e+07
+# HELP podman_container_net_output_total Container network output in bytes.
+# TYPE podman_container_net_output_total counter
+podman_container_net_output_total{id="00740a13068b",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="5192e88e05ae",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="75275558e387",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="7d277aec59b0",pod_id="",pod_name=""} 5.1674103e+07
+podman_container_net_output_total{id="9b39a1d56d1f",pod_id="",pod_name=""} 1.65762539e+08
+podman_container_net_output_total{id="aea5ad7cdb4f",pod_id="",pod_name=""} 0
+podman_container_net_output_total{id="e406493e896f",pod_id="",pod_name=""} 7.2082379e+07
+# HELP podman_container_state Container current state (-1=unknown,0=created,1=initialized,2=running,3=stopped,4=paused,5=exited,6=removing,7=stopping).
+# TYPE podman_container_state gauge
+podman_container_state{id="00740a13068b",pod_id="",pod_name=""} 2
+podman_container_state{id="5192e88e05ae",pod_id="",pod_name=""} 2
+podman_container_state{id="75275558e387",pod_id="",pod_name=""} 2
+podman_container_state{id="7d277aec59b0",pod_id="",pod_name=""} 2
+podman_container_state{id="9b39a1d56d1f",pod_id="",pod_name=""} 2
+podman_container_state{id="aea5ad7cdb4f",pod_id="",pod_name=""} 2
+podman_container_state{id="e406493e896f",pod_id="",pod_name=""} 2

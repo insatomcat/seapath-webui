@@ -1,0 +1,659 @@
+# Recorded from ccv-admin, the standalone SEAPATH hypervisor that
+# libvirt-exporter.txt was recorded on, with node_exporter on port 9100, on
+# 2026-09-23. Trimmed to the families `app/cluster/usage.py` reads.
+#
+# Forty eight CPUs, of which 4-23 and 28-47 are isolated, so the
+# housekeeping and the isolated counters are summed apart. The filesystems
+# include tmpfs mounts the page leaves out, the disks include the dm- devices
+# of LVM whose I/O is already counted on sda, sdb and sdc, and the interfaces
+# include the veth devices of the containers and the tap devices of the
+# guests, which this machine's domains name after themselves (ABBICT, PODEV)
+# rather than vnetN.
+# HELP node_boot_time_seconds Node boot time, in unixtime.
+# TYPE node_boot_time_seconds gauge
+node_boot_time_seconds 1.789802968e+09
+# HELP node_cpu_isolated Whether each core is isolated, information from /sys/devices/system/cpu/isolated.
+# TYPE node_cpu_isolated gauge
+node_cpu_isolated{cpu="10"} 1
+node_cpu_isolated{cpu="11"} 1
+node_cpu_isolated{cpu="12"} 1
+node_cpu_isolated{cpu="13"} 1
+node_cpu_isolated{cpu="14"} 1
+node_cpu_isolated{cpu="15"} 1
+node_cpu_isolated{cpu="16"} 1
+node_cpu_isolated{cpu="17"} 1
+node_cpu_isolated{cpu="18"} 1
+node_cpu_isolated{cpu="19"} 1
+node_cpu_isolated{cpu="20"} 1
+node_cpu_isolated{cpu="21"} 1
+node_cpu_isolated{cpu="22"} 1
+node_cpu_isolated{cpu="23"} 1
+node_cpu_isolated{cpu="28"} 1
+node_cpu_isolated{cpu="29"} 1
+node_cpu_isolated{cpu="30"} 1
+node_cpu_isolated{cpu="31"} 1
+node_cpu_isolated{cpu="32"} 1
+node_cpu_isolated{cpu="33"} 1
+node_cpu_isolated{cpu="34"} 1
+node_cpu_isolated{cpu="35"} 1
+node_cpu_isolated{cpu="36"} 1
+node_cpu_isolated{cpu="37"} 1
+node_cpu_isolated{cpu="38"} 1
+node_cpu_isolated{cpu="39"} 1
+node_cpu_isolated{cpu="4"} 1
+node_cpu_isolated{cpu="40"} 1
+node_cpu_isolated{cpu="41"} 1
+node_cpu_isolated{cpu="42"} 1
+node_cpu_isolated{cpu="43"} 1
+node_cpu_isolated{cpu="44"} 1
+node_cpu_isolated{cpu="45"} 1
+node_cpu_isolated{cpu="46"} 1
+node_cpu_isolated{cpu="47"} 1
+node_cpu_isolated{cpu="5"} 1
+node_cpu_isolated{cpu="6"} 1
+node_cpu_isolated{cpu="7"} 1
+node_cpu_isolated{cpu="8"} 1
+node_cpu_isolated{cpu="9"} 1
+# HELP node_cpu_seconds_total Seconds the CPUs spent in each mode.
+# TYPE node_cpu_seconds_total counter
+node_cpu_seconds_total{cpu="0",mode="idle"} 320657.3
+node_cpu_seconds_total{cpu="0",mode="iowait"} 553.9
+node_cpu_seconds_total{cpu="0",mode="irq"} 0
+node_cpu_seconds_total{cpu="0",mode="nice"} 571.3
+node_cpu_seconds_total{cpu="0",mode="softirq"} 271.78
+node_cpu_seconds_total{cpu="0",mode="steal"} 0
+node_cpu_seconds_total{cpu="0",mode="system"} 16279.86
+node_cpu_seconds_total{cpu="0",mode="user"} 12967.6
+node_cpu_seconds_total{cpu="1",mode="idle"} 319455.26
+node_cpu_seconds_total{cpu="1",mode="iowait"} 578.09
+node_cpu_seconds_total{cpu="1",mode="irq"} 0
+node_cpu_seconds_total{cpu="1",mode="nice"} 683.96
+node_cpu_seconds_total{cpu="1",mode="softirq"} 302.34
+node_cpu_seconds_total{cpu="1",mode="steal"} 0
+node_cpu_seconds_total{cpu="1",mode="system"} 22309.86
+node_cpu_seconds_total{cpu="1",mode="user"} 16750.09
+node_cpu_seconds_total{cpu="10",mode="idle"} 354203.33
+node_cpu_seconds_total{cpu="10",mode="iowait"} 0
+node_cpu_seconds_total{cpu="10",mode="irq"} 0
+node_cpu_seconds_total{cpu="10",mode="nice"} 0
+node_cpu_seconds_total{cpu="10",mode="softirq"} 0
+node_cpu_seconds_total{cpu="10",mode="steal"} 0
+node_cpu_seconds_total{cpu="10",mode="system"} 0.22
+node_cpu_seconds_total{cpu="10",mode="user"} 0
+node_cpu_seconds_total{cpu="11",mode="idle"} 354203.33
+node_cpu_seconds_total{cpu="11",mode="iowait"} 0
+node_cpu_seconds_total{cpu="11",mode="irq"} 0
+node_cpu_seconds_total{cpu="11",mode="nice"} 0
+node_cpu_seconds_total{cpu="11",mode="softirq"} 0
+node_cpu_seconds_total{cpu="11",mode="steal"} 0
+node_cpu_seconds_total{cpu="11",mode="system"} 0.22
+node_cpu_seconds_total{cpu="11",mode="user"} 0
+node_cpu_seconds_total{cpu="12",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="12",mode="iowait"} 0
+node_cpu_seconds_total{cpu="12",mode="irq"} 0
+node_cpu_seconds_total{cpu="12",mode="nice"} 0
+node_cpu_seconds_total{cpu="12",mode="softirq"} 0
+node_cpu_seconds_total{cpu="12",mode="steal"} 0
+node_cpu_seconds_total{cpu="12",mode="system"} 0.22
+node_cpu_seconds_total{cpu="12",mode="user"} 0
+node_cpu_seconds_total{cpu="13",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="13",mode="iowait"} 0
+node_cpu_seconds_total{cpu="13",mode="irq"} 0
+node_cpu_seconds_total{cpu="13",mode="nice"} 0
+node_cpu_seconds_total{cpu="13",mode="softirq"} 0
+node_cpu_seconds_total{cpu="13",mode="steal"} 0
+node_cpu_seconds_total{cpu="13",mode="system"} 0.22
+node_cpu_seconds_total{cpu="13",mode="user"} 0
+node_cpu_seconds_total{cpu="14",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="14",mode="iowait"} 0
+node_cpu_seconds_total{cpu="14",mode="irq"} 0
+node_cpu_seconds_total{cpu="14",mode="nice"} 0
+node_cpu_seconds_total{cpu="14",mode="softirq"} 0
+node_cpu_seconds_total{cpu="14",mode="steal"} 0
+node_cpu_seconds_total{cpu="14",mode="system"} 0.22
+node_cpu_seconds_total{cpu="14",mode="user"} 0
+node_cpu_seconds_total{cpu="15",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="15",mode="iowait"} 0
+node_cpu_seconds_total{cpu="15",mode="irq"} 0
+node_cpu_seconds_total{cpu="15",mode="nice"} 0
+node_cpu_seconds_total{cpu="15",mode="softirq"} 0
+node_cpu_seconds_total{cpu="15",mode="steal"} 0
+node_cpu_seconds_total{cpu="15",mode="system"} 0.22
+node_cpu_seconds_total{cpu="15",mode="user"} 0
+node_cpu_seconds_total{cpu="16",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="16",mode="iowait"} 0
+node_cpu_seconds_total{cpu="16",mode="irq"} 0
+node_cpu_seconds_total{cpu="16",mode="nice"} 0
+node_cpu_seconds_total{cpu="16",mode="softirq"} 0
+node_cpu_seconds_total{cpu="16",mode="steal"} 0
+node_cpu_seconds_total{cpu="16",mode="system"} 0.22
+node_cpu_seconds_total{cpu="16",mode="user"} 0
+node_cpu_seconds_total{cpu="17",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="17",mode="iowait"} 0
+node_cpu_seconds_total{cpu="17",mode="irq"} 0
+node_cpu_seconds_total{cpu="17",mode="nice"} 0
+node_cpu_seconds_total{cpu="17",mode="softirq"} 0
+node_cpu_seconds_total{cpu="17",mode="steal"} 0
+node_cpu_seconds_total{cpu="17",mode="system"} 0.22
+node_cpu_seconds_total{cpu="17",mode="user"} 0
+node_cpu_seconds_total{cpu="18",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="18",mode="iowait"} 0
+node_cpu_seconds_total{cpu="18",mode="irq"} 0
+node_cpu_seconds_total{cpu="18",mode="nice"} 0
+node_cpu_seconds_total{cpu="18",mode="softirq"} 0
+node_cpu_seconds_total{cpu="18",mode="steal"} 0
+node_cpu_seconds_total{cpu="18",mode="system"} 0.22
+node_cpu_seconds_total{cpu="18",mode="user"} 0
+node_cpu_seconds_total{cpu="19",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="19",mode="iowait"} 0
+node_cpu_seconds_total{cpu="19",mode="irq"} 0
+node_cpu_seconds_total{cpu="19",mode="nice"} 0
+node_cpu_seconds_total{cpu="19",mode="softirq"} 0
+node_cpu_seconds_total{cpu="19",mode="steal"} 0
+node_cpu_seconds_total{cpu="19",mode="system"} 0.22
+node_cpu_seconds_total{cpu="19",mode="user"} 0
+node_cpu_seconds_total{cpu="2",mode="idle"} 319004.54
+node_cpu_seconds_total{cpu="2",mode="iowait"} 548.36
+node_cpu_seconds_total{cpu="2",mode="irq"} 0
+node_cpu_seconds_total{cpu="2",mode="nice"} 738.83
+node_cpu_seconds_total{cpu="2",mode="softirq"} 525.21
+node_cpu_seconds_total{cpu="2",mode="steal"} 0
+node_cpu_seconds_total{cpu="2",mode="system"} 27121.47
+node_cpu_seconds_total{cpu="2",mode="user"} 14165.78
+node_cpu_seconds_total{cpu="20",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="20",mode="iowait"} 0
+node_cpu_seconds_total{cpu="20",mode="irq"} 0
+node_cpu_seconds_total{cpu="20",mode="nice"} 0
+node_cpu_seconds_total{cpu="20",mode="softirq"} 0
+node_cpu_seconds_total{cpu="20",mode="steal"} 0
+node_cpu_seconds_total{cpu="20",mode="system"} 0.22
+node_cpu_seconds_total{cpu="20",mode="user"} 0
+node_cpu_seconds_total{cpu="21",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="21",mode="iowait"} 0
+node_cpu_seconds_total{cpu="21",mode="irq"} 0
+node_cpu_seconds_total{cpu="21",mode="nice"} 0
+node_cpu_seconds_total{cpu="21",mode="softirq"} 0
+node_cpu_seconds_total{cpu="21",mode="steal"} 0
+node_cpu_seconds_total{cpu="21",mode="system"} 0.22
+node_cpu_seconds_total{cpu="21",mode="user"} 0
+node_cpu_seconds_total{cpu="22",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="22",mode="iowait"} 0
+node_cpu_seconds_total{cpu="22",mode="irq"} 0
+node_cpu_seconds_total{cpu="22",mode="nice"} 0
+node_cpu_seconds_total{cpu="22",mode="softirq"} 0
+node_cpu_seconds_total{cpu="22",mode="steal"} 0
+node_cpu_seconds_total{cpu="22",mode="system"} 0.22
+node_cpu_seconds_total{cpu="22",mode="user"} 0
+node_cpu_seconds_total{cpu="23",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="23",mode="iowait"} 0
+node_cpu_seconds_total{cpu="23",mode="irq"} 0
+node_cpu_seconds_total{cpu="23",mode="nice"} 0
+node_cpu_seconds_total{cpu="23",mode="softirq"} 0
+node_cpu_seconds_total{cpu="23",mode="steal"} 0
+node_cpu_seconds_total{cpu="23",mode="system"} 0.22
+node_cpu_seconds_total{cpu="23",mode="user"} 0
+node_cpu_seconds_total{cpu="24",mode="idle"} 316538.58
+node_cpu_seconds_total{cpu="24",mode="iowait"} 523.23
+node_cpu_seconds_total{cpu="24",mode="irq"} 0
+node_cpu_seconds_total{cpu="24",mode="nice"} 794.4
+node_cpu_seconds_total{cpu="24",mode="softirq"} 268.42
+node_cpu_seconds_total{cpu="24",mode="steal"} 0
+node_cpu_seconds_total{cpu="24",mode="system"} 17208.16
+node_cpu_seconds_total{cpu="24",mode="user"} 16150.96
+node_cpu_seconds_total{cpu="25",mode="idle"} 316506.39
+node_cpu_seconds_total{cpu="25",mode="iowait"} 538.27
+node_cpu_seconds_total{cpu="25",mode="irq"} 0
+node_cpu_seconds_total{cpu="25",mode="nice"} 823.32
+node_cpu_seconds_total{cpu="25",mode="softirq"} 281.14
+node_cpu_seconds_total{cpu="25",mode="steal"} 0
+node_cpu_seconds_total{cpu="25",mode="system"} 23645.19
+node_cpu_seconds_total{cpu="25",mode="user"} 18937.48
+node_cpu_seconds_total{cpu="26",mode="idle"} 316879.24
+node_cpu_seconds_total{cpu="26",mode="iowait"} 510.78
+node_cpu_seconds_total{cpu="26",mode="irq"} 0
+node_cpu_seconds_total{cpu="26",mode="nice"} 740.27
+node_cpu_seconds_total{cpu="26",mode="softirq"} 576.01
+node_cpu_seconds_total{cpu="26",mode="steal"} 0
+node_cpu_seconds_total{cpu="26",mode="system"} 28084.18
+node_cpu_seconds_total{cpu="26",mode="user"} 15761.85
+node_cpu_seconds_total{cpu="27",mode="idle"} 316142.32
+node_cpu_seconds_total{cpu="27",mode="iowait"} 498.74
+node_cpu_seconds_total{cpu="27",mode="irq"} 0
+node_cpu_seconds_total{cpu="27",mode="nice"} 677.66
+node_cpu_seconds_total{cpu="27",mode="softirq"} 343.5
+node_cpu_seconds_total{cpu="27",mode="steal"} 0
+node_cpu_seconds_total{cpu="27",mode="system"} 18881.45
+node_cpu_seconds_total{cpu="27",mode="user"} 15466.51
+node_cpu_seconds_total{cpu="28",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="28",mode="iowait"} 0
+node_cpu_seconds_total{cpu="28",mode="irq"} 0
+node_cpu_seconds_total{cpu="28",mode="nice"} 0
+node_cpu_seconds_total{cpu="28",mode="softirq"} 0
+node_cpu_seconds_total{cpu="28",mode="steal"} 0
+node_cpu_seconds_total{cpu="28",mode="system"} 0.22
+node_cpu_seconds_total{cpu="28",mode="user"} 0
+node_cpu_seconds_total{cpu="29",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="29",mode="iowait"} 0
+node_cpu_seconds_total{cpu="29",mode="irq"} 0
+node_cpu_seconds_total{cpu="29",mode="nice"} 0
+node_cpu_seconds_total{cpu="29",mode="softirq"} 0
+node_cpu_seconds_total{cpu="29",mode="steal"} 0
+node_cpu_seconds_total{cpu="29",mode="system"} 0.22
+node_cpu_seconds_total{cpu="29",mode="user"} 0
+node_cpu_seconds_total{cpu="3",mode="idle"} 319217.27
+node_cpu_seconds_total{cpu="3",mode="iowait"} 574.58
+node_cpu_seconds_total{cpu="3",mode="irq"} 0
+node_cpu_seconds_total{cpu="3",mode="nice"} 665.53
+node_cpu_seconds_total{cpu="3",mode="softirq"} 281.7
+node_cpu_seconds_total{cpu="3",mode="steal"} 0
+node_cpu_seconds_total{cpu="3",mode="system"} 17304.49
+node_cpu_seconds_total{cpu="3",mode="user"} 13908.84
+node_cpu_seconds_total{cpu="30",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="30",mode="iowait"} 0
+node_cpu_seconds_total{cpu="30",mode="irq"} 0
+node_cpu_seconds_total{cpu="30",mode="nice"} 0
+node_cpu_seconds_total{cpu="30",mode="softirq"} 0
+node_cpu_seconds_total{cpu="30",mode="steal"} 0
+node_cpu_seconds_total{cpu="30",mode="system"} 0.22
+node_cpu_seconds_total{cpu="30",mode="user"} 0
+node_cpu_seconds_total{cpu="31",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="31",mode="iowait"} 0
+node_cpu_seconds_total{cpu="31",mode="irq"} 0
+node_cpu_seconds_total{cpu="31",mode="nice"} 0
+node_cpu_seconds_total{cpu="31",mode="softirq"} 0
+node_cpu_seconds_total{cpu="31",mode="steal"} 0
+node_cpu_seconds_total{cpu="31",mode="system"} 0.22
+node_cpu_seconds_total{cpu="31",mode="user"} 0
+node_cpu_seconds_total{cpu="32",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="32",mode="iowait"} 0
+node_cpu_seconds_total{cpu="32",mode="irq"} 0
+node_cpu_seconds_total{cpu="32",mode="nice"} 0
+node_cpu_seconds_total{cpu="32",mode="softirq"} 0
+node_cpu_seconds_total{cpu="32",mode="steal"} 0
+node_cpu_seconds_total{cpu="32",mode="system"} 0.22
+node_cpu_seconds_total{cpu="32",mode="user"} 0
+node_cpu_seconds_total{cpu="33",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="33",mode="iowait"} 0
+node_cpu_seconds_total{cpu="33",mode="irq"} 0
+node_cpu_seconds_total{cpu="33",mode="nice"} 0
+node_cpu_seconds_total{cpu="33",mode="softirq"} 0
+node_cpu_seconds_total{cpu="33",mode="steal"} 0
+node_cpu_seconds_total{cpu="33",mode="system"} 0.22
+node_cpu_seconds_total{cpu="33",mode="user"} 0
+node_cpu_seconds_total{cpu="34",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="34",mode="iowait"} 0
+node_cpu_seconds_total{cpu="34",mode="irq"} 0
+node_cpu_seconds_total{cpu="34",mode="nice"} 0
+node_cpu_seconds_total{cpu="34",mode="softirq"} 0
+node_cpu_seconds_total{cpu="34",mode="steal"} 0
+node_cpu_seconds_total{cpu="34",mode="system"} 0.22
+node_cpu_seconds_total{cpu="34",mode="user"} 0
+node_cpu_seconds_total{cpu="35",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="35",mode="iowait"} 0
+node_cpu_seconds_total{cpu="35",mode="irq"} 0
+node_cpu_seconds_total{cpu="35",mode="nice"} 0
+node_cpu_seconds_total{cpu="35",mode="softirq"} 0
+node_cpu_seconds_total{cpu="35",mode="steal"} 0
+node_cpu_seconds_total{cpu="35",mode="system"} 0.22
+node_cpu_seconds_total{cpu="35",mode="user"} 0
+node_cpu_seconds_total{cpu="36",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="36",mode="iowait"} 0
+node_cpu_seconds_total{cpu="36",mode="irq"} 0
+node_cpu_seconds_total{cpu="36",mode="nice"} 0
+node_cpu_seconds_total{cpu="36",mode="softirq"} 0
+node_cpu_seconds_total{cpu="36",mode="steal"} 0
+node_cpu_seconds_total{cpu="36",mode="system"} 0.22
+node_cpu_seconds_total{cpu="36",mode="user"} 0
+node_cpu_seconds_total{cpu="37",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="37",mode="iowait"} 0
+node_cpu_seconds_total{cpu="37",mode="irq"} 0
+node_cpu_seconds_total{cpu="37",mode="nice"} 0
+node_cpu_seconds_total{cpu="37",mode="softirq"} 0
+node_cpu_seconds_total{cpu="37",mode="steal"} 0
+node_cpu_seconds_total{cpu="37",mode="system"} 0.22
+node_cpu_seconds_total{cpu="37",mode="user"} 0
+node_cpu_seconds_total{cpu="38",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="38",mode="iowait"} 0
+node_cpu_seconds_total{cpu="38",mode="irq"} 0
+node_cpu_seconds_total{cpu="38",mode="nice"} 0
+node_cpu_seconds_total{cpu="38",mode="softirq"} 0
+node_cpu_seconds_total{cpu="38",mode="steal"} 0
+node_cpu_seconds_total{cpu="38",mode="system"} 0.22
+node_cpu_seconds_total{cpu="38",mode="user"} 0
+node_cpu_seconds_total{cpu="39",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="39",mode="iowait"} 0
+node_cpu_seconds_total{cpu="39",mode="irq"} 0
+node_cpu_seconds_total{cpu="39",mode="nice"} 0
+node_cpu_seconds_total{cpu="39",mode="softirq"} 0
+node_cpu_seconds_total{cpu="39",mode="steal"} 0
+node_cpu_seconds_total{cpu="39",mode="system"} 0.22
+node_cpu_seconds_total{cpu="39",mode="user"} 0
+node_cpu_seconds_total{cpu="4",mode="idle"} 354200.36
+node_cpu_seconds_total{cpu="4",mode="iowait"} 0
+node_cpu_seconds_total{cpu="4",mode="irq"} 0
+node_cpu_seconds_total{cpu="4",mode="nice"} 0
+node_cpu_seconds_total{cpu="4",mode="softirq"} 0
+node_cpu_seconds_total{cpu="4",mode="steal"} 0
+node_cpu_seconds_total{cpu="4",mode="system"} 1.78
+node_cpu_seconds_total{cpu="4",mode="user"} 0
+node_cpu_seconds_total{cpu="40",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="40",mode="iowait"} 0
+node_cpu_seconds_total{cpu="40",mode="irq"} 0
+node_cpu_seconds_total{cpu="40",mode="nice"} 0
+node_cpu_seconds_total{cpu="40",mode="softirq"} 0
+node_cpu_seconds_total{cpu="40",mode="steal"} 0
+node_cpu_seconds_total{cpu="40",mode="system"} 0.22
+node_cpu_seconds_total{cpu="40",mode="user"} 0
+node_cpu_seconds_total{cpu="41",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="41",mode="iowait"} 0
+node_cpu_seconds_total{cpu="41",mode="irq"} 0
+node_cpu_seconds_total{cpu="41",mode="nice"} 0
+node_cpu_seconds_total{cpu="41",mode="softirq"} 0
+node_cpu_seconds_total{cpu="41",mode="steal"} 0
+node_cpu_seconds_total{cpu="41",mode="system"} 0.22
+node_cpu_seconds_total{cpu="41",mode="user"} 0
+node_cpu_seconds_total{cpu="42",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="42",mode="iowait"} 0
+node_cpu_seconds_total{cpu="42",mode="irq"} 0
+node_cpu_seconds_total{cpu="42",mode="nice"} 0
+node_cpu_seconds_total{cpu="42",mode="softirq"} 0
+node_cpu_seconds_total{cpu="42",mode="steal"} 0
+node_cpu_seconds_total{cpu="42",mode="system"} 0.22
+node_cpu_seconds_total{cpu="42",mode="user"} 0
+node_cpu_seconds_total{cpu="43",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="43",mode="iowait"} 0
+node_cpu_seconds_total{cpu="43",mode="irq"} 0
+node_cpu_seconds_total{cpu="43",mode="nice"} 0
+node_cpu_seconds_total{cpu="43",mode="softirq"} 0
+node_cpu_seconds_total{cpu="43",mode="steal"} 0
+node_cpu_seconds_total{cpu="43",mode="system"} 0.22
+node_cpu_seconds_total{cpu="43",mode="user"} 0
+node_cpu_seconds_total{cpu="44",mode="idle"} 354203.3
+node_cpu_seconds_total{cpu="44",mode="iowait"} 0
+node_cpu_seconds_total{cpu="44",mode="irq"} 0
+node_cpu_seconds_total{cpu="44",mode="nice"} 0
+node_cpu_seconds_total{cpu="44",mode="softirq"} 0
+node_cpu_seconds_total{cpu="44",mode="steal"} 0
+node_cpu_seconds_total{cpu="44",mode="system"} 0.22
+node_cpu_seconds_total{cpu="44",mode="user"} 0
+node_cpu_seconds_total{cpu="45",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="45",mode="iowait"} 0
+node_cpu_seconds_total{cpu="45",mode="irq"} 0
+node_cpu_seconds_total{cpu="45",mode="nice"} 0
+node_cpu_seconds_total{cpu="45",mode="softirq"} 0
+node_cpu_seconds_total{cpu="45",mode="steal"} 0
+node_cpu_seconds_total{cpu="45",mode="system"} 0.22
+node_cpu_seconds_total{cpu="45",mode="user"} 0
+node_cpu_seconds_total{cpu="46",mode="idle"} 354203.31
+node_cpu_seconds_total{cpu="46",mode="iowait"} 0
+node_cpu_seconds_total{cpu="46",mode="irq"} 0
+node_cpu_seconds_total{cpu="46",mode="nice"} 0
+node_cpu_seconds_total{cpu="46",mode="softirq"} 0
+node_cpu_seconds_total{cpu="46",mode="steal"} 0
+node_cpu_seconds_total{cpu="46",mode="system"} 0.22
+node_cpu_seconds_total{cpu="46",mode="user"} 0
+node_cpu_seconds_total{cpu="47",mode="idle"} 354203.3
+node_cpu_seconds_total{cpu="47",mode="iowait"} 0
+node_cpu_seconds_total{cpu="47",mode="irq"} 0
+node_cpu_seconds_total{cpu="47",mode="nice"} 0
+node_cpu_seconds_total{cpu="47",mode="softirq"} 0
+node_cpu_seconds_total{cpu="47",mode="steal"} 0
+node_cpu_seconds_total{cpu="47",mode="system"} 0.22
+node_cpu_seconds_total{cpu="47",mode="user"} 0
+node_cpu_seconds_total{cpu="5",mode="idle"} 354203.33
+node_cpu_seconds_total{cpu="5",mode="iowait"} 0
+node_cpu_seconds_total{cpu="5",mode="irq"} 0
+node_cpu_seconds_total{cpu="5",mode="nice"} 0
+node_cpu_seconds_total{cpu="5",mode="softirq"} 0
+node_cpu_seconds_total{cpu="5",mode="steal"} 0
+node_cpu_seconds_total{cpu="5",mode="system"} 0.22
+node_cpu_seconds_total{cpu="5",mode="user"} 0
+node_cpu_seconds_total{cpu="6",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="6",mode="iowait"} 0
+node_cpu_seconds_total{cpu="6",mode="irq"} 0
+node_cpu_seconds_total{cpu="6",mode="nice"} 0
+node_cpu_seconds_total{cpu="6",mode="softirq"} 0
+node_cpu_seconds_total{cpu="6",mode="steal"} 0
+node_cpu_seconds_total{cpu="6",mode="system"} 0.22
+node_cpu_seconds_total{cpu="6",mode="user"} 0
+node_cpu_seconds_total{cpu="7",mode="idle"} 354203.33
+node_cpu_seconds_total{cpu="7",mode="iowait"} 0
+node_cpu_seconds_total{cpu="7",mode="irq"} 0
+node_cpu_seconds_total{cpu="7",mode="nice"} 0
+node_cpu_seconds_total{cpu="7",mode="softirq"} 0
+node_cpu_seconds_total{cpu="7",mode="steal"} 0
+node_cpu_seconds_total{cpu="7",mode="system"} 0.22
+node_cpu_seconds_total{cpu="7",mode="user"} 0
+node_cpu_seconds_total{cpu="8",mode="idle"} 354203.33
+node_cpu_seconds_total{cpu="8",mode="iowait"} 0
+node_cpu_seconds_total{cpu="8",mode="irq"} 0
+node_cpu_seconds_total{cpu="8",mode="nice"} 0
+node_cpu_seconds_total{cpu="8",mode="softirq"} 0
+node_cpu_seconds_total{cpu="8",mode="steal"} 0
+node_cpu_seconds_total{cpu="8",mode="system"} 0.22
+node_cpu_seconds_total{cpu="8",mode="user"} 0
+node_cpu_seconds_total{cpu="9",mode="idle"} 354203.32
+node_cpu_seconds_total{cpu="9",mode="iowait"} 0
+node_cpu_seconds_total{cpu="9",mode="irq"} 0
+node_cpu_seconds_total{cpu="9",mode="nice"} 0
+node_cpu_seconds_total{cpu="9",mode="softirq"} 0
+node_cpu_seconds_total{cpu="9",mode="steal"} 0
+node_cpu_seconds_total{cpu="9",mode="system"} 0.22
+node_cpu_seconds_total{cpu="9",mode="user"} 0
+# HELP node_disk_io_time_seconds_total Total seconds spent doing I/Os.
+# TYPE node_disk_io_time_seconds_total counter
+node_disk_io_time_seconds_total{device="dm-0"} 0.02
+node_disk_io_time_seconds_total{device="dm-1"} 3092.8920000000003
+node_disk_io_time_seconds_total{device="dm-3"} 141.112
+node_disk_io_time_seconds_total{device="dm-6"} 628.864
+node_disk_io_time_seconds_total{device="dm-7"} 0.148
+node_disk_io_time_seconds_total{device="sda"} 58.952
+node_disk_io_time_seconds_total{device="sdb"} 170.892
+node_disk_io_time_seconds_total{device="sdc"} 2504.308
+# HELP node_disk_read_bytes_total The total number of bytes read successfully.
+# TYPE node_disk_read_bytes_total counter
+node_disk_read_bytes_total{device="dm-0"} 2.62144e+06
+node_disk_read_bytes_total{device="dm-1"} 4.8167728128e+10
+node_disk_read_bytes_total{device="dm-3"} 1.524315136e+09
+node_disk_read_bytes_total{device="dm-6"} 1.7601024e+08
+node_disk_read_bytes_total{device="dm-7"} 2.756608e+06
+node_disk_read_bytes_total{device="sda"} 9.539744256e+09
+node_disk_read_bytes_total{device="sdb"} 4.864188416e+09
+node_disk_read_bytes_total{device="sdc"} 4.1732550656e+10
+# HELP node_disk_written_bytes_total The total number of bytes written successfully.
+# TYPE node_disk_written_bytes_total counter
+node_disk_written_bytes_total{device="dm-0"} 0
+node_disk_written_bytes_total{device="dm-1"} 1.07716562944e+11
+node_disk_written_bytes_total{device="dm-3"} 4.569280512e+09
+node_disk_written_bytes_total{device="dm-6"} 1.2709646336e+10
+node_disk_written_bytes_total{device="dm-7"} 8192
+node_disk_written_bytes_total{device="sda"} 2.2031289344e+10
+node_disk_written_bytes_total{device="sdb"} 2.1387808768e+10
+node_disk_written_bytes_total{device="sdc"} 8.15913984e+10
+# HELP node_filesystem_avail_bytes Filesystem space available to non-root users in bytes.
+# TYPE node_filesystem_avail_bytes gauge
+node_filesystem_avail_bytes{device="/dev/mapper/vg1-root",device_error="",fstype="ext4",mountpoint="/"} 6.825766912e+09
+node_filesystem_avail_bytes{device="/dev/mapper/vg1-root",device_error="",fstype="ext4",mountpoint="/gnu/store"} 6.825766912e+09
+node_filesystem_avail_bytes{device="/dev/mapper/vg1-varlog",device_error="",fstype="ext4",mountpoint="/var/log"} 4.306046976e+09
+node_filesystem_avail_bytes{device="/dev/mapper/vg_data-lv_data",device_error="",fstype="ext4",mountpoint="/data"} 4.81322184704e+11
+node_filesystem_avail_bytes{device="/dev/sda1",device_error="",fstype="vfat",mountpoint="/boot/efi"} 5.31042304e+08
+node_filesystem_avail_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run"} 1.344700416e+10
+node_filesystem_avail_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/lock"} 5.24288e+06
+node_filesystem_avail_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/netns"} 1.344700416e+10
+node_filesystem_avail_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/user/1005"} 1.3449416704e+10
+node_filesystem_avail_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/tmp"} 6.7246977024e+10
+# HELP node_filesystem_readonly Filesystem read-only status.
+# TYPE node_filesystem_readonly gauge
+node_filesystem_readonly{device="/dev/mapper/vg1-root",device_error="",fstype="ext4",mountpoint="/"} 0
+node_filesystem_readonly{device="/dev/mapper/vg1-root",device_error="",fstype="ext4",mountpoint="/gnu/store"} 0
+node_filesystem_readonly{device="/dev/mapper/vg1-varlog",device_error="",fstype="ext4",mountpoint="/var/log"} 0
+node_filesystem_readonly{device="/dev/mapper/vg_data-lv_data",device_error="",fstype="ext4",mountpoint="/data"} 0
+node_filesystem_readonly{device="/dev/sda1",device_error="",fstype="vfat",mountpoint="/boot/efi"} 0
+node_filesystem_readonly{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run"} 0
+node_filesystem_readonly{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/lock"} 0
+node_filesystem_readonly{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/netns"} 0
+node_filesystem_readonly{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/user/1005"} 0
+node_filesystem_readonly{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/tmp"} 0
+# HELP node_filesystem_size_bytes Filesystem size in bytes.
+# TYPE node_filesystem_size_bytes gauge
+node_filesystem_size_bytes{device="/dev/mapper/vg1-root",device_error="",fstype="ext4",mountpoint="/"} 2.1024600064e+10
+node_filesystem_size_bytes{device="/dev/mapper/vg1-root",device_error="",fstype="ext4",mountpoint="/gnu/store"} 2.1024600064e+10
+node_filesystem_size_bytes{device="/dev/mapper/vg1-varlog",device_error="",fstype="ext4",mountpoint="/var/log"} 5.196382208e+09
+node_filesystem_size_bytes{device="/dev/mapper/vg_data-lv_data",device_error="",fstype="ext4",mountpoint="/data"} 1.934557282304e+12
+node_filesystem_size_bytes{device="/dev/sda1",device_error="",fstype="vfat",mountpoint="/boot/efi"} 5.35801856e+08
+node_filesystem_size_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run"} 1.3449433088e+10
+node_filesystem_size_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/lock"} 5.24288e+06
+node_filesystem_size_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/netns"} 1.3449433088e+10
+node_filesystem_size_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/run/user/1005"} 1.3449428992e+10
+node_filesystem_size_bytes{device="tmpfs",device_error="",fstype="tmpfs",mountpoint="/tmp"} 6.7247149056e+10
+# HELP node_load1 1m load average.
+# TYPE node_load1 gauge
+node_load1 2.08
+# HELP node_load15 15m load average.
+# TYPE node_load15 gauge
+node_load15 1.42
+# HELP node_load5 5m load average.
+# TYPE node_load5 gauge
+node_load5 1.5
+# HELP node_memory_Buffers_bytes Memory information field Buffers_bytes.
+# TYPE node_memory_Buffers_bytes gauge
+node_memory_Buffers_bytes 7.57968896e+08
+# HELP node_memory_Cached_bytes Memory information field Cached_bytes.
+# TYPE node_memory_Cached_bytes gauge
+node_memory_Cached_bytes 7.469152256e+10
+# HELP node_memory_HugePages_Free Memory information field HugePages_Free.
+# TYPE node_memory_HugePages_Free gauge
+node_memory_HugePages_Free 0
+# HELP node_memory_HugePages_Total Memory information field HugePages_Total.
+# TYPE node_memory_HugePages_Total gauge
+node_memory_HugePages_Total 0
+# HELP node_memory_Hugepagesize_bytes Memory information field Hugepagesize_bytes.
+# TYPE node_memory_Hugepagesize_bytes gauge
+node_memory_Hugepagesize_bytes 2.097152e+06
+# HELP node_memory_MemAvailable_bytes Memory information field MemAvailable_bytes.
+# TYPE node_memory_MemAvailable_bytes gauge
+node_memory_MemAvailable_bytes 7.6994527232e+10
+# HELP node_memory_MemFree_bytes Memory information field MemFree_bytes.
+# TYPE node_memory_MemFree_bytes gauge
+node_memory_MemFree_bytes 8.769536e+08
+# HELP node_memory_MemTotal_bytes Memory information field MemTotal_bytes.
+# TYPE node_memory_MemTotal_bytes gauge
+node_memory_MemTotal_bytes 1.34494298112e+11
+# HELP node_memory_SwapFree_bytes Memory information field SwapFree_bytes.
+# TYPE node_memory_SwapFree_bytes gauge
+node_memory_SwapFree_bytes 2.146955264e+09
+# HELP node_memory_SwapTotal_bytes Memory information field SwapTotal_bytes.
+# TYPE node_memory_SwapTotal_bytes gauge
+node_memory_SwapTotal_bytes 2.147479552e+09
+# HELP node_network_address_assign_type Network device property: address_assign_type
+# TYPE node_network_address_assign_type gauge
+node_network_address_assign_type{device="ABBICT"} 3
+node_network_address_assign_type{device="ABBICT2"} 3
+node_network_address_assign_type{device="ABBICT3"} 3
+node_network_address_assign_type{device="ABBICT4"} 3
+node_network_address_assign_type{device="EITCS"} 3
+node_network_address_assign_type{device="EITDEB13"} 3
+node_network_address_assign_type{device="PODEV"} 3
+node_network_address_assign_type{device="br0"} 3
+node_network_address_assign_type{device="eno12399"} 0
+node_network_address_assign_type{device="eno12409"} 0
+node_network_address_assign_type{device="eno12419"} 0
+node_network_address_assign_type{device="eno12429"} 0
+node_network_address_assign_type{device="eno8303"} 0
+node_network_address_assign_type{device="eno8403"} 0
+node_network_address_assign_type{device="lo"} 0
+node_network_address_assign_type{device="podman0"} 3
+node_network_address_assign_type{device="veth0"} 3
+node_network_address_assign_type{device="veth1"} 3
+node_network_address_assign_type{device="veth2"} 3
+node_network_address_assign_type{device="vnet1"} 3
+# HELP node_network_info Non-numeric data from /sys/class/net/<iface>, value is always 1.
+# TYPE node_network_info gauge
+node_network_info{address="00:00:00:00:00:00",adminstate="up",broadcast="00:00:00:00:00:00",device="lo",duplex="",ifalias="",operstate="unknown"} 1
+node_network_info{address="0a:5c:c0:56:ad:9b",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="veth0",duplex="full",ifalias="",operstate="up"} 1
+node_network_info{address="10:98:19:9b:39:4d",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="eno8303",duplex="full",ifalias="",operstate="up"} 1
+node_network_info{address="10:98:19:9b:39:4e",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="eno8403",duplex="unknown",ifalias="",operstate="down"} 1
+node_network_info{address="16:03:8a:08:77:fa",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="veth2",duplex="full",ifalias="",operstate="up"} 1
+node_network_info{address="30:3e:a7:10:7f:96",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="eno12399",duplex="unknown",ifalias="",operstate="down"} 1
+node_network_info{address="30:3e:a7:10:7f:97",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="eno12409",duplex="unknown",ifalias="",operstate="down"} 1
+node_network_info{address="30:3e:a7:10:7f:98",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="eno12419",duplex="unknown",ifalias="",operstate="down"} 1
+node_network_info{address="30:3e:a7:10:7f:99",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="eno12429",duplex="unknown",ifalias="",operstate="down"} 1
+node_network_info{address="4a:6b:aa:06:88:42",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="veth1",duplex="full",ifalias="",operstate="up"} 1
+node_network_info{address="82:88:34:bb:cc:97",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="br0",duplex="unknown",ifalias="",operstate="up"} 1
+node_network_info{address="da:ea:d3:d4:bc:e2",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="podman0",duplex="unknown",ifalias="",operstate="up"} 1
+node_network_info{address="fe:54:00:02:cb:f8",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="ABBICT3",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:02:cb:f9",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="ABBICT4",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:14:00:01",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="vnet1",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:61:74:fe",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="EITDEB13",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:87:00:ec",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="EITCS",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:b2:71:14",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="PODEV",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:d0:0b:eb",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="ABBICT",duplex="full",ifalias="",operstate="unknown"} 1
+node_network_info{address="fe:54:00:d0:0b:ec",adminstate="up",broadcast="ff:ff:ff:ff:ff:ff",device="ABBICT2",duplex="full",ifalias="",operstate="unknown"} 1
+# HELP node_network_receive_bytes_total Network device statistic receive_bytes.
+# TYPE node_network_receive_bytes_total counter
+node_network_receive_bytes_total{device="ABBICT"} 2.84447944e+08
+node_network_receive_bytes_total{device="ABBICT2"} 6.81422695e+08
+node_network_receive_bytes_total{device="ABBICT3"} 6.84858275e+08
+node_network_receive_bytes_total{device="ABBICT4"} 6.67836165e+08
+node_network_receive_bytes_total{device="EITCS"} 5.15075217e+08
+node_network_receive_bytes_total{device="EITDEB13"} 3.93648833e+08
+node_network_receive_bytes_total{device="PODEV"} 7.06431843e+08
+node_network_receive_bytes_total{device="br0"} 1.432964891e+10
+node_network_receive_bytes_total{device="eno12399"} 0
+node_network_receive_bytes_total{device="eno12409"} 0
+node_network_receive_bytes_total{device="eno12419"} 0
+node_network_receive_bytes_total{device="eno12429"} 0
+node_network_receive_bytes_total{device="eno8303"} 2.1639874283e+10
+node_network_receive_bytes_total{device="eno8403"} 0
+node_network_receive_bytes_total{device="lo"} 5.93284656e+08
+node_network_receive_bytes_total{device="podman0"} 4.4458238e+08
+node_network_receive_bytes_total{device="veth0"} 7.2082239e+07
+node_network_receive_bytes_total{device="veth1"} 1.65762539e+08
+node_network_receive_bytes_total{device="veth2"} 5.1674103e+07
+node_network_receive_bytes_total{device="vnet1"} 420718
+# HELP node_network_speed_bytes Network device property: speed_bytes
+# TYPE node_network_speed_bytes gauge
+node_network_speed_bytes{device="ABBICT"} 1.25e+09
+node_network_speed_bytes{device="ABBICT2"} 1.25e+09
+node_network_speed_bytes{device="ABBICT3"} 1.25e+09
+node_network_speed_bytes{device="ABBICT4"} 1.25e+09
+node_network_speed_bytes{device="EITCS"} 1.25e+09
+node_network_speed_bytes{device="EITDEB13"} 1.25e+09
+node_network_speed_bytes{device="PODEV"} 1.25e+09
+node_network_speed_bytes{device="br0"} 1.25e+09
+node_network_speed_bytes{device="eno12399"} -125000
+node_network_speed_bytes{device="eno12409"} -125000
+node_network_speed_bytes{device="eno12419"} -125000
+node_network_speed_bytes{device="eno12429"} -125000
+node_network_speed_bytes{device="eno8303"} 1.25e+08
+node_network_speed_bytes{device="eno8403"} -125000
+node_network_speed_bytes{device="podman0"} 1.25e+09
+node_network_speed_bytes{device="veth0"} 1.25e+09
+node_network_speed_bytes{device="veth1"} 1.25e+09
+node_network_speed_bytes{device="veth2"} 1.25e+09
+node_network_speed_bytes{device="vnet1"} 1.25e+09
+# HELP node_network_transmit_bytes_total Network device statistic transmit_bytes.
+# TYPE node_network_transmit_bytes_total counter
+node_network_transmit_bytes_total{device="ABBICT"} 1.63035546e+08
+node_network_transmit_bytes_total{device="ABBICT2"} 1.84126203e+08
+node_network_transmit_bytes_total{device="ABBICT3"} 1.84097405e+09
+node_network_transmit_bytes_total{device="ABBICT4"} 1.88812405e+08
+node_network_transmit_bytes_total{device="EITCS"} 3.3322927e+08
+node_network_transmit_bytes_total{device="EITDEB13"} 1.34655807e+08
+node_network_transmit_bytes_total{device="PODEV"} 4.32424828e+08
+node_network_transmit_bytes_total{device="br0"} 1.354682506e+09
+node_network_transmit_bytes_total{device="eno12399"} 0
+node_network_transmit_bytes_total{device="eno12409"} 0
+node_network_transmit_bytes_total{device="eno12419"} 0
+node_network_transmit_bytes_total{device="eno12429"} 0
+node_network_transmit_bytes_total{device="eno8303"} 1.1951773452e+10
+node_network_transmit_bytes_total{device="eno8403"} 0
+node_network_transmit_bytes_total{device="lo"} 5.93284656e+08
+node_network_transmit_bytes_total{device="podman0"} 5.1668723e+07
+node_network_transmit_bytes_total{device="veth0"} 1.0567427e+07
+node_network_transmit_bytes_total{device="veth1"} 1.2252313e+07
+node_network_transmit_bytes_total{device="veth2"} 1.1174325e+07
+node_network_transmit_bytes_total{device="vnet1"} 2.5870566e+07
+# HELP node_time_seconds System time in seconds since epoch (1970).
+# TYPE node_time_seconds gauge
+node_time_seconds 1.790157171886987e+09

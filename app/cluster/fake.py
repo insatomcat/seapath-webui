@@ -19,7 +19,10 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
+
+from app.cluster import metrics
 
 
 def _detail(**labels: str) -> str:
@@ -502,21 +505,96 @@ CEPH_EXPORTERS = {
 # One of its domains, `VMUADMIN`, is running on the machine and absent from
 # every inventory, which is the guest most likely to need stopping and the one
 # nothing else here can reach.
-_LIBVIRT = (
-    Path(__file__).resolve().parents[2] / "tests/expositions/libvirt-exporter.txt"
-)
+_EXPOSITIONS = Path(__file__).resolve().parents[2] / "tests/expositions"
+
+
+def _recorded(name: str) -> str:
+    path = _EXPOSITIONS / name
+    return path.read_text() if path.is_file() else ""
+
+
+def _advancing(text: str, clock: str) -> Callable[[], str]:
+    """A recording whose counters go on counting, at the pace they had.
+
+    A counter read twice from a file is a machine that did nothing between the
+    two readings, and the Usage page draws nothing but the difference. So every
+    `_total` series is scaled by how much longer the recorded machine has been
+    up now than when it was recorded, which keeps each one growing at its
+    average since boot, and `node_time_seconds` says the time it is.
+
+    `clock` names the node_exporter recording whose boot time and scrape time
+    set the pace, so a machine's three exporters advance together.
+    """
+    series = metrics.parse(_recorded(clock))
+    boot = series["node_boot_time_seconds"][0].value if series else 0.0
+    recorded = series["node_time_seconds"][0].value if series else 0.0
+
+    def now() -> str:
+        moment = time.time()
+        factor = (moment - boot) / (recorded - boot) if recorded > boot else 1.0
+        lines = []
+        for line in text.splitlines():
+            name = line.split("{", 1)[0].split(" ", 1)[0]
+            if line.startswith("#") or not line.strip():
+                lines.append(line)
+            elif name == "node_time_seconds":
+                lines.append(f"node_time_seconds {moment:.3f}")
+            elif name.endswith("_total"):
+                head, _, number = line.rpartition(" ")
+                lines.append(f"{head} {float(number) * factor!r}")
+            else:
+                lines.append(line)
+        return "\n".join(lines) + "\n"
+
+    return now
+
+
+# What libvirt reports on the machine outside the cluster. Recorded from a real
+# standalone hypervisor, in `tests/expositions/libvirt-exporter.txt`, and kept
+# there rather than written out here: a parser tested against invented series
+# is a parser tested against itself.
+#
+# One of its domains, `VMUADMIN`, is running on the machine and absent from
+# every inventory, which is the guest most likely to need stopping and the one
+# nothing else here can reach.
+_STANDALONE = "node-exporter-usage.txt"
+_MEMBER = "node-exporter-usage-member.txt"
+_LIBVIRT = _advancing(_recorded("libvirt-exporter.txt"), _STANDALONE)
 # Keyed by address, the way the others are: the fan out builds its URL from
 # `ansible_host`, so a key that is a host name matches nothing.
 LIBVIRT_EXPORTERS = (
-    {"192.168.200.125": _LIBVIRT.read_text(), "elabo1": _LIBVIRT.read_text()}
-    if _LIBVIRT.is_file()
+    {"192.168.200.125": _LIBVIRT, "elabo1": _LIBVIRT}
+    if _recorded("libvirt-exporter.txt")
     else {}
 )
 
+# What the Usage page reads beside the pool on node_exporter: the CPU time,
+# memory, filesystems, disks and interfaces of two recorded machines, the
+# standalone hypervisor above and a cluster member running the Ceph daemons.
+# Served after the pool's own series on the same port, as the one exposition
+# a node_exporter publishes.
+_NODE_USAGE = {
+    "192.168.200.125": _advancing(_recorded(_STANDALONE), _STANDALONE),
+    "elabo1": _advancing(_recorded(_STANDALONE), _STANDALONE),
+    "seapath-machine": _advancing(_recorded(_STANDALONE), _STANDALONE),
+    "192.168.200.126": _advancing(_recorded(_MEMBER), _MEMBER),
+    "elabo2": _advancing(_recorded(_MEMBER), _MEMBER),
+}
+
+# prometheus-podman-exporter on the same two machines. The member's are the
+# Ceph daemons cephadm runs beside the exporters' own quadlets.
+PODMAN_EXPORTERS = {
+    "192.168.200.125": _advancing(_recorded("podman-exporter.txt"), _STANDALONE),
+    "elabo1": _advancing(_recorded("podman-exporter.txt"), _STANDALONE),
+    "192.168.200.126": _advancing(_recorded("podman-exporter-member.txt"), _MEMBER),
+    "elabo2": _advancing(_recorded("podman-exporter-member.txt"), _MEMBER),
+}
+
 # Every port this service asks about, and what answers on it.
-BY_PORT = {
+BY_PORT: dict[int, dict[str, str | Callable[[], str]]] = {
     9100: EXPORTERS,
     9177: LIBVIRT_EXPORTERS,
+    9882: PODMAN_EXPORTERS,
     9664: HA_EXPORTERS,
     9283: CEPH_EXPORTERS,
 }
@@ -538,7 +616,10 @@ class FakeMetricsClient:
         for port, exporters in BY_PORT.items():
             for host, text in exporters.items():
                 if f"{host}:{port}/" in url:
-                    return text, ""
+                    answer = text() if callable(text) else text
+                    if port == 9100 and host in _NODE_USAGE:
+                        answer += _NODE_USAGE[host]()
+                    return answer, ""
         return None, "No route to host"
 
 

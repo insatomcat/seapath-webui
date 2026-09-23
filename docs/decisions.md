@@ -1423,6 +1423,11 @@ rate needs two scrapes and a memory of the first, and a service that keeps that
 memory is a monitoring system. The Grafana dashboards draw them because they
 have a time series database behind them. This page has one scrape, and says so.
 
+*Revised in part by [D67](#d67): the Usage page draws rates over the last five
+minutes, with the memory of the first reading held by the browser that asked
+and nothing kept here. The histories past that, and the Ceph ones above, stay
+with the dashboards.*
+
 **One combined "cluster health" verdict.** Pacemaker and Ceph fail
 independently and are repaired by different people with different urgency. A
 cluster that is quorate with a degraded pool is not the same page as a cluster
@@ -5128,3 +5133,122 @@ console`. `vm_manager` picks its libvirt mode only when the Ceph and
 Pacemaker bindings fail to import, and the Debian ISO installs them on every
 machine: on ccvadmin, `vm-mgr console` asked `crm_mon` for a cluster the
 machine is not in. `virsh console` is the call its libvirt mode makes.
+
+## D67 - Settled: the Usage page draws rates from two readings its browser keeps
+
+An operator looking at a hypervisor asks what it is consuming and which guest
+or container is consuming it. None of the pages answered: the VMs page says
+what a guest was given, the Real time page which cores it holds, and nothing
+said how busy any of it is. SPEC.md listed monitoring among the non goals, and
+[D29](#d29) refused throughput and its histories in one sentence: "a rate
+needs two scrapes and a memory of the first, and a service that keeps that
+memory is a monitoring system." This decision revises that refusal, and keeps
+the reasoning under it.
+
+### The memory is the browser's
+
+The service answers counters and the moment each was read, and remembers
+nothing: `GET /usage` is a function of the machines at the time it is asked.
+The page reads it every five seconds while it is on screen, keeps five minutes
+of answers in the tab's memory, and divides each pair. Leaving the page, or
+closing the tab, forgets all of it.
+
+That holds the property D29 was protecting. What makes a monitoring system is
+the state it keeps: a history that outlives the person looking at it, and
+thresholds evaluated against it when nobody is. This service holds neither.
+There is no second source of truth, because nothing is stored to disagree with
+Prometheus, and there is no alert, because a page nobody has open computes
+nothing. `/node/cpu` has divided two polls of `/proc/stat` since [D13](#d13),
+on the same argument at the scale of one machine.
+
+History past five minutes, capacity trends and alerting stay in Prometheus and
+the Grafana dashboards, as [D13](#d13) settled. The footnote of the page says
+so.
+
+### Three exporters, all already there
+
+`deploy_prometheus_exporters` puts three exporters on every machine of the
+`hypervisors` group, and the page reads each for what it alone knows:
+
+| Exporter | Port | What it answers |
+|---|---|---|
+| `node_exporter` | 9100 | the machine: CPU time by mode, memory, filesystems, disks, interfaces, load |
+| `libvirt-exporter` | 9177 | each guest: CPU time of its QEMU process, resident memory, disk and interface bytes |
+| `prometheus-podman-exporter` | 9882 | each container: CPU time, memory, block and network bytes |
+
+The first two were read already, for the pool ([D26](#d26)) and for the guests
+([D29](#d29)). The third was deployed on every hypervisor and read by nothing.
+It needs no new port, mount or privilege, and `deploy_metrics_proxy` already
+serves it as `podman_exporter`, so a machine behind its proxy is read on that
+path like the others ([D65](#d65)).
+
+### Every reading reaches the machines
+
+A rate divides by the time between two readings, so this reading never goes
+through the scrape window of [D45](#d45). An answer the window kept, divided
+by the time since it was first read, is a machine that did nothing. The
+reading does not empty the window either, so the pages that share one scrape
+keep sharing it.
+
+The cost is a scrape of three exporters per machine every five seconds, for as
+long as a page is on screen, which is a third of the interval Prometheus scrapes
+at by default. A hidden tab asks nothing, and the page has a Pause control.
+Five seconds was chosen over the ten of the reread timer ([D37](#d37)) because
+a figure per second over ten seconds hides the burst an operator opened the
+page to see.
+
+Each exporter is timed on its own. The machine is timed by `node_time_seconds`,
+its clock at the scrape, since the answer reaches this service later by however
+long `node_exporter` took to walk `/proc` and `/sys`. libvirt and podman publish
+no clock, and their answers are timed when they arrive.
+
+### What is attributed to whom
+
+- **The CPU** is in CPUs busy, from `node_cpu_seconds_total`, with `iowait`
+  counted as idle. The isolated CPUs and the housekeeping ones are summed
+  apart, because on a SEAPATH hypervisor the isolated ones belong to real time
+  guests, which may keep them at full load by design, while the housekeeping
+  ones carry everything else the machine runs. A guest is the CPU time
+  of every thread of its QEMU process, which is what libvirt reports, and a
+  container is its cgroup's.
+- **The memory** of a guest is the resident set of its QEMU process, or its
+  current allocation where libvirt reports no resident set. A guest backed by
+  hugepages holds them outside its resident set, so the hugepage pool is drawn
+  as its own band: the kernel takes it out of `MemAvailable` whole, and a
+  chart without it would show the pool as the machine's own use.
+- **What no workload accounts for** is drawn as the machine's own share: the
+  kernel, the services, the exporters that are not containers, and this one.
+  It is the machine's total less every workload, and never below zero.
+- **The disks** are the block devices under the logical volumes. A `dm-` device
+  is the same I/O counted again on the disk beneath it.
+- **The network** of the machine is its physical ports. A team, a bridge and a
+  VLAN carry their ports' traffic again, and a guest's or container's end of a
+  link carries that workload's. A port is an interface whose address the
+  hardware came with, `node_network_address_assign_type` 0, since the names
+  prove nothing: on the standalone demo machine every guest's tap device is
+  named after the guest. Those are recognised because libvirt names them in
+  the guest's own series.
+- **The containers** are every container podman runs: the quadlets, and the
+  Ceph daemons cephadm runs as containers, which on a cluster member are most
+  of what the machine does besides its guests.
+
+A libvirt exporter that meets another scrape publishes every block series of a
+domain as 0, which the VMs page met as a guest with no disks. As a counter it
+would read as the whole life of the guest's I/O in one interval, so a running
+domain whose reads and writes are both 0 has no disk reading for that answer.
+
+### What was refused
+
+**Querying Prometheus.** It holds the history this page does not, and D26
+settled why it is not asked: this repository does not deploy it and cannot
+know its address.
+
+**A memory in the service.** Keeping the previous answer server side would give
+the first rate one reading sooner. It would also be state shared by every
+browser at once, each reading at its own pace, and state that outlives the page
+nobody has open, which is the monitoring system D29 refused.
+
+**Stacking disk and network by workload.** A guest's traffic between two guests
+on one machine never reaches a port, and a container on the host's network has
+no traffic of its own, so the bands would not add up to the machine's total.
+Each workload's I/O is in the table under the charts instead.

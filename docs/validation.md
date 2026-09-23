@@ -797,3 +797,26 @@ Partly run, on the `ccv` cluster, 2026-09-20. Checks 4 to 7 passed against the
 real machines, by generating the commands from this code and running them over
 the trust the node already holds. The rest waits for an image carrying this
 version.
+
+## Usage
+
+The parsers are held against expositions recorded on the demo cluster on
+2026-09-23, from `ccv-admin` and `ccv1`, and the page was drawn against the
+fakes, which advance those recordings at the pace they had since boot. What no
+fake shows is a rate: two real readings five seconds apart, taken through the
+metrics proxy by the service in its container. See [D67](decisions.md#d67).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | Each machine of the cluster has a tab, and the three exporters of each answer through its metrics proxy, `podman_exporter` included | The proxy's paths and its certificate, on a machine that serves nothing else | Pending |
+| 2 | The CPU a guest is drawn with agrees with `virsh domstats --cpu-total` taken twice over the same interval, and a container's with `podman stats` | Real counters, divided by a real interval | Pending |
+| 3 | The housekeeping and isolated percentages agree with `mpstat -P ALL 5` on the same CPUs | The machine's own clock against the one the page divides by | Pending |
+| 4 | The network band agrees with `sar -n DEV 5` summed over the physical ports, and a team or bridge over them is not counted twice | The `addr_assign_type` of real ports, teams and bridges | Pending |
+| 5 | A guest started again during the window leaves one gap in its band and resumes, with no spike | A counter that really resets | Pending |
+| 6 | A page left open for an hour keeps five minutes of points, and switching to another tab stops the requests in the service's log | The browser's own timers and memory | Pending |
+
+### Result
+
+Pending an image carrying this version.
