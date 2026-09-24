@@ -453,9 +453,7 @@ def test_the_endpoint_answers_from_the_collection_this_node_runs(
     this service that knows the name.
     """
     collections = write_fake_collection(tmp_path / "collections")
-    role = (
-        collections / "ansible_collections/seapath/ansible/roles/seapath_alloc"
-    )
+    role = collections / "ansible_collections/seapath/ansible/roles/seapath_alloc"
     role.mkdir(parents=True)
     (role / "README.md").write_text(
         "| Variable | Type | Comments |\n|---|---|---|\n"
