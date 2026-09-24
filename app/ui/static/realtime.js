@@ -18,7 +18,7 @@
 // the same path the Deployment page uses, so there is one lock, one history and
 // one confirmation across everything that touches a machine. The allocation
 // strategy under each node of the pool is a commit on its entry and a run of
-// deploy_seapath_alloc, started by the service on the same path.
+// seapath_alloc, started by the service on the same path.
 
 (function () {
   // Three measurements, kept apart because they answer different questions:
@@ -728,7 +728,7 @@
           pool.nodes
             .map((node) => node.host + ": " + (node.error || "no metrics"))
             .join("; ") +
-          ". deploy_prometheus_exporters and deploy_seapath_alloc install what " +
+          ". deploy_prometheus_exporters and seapath_alloc install what " +
           "publishes it."
         : "There is no inventory yet, so there is no node to ask.";
       blocked.hidden = false;
@@ -888,7 +888,7 @@
     return box;
   }
 
-  // The three values deploy_seapath_alloc accepts for seapath_alloc_strategy,
+  // The three values seapath_alloc accepts for seapath_alloc_strategy,
   // each with what it does in the words of that role's README.
   const STRATEGIES = {
     spreading: "one thread per physical core, the best isolation from the sibling",
@@ -966,7 +966,7 @@
         : "") +
       ".";
     // Where it lands, and what the run does beside it, since the playbook is
-    // the whole of deploy_seapath_alloc rather than the one file.
+    // the whole of seapath_alloc rather than the one file.
     element("strategy-disruption").textContent =
       "Commits seapath_alloc_strategy: " +
       chosen +
@@ -978,7 +978,7 @@
           node.alloc_strategy_on +
           " for this machine alone"
         : "") +
-      ", then runs deploy_seapath_alloc on " +
+      ", then runs seapath_alloc on " +
       node.host +
       " only. That run also reinstalls the allocator from the collection " +
       "installed on this node, as Apply the dynamic CPU pinning does.";

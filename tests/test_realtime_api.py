@@ -562,7 +562,7 @@ def test_a_strategy_is_committed_on_the_host_and_applied_by_the_role(
     wait_for(signed_in, body["run_id"])
 
     request = run_adapter.requests[0]
-    assert request.playbook == "seapath.ansible.seapath_setup_deploy_seapath_alloc"
+    assert request.playbook == "seapath.ansible.seapath_setup_seapath_alloc"
     assert request.limit == "seapath-machine"
     # On the host entry, which overrides the group for this machine alone, and
     # the group value the site wrote is left where it was.

@@ -30,7 +30,7 @@ FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41
 
 ARG SEAPATH_ANSIBLE_REPOSITORY=https://github.com/seapath/ansible.git
 # `seapathalloc` rather than `main`: two catalogue entries,
-# `seapath_setup_prometheus_exporters` and `seapath_setup_deploy_seapath_alloc`,
+# `seapath_setup_prometheus_exporters` and `seapath_setup_seapath_alloc`,
 # name playbooks that only exist on that branch. An image built from `main`
 # reports both unavailable, which is correct and useless to a site that needs
 # them. Override at build time for a site pinned elsewhere.
@@ -143,7 +143,7 @@ FROM python:3.11-slim@sha256:9534e5a8e315485d4061ed659af0fd78a284c015f9b73661b41
 #                           as well as on the target, and four roles push files
 #                           with it: configure_physical_machine, which
 #                           seapath_setup_main imports, snmp, deploy_vm_manager
-#                           and deploy_seapath_alloc. Without it the task fails
+#                           and seapath_alloc. Without it the task fails
 #                           on every host with "Failed to find required
 #                           executable rsync", naming the container's PATH
 #   cloud-image-utils       `cloud-localds`, which `cloud_init_seed` runs on
@@ -194,7 +194,7 @@ ENV PATH="/opt/venv/bin:${PATH}" \
 # replaced with no name at all, and an untagged image cannot be told from any
 # other service's leftovers. The label survives the untagging, so the machine
 # can still recognise its own old versions and remove them. See the retention
-# step of `deploy_seapath_webui`.
+# step of `seapath_webui`.
 ARG VERSION=unknown
 LABEL org.opencontainers.image.title="seapath-webui" \
       org.opencontainers.image.description="Node local management UI and API for SEAPATH machines" \

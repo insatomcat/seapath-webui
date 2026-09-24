@@ -641,7 +641,7 @@
 
     // The name everything outside this page uses: docs/playbooks.md, the
     // upstream repository, the run list and the artefacts of a run all say
-    // `seapath_setup_deploy_seapath_alloc`, and the row above says "Apply the
+    // `seapath_setup_seapath_alloc`, and the row above says "Apply the
     // dynamic CPU pinning". An operator looking for the playbook they were
     // told to run has to be able to find it here.
     const name = document.createElement("div");

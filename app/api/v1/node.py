@@ -11,7 +11,7 @@ Two endpoints here write. Pinning the version of this service that the
 machines should run writes the inventory: it is an administrator's act, it
 produces a commit like every other change to the desired state, and it changes
 no machine on its own. Applying it is a run of
-`seapath_setup_deploy_seapath_webui`, launched and confirmed like any other.
+`seapath_setup_seapath_webui`, launched and confirmed like any other.
 Rebooting this machine is a run as well, a generated play of one task, so it
 reaches the machine over the SSH path a convergence takes and leaves a record.
 

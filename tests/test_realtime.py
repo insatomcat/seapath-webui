@@ -533,7 +533,7 @@ def test_a_node_that_published_no_tuning_gets_no_checks_and_says_why() -> None:
     nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7")})
 
     assert nodes["node2"].checks == []
-    assert "deploy_seapath_alloc" in nodes["node2"].tuning_error
+    assert "seapath_alloc" in nodes["node2"].tuning_error
 
 
 def test_an_unreachable_node_keeps_its_column_and_its_reason() -> None:
@@ -711,7 +711,7 @@ def test_a_node_s_clock_arrives_with_its_tuning_and_adds_two_rows() -> None:
 
 def test_a_node_with_no_seapath_alloc_still_has_its_clock_judged() -> None:
     # timex is node_exporter's own, so the clock is readable on a machine
-    # where deploy_seapath_alloc has not run.
+    # where seapath_alloc has not run.
     nodes, _ = _cluster({"10.0.0.2": _exposition("4,5,6,7", _CLOCK)})
 
     assert [check.id for check in nodes["node2"].checks] == ["clock_sync", "ptp"]

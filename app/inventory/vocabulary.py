@@ -932,7 +932,7 @@ _SELF: tuple[Term, ...] = (
         Kind.STRING,
         Scope.ANY,
         "The image tag this service runs, which an apply deploys onto a machine.",
-        role="seapath_setup_deploy_seapath_webui",
+        role="seapath_setup_seapath_webui",
         caution=(
             "Never `latest`: a machine has to be able to say which code is "
             "answering on it, and a run has to be able to change it."

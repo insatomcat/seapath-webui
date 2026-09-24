@@ -1096,7 +1096,7 @@ What D25 missed is that reading the exporter and duplicating it are opposites.
 the host, sees all of it, and writes `seapath_alloc_cpu_detail` to a Prometheus
 textfile every fifteen seconds. `node_exporter` serves that on port 9100 on
 every SEAPATH machine, because `deploy_prometheus_exporters` puts it there and
-[PROMETHEUS.md](../../seapath-ansible/roles/deploy_seapath_alloc/PROMETHEUS.md)
+[PROMETHEUS.md](../../seapath-ansible/roles/seapath_alloc/PROMETHEUS.md)
 tells a site to scrape it.
 
 So this service asks. One HTTP GET per node, no mount, no privilege, no route

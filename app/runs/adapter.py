@@ -77,7 +77,7 @@ ssh_args = {ssh_args}
 # `private_key_file`, so a machine this node drives with the site key is
 # offered the wrong identity, ssh falls back to asking for a password, and the
 # run hangs on a prompt nobody can see, holding the run lock until an operator
-# cancels it. That is how deploy_seapath_alloc behaved before its task was
+# cancels it. That is how seapath_alloc behaved before its task was
 # fixed upstream.
 #
 # The task is where that gets fixed. This file is the guard, and `BatchMode` is

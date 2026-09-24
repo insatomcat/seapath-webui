@@ -11,7 +11,7 @@ history across everything that touches a machine.
 
 The exception is a machine's allocation strategy, offered beside the CPU pool
 it governs. It is still a commit and a run: the variable goes to the inventory
-and `deploy_seapath_alloc` puts it on the machine.
+and `seapath_alloc` puts it on the machine.
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def write_strategy(
     """Set how one machine's `seapath-alloc` hands out its isolated CPUs.
 
     One commit writing `seapath_alloc_strategy` on the machine's entry, then
-    one run of `seapath_setup_deploy_seapath_alloc` narrowed to it, which
+    one run of `seapath_setup_seapath_alloc` narrowed to it, which
     templates `/etc/seapath/alloc.yaml`. The allocator reads that file at each
     allocation, so what is pinned already stays where it is. No commit and no
     run when the machine already receives this value. `409

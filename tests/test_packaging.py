@@ -211,7 +211,7 @@ def test_the_image_says_what_it_is_in_its_labels() -> None:
     # A machine has to recognise its own old versions in order to remove them,
     # and a pull that moves a floating tag leaves the image it replaced with no
     # name at all. The title label survives that untagging, so it is what the
-    # retention step of deploy_seapath_webui matches on. Without it, an old
+    # retention step of seapath_webui matches on. Without it, an old
     # image is indistinguishable from any other service's leftovers and the
     # only safe action is to keep it forever.
     assert 'org.opencontainers.image.title="seapath-webui"' in _DOCKERFILE

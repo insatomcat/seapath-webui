@@ -83,7 +83,7 @@ class RealtimeConformance(Reading):
 class AllocationStrategy(str, Enum):
     """How `seapath-alloc` orders the isolated threads it hands out.
 
-    The three values `deploy_seapath_alloc` accepts for
+    The three values `seapath_alloc` accepts for
     `seapath_alloc_strategy`, which it writes to `/etc/seapath/alloc.yaml`.
     The allocator reads that file at each allocation, so a new strategy
     applies to the next guest started or container pinned on the machine, and
@@ -100,7 +100,7 @@ class AllocationStrategy(str, Enum):
 
 
 STRATEGY_VARIABLE = "seapath_alloc_strategy"
-STRATEGY_PLAYBOOK = "seapath_setup_deploy_seapath_alloc"
+STRATEGY_PLAYBOOK = "seapath_setup_seapath_alloc"
 
 
 class UnknownMachine(Exception):
@@ -268,7 +268,7 @@ class RealtimeService:
         """Write one machine's `seapath_alloc_strategy`, and put it on the machine.
 
         One commit on the machine's own entry, then one run of
-        `seapath_setup_deploy_seapath_alloc` narrowed to it, which templates
+        `seapath_setup_seapath_alloc` narrowed to it, which templates
         `/etc/seapath/alloc.yaml` from the committed value. Written on the host
         rather than on a group, since the page asks it of one machine and a
         group value would change the others behind the operator's back.
@@ -296,7 +296,7 @@ class RealtimeService:
             [(Scope(kind="host", name=host), {STRATEGY_VARIABLE: strategy.value})],
             {host: {STRATEGY_VARIABLE: strategy.value}},
             f"realtime: {strategy.value} CPU allocation on {host}\n\n"
-            "Written to /etc/seapath/alloc.yaml by deploy_seapath_alloc, and "
+            "Written to /etc/seapath/alloc.yaml by seapath_alloc, and "
             "read by seapath-alloc at the next allocation on the machine.",
             author,
             expected_head=expected_head,

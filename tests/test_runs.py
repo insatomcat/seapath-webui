@@ -350,12 +350,12 @@ def test_the_keys_reach_the_ssh_commands_a_role_spawns_itself(
     # forwards only `private_key_file` unless the task sets `use_ssh_args`. A
     # task written without it offers the wrong identity to a machine driven
     # with the site key, ssh asks for a password, and the run hangs on a prompt
-    # nobody can see. `deploy_seapath_alloc` was that task.
+    # nobody can see. `seapath_alloc` was that task.
     config_file = tmp_path / "root/.ssh/config"
     prepare(
         RunRequest(
             run_id="r1",
-            playbook="seapath.ansible.seapath_setup_deploy_seapath_alloc",
+            playbook="seapath.ansible.seapath_setup_seapath_alloc",
             inventory_file=tmp_path / "inventory.yaml",
             private_data_dir=tmp_path / "run",
             collections_path=tmp_path / "collections",
@@ -539,6 +539,16 @@ def test_a_successful_run_is_recorded_with_its_reproducibility_pair(
     # nothing for a site running one.
     assert record.collection_version.startswith("2.0.0+")
     assert len(record.collection_version) == len("2.0.0+") + 12
+
+
+def test_a_run_recorded_before_the_playbook_was_renamed_can_be_relaunched(
+    store, inventory, trust, tmp_path
+) -> None:
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+
+    record = service.launch("seapath_setup_deploy_seapath_alloc", "alice")
+
+    assert record.playbook_id == "seapath_setup_seapath_alloc"
 
 
 def test_the_local_trust_is_refreshed_under_the_lock_before_a_run(

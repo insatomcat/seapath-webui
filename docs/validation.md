@@ -90,7 +90,7 @@ playbook that reboots the host running it.
 | 10 | The artefacts under `/var/lib/seapath-webui/runs/<id>/` survive the reboot, event stream included | Written as the run progresses, never buffered | |
 | 11 | After the reboot, the service marks the interrupted run closed and the run lock is free | A lock nobody releases is a node that can never converge again | |
 | 12 | Cockpit still works after the run, meaning `deploy_cockpit_plugins` found its archives | The `build_ignore` problem: without the image's restore step this task fails and takes the run with it | |
-| 13 | `GET /playbooks` marks as unavailable any entry the shipped collection does not carry, naming the collection version | Depends on what the image was built from | Passed on elabo1 on 2026-08-31, against the image built from `seapathalloc`: the thirteen entries come back available, `seapath_setup_prometheus_exporters` and `seapath_setup_deploy_seapath_alloc` included, and those two are what an image built from `main` reports unavailable |
+| 13 | `GET /playbooks` marks as unavailable any entry the shipped collection does not carry, naming the collection version | Depends on what the image was built from | Passed on elabo1 on 2026-08-31, against the image built from `seapathalloc`: the thirteen entries come back available, `seapath_setup_prometheus_exporters` and `seapath_setup_seapath_alloc` included, and those two are what an image built from `main` reports unavailable |
 | 14 | The administration address changed in the page, then applied, leaves the self trust working after the reboot | The `from=` repair at startup | |
 | 15 | `cyclictest` on the isolated CPUs is unchanged with a run in progress | A convergence must not disturb a running guest | |
 | 16 | On a node whose repository holds only the seed, a save from the page commits the file byte for byte as it was typed, comments included | The page must leave a freshly installed machine alone | Pending |
@@ -182,7 +182,7 @@ carrying production traffic the first time it is run.
 | 18 | An interruption the detector reports is absent from the `cyclictest` figures taken at the same time | The whole claim of the card: an SMI is invisible to the kernel and therefore to cyclictest. Needs a machine with real SMIs | |
 | 19 | While `hwlatdetect` runs, the guests on the machine feel it | Honesty about the cost. The detector holds interrupts off for the sampling width of every window, and the confirmation says so before the run | |
 | 20 | On a three node cluster, every node has a column and every column has ten checks | The whole of D27. Each node answers from its own exporter, and only real machines have a real `/etc/tuned` and a real `/proc/irq` | |
-| 21 | A node whose collector predates `seapath_rt_*` shows no rows and one sentence naming `deploy_seapath_alloc`, beside nodes that answered | A site pinned to an older collection is the ordinary state during an upgrade, and it must read as a node to upgrade rather than as ten failures | |
+| 21 | A node whose collector predates `seapath_rt_*` shows no rows and one sentence naming `seapath_alloc`, beside nodes that answered | A site pinned to an older collection is the ordinary state during an upgrade, and it must read as a node to upgrade rather than as ten failures | |
 | 22 | Editing `isolcpus` for **another** node, converging it and not rebooting it shows the mismatch on that node's column, from the machine the browser is on | The finding this reversal exists for. Before it, the mismatch was invisible from anywhere but that machine | |
 | 23 | Fetching `localhost:9100/metrics` on a converged hypervisor returns a `seapath_rt_` block carrying the tuned profile, the command line, the sysctls and the interrupt count | The exporter side, on a real machine, before believing anything the page says about it | |
 | 24 | The tuning columns and the pool grid come from one request per node: `tcpdump` or the exporter's own access log shows one GET per node per refresh | Two panels of the same reading must not double what a page refresh costs a hypervisor | |
@@ -191,7 +191,7 @@ carrying production traffic the first time it is run.
 | 27 | The ACPI row reads the same on every column, and the same from every node's page | D36. Podman masks `/sys/firmware`, so the reading a container makes of itself differed from the one its own exporter published, and only a real container reproduces that | |
 | 28 | Stopping `node-exporter` on the node serving the page leaves that column answered from its own files, while the other columns fall back to their reason | The other half of D36. The fallback needs a real `/proc` and a real `/sys` under a real mask, which no fake provides | |
 | 29 | With the exporter stopped, a machine whose tuned profile comes from the distribution rather than from `configure_hypervisor` still reads as installed | The `/usr/lib/tuned` mount, on the fallback path. Only a real container, whose own `/usr` carries no tuned, distinguishes a mounted profile directory from a missing one | |
-| 30 | Choosing `packing` under one node of the CPU pool asks for confirmation naming that node, commits `seapath_alloc_strategy` on its entry, and runs `deploy_seapath_alloc` on it alone; `/etc/seapath/alloc.yaml` then reads `allocation_strategy: packing` there and nowhere else, and the next guest started on it fills both threads of a core | The template, the allocator reading the file at the next allocation, and a real pair of hyperthreads | |
+| 30 | Choosing `packing` under one node of the CPU pool asks for confirmation naming that node, commits `seapath_alloc_strategy` on its entry, and runs `seapath_alloc` on it alone; `/etc/seapath/alloc.yaml` then reads `allocation_strategy: packing` there and nowhere else, and the next guest started on it fills both threads of a core | The template, the allocator reading the file at the next allocation, and a real pair of hyperthreads | |
 
 ### Result
 
@@ -206,7 +206,7 @@ SEAPATH image does not produce. Any ordinary Debian kernel does, and the case
 matters enough to be worth borrowing one for.
 
 Checks 20 to 24 need a collection carrying `conformance.py` in
-`deploy_seapath_alloc`, and the role run on every node so the timer writes the
+`seapath_alloc`, and the role run on every node so the timer writes the
 block. Check 21 is the easiest to stage deliberately: stop
 `seapath-alloc-export.timer` on one node and delete its `.prom` file, which is
 what a node running an older collector looks like from here.

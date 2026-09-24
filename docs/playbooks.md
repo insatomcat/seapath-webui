@@ -192,7 +192,7 @@ no preview button at all rather than a button that lies.
 
 | Playbook | Targets | Preview | Reboots | Notes |
 |---|---|---|---|---|
-| `seapath_setup_main.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | yes, gated by `skip_reboot_setup` and `skip_reboot_setup_network` | The full convergence. It reboots in two places: the network playbook it imports, when a role decided the new configuration needs a boot, and its own last play. Declining sets both switches. Imports prerequisites, network, timemaster, libvirt, snmp, exporters, the cluster playbooks and `deploy_seapath_alloc`. This is the commissioning path and what the CI runs. |
+| `seapath_setup_main.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | yes, gated by `skip_reboot_setup` and `skip_reboot_setup_network` | The full convergence. It reboots in two places: the network playbook it imports, when a role decided the new configuration needs a boot, and its own last play. Declining sets both switches. Imports prerequisites, network, timemaster, libvirt, snmp, exporters, the cluster playbooks and `seapath_alloc`. This is the commissioning path and what the CI runs. |
 | `seapath_setup_prerequisitesdebian.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | no | Syslog, the distribution configuration, kernel modules, initramfs, tuned, `vm_manager`. The only one of the five that **removes packages**: `ceph`, `fdisk`, `ifupdown` and four trixie libraries, purged with `autoremove`. |
 | `seapath_setup_prerequisitescentos.yaml` | `cluster_machines`, `standalone_machine`, `VMs`, `hypervisors` | partial | no | Same shape, `grub2-mkconfig` and dracut. Removes nothing. |
 | `seapath_setup_prerequisitesoraclelinux.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | no | The one with **no hypervisor play**, so no tuned profile is applied. |
@@ -205,8 +205,8 @@ no preview button at all rather than a button that lies.
 | `seapath_setup_snmp.yaml` | `cluster_machines`, `standalone_machine` | full | no | |
 | `seapath_setup_backup_restore.yaml` | `cluster_machines` | partial | no | The `backup_restore` role alone: the scripts, `/etc/backup-restore.conf` rendered from the inventory, the two staging directories, and where the inventory names them the key the backups are pushed with and the backup server's host key. The key is generated with `ssh-keygen`, which check mode skips. The Backup page launches it to create the staging directories. |
 | `seapath_setup_local_storage.yaml` | `cluster_machines`, `standalone_machine` | partial | no | `configure_local_storage`: the volumes a machine declares in `configure_local_storage_volumes`, as a partition after the last one of a disk, formatted directly or under LVM, mounted by UUID. On a machine from the ISO that disk is the system disk, and the new partition goes beside the running ones. The role only adds, and refuses before writing anything a Ceph disk, a table it would have to rewrite, and a mount point in use. The Backup page launches it narrowed to one machine. |
-| `seapath_setup_deploy_seapath_alloc.yaml` | `hypervisors` | full | no | Dynamic CPU pinning. RT relevant, confirmation names the impacted machines. |
-| `seapath_setup_deploy_seapath_webui.yaml` | `cluster_machines`, `standalone_machine` | full | no | This service, on every machine the inventory declares. The version each one gets is `seapath_webui_image`, so an update is an edit and an apply. The run ends without a final status on the machine it was launched from, because the service recording it is the service being replaced: the entry says so before the confirmation, and the record says so afterwards. See [D23](decisions.md#d23). |
+| `seapath_setup_seapath_alloc.yaml` | `hypervisors` | full | no | Dynamic CPU pinning. RT relevant, confirmation names the impacted machines. |
+| `seapath_setup_seapath_webui.yaml` | `cluster_machines`, `standalone_machine` | full | no | This service, on every machine the inventory declares. The version each one gets is `seapath_webui_image`, so an update is an edit and an apply. The run ends without a final status on the machine it was launched from, because the service recording it is the service being replaced: the entry says so before the confirmation, and the record says so afterwards. See [D23](decisions.md#d23). |
 | `seapath_setup_hardening.yaml` | `cluster_machines`, `standalone_machine`, `VMs` | partial | yes | Ends with a reboot of every host. Sets `PermitRootLogin no` and restricts `ListenAddress`, which is why the trust targets the `ansible` account. Offered only after the rest converges cleanly. |
 
 ### Cluster
@@ -479,7 +479,7 @@ repository:
   playbook is absent from `/opt/ansible/collections` is reported unavailable,
   naming the collection version, instead of being offered as a button that
   fails at the first task. `seapath_setup_prometheus_exporters` and
-  `seapath_setup_deploy_seapath_alloc` are what found this: they exist on the
+  `seapath_setup_seapath_alloc` are what found this: they exist on the
   `seapathalloc` branch of `seapath-ansible` and not on `main`. The image is
   built from that branch for exactly this reason, and an image built from
   `main` correctly offers neither.
@@ -491,7 +491,7 @@ repository:
   without it is given the connection's private key alone, so a machine this
   node drives with the site key is offered the wrong identity, ssh falls back
   to asking for a password, and the run hangs on a prompt nobody can see.
-  `deploy_seapath_alloc` was that task until it was fixed upstream. The task is
+  `seapath_alloc` was that task until it was fixed upstream. The task is
   where this is repaired; the service writes an ssh client configuration naming
   every key, plus `BatchMode`, before each run, so that the next one written
   without the option fails in seconds instead of hanging. The image carries

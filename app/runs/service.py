@@ -527,7 +527,7 @@ class RunService:
         root_passwords: dict[str, str] | None = None,
     ) -> RunRecord:
         entries = {item.id: item for item in self.entries()}
-        entry = entries.get(playbook_id)
+        entry = entries.get(catalogue.current_id(playbook_id))
         if entry is None:
             raise ApiError(
                 "unknown_playbook",

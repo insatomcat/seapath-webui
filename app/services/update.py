@@ -56,7 +56,7 @@ from app.services.registry import (
 # is the schema's, so the seed that writes it at first boot and the reading
 # here cannot drift apart.
 IMAGE_VARIABLE = WEBUI_IMAGE_VARIABLE
-PLAYBOOK = "seapath_setup_deploy_seapath_webui"
+PLAYBOOK = "seapath_setup_seapath_webui"
 
 
 class ServiceUpdate(BaseModel):

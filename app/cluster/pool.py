@@ -69,7 +69,7 @@ _SCRAPE_TIME = "seapath_alloc_scrape_timestamp_seconds"
 # rather than by looking at the machine.
 _NO_TUNING = (
     "This node's collector publishes the pool but not the tuning. "
-    "deploy_seapath_alloc from a collection that ships seapath_rt_* is what "
+    "seapath_alloc from a collection that ships seapath_rt_* is what "
     "adds it, and until then only the isolated set and the kernel can be "
     "checked here."
 )
@@ -237,7 +237,7 @@ class PoolReader:
                 reachable=True,
                 error=(
                     "The exporter answered but publishes no seapath-alloc "
-                    "metrics. deploy_seapath_alloc installs the collector that "
+                    "metrics. seapath_alloc installs the collector that "
                     "writes them."
                 ),
                 kernel=release,

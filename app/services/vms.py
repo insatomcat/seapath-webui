@@ -1334,7 +1334,7 @@ def _check_profile(profile: str) -> None:
     if not isinstance(parsed, dict):
         raise InvalidGuest(
             "The pinning profile is a mapping, the one "
-            "`deploy_seapath_alloc` documents, starting with "
+            "`seapath_alloc` documents, starting with "
             "`version: 1`."
         )
     # The hook leaves a thread whose isolation it does not know on the

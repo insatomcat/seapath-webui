@@ -90,7 +90,7 @@ def _unquoted(value: str) -> str:
 
 
 # The unit file that declares this service on the machine, under the host's
-# /etc. Both the ISO and `deploy_seapath_webui` install it at this path.
+# /etc. Both the ISO and `seapath_webui` install it at this path.
 _QUADLET_PATH = "containers/systemd/seapath-webui.container"
 
 

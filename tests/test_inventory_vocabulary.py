@@ -312,7 +312,7 @@ def _lexicon(**declared: Declaration) -> Lexicon:
 
 ALLOC = Declaration(
     name="seapath_alloc_strategy",
-    role="deploy_seapath_alloc",
+    role="seapath_alloc",
     kind="String",
     default="spreading",
     summary="Allocation strategy written to /etc/seapath/alloc.yaml.",
@@ -334,7 +334,7 @@ def test_a_variable_the_collection_declares_is_offered_without_being_curated() -
     assert "seapath_alloc_strategy" in offered
     entry = offered["seapath_alloc_strategy"]
     assert entry.reviewed is False
-    assert entry.role == "deploy_seapath_alloc"
+    assert entry.role == "seapath_alloc"
     assert entry.default == "spreading"
     assert entry.summary == "Allocation strategy written to /etc/seapath/alloc.yaml."
     assert entry.kind is vocabulary.Kind.STRING
@@ -454,7 +454,7 @@ def test_the_endpoint_answers_from_the_collection_this_node_runs(
     """
     collections = write_fake_collection(tmp_path / "collections")
     role = (
-        collections / "ansible_collections/seapath/ansible/roles/deploy_seapath_alloc"
+        collections / "ansible_collections/seapath/ansible/roles/seapath_alloc"
     )
     role.mkdir(parents=True)
     (role / "README.md").write_text(

@@ -442,7 +442,7 @@ the NIC that carries sampled values.
 `seapath_webui_image` is the one variable the seed writes that describes this
 service rather than the machine. It is read from
 `/etc/containers/systemd/seapath-webui.container`, the unit the ISO installs and
-`deploy_seapath_webui` rewrites, so the inventory names the image the node
+`seapath_webui` rewrites, so the inventory names the image the node
 actually boots on. The tag the ISO installs is `latest`, and the seed resolves
 it to the version answering, since a variable saying `latest` names no version
 and the point of writing it is that the inventory says which code a machine is
@@ -451,7 +451,7 @@ decision somebody made, and it is seeded unchanged. A machine whose unit file
 could not be read pins nothing, and `GET /node/update` reports that the
 inventory names no image for it.
 
-Editing that variable and applying `seapath_setup_deploy_seapath_webui` is how
+Editing that variable and applying `seapath_setup_seapath_webui` is how
 this service is replaced, which is [D23](decisions.md#d23). The seed only makes
 the starting point say something: an inventory that already exists is never
 rewritten, so a machine seeded before this carries no pin until somebody sets

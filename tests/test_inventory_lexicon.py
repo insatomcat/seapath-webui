@@ -29,7 +29,7 @@ from app.inventory.lexicon import forget, read
 # copied from the shape `seapath-ansible` actually uses, headers included,
 # down to the tables that sit beside it and document something else.
 README = """
-# deploy_seapath_alloc
+# seapath_alloc
 
 Install the allocator.
 
@@ -61,13 +61,13 @@ written to `/etc/seapath/alloc.yaml`. Valid values: `spreading`, `packing`, \
 DEFAULTS = """---
 # Controls how isolated cores are distributed.
 seapath_alloc_strategy: spreading
-deploy_seapath_alloc_binary_path: /usr/bin/seapath-alloc
-deploy_seapath_alloc_enabled: true
-deploy_seapath_alloc_interval: 15
-deploy_seapath_alloc_fallbacks:
+seapath_alloc_binary_path: /usr/bin/seapath-alloc
+seapath_alloc_enabled: true
+seapath_alloc_interval: 15
+seapath_alloc_fallbacks:
   - soft
   - hard
-deploy_seapath_alloc_declared_and_empty:
+seapath_alloc_declared_and_empty:
 """
 
 
@@ -101,8 +101,8 @@ def lexicon(tmp_path: Path):
     root = _collection(
         tmp_path,
         {
-            "roles/deploy_seapath_alloc/README.md": README,
-            "roles/deploy_seapath_alloc/defaults/main.yml": DEFAULTS,
+            "roles/seapath_alloc/README.md": README,
+            "roles/seapath_alloc/defaults/main.yml": DEFAULTS,
         },
     )
     found = read(root, "test")
@@ -116,7 +116,7 @@ def lexicon(tmp_path: Path):
 def test_a_variable_is_read_with_what_its_readme_says_about_it(lexicon) -> None:
     found = lexicon.declarations["seapath_alloc_strategy"]
 
-    assert found.role == "deploy_seapath_alloc"
+    assert found.role == "seapath_alloc"
     assert found.kind == "string"
     assert found.default == "spreading"
     assert found.summary.startswith("Allocation strategy written to")
@@ -132,7 +132,7 @@ def test_a_variable_no_role_defaults_is_read_from_the_readme_alone(lexicon) -> N
     """
     found = lexicon.declarations["cephadm_network"]
 
-    assert found.role == "deploy_seapath_alloc"
+    assert found.role == "seapath_alloc"
     assert found.default == ""
     assert found.summary == 'Ceph network (e.g. "192.168.55.0/24")'
 
@@ -140,9 +140,9 @@ def test_a_variable_no_role_defaults_is_read_from_the_readme_alone(lexicon) -> N
 def test_a_variable_no_readme_documents_is_read_from_the_defaults_file(
     lexicon,
 ) -> None:
-    found = lexicon.declarations["deploy_seapath_alloc_binary_path"]
+    found = lexicon.declarations["seapath_alloc_binary_path"]
 
-    assert found.role == "deploy_seapath_alloc"
+    assert found.role == "seapath_alloc"
     assert found.kind == "string"
     assert found.default == "/usr/bin/seapath-alloc"
     # Nothing invented. The role wrote a comment above the key and this reads
@@ -156,19 +156,19 @@ def test_the_shape_of_a_default_is_read_from_the_value_the_role_wrote(
     kinds = {
         name: lexicon.declarations[name].kind
         for name in (
-            "deploy_seapath_alloc_enabled",
-            "deploy_seapath_alloc_interval",
-            "deploy_seapath_alloc_fallbacks",
-            "deploy_seapath_alloc_declared_and_empty",
+            "seapath_alloc_enabled",
+            "seapath_alloc_interval",
+            "seapath_alloc_fallbacks",
+            "seapath_alloc_declared_and_empty",
         )
     }
 
     assert kinds == {
-        "deploy_seapath_alloc_enabled": "boolean",
-        "deploy_seapath_alloc_interval": "integer",
-        "deploy_seapath_alloc_fallbacks": "list",
+        "seapath_alloc_enabled": "boolean",
+        "seapath_alloc_interval": "integer",
+        "seapath_alloc_fallbacks": "list",
         # A key written with no value has said the name exists and nothing else.
-        "deploy_seapath_alloc_declared_and_empty": "",
+        "seapath_alloc_declared_and_empty": "",
     }
 
 
@@ -290,7 +290,7 @@ def test_a_collection_shipped_inside_the_collection_is_not_read(
     root = _collection(
         tmp_path,
         {
-            "roles/deploy_seapath_alloc/README.md": README,
+            "roles/seapath_alloc/README.md": README,
             f"{nested}/roles/keycloak/README.md": (
                 "| Variable | Comments |\n|---|---|\n"
                 "| `keycloak_realm` | The realm |\n"

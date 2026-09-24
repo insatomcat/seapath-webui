@@ -458,7 +458,7 @@ image and losing its disk. D31 records the bounds.
         placeholder="version: 1&#10;vcpus:&#10;  isolation: exclusive_physical&#10;  scheduler: FIFO&#10;  priority: 90"></textarea>
       <p class="help">
         Read by the seapath-alloc hook at every start and every migration.
-        What <code>deploy_seapath_alloc</code> documents, and an alternative to
+        What <code>seapath_alloc</code> documents, and an alternative to
         a fixed <code>cpuset</code> in the XML.
       </p>
     </details>
@@ -580,7 +580,7 @@ image and losing its disk. D31 records the bounds.
 </div>
 {% endmacro %}
 {{ guest_editor("domain", "Domain XML", "Defined with community.libvirt.virt on the machine holding the guest. The inventory still describes the guest its template renders, so a guest created again from its entry loses this edit.") }}
-{{ guest_editor("profile", "Pinning profile", "The profile deploy_seapath_alloc documents, starting with version: 1. It is committed to the guest's entry, then written to /etc/seapath/alloc.d on its machine. Empty takes it out, and removes the file.") }}
+{{ guest_editor("profile", "Pinning profile", "The profile seapath_alloc documents, starting with version: 1. It is committed to the guest's entry, then written to /etc/seapath/alloc.d on its machine. Empty takes it out, and removes the file.") }}
 
 {# One value, edited. Wide and tall on purpose: the two biggest keys hold a
    libvirt domain each, and editing one in a three line box is how a closing

@@ -80,7 +80,7 @@ def kernel(series: dict[str, list[metrics.Sample]]) -> tuple[str, str]:
 
     Read from node_exporter rather than from the seapath-alloc block: it is
     already there on every machine that runs an exporter at all, including one
-    where `deploy_seapath_alloc` has not run yet.
+    where `seapath_alloc` has not run yet.
     """
     samples = series.get(_UNAME, [])
     if not samples:

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Installed to /etc/containers/systemd/. Templated by the
-# deploy_seapath_webui role at M5, and shipped as is by the ISO before that.
+# seapath_webui role at M5, and shipped as is by the ISO before that.
 #
 # Note how small the host surface is. The configuration plane goes out over
 # SSH, even to the local node, so no host configuration is ever written from

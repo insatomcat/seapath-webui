@@ -620,11 +620,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         ),
     ),
     PlaybookEntry(
-        id="seapath_setup_deploy_seapath_alloc",
-        playbook=f"{COLLECTION}.seapath_setup_deploy_seapath_alloc",
+        id="seapath_setup_seapath_alloc",
+        playbook=f"{COLLECTION}.seapath_setup_seapath_alloc",
         title="Apply the dynamic CPU pinning",
         targets=["hypervisors"],
-        # `deploy_seapath_alloc` copies files and enables a unit. No command.
+        # `seapath_alloc` copies files and enables a unit. No command.
         preview=Preview.FULL,
         reboots=Reboots.NO,
         disruption=(
@@ -638,11 +638,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
         ],
     ),
     PlaybookEntry(
-        id="seapath_setup_deploy_seapath_webui",
-        playbook=f"{COLLECTION}.seapath_setup_deploy_seapath_webui",
+        id="seapath_setup_seapath_webui",
+        playbook=f"{COLLECTION}.seapath_setup_seapath_webui",
         title="Apply the management UI, including this one",
         targets=list(_MACHINE_TARGETS),
-        # `deploy_seapath_webui` templates the quadlet and enables the unit.
+        # `seapath_webui` templates the quadlet and enables the unit.
         preview=Preview.FULL,
         reboots=Reboots.NO,
         restarts_service=True,
@@ -1160,8 +1160,21 @@ SEED_TOOL = "cloud-localds"
 SEED_PACKAGE = "cloud-image-utils"
 
 
+# Playbooks renamed upstream, from the id a run recorded before the rename to
+# the current one. A record keeps the id it was launched under, so showing it
+# or relaunching it has to find the entry under its new name.
+RENAMED = {
+    "seapath_setup_deploy_seapath_alloc": "seapath_setup_seapath_alloc",
+    "seapath_setup_deploy_seapath_webui": "seapath_setup_seapath_webui",
+}
+
+
+def current_id(playbook_id: str) -> str:
+    return RENAMED.get(playbook_id, playbook_id)
+
+
 def get(playbook_id: str) -> PlaybookEntry | None:
-    return BY_ID.get(playbook_id)
+    return BY_ID.get(current_id(playbook_id))
 
 
 def playbook_file(collections_path: Path, entry: PlaybookEntry) -> Path:

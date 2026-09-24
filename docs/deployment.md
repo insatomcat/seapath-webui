@@ -102,7 +102,7 @@ role is patched.
 
 The branch is `seapathalloc`, carried by the `SEAPATH_ANSIBLE_REF` build
 argument. `seapath_setup_prometheus_exporters` and
-`seapath_setup_deploy_seapath_alloc` exist there and are absent from `main`, so
+`seapath_setup_seapath_alloc` exist there and are absent from `main`, so
 an image built from `main` offers neither. Every other entry in the catalogue is
 present on both, and a site pinned elsewhere overrides the argument.
 
@@ -269,7 +269,7 @@ Releasing is therefore one gesture: **bump `__version__`**, then build. The
 A push to main carrying no bump leaves the version tag where it is and says so
 in a notice. That is the point: a tag that moves says nothing about which code
 answers on a machine, and the whole update path rests on it saying something.
-`seapath_webui_image` in the inventory names that tag, `deploy_seapath_webui`
+`seapath_webui_image` in the inventory names that tag, `seapath_webui`
 pulls it, and `GET /api/v1/node/update` compares it with the version answering.
 `GET /api/v1/node/update/latest` reads the tag list of that same repository and
 reports the highest version it holds, which is why the version tag is published
@@ -584,8 +584,8 @@ interruptions that matter are reboots. Left as D9, deliberately unimplemented.
 
 ## 4. Ansible role
 
-`seapath-ansible/roles/deploy_seapath_webui`, following the `deploy_*`
-conventions.
+`seapath-ansible/roles/seapath_webui`, named after the component like
+`seapath_alloc`, so its variables carry the `seapath_webui_` prefix.
 
 | Variable | Required | Default | Purpose |
 |---|---|---|---|
@@ -597,7 +597,7 @@ conventions.
 | `seapath_webui_cpu_affinity` | no | computed from `isolcpus` | Housekeeping CPUs |
 | `seapath_webui_ansible_user` | no | `{{ ansible_user }}` | The account the trust targets, must match the inventory |
 | `seapath_webui_ansible_user_home` | no | looked up with `getent` | Source of the `.ssh` mount, never hardcoded to `/home/ansible` |
-| `deploy_seapath_webui_image_retention` | no | `2` | How many versions of this image the machine keeps once the new one is in place. Two, because that is what a rollback costs: [D23](decisions.md#d23) makes `seapath_webui_image` the update lever, and a substation is not necessarily connected to a registry, so the previous version has to already be on the machine. The image the quadlet names, the one running, and the `latest` the ISO preloads are kept whatever their age. `0` keeps everything |
+| `seapath_webui_image_retention` | no | `2` | How many versions of this image the machine keeps once the new one is in place. Two, because that is what a rollback costs: [D23](decisions.md#d23) makes `seapath_webui_image` the update lever, and a substation is not necessarily connected to a registry, so the previous version has to already be on the machine. The image the quadlet names, the one running, and the `latest` the ISO preloads are kept whatever their age. `0` keeps everything |
 
 Tasks: create the state directories, initialise the inventory repository if
 absent, create the three Unix groups, template the quadlet, `daemon-reload`,

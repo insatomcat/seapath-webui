@@ -26,7 +26,7 @@
 // step it is running, because those name something an operator has to read.
 
 (function () {
-  const PLAYBOOK = "seapath_setup_deploy_seapath_webui";
+  const PLAYBOOK = "seapath_setup_seapath_webui";
   const button = document.getElementById("version-button");
   const banner = document.getElementById("version-error");
   if (!button || !Chrome.isAdmin(Chrome.current())) {

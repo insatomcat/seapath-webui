@@ -364,7 +364,7 @@ cluster wide views, node removal.
 **M4 - Ceph.** Disk inventory and selection feeding `ceph_osd_disks`, cluster
 network fields for `cephadm_network`, and `cluster_setup_cephadm.yaml`.
 
-**M5 - integration.** Ansible role `deploy_seapath_webui`, ISO integration,
+**M5 - integration.** Ansible role `seapath_webui`, ISO integration,
 conformance view based on periodic check runs, `vmmgrapi` deprecation.
 
 ## 11. Risks

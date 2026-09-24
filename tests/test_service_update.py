@@ -159,7 +159,7 @@ def test_the_catalogue_entry_that_applies_it_says_what_it_costs() -> None:
     # The run that replaces this service is recorded by the service being
     # replaced, so it ends without a final status. The entry says so before an
     # operator confirms, rather than after.
-    entry = catalogue.get("seapath_setup_deploy_seapath_webui")
+    entry = catalogue.get("seapath_setup_seapath_webui")
 
     assert entry is not None
     assert entry.restarts_service is True
@@ -168,9 +168,17 @@ def test_the_catalogue_entry_that_applies_it_says_what_it_costs() -> None:
 
 
 def test_a_run_that_replaced_this_service_is_reported_as_that(tmp_path) -> None:
-    recovered = _interrupted(tmp_path / "runs", "seapath_setup_deploy_seapath_webui")
+    recovered = _interrupted(tmp_path / "runs", "seapath_setup_seapath_webui")
 
     assert recovered.state is RunState.INTERRUPTED
+    assert "That is what applying it looks like" in recovered.message
+
+
+def test_a_run_recorded_before_the_playbook_was_renamed_is_still_recognised(
+    tmp_path,
+) -> None:
+    recovered = _interrupted(tmp_path / "runs", "seapath_setup_deploy_seapath_webui")
+
     assert "That is what applying it looks like" in recovered.message
 
 
@@ -313,7 +321,7 @@ def test_pinning_moves_the_tag_on_every_machine_and_keeps_each_repository(
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["machines"] == ["seapath-machine", "seapath-second"]
-    assert body["playbook"] == "seapath_setup_deploy_seapath_webui"
+    assert body["playbook"] == "seapath_setup_seapath_webui"
     assert (
         _image_of(signed_in, "seapath-machine")
         == "docker.io/insatomcat/seapath-webui:0.4.0"

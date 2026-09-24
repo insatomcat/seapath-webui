@@ -119,7 +119,7 @@ def test_an_exporter_with_no_seapath_alloc_metrics_names_the_role() -> None:
 
     assert nodes[0].reachable is True
     assert nodes[0].cpus == []
-    assert "deploy_seapath_alloc" in nodes[0].error
+    assert "seapath_alloc" in nodes[0].error
 
 
 def test_a_cpu_carries_its_occupant_its_core_and_its_sibling() -> None:
@@ -317,12 +317,12 @@ def test_a_node_publishing_the_pool_and_no_tuning_names_what_adds_it() -> None:
 
     assert nodes[0].reading is None
     assert nodes[0].cpus, "the pool it does publish is still read"
-    assert "deploy_seapath_alloc" in nodes[0].tuning_error
+    assert "seapath_alloc" in nodes[0].tuning_error
 
 
 def test_a_node_with_no_seapath_alloc_at_all_still_names_its_kernel() -> None:
     # node_exporter's own series, which is there as soon as the exporter is.
-    # A machine where deploy_seapath_alloc has not run yet says which kernel it
+    # A machine where seapath_alloc has not run yet says which kernel it
     # booted rather than nothing at all.
     nodes = PoolReader(
         _Client(
@@ -334,4 +334,4 @@ def test_a_node_with_no_seapath_alloc_at_all_still_names_its_kernel() -> None:
     ).read([("node1", "10.0.0.1")])
 
     assert nodes[0].preemption == "PREEMPT_RT"
-    assert "deploy_seapath_alloc" in nodes[0].error
+    assert "seapath_alloc" in nodes[0].error

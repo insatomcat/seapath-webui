@@ -2643,7 +2643,7 @@ def test_the_version_button_uses_the_endpoints_of_the_deployment_page(
         '"/node/update/latest"',
         '"/node/update"',
         '"/runs"',
-        '"seapath_setup_deploy_seapath_webui"',
+        '"seapath_setup_seapath_webui"',
     ):
         assert used in script
 
