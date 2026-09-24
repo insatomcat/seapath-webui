@@ -685,6 +685,26 @@
 
     container.append(title, name, scope, detail);
 
+    // What the launch will ask for, said on the card. A value like the
+    // machine to remove belongs to one run and is never kept in the inventory,
+    // so the editor does not know it, and an operator reading only the card
+    // would otherwise go looking for where to declare it.
+    const asked = (entry.variables || []).filter(
+      (spec) => !(entry.reboot_variables || []).includes(spec.name)
+    );
+    if (asked.length) {
+      const inputs = document.createElement("p");
+      inputs.className = "help";
+      withCode(
+        inputs,
+        "Asked when you launch it, and kept with the run rather than in the " +
+          "inventory: " +
+          asked.map((spec) => "`" + spec.name + "`").join(", ") +
+          "."
+      );
+      container.append(inputs);
+    }
+
     // Where the guests went, on the card and not only in a window nobody has
     // opened yet. Dropped once the run has been narrowed on purpose: the line
     // above then says what plays, and the group it came from is no longer the

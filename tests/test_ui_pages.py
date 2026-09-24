@@ -447,6 +447,17 @@ def test_the_host_key_scan_reaches_the_guests_that_carry_an_address(
     assert "Host key verification failed" in body
 
 
+def test_the_deployment_card_names_what_a_launch_asks_for(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/deployment.js").text
+
+    # `machine_to_remove` belongs to one run and is never in the inventory, so
+    # the card is where an operator learns the launch will ask for it.
+    assert "Asked when you launch it" in script
+    assert "(entry.variables || []).filter(" in script
+
+
 def test_the_deployment_page_says_which_collection_this_node_runs(
     signed_in: TestClient,
 ) -> None:
