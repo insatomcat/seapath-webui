@@ -282,6 +282,27 @@ def test_a_profile_the_hook_could_not_read_is_refused(
         assert response.status_code == 400, profile
 
 
+def test_a_profile_with_an_unknown_isolation_is_refused(
+    signed_in: TestClient, remote_runner: FakeRemoteRunner
+) -> None:
+    # The hook would leave those vCPUs on the housekeeping cores.
+    _standalone(signed_in, remote_runner)
+    profile = (
+        "version: 1\n"
+        "vcpus:\n"
+        "  - isolation: none\n"
+        "  - isolation: exclusive_phyical\n"
+    )
+
+    response = signed_in.put(
+        "/api/v1/vms/ABBICT/pinning-profile", json={"profile": profile}
+    )
+
+    assert response.status_code == 400
+    assert "'exclusive_phyical'" in response.json()["error"]["message"]
+    assert not (_entries(signed_in)["ABBICT"] or {}).get("vm_pinning_profile")
+
+
 def test_a_cluster_guests_profile_is_its_metadata(signed_in: TestClient) -> None:
     # `deploy_vms_cluster` hands it to `vm_manager` at creation only.
     _declare_cluster(signed_in)

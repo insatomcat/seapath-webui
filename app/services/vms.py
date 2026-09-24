@@ -1337,6 +1337,34 @@ def _check_profile(profile: str) -> None:
             "`deploy_seapath_alloc` documents, starting with "
             "`version: 1`."
         )
+    # The hook leaves a thread whose isolation it does not know on the
+    # housekeeping cores, and says so only in its log when the guest starts.
+    unknown = sorted(
+        {
+            str(spec["isolation"])
+            for spec in _profile_specs(parsed)
+            if "isolation" in spec and spec["isolation"] not in _ISOLATIONS
+        }
+    )
+    if unknown:
+        raise InvalidGuest(
+            f"Unknown isolation {', '.join(repr(u) for u in unknown)} in the "
+            f"pinning profile: it is one of {', '.join(_ISOLATIONS)}."
+        )
+
+
+_ISOLATIONS = ("none", "exclusive_logical", "exclusive_physical")
+
+
+def _profile_specs(profile: dict) -> list[dict]:
+    """Every thread group spec of a profile: `vcpus` may be a list of them."""
+    specs: list[dict] = []
+    for key in ("vcpus", "emulator", "vhost", "iothread"):
+        group = profile.get(key)
+        for spec in group if isinstance(group, list) else [group]:
+            if isinstance(spec, dict):
+                specs.append(spec)
+    return specs
 
 
 def _profile_text(value: object) -> str | None:
