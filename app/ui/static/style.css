@@ -300,7 +300,6 @@ button[aria-busy="true"] {
   z-index: 5;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   justify-content: space-between;
   gap: 0.5rem 1rem;
   padding: 0.75rem 1.25rem;
@@ -308,15 +307,29 @@ button[aria-busy="true"] {
   border-bottom: 1px solid var(--line);
 }
 
-/* The bar and both its halves wrap at every width: a window narrower than the
-   bar puts the switches and the way out on a line of their own, where they stay
-   reachable, instead of past the right edge of a page that does not scroll
-   sideways. */
+/* Above a phone the bar keeps one line and its right half keeps its place:
+   the switches and the way out are where the hand goes for them, on every
+   page. What gives when the window narrows is the navigation, which wraps its
+   links onto a second line within the left half. */
 .topbar-left, .topbar-right {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem 0.75rem;
+}
+
+.topbar-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.topbar-right {
+  flex: none;
+  white-space: nowrap;
+}
+
+.topbar .nav {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
   min-width: 0;
 }
 
@@ -328,6 +341,18 @@ button[aria-busy="true"] {
   .topbar {
     position: static;
     padding: 0.6rem 0.75rem;
+  }
+
+  /* A phone has no room for the two halves side by side: both wrap, and the
+     switches and the way out take a line of their own, where they stay
+     reachable instead of past the right edge of a page that does not scroll
+     sideways. */
+  .topbar, .topbar-left, .topbar-right {
+    flex-wrap: wrap;
+  }
+
+  .topbar-right {
+    white-space: normal;
   }
 
   .topbar .nav {
@@ -342,11 +367,13 @@ button[aria-busy="true"] {
 }
 
 .brand {
+  flex: none;
   letter-spacing: 0.2em;
   font-weight: 700;
 }
 
 .node-name {
+  flex: none;
   color: var(--muted);
 }
 
@@ -373,6 +400,23 @@ button[aria-busy="true"] {
    quieter than what it says of it. */
 .badge-key {
   color: var(--muted);
+}
+
+/* The node's and the inventory's badges, one above the other and a size down
+   from the badges of the pages. */
+.modes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  flex: none;
+}
+
+.modes .badge {
+  padding: 0 0.4rem;
+  font-size: 0.6rem;
+  line-height: 1.5;
+  letter-spacing: 0.06em;
 }
 
 /* The theme switch. Three states and not two: "follow the system" is a

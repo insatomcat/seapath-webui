@@ -138,12 +138,17 @@ SPDX-License-Identifier: Apache-2.0
 
            The inventory's mode beside it, each badge naming what it is about:
            a machine in no cluster can hold the inventory of one, and manage it
-           from here. It changes with a commit, which is a page load away. #}
+           from here. It changes with a commit, which is a page load away.
+
+           The two stacked, and small: they are read once, when a page opens,
+           and the width they would take side by side is the navigation's. #}
         <span id="node-name" class="node-name">{{ node_name }}</span>
+        <span class="modes">
         <span id="node-mode-badge" class="badge badge-{{ node_mode }}" title="Whether this machine is a member of a cluster, read from /etc/corosync/authkey"><span class="badge-key">node</span> <span id="node-mode">{{ node_mode }}</span></span>
         {% if inventory_mode %}
         <span id="inventory-mode" class="badge badge-{{ inventory_mode }}" title="What the inventory this node holds describes, and so what its pages manage"><span class="badge-key">inventory</span> {{ inventory_mode }}</span>
         {% endif %}
+        </span>
         {# Relative, like every URL this service emits, so a reverse proxy
            can mount the application under a prefix without the application
            knowing its own address. It holds because every page sits exactly
