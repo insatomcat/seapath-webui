@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.181 - 2026-09-24
+
+- fix: refuse a pinning profile with an unknown isolation
+
 ## 0.3.180 - 2026-09-23
 
 - feat: reboot this machine from the Node page
