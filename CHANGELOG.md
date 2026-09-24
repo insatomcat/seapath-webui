@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.182 - 2026-09-24
+
+- fix: follow the seapath_alloc and seapath_webui role renames
+
 ## 0.3.181 - 2026-09-24
 
 - fix: refuse a pinning profile with an unknown isolation
