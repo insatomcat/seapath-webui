@@ -365,7 +365,7 @@ cluster wide views, node removal.
 network fields for `cephadm_network`, and `cluster_setup_cephadm.yaml`.
 
 **M5 - integration.** Ansible role `seapath_webui`, ISO integration,
-conformance view based on periodic check runs, `vmmgrapi` deprecation.
+conformance view based on periodic check runs.
 
 ## 11. Risks
 

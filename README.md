@@ -709,7 +709,7 @@ them. [CONTRIBUTING.md](CONTRIBUTING.md) says what a change has to carry, and
 |---|---|
 | `seapath-ansible` | The collection this service ships and runs. Roles are used unchanged. |
 | `vm_manager` | Python library for the runtime plane. Consumed, not reimplemented. |
-| `vmmgrapi` role | An older REST API over `vm_manager` (list, status, start, stop), in `roles/vmmgrapi` of the collection, installed only where `enable_vmmgr_http_api` is true. This service does not use it. At M5 its README is to announce its deprecation in favour of this service; the role stays, for the automation already calling it. See [docs/deployment.md](docs/deployment.md). |
+| `vmmgrapi` role | The REST API over `vm_manager` (list, status, start, stop) that a substation SCADA drives the guests through, in `roles/vmmgrapi` of the collection, installed where `enable_vmmgr_http_api` is true. This service does not use it and leaves it in place. See [docs/deployment.md](docs/deployment.md). |
 | `insatomcat-exporter` | Precedent for the image build and publish flow. |
 
 ## License

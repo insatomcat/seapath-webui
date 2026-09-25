@@ -668,13 +668,18 @@ The ISO already provides what step 2 needs, verified in
 service appends its own line to that file and never rewrites it, because the
 site key is how a conventional Ansible control machine reaches the node.
 
-## 6. Migration from vmmgrapi
+## 6. Beside vmmgrapi
 
-`roles/vmmgrapi` exposes four `vm_manager` endpoints through gunicorn and nginx.
-At M5 its README gains a deprecation notice, the ISO stops enabling it, and
-`enable_vmmgr_http_api` stays default false so nothing breaks. The ports differ,
-so both can run side by side for at least one release. The role is not deleted:
-someone has automation against those endpoints.
+`roles/vmmgrapi` exposes four `vm_manager` endpoints through gunicorn and nginx:
+the list of guests, the state of one, start and stop. It is installed where
+`enable_vmmgr_http_api` is true, and its client is the substation SCADA, which
+has to know whether a guest runs and to stop or start it, and which reaches a
+hypervisor over REST because it runs on Windows, with no Ansible and no SSH.
+
+This service does not replace it. Asking a substation to run a management UI on
+every hypervisor to answer four calls that a few dozen lines of Flask answer
+today trades a small component for a large one. The two coexist on different
+ports.
 
 ## 7. Behind a reverse proxy
 

@@ -412,8 +412,9 @@ had one yet:
 
 - `seapath_revert_hardening.yaml`. Sitting next to `seapath_setup_hardening` in
   the list, which is where an operator looks for it.
-- `seapath_setup_vmmgrapi.yaml`. Deprecated by this service, and the entry that
-  says so has to be written.
+- `seapath_setup_vmmgrapi.yaml`. The REST API a substation SCADA drives the
+  guests through, which this service leaves in place; see section 6 of
+  [deployment.md](deployment.md).
 - `seapath_setup_custom_hardware.yaml`,
   `seapath_setup_configure_nic_irq_affinity.yaml`. Site specific, driven by
   variables the UI does not model.
