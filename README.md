@@ -12,14 +12,14 @@ control machine.
 
 **The configuration of a machine is edited here as an inventory and applied by
 the SEAPATH playbooks.** SEAPATH is a function converting an inventory into a
-running infrastructure, and this service is a friendly front end onto that
-function, not a way around it. What it writes itself is that inventory, its own
-trust material, and the Pacemaker metadata a guest carries on its disk image,
-which [D31](docs/decisions.md#d31) records and bounds.
+running infrastructure, and this service is a front end onto that function.
+What it writes itself is that inventory, its own trust material, and the
+Pacemaker metadata a guest carries on its disk image, which
+[D31](docs/decisions.md#d31) records and bounds.
 
-The fourth machine disappears as a machine, not as a function: its two jobs,
-holding the desired state and running the playbooks, move into the cluster
-itself.
+The Ansible control machine a site usually sets up beside a cluster has two
+jobs, holding the desired state and running the playbooks, and both move into
+the cluster itself.
 
 Concretely, the service does five things:
 
@@ -53,13 +53,12 @@ It reads, and offers two acts. **Reboot this machine** is an administrator's: a
 run of one task that schedules the reboot a few seconds after the run ends, the
 way an update reboots this machine, so the run records its status before the
 machine goes down, and the confirmation says where the guests go. The console
-button opens a shell on the `ansible` account
-for the times a page is not enough, on this machine or on any other machine or
-guest of the inventory a run reaches over SSH. That account may run `/bin/sh`
-as root with no password, the rule Ansible's escalation uses, so `sudo sh` in a
-console is root on the machine, and opening one asks for an administrator.
-Other `sudo` commands ask for a password, `sudo -s` included when the login
-shell is bash.
+button opens a shell on the `ansible` account for the times a page is not
+enough, on this machine or on any other machine or guest of the inventory a run
+reaches over SSH. That account may run `/bin/sh` as root with no password, the
+rule Ansible's escalation uses, so `sudo sh` in a console is root on the
+machine, and opening one asks for an administrator. Other `sudo` commands ask
+for a password, `sudo -s` included when the login shell is bash.
 
 ![The Inventory page: the folder on the left, the file being edited on the right](img/2-inventory.png)
 
@@ -75,20 +74,20 @@ selection touches, `Enter` carries the indentation of the line it leaves, one
 level in under a key that opens a block and the dash repeated in a list, and
 `Ctrl`+`/` comments the block out.
 
-Beside them is a switch. An inventory is YAML with no schema, so `cephadm_netwrok`
-is a name the file accepts, `ansible-inventory` parses and every rule passes,
-and the answer arrives three minutes into a convergence from a role that read a
-variable nobody set. With the assistant on, a name being typed is completed from
-what may be written at that point in the file, each candidate carrying the role
-that reads it and what goes wrong when it is wrong, so a guest entry is offered
-`vm_disk` and a hypervisor is not. What is already written is read back the
-other way: a name nothing reads, with the one that was probably meant, and a
-variable written where nothing will read it. Nothing reads it means none of the
-three readers an inventory has, the collection this node runs, Ansible itself,
-and the file, which reads its own variables through every `{{ }}` in it. None
-of this refuses a commit, because a variable of a site's own is a legitimate
-name this service has never read and is written exactly the way a misspelling
-is.
+Beside them is a switch. An inventory is YAML with no schema, so
+`cephadm_netwrok` is a name the file accepts, `ansible-inventory` parses and
+every rule passes, and the answer arrives three minutes into a convergence from
+a role that read a variable nobody set. With the assistant on, a name being
+typed is completed from what may be written at that point in the file, each
+candidate carrying the role that reads it and what goes wrong when it is wrong,
+so a guest entry is offered `vm_disk` and a hypervisor is not. What is already
+written is read back the other way: a name nothing reads, with the one that was
+probably meant, and a variable written where nothing will read it. Nothing reads
+it means none of the three readers an inventory has, the collection this node
+runs, Ansible itself, and the file, which reads its own variables through every
+`{{ }}` in it. None of this refuses a commit, because a variable of a site's own
+is a legitimate name this service has never read and is written exactly the way
+a misspelling is.
 
 Under it sits the copy each of the other machines holds. Every node clones the
 repository, and bringing the clones together is an act: the panel asks each
@@ -103,7 +102,10 @@ discards. See [D32](docs/decisions.md#d32).
 **Deployment** is where a machine actually changes. Commissioning runs the full
 convergence; the picker beside it runs a single playbook when a single thing
 was edited, and every entry says what it plays, what it will restart, and why
-this node may not be allowed to run it. Under them sit two panels, shut until
+this node may not be allowed to run it. A playbook that needs a value for one
+run only, such as the machine `cluster_remove_machine` takes out of the
+cluster, says so on its card: the launch asks for it, and it is kept with the
+run rather than in the inventory. Under them sit two panels, shut until
 they are needed. Reaching the other machines is the SSH trust: the site key
 this node holds, and the host keys it has accepted, both undone in one click.
 The code this node runs is the pair that decides what an apply executes: the
@@ -188,17 +190,17 @@ That difference is the network section. It writes three variables with three
 readers: `bridges`, the interface the template renders; `cloud_init`, the
 mapping the upstream `cloud_init_seed` role builds the guest's NoCloud seed
 from, with its address, gateway, resolvers, hostname and the packages it
-installs on its first boot; and `ansible_host`, where a later run reaches
-inside the guest. The address is typed once and written twice. The MAC the seed
-matches the interface by is generated in the QEMU range when none is given. A
-network that could not work is refused before it is written: an address with no
-prefix, a gateway outside the guest's network, an address or a MAC another host
-of the file already holds. Two boxes, checked by default, make the guest
-reachable by the runs that follow: this node's public key, and the site key
-where one is held, go into the seed for the `ansible` account, and the entry
-accepts the guest's host key on the first connection. The seed is built by the
-role inside this container, like on any control machine, which is why the
-image carries `cloud-localds`. See D48 in [docs/decisions.md](docs/decisions.md).
+installs on its first boot; and `ansible_host`, where a later run reaches inside
+the guest. The address is typed once and written twice. The MAC the seed matches
+the interface by is generated in the QEMU range when none is given. A network
+that could not work is refused before it is written: an address with no prefix,
+a gateway outside the guest's network, an address or a MAC another host of the
+file already holds. Two boxes, checked by default, make the guest reachable by
+the runs that follow: this node's public key, and the site key where one is
+held, go into the seed for the `ansible` account, and the entry accepts the
+guest's host key on the first connection. The seed is built by the role inside
+this container, like on any control machine, which is why the image carries
+`cloud-localds`. See D48 in [docs/decisions.md](docs/decisions.md).
 
 Three more things sit under the network. **Ping** beside the address sends
 three echo requests from this node, because the file can refuse an address one
@@ -210,24 +212,24 @@ come up: it travels with the run that creates the guest, is spliced into that
 run's copy of the inventory and wiped when the run ends, so no form of it is
 ever committed. See D52.
 
-A guest whose domain XML has a VNC `<graphics>` also gets a **Graphic
-console**, whatever created it: its screen in the browser, from the VNC server
-QEMU runs on the hypervisor's loopback, with a button for Ctrl+Alt+Del, a toggle between
+A guest whose domain XML has a VNC `<graphics>` also gets a **Graphic console**,
+whatever created it: its screen in the browser, from the VNC server QEMU runs on
+the hypervisor's loopback, with a button for Ctrl+Alt+Del, a toggle between
 fitting the panel and scrolling at actual size, and full screen. It is how a
 Windows guest whose network is down is reached. See D62.
 
-Folded under all of that is what
-`cluster_vm create` is given: placement, priority, live migration and its
-timeouts, colocation, disk bus, the pinning profile. They are asked there
-because each is written once into the guest's image metadata, and changing one
-afterwards costs an outage. Live migration is on unless it is unchecked: without
-it, every move Pacemaker makes for the guest, a failover or the standby before a
-reboot, is a stop on one machine and a boot on the other. Underneath, those
-are the writes this service has always made and the upstream playbook it has
-always run: the image to the store git does not carry, the XML committed with
-the inventory, the guest a splice into the file checked like every other
-write, and a whole playbook of the collection. The operator is spared the trip through two pages
-and a group name they have no reason to know.
+Folded under all of that is what `cluster_vm create` is given: placement,
+priority, live migration and its timeouts, colocation, disk bus, the pinning
+profile. They are asked there because each is written once into the guest's
+image metadata, and changing one afterwards costs an outage. Live migration is
+on unless it is unchecked: without it, every move Pacemaker makes for the guest,
+a failover or the standby before a reboot, is a stop on one machine and a boot
+on the other. Underneath, those are the writes this service has always made and
+the upstream playbook it has always run: the image to the store git does not
+carry, the XML committed with the inventory, the guest a splice into the file
+checked like every other write, and a whole playbook of the collection. The
+operator is spared the trip through two pages and a group name they have no
+reason to know.
 
 ![A run watched over the page that launched it: the playbook, its state, the task being played and the task stream down to the recap](img/6-2-vm-run.png)
 
@@ -242,27 +244,29 @@ operator stayed for is what the run changed in the table underneath. Every
 action of this UI that is a playbook opens the same window. See D43 in
 [docs/decisions.md](docs/decisions.md).
 
-Editing a guest's metadata is there too. A guest's Pacemaker configuration
-lives as metadata on its RBD image, `vm_manager` writes those keys at creation
-and never again, and the only upstream way to change one is to recreate the
-guest from its seed image and lose its disk. So the page asks Ceph directly,
-with `rbd image-meta`, the way the cluster view asks the exporters: a window
-lists what the image carries, another edits one value, wide enough for the
-libvirt domain that lives in there under `xml`, and removing a key is asked
-before it happens because nothing here puts back what it took away. Every write
-reads the image before and after and says what moved. Applying a change stops the guest and
+Editing a guest's metadata is there too. A guest's Pacemaker configuration lives
+as metadata on its RBD image, `vm_manager` writes those keys at creation and
+never again, and the only upstream way to change one is to recreate the guest
+from its seed image and lose its disk. So the page asks Ceph directly, with `rbd
+image-meta`, the way the cluster view asks the exporters: a window lists what
+the image carries, another edits one value, wide enough for the libvirt domain
+that lives in there under `xml`, and removing a key is asked before it happens
+because nothing here puts back what it took away. Every write reads the image
+before and after and says what moved. Applying a change stops the guest and
 rebuilds its Pacemaker resource, so it is a second button that names the outage
 and appears only when something did move.
 
 A standalone guest has no RBD image and so no metadata. Its row offers its
 libvirt domain and its pinning profile instead. The profile is
-`vm_pinning_profile` on its inventory entry, committed like any edit and put
-on the machine by a run of the two tasks `deploy_vms_standalone` writes it
-with. The domain has no path through the inventory, since the role skips a
-guest libvirt already has: the window reads `virsh dumpxml --inactive` over the
-SSH path a run takes, checks the edit keeps the name and UUID libvirt holds,
-and defines it with a run of `community.libvirt.virt`. Both are read when the
-guest starts from shut off, so saving either asks once whether to shut the
+`vm_pinning_profile` on its inventory entry, committed like any edit and put on
+the machine by a run of the two tasks `deploy_vms_standalone` writes it with,
+and a profile naming an isolation `seapath-alloc` does not know is refused
+before it is committed, since the hook would quietly leave those vCPUs on the
+housekeeping cores. The domain has no path through the inventory, since the role
+skips a guest libvirt already has: the window reads `virsh dumpxml --inactive`
+over the SSH path a run takes, checks the edit keeps the name and UUID libvirt
+holds, and defines it with a run of `community.libvirt.virt`. Both are read when
+the guest starts from shut off, so saving either asks once whether to shut the
 guest down and start it, and one run does all of it. See D66.
 
 Starting and stopping a guest are there too, one button per row, offered as
@@ -362,33 +366,32 @@ that a deployed cluster already runs, one HTTP GET per machine, and every
 member is asked because which of them answers is itself part of the answer.
 
 The page monitors nothing and holds no state of its own, deliberately. Each
-panel carries a small **Read again**, which asks the reading that panel is
-drawn from and swaps it in one pass, so a table is brought up to date without
-the reload that refetched the whole page and sent every panel back through its
+panel carries a small **Read again**, which asks the reading that panel is drawn
+from and swaps it in one pass, so a table is brought up to date without the
+reload that refetched the whole page and sent every panel back through its
 spinner. The VMs, Containers and CPU pool panels carry the same control, and a
 switch in the top bar takes that same reading every ten seconds until it is
-turned off. It holds while the tab is hidden, while the panel is in a view
-that is not open, and while a dialog is waiting on an answer about a machine,
-so a browser left open overnight asks the substation nothing. Coming back to a
-page, each panel is drawn at once from what this browser last read, with the
-age of that reading in the line the spinner used to hold, and its buttons stay
-held until the fresh reading lands, because the row an operator aims at may
-have moved in the meantime. What this page
-offers besides is placement, at both scopes. **Refresh** on a resource clears
-the operation history Pacemaker keeps for it, so a failure that has been dealt
-with stops holding it down, and a second button does the same for every
-resource on every node. **Move** asks Pacemaker to run a resource on a named
-node, and **Return** gives the placement back: a move writes the `cli-prefer`
-constraint that `preferred_host` already produces, because `vm_manager`
-honours that field by running the same `crm resource move`, and the return
-puts the declared placement back so a clear cannot drop it silently.
-**Standby** empties a machine and its inverse fills it again, which is what an
-operator does before rebooting a hypervisor and the honest way to watch a
-cluster place its own guests. Each of them runs as an ordinary one task run on
-a cluster member rather than as a command inside this container, and none of
-them writes a file on a host or touches the inventory. Evicting an OSD is not
-offered, for the reason `docs/ceph.md` gives, and adding a machine or a disk
-stays an inventory change and a run.
+turned off. It holds while the tab is hidden, while the panel is in a view that
+is not open, and while a dialog is waiting on an answer about a machine, so a
+browser left open overnight asks the substation nothing. Coming back to a page,
+each panel is drawn at once from what this browser last read, with the age of
+that reading in the line the spinner used to hold, and its buttons stay held
+until the fresh reading lands, because the row an operator aims at may have
+moved in the meantime. What this page offers besides is placement, at both
+scopes. **Refresh** on a resource clears the operation history Pacemaker keeps
+for it, so a failure that has been dealt with stops holding it down, and a
+second button does the same for every resource on every node. **Move** asks
+Pacemaker to run a resource on a named node, and **Return** gives the placement
+back: a move writes the `cli-prefer` constraint that `preferred_host` already
+produces, because `vm_manager` honours that field by running the same `crm
+resource move`, and the return puts the declared placement back so a clear
+cannot drop it silently. **Standby** empties a machine and its inverse fills it
+again, which is what an operator does before rebooting a hypervisor and the
+honest way to watch a cluster place its own guests. Each of them runs as an
+ordinary one task run on a cluster member rather than as a command inside this
+container, and none of them writes a file on a host or touches the inventory.
+Evicting an OSD is not offered, for the reason `docs/ceph.md` gives, and adding
+a machine or a disk stays an inventory change and a run.
 
 ![The Cluster page, Resources: one row per Pacemaker resource, with Refresh, Move and Return](img/10-cluster-resources.png)
 
@@ -480,8 +483,8 @@ new system is rolled back. The machine serving the page is updated on its own,
 after the others. The run then checks the machines it updated, so the table
 shows them as the update left them. When the machine serving the page reboots,
 the run checks it first, schedules the reboot and ends, and the machine
-finishes the update itself once its new system is up. With a
-collection whose playbook still finishes on the controller, the page offers it
+finishes the update itself once its new system is up. With a collection whose
+playbook still finishes on the controller, the page offers it
 only from another member. See D59, D60 and D61.
 
 ![The Real time page, Conformance: the five view tabs and their summaries, over one row per check and one column per machine](img/15-1-realtime-conformance.png)
@@ -532,18 +535,19 @@ stays in place.
 
 It is the one page laid out as an application rather than as a document. Five
 views, Conformance, CPU pool, Latency, Guest latency and Firmware, and a bar of
-tabs that carries what each of them found: its worst status as a dot, and the one line
-its panel would lead with. The glance costs no click, and the view behind the
-tab has the whole screen, which is what twelve checks across four machines of
-forty-eight threads need. Every reading is fetched before the first tab is
-drawn, so switching asks the machines for nothing. See D24, D26, D27 and D28 in
-[docs/decisions.md](docs/decisions.md).
+tabs that carries what each of them found: its worst status as a dot, and the
+one line its panel would lead with. The glance costs no click, and the view
+behind the tab has the whole screen, which is what twelve checks across four
+machines of forty-eight threads need. Every reading is fetched before the first
+tab is drawn, so switching asks the machines for nothing. See D24, D26, D27 and
+D28 in [docs/decisions.md](docs/decisions.md).
 
 ![The Real time page, Latency: what cyclictest measured on each machine, over the form that launches the run](img/15-3-realtime-latency.png)
 
 ![The Real time page, Firmware: what hwlatdetect found on each machine, over the form that launches the run](img/15-5-realtime-firmware.png)
 
-Latency and Firmware carry a form, which the other two views have no use for.
+Latency and Firmware carry a form, which Conformance and CPU pool have no use
+for.
 Reading what a machine publishes costs one HTTP GET; a measurement asks the
 machines to spend real time doing it, so it is launched, confirmed and filed
 like any other run. `cyclictest` takes a duration, a real time priority and the
@@ -587,13 +591,13 @@ it arrives, and where the time went. The log is downloadable whole.
 
 ![Where the time went: the tasks of a run, ordered by the seconds each took](img/16-2-runs-time.png)
 
-The top bar names the machine serving the page, whether it is a cluster
-member, and what the inventory describes, since one machine can hold and apply
-the inventory of a cluster it is not part of. An inventory that describes no
-cluster drops Cluster and Backup from the menu. An administrator also finds a
-version button there: it asks the registry for a newer seapath-webui when a
-session opens and on each click, and when there is one, a click pins it in the
-inventory and launches the playbook that deploys it.
+The top bar names the machine serving the page, and two small badges under
+each other say whether it is a cluster member and what the inventory
+describes, since one machine can hold and apply the inventory of a cluster it
+is not part of. An inventory that describes no cluster drops Cluster and Backup
+from the menu. The version button described under Deployment sits on its
+right. When the window narrows, the menu wraps onto a second line and the
+switches, the account and the way out keep their place.
 
 Every page is drawn in the palette the operator's system asks for, and the
 switch in the top bar overrides it in either direction or hands the choice
@@ -613,8 +617,8 @@ with `ansible-runner` from the collection built into the image.
 **M0** before it: skeleton, PAM authentication with sessions and CSRF, TLS
 material generated at first boot, the read only node view and its API, the
 image, the quadlet and the test harness. The node view describes what the
-machine is, not what it is doing: live state stays with
-`prometheus-node-exporter`, which every SEAPATH node runs.
+machine is. What it is doing is read from `prometheus-node-exporter`, which
+every SEAPATH node runs.
 
 Two things arrived after M1 and are validated separately. The **Real time**
 page, which reads the tuning every node publishes through its exporter and runs
@@ -629,15 +633,14 @@ M2 is the VMs and the containers, and most of it is in. For a guest, the `VMs`
 group is read as guests rather than as machines, the page joins what the
 inventory declares to what Pacemaker reports, adding one is one act that gives
 it its network through a cloud-init seed, starting and stopping one are runs,
-the RBD metadata is read and edited from the same page, a guest can be sent to
-a named node and given back to the cluster, disabled, enabled and deleted, and
-its creation lines leave its entry once it is created, with the files they
-named deleted from the row. The snapshots are what is left, and follow the
-same shape. For a container,
-the quadlets the inventory uploads are read back with the unit each machine
-made of them, declaring one writes the three variables the upstream roles
-already read, starting or stopping one is a run, and one the cluster holds is
-moved and returned like a guest.
+the RBD metadata is read and edited from the same page, a guest can be sent to a
+named node and given back to the cluster, disabled, enabled and deleted, and its
+creation lines leave its entry once it is created, with the files they named
+deleted from the row. The snapshots are what is left, and follow the same shape.
+For a container, the quadlets the inventory uploads are read back with the unit
+each machine made of them, declaring one writes the three variables the upstream
+roles already read, starting or stopping one is a run, and one the cluster holds
+is moved and returned like a guest.
 
 The **Backup** page arrived beside them. It runs the four scripts of the
 upstream `backup_restore` role as runs, says before a backup whether it will
@@ -655,7 +658,13 @@ The **Cluster** page reads Pacemaker and Ceph from the exporters a deployed
 cluster already runs, and clears the operation history of one resource or of
 every resource in one act. And the inventory copies are brought together by the
 push above, which [D32](docs/decisions.md#d32) chose in place of the elected
-lead D3 had left open.
+lead D3 had left open. Removing a machine from the cluster is the upstream
+`cluster_remove_machine` playbook, launched from Deployment with the machine
+named for that run.
+
+Of M5, the Ansible role that deploys this service is upstream, as
+`seapath_webui` with its playbook `seapath_setup_seapath_webui`, and the
+version it deploys is the inventory variable the top bar's button moves.
 
 ## Development
 
@@ -700,8 +709,7 @@ them. [CONTRIBUTING.md](CONTRIBUTING.md) says what a change has to carry, and
 |---|---|
 | `seapath-ansible` | The collection this service ships and runs. Roles are used unchanged. |
 | `vm_manager` | Python library for the runtime plane. Consumed, not reimplemented. |
-| `vmmgrapi` role | The existing thin API over `vm_manager`, in `roles/vmmgrapi` of the collection. Deprecation planned at M5: the ISO stops enabling it, the role stays. |
-| `rtperfui` | Packaging precedent: FastAPI, Jinja, quadlet with host mounts. |
+| `vmmgrapi` role | An older REST API over `vm_manager` (list, status, start, stop), in `roles/vmmgrapi` of the collection, installed only where `enable_vmmgr_http_api` is true. This service does not use it. At M5 its README is to announce its deprecation in favour of this service; the role stays, for the automation already calling it. See [docs/deployment.md](docs/deployment.md). |
 | `insatomcat-exporter` | Precedent for the image build and publish flow. |
 
 ## License
