@@ -1714,6 +1714,61 @@ def test_a_guest_carries_its_memory_and_the_size_of_its_disks(
     ]
 
 
+def _busy_libvirt(monkeypatch) -> None:
+    """The recorded exposition as a busy exporter publishes it: every disk 0."""
+    import re
+
+    from app.cluster import fake
+
+    busy = re.sub(
+        r"^(libvirt_domain_block_stats_capacity_bytes\{[^}]*\}) \S+$",
+        r"\1 0",
+        fake._recorded("libvirt-exporter.txt"),
+        flags=re.MULTILINE,
+    )
+    monkeypatch.setitem(fake.LIBVIRT_EXPORTERS, "192.168.200.125", busy)
+
+
+def test_a_reading_the_exporter_published_as_0_keeps_the_last_disks(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    # What the exporter answers when two scrapes meet. The table used to show
+    # the guest losing its disk until the next reading. Asked fresh, as the
+    # page's timer asks, since the scrape window would answer the first one.
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+    signed_in.get("/api/v1/vms")
+    _busy_libvirt(monkeypatch)
+
+    guests = {
+        item["name"]: item
+        for item in signed_in.get("/api/v1/vms?fresh=1").json()["guests"]
+    }
+
+    assert guests["ABBICT"]["domain"]["disks"] == [
+        {"device": "vda", "capacity_bytes": 96636764160}
+    ]
+    assert guests["ABBICT"]["domain"]["disks_unread"] is True
+
+
+def test_a_domain_never_read_whole_has_no_disks_to_show(
+    signed_in: TestClient, monkeypatch
+) -> None:
+    # Nothing earlier to put back, and a sum of the zeros is not a size.
+    _busy_libvirt(monkeypatch)
+    signed_in.post(
+        "/api/v1/inventory/import", json={"document": STANDALONE_WITH_DOMAINS}
+    )
+
+    guests = {
+        item["name"]: item for item in signed_in.get("/api/v1/vms").json()["guests"]
+    }
+
+    assert guests["ABBICT"]["domain"]["disks"] == []
+    assert guests["ABBICT"]["domain"]["disks_unread"] is True
+
+
 def test_a_cdrom_drive_is_not_counted_as_a_disk(signed_in: TestClient) -> None:
     # The capacity series reports EITCS's empty `sda` drive with the size of
     # its disk. Counting it would double the guest's storage.

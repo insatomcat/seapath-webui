@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -41,7 +42,7 @@ from app.cluster.ha import (
     PacemakerCluster,
     PacemakerResource,
 )
-from app.cluster.libvirt import DEFAULT_PORT, LibvirtDomain
+from app.cluster.libvirt import DEFAULT_PORT, LibvirtDisk, LibvirtDomain
 from app.cluster.libvirt import read as read_libvirt
 from app.cluster.libvirt import reporting as libvirt_reporting
 from app.cluster.rbd import RbdClient, RbdUnavailable, image_of
@@ -525,6 +526,10 @@ class VmService:
         self._client = client or UrllibMetricsClient()
         self._libvirt_port = libvirt_port
         self._timeout = timeout
+        # The last disks each machine's exporter reported for each domain.
+        # See `_domains`. Requests are served on several threads.
+        self._disks: dict[tuple[str, str], list[LibvirtDisk]] = {}
+        self._disks_lock = threading.Lock()
 
     def known(self) -> set[str]:
         """The guests this node can act on.
@@ -1197,6 +1202,14 @@ class VmService:
         both ends of the migration, and the machine that answers first is the
         first of the inventory rather than the one running it. The domain that
         is running wins, for the reason `ha.running` gives.
+
+        The exporter publishes a domain's disks as 0 when two scrapes meet,
+        which anything else scraping the same exporter makes a matter of
+        minutes on each machine. Such a domain gets the disks the same machine
+        last reported for it. A disk changes size only when it is resized, and
+        the next reading that has them replaces them.
+        A table re-read every ten seconds otherwise shows a guest losing its
+        disk and getting it back.
         """
         if state.inventory is None:
             return {}
@@ -1213,10 +1226,19 @@ class VmService:
                 continue
             reading = read_libvirt(exposition)
             for domain in reading.domains:
+                self._remember_disks(domain)
                 kept = found.get(domain.name)
                 if kept is None or (domain.running and not kept.running):
                     found[domain.name] = domain
         return found
+
+    def _remember_disks(self, domain: LibvirtDomain) -> None:
+        key = (domain.host, domain.name)
+        with self._disks_lock:
+            if domain.disks_unread:
+                domain.disks = list(self._disks.get(key, []))
+            elif domain.disks:
+                self._disks[key] = list(domain.disks)
 
     def displays(self) -> DisplaysView:
         """Which cluster guests carry a VNC `<graphics>` in their domain XML.

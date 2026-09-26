@@ -96,6 +96,12 @@ class LibvirtDomain(BaseModel):
     The exporter asks libvirt for block information on active domains only,
     so a guest that is shut off publishes its vCPUs and memory and no disk.
     """
+    disks_unread: bool = False
+    """The exporter published this domain's disks as 0 on this reading.
+
+    `disks` is then empty here, and the VMs view puts back what the last
+    reading that had them said: a disk changes size only when it is resized.
+    """
 
 
 class LibvirtReading(BaseModel):
@@ -147,7 +153,7 @@ def reporting(exposition: Exposition) -> bool:
 def _domains(series: dict[str, list[metrics.Sample]], host: str) -> list[LibvirtDomain]:
     memory = _by_domain(series.get(_MEMORY, []))
     vcpus = _by_domain(series.get(_VCPUS, []))
-    disks = _disks(series)
+    disks, unread = _disks(series)
     machines = {
         sample.labels.get("domain", ""): sample.labels.get("os_type_machine", "")
         for sample in series.get(_INFO, [])
@@ -170,13 +176,17 @@ def _domains(series: dict[str, list[metrics.Sample]], host: str) -> list[Libvirt
                 vcpus=_whole(vcpus.get(name)),
                 machine_type=machines.get(name) or None,
                 disks=disks.get(name, []),
+                disks_unread=name in unread,
             )
         )
     return sorted(found, key=lambda domain: domain.name)
 
 
-def _disks(series: dict[str, list[metrics.Sample]]) -> dict[str, list[LibvirtDisk]]:
-    """The capacity of every disk, by domain, CD-ROM drives left out.
+def _disks(
+    series: dict[str, list[metrics.Sample]],
+) -> tuple[dict[str, list[LibvirtDisk]], set[str]]:
+    """The capacity of every disk by domain, CD-ROM drives left out, and the
+    domains whose disks this reading does not have.
 
     The capacity series covers every block device, and a CD-ROM drive is one:
     it reports the ISO it holds, and an empty drive repeats the capacity of
@@ -209,7 +219,7 @@ def _disks(series: dict[str, list[metrics.Sample]]) -> dict[str, list[LibvirtDis
         name: sorted(items, key=lambda disk: disk.device)
         for name, items in found.items()
         if name not in failed
-    }
+    }, failed
 
 
 def _by_domain(samples: list[metrics.Sample]) -> dict[str, float]:

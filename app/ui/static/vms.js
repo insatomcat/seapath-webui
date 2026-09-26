@@ -220,7 +220,10 @@
     node.title =
       (disks.length
         ? "Disks: " +
-          disks.map((disk) => disk.device + " " + bytes(disk.capacity_bytes)).join(", ")
+          disks.map((disk) => disk.device + " " + bytes(disk.capacity_bytes)).join(", ") +
+          (domain.disks_unread
+            ? "\nFrom an earlier reading: the exporter was busy on this one."
+            : "")
         : domain.running
           ? "Its disks were not reported on this reading, which a busy " +
             "exporter does. Re-read the guests to ask again."

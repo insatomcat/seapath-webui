@@ -50,6 +50,7 @@ def test_every_disk_is_read_with_its_capacity() -> None:
         ("vda", 3221225472),
         ("vdb", 376832),
     ]
+    assert domains["debian14"].disks_unread is False
 
 
 def test_a_disk_published_as_empty_is_a_reading_that_failed() -> None:
@@ -58,6 +59,7 @@ def test_a_disk_published_as_empty_is_a_reading_that_failed() -> None:
     domains = read(exposition("0", "0"))
 
     assert domains["debian14"].disks == []
+    assert domains["debian14"].disks_unread is True
 
 
 def test_one_failed_disk_costs_the_domain_all_of_them() -> None:
@@ -65,3 +67,4 @@ def test_one_failed_disk_costs_the_domain_all_of_them() -> None:
     domains = read(exposition("0", "376832"))
 
     assert domains["debian14"].disks == []
+    assert domains["debian14"].disks_unread is True
