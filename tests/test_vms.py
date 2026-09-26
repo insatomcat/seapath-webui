@@ -836,9 +836,7 @@ def test_the_real_time_profile_is_offered_on_a_standalone_machine_too(
     )
 
     assert response.status_code == 201, response.text
-    assert (
-        "seapath_alloc:" in (settings.inventory_dir / "inventory.yaml").read_text()
-    )
+    assert "seapath_alloc:" in (settings.inventory_dir / "inventory.yaml").read_text()
 
 
 def test_a_variable_the_other_role_reads_is_refused_rather_than_written(
