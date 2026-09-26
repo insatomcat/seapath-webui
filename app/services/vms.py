@@ -197,8 +197,8 @@ class GuestView(BaseModel):
     resource: PacemakerResource | None = None
     """Pacemaker's line for it, absent when nothing reports one."""
 
-    pinning_profile: str | None = None
-    """`vm_pinning_profile` from its entry, the seapath-alloc profile as text.
+    seapath_alloc: str | None = None
+    """`seapath_alloc` from its entry, the seapath-alloc profile as text.
 
     Carried for a standalone guest, whose profile the deployment writes to
     `/etc/seapath/alloc.d` on every run, so editing the entry is how it
@@ -781,14 +781,14 @@ class VmService:
             )
         return commit
 
-    def set_pinning_profile(
+    def set_seapath_alloc(
         self,
         name: str,
         profile: str | None,
         author: str,
         expected_head: str | None = None,
     ) -> Commit | None:
-        """Write a standalone guest's `vm_pinning_profile`, or take it out.
+        """Write a standalone guest's `seapath_alloc`, or take it out.
 
         One commit on the guest's own entry. `deploy_vms_standalone` writes
         the variable to `/etc/seapath/alloc.d/<guest>.yaml` on every run, and
@@ -814,10 +814,10 @@ class VmService:
             # A block scalar ends with a newline, and the file the role writes
             # is the value as it is.
             text += "\n"
-        entry = state.inventory.guests[name].extra.get("vm_pinning_profile")
+        entry = state.inventory.guests[name].extra.get("seapath_alloc")
         if (_profile_text(entry) or "") == text:
             return None
-        variable = "vm_pinning_profile"
+        variable = "seapath_alloc"
         subject = (
             f"vms: pinning profile of {name}"
             if text
@@ -847,7 +847,7 @@ class VmService:
             )
         if commit is not None:
             audit_event(
-                "vms.pinning_profile",
+                "vms.seapath_alloc",
                 guest=name,
                 commit=commit.hash,
                 user=author,
@@ -1055,7 +1055,7 @@ class VmService:
                 f"{', '.join(DISK_BUSES)}."
             )
 
-        profile = variables.get("vm_pinning_profile")
+        profile = variables.get("seapath_alloc")
         if profile:
             _check_profile(profile)
 
@@ -1136,9 +1136,7 @@ class VmService:
                     enable=guest.enable,
                     ansible_host=guest.ansible_host,
                     seeded=guest.cloud_init is not None,
-                    pinning_profile=_profile_text(
-                        guest.extra.get("vm_pinning_profile")
-                    ),
+                    seapath_alloc=_profile_text(guest.extra.get("seapath_alloc")),
                     preferred_host=guest.extra.get("preferred_host"),
                     pinned_host=guest.extra.get("pinned_host"),
                     files=files.get(name, []),

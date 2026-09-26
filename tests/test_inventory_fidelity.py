@@ -730,20 +730,20 @@ def test_a_host_declared_by_its_name_alone_gets_its_first_variables() -> None:
     edited = set_variables(
         document,
         Scope("host", "ABBICT"),
-        {"vm_pinning_profile": "version: 1\n"},
+        {"seapath_alloc": "version: 1\n"},
     )
 
     assert edited == (
         "VMs:\n"
         "  hosts:\n"
         "    ABBICT:\n"
-        "      vm_pinning_profile: |\n"
+        "      seapath_alloc: |\n"
         "        version: 1\n"
         "    EITCS:\n"
     )
     assert (
         unintended_changes(
-            document, edited, {"ABBICT": {"vm_pinning_profile": "version: 1\n"}}
+            document, edited, {"ABBICT": {"seapath_alloc": "version: 1\n"}}
         )
         == []
     )

@@ -152,7 +152,7 @@ class GuestDeclaration(BaseModel):
     disk_bus: str | None = None
     colocated_vms: list[str] = Field(default_factory=list)
     strong_colocation: bool = False
-    vm_pinning_profile: str | None = Field(
+    seapath_alloc: str | None = Field(
         default=None, description="The seapath-alloc profile, as YAML"
     )
 
@@ -593,7 +593,7 @@ def _definition(
         "migration_downtime": payload.migration_downtime,
         "disk_bus": payload.disk_bus,
         "colocated_vms": payload.colocated_vms,
-        "vm_pinning_profile": payload.vm_pinning_profile,
+        "seapath_alloc": payload.seapath_alloc,
     }
     for name, value, default in (
         ("force", payload.force, False),
@@ -803,7 +803,7 @@ class ProfileWrite(BaseModel):
         default=None,
         description=(
             "The profile as YAML, a mapping starting with `version: 1`. Empty "
-            "or absent takes `vm_pinning_profile` out of the entry, and the "
+            "or absent takes `seapath_alloc` out of the entry, and the "
             "run removes the file"
         ),
     )
@@ -826,7 +826,7 @@ class ProfileResponse(BaseModel):
     state: str | None = None
 
 
-@router.put("/{name}/pinning-profile", response_model=ProfileResponse)
+@router.put("/{name}/seapath-alloc", response_model=ProfileResponse)
 def write_profile(
     request: Request,
     name: str,
@@ -834,7 +834,7 @@ def write_profile(
     if_match: str | None = Header(default=None, alias="If-Match"),
     user: User = admin,
 ) -> ProfileResponse:
-    """Write a standalone guest's `vm_pinning_profile`, and put it on the machine.
+    """Write a standalone guest's `seapath_alloc`, and put it on the machine.
 
     One commit on the guest's entry, then one run on the machine holding the
     guest: the two tasks `deploy_vms_standalone` writes
@@ -861,7 +861,7 @@ def write_profile(
             409,
         )
     try:
-        commit = service.set_pinning_profile(
+        commit = service.set_seapath_alloc(
             name, payload.profile, user.username, if_match
         )
     except UnknownGuest as error:

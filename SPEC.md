@@ -325,7 +325,7 @@ archives, live in a store beside the repository that git does not carry.
 - **Where a core's occupant is drawn is settled too.** `seapath-alloc` decides
   pinning locally at every VM start and publishes the result through
   `prometheus-node-exporter`. This service reads that exposition, for every
-  machine the inventory declares, and edits the `vm_pinning_profile` that asks
+  machine the inventory declares, and edits the `seapath_alloc` that asks
   for it. Reading a published exposition is the opposite of holding a second
   source of truth for it. See D25 and D26.
 - The service itself never restarts a service on the host. Only an explicit,

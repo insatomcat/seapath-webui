@@ -1056,7 +1056,7 @@ isolation.
 
 The **declarative** half, which is the half Prometheus cannot answer and the
 half that belongs in an inventory. `deploy_vms_cluster` and
-`deploy_vms_standalone` already take a `vm_pinning_profile` variable per VM,
+`deploy_vms_standalone` already take a `seapath_alloc` variable per VM,
 carried to the machine as RBD image metadata (`_seapath_alloc`) in a cluster or
 as `/etc/seapath/alloc.d/<vm>.yaml` on a standalone node. It is an ordinary
 inventory variable applied by an ordinary Ansible run, which is exactly the
@@ -1064,7 +1064,7 @@ shape this service exists to edit.
 
 That gives M2 a sharper target than "a CPU map with VM colours":
 
-- **Edit `vm_pinning_profile`** with the rest of the VM's definition, as
+- **Edit `seapath_alloc`** with the rest of the VM's definition, as
   inventory, validated against the profile schema `config.py` documents.
 - **Report conformance**, which is the question no exporter answers: does this
   node's pool match what the profiles asked for. `seapath-alloc` already
@@ -1569,9 +1569,9 @@ reaches any node and adds no mount.
 
 One constraint is worth recording before it is discovered: the module reads
 metadata and does not write it. `list_metadata` and `get_metadata` are
-commands; there is no `set_metadata`, and `pinning_profile` is a parameter of
+commands; there is no `set_metadata`, and `seapath_alloc` is a parameter of
 `create` and `clone`. Changing `_seapath_alloc` on a running guest is
-`vm_manager set-pinning-profile` on the target, so it waits for a
+`vm_manager set-seapath-alloc` on the target, so it waits for a
 `set_metadata` command upstream rather than being done with a `command:` task
 here. And `preferred_host`, `pinned_host`, `priority` and `live_migration` are
 baked at creation: a panel presenting them beside the things that change live
@@ -1596,7 +1596,7 @@ one is recorded so it is not repeated:
 - **The CLI cannot write these keys either.** `vm_manager set_metadata` runs
   `_check_name`, which is `^[a-zA-Z0-9]*$` and rejects every name with an
   underscore in it. It is for a site's own labels, which nothing in SEAPATH
-  reads. The exception is `set-pinning-profile`, which writes `_seapath_alloc`
+  reads. The exception is `set-seapath-alloc`, which writes `_seapath_alloc`
   by going around `_check_name`.
 - **`create` with `force` works and costs the disk.** It is what
   `deploy_vms_cluster` does for a guest whose entry carries `force`: the guest
@@ -5038,7 +5038,7 @@ rather than sent to an address where nothing listens any more.
 
 A standalone guest had nothing in place of the Metadata window. Its domain is
 what `deploy_vms_standalone` defined once from `vm_template`, and its pinning
-profile is `vm_pinning_profile` in its entry. Both had to change on a guest
+profile is `seapath_alloc` in its entry. Both had to change on a guest
 that exists, without losing its disk.
 
 ### One gesture, one run
@@ -5067,7 +5067,7 @@ is left running.
 
 ### The pinning profile is an entry, and a play of two tasks writes it
 
-The window commits `vm_pinning_profile` on the guest's entry, so the
+The window commits `seapath_alloc` on the guest's entry, so the
 inventory stays where the profile is written. The run that follows puts it on
 the machine: the two tasks `deploy_vms_standalone` writes
 `/etc/seapath/alloc.d/<guest>.yaml` with, on that one guest, with the value

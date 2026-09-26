@@ -1009,7 +1009,7 @@
     profile.className = "secondary";
     profile.textContent = "Pinning profile";
     profile.title =
-      "Edit vm_pinning_profile, written to /etc/seapath/alloc.d/" +
+      "Edit seapath_alloc, written to /etc/seapath/alloc.d/" +
       guest.name + ".yaml";
     profile.addEventListener("click", () => PROFILE.open(guest));
     cell.append(profile);
@@ -1123,11 +1123,11 @@
 
   const PROFILE = guestEditor("profile", {
     title: (name) => "Pinning profile of " + name,
-    load: async (row) => ({ text: row.pinning_profile || "" }),
+    load: async (row) => ({ text: row.seapath_alloc || "" }),
     save: (name, profile, restart) => {
       const commit = lastView && lastView.inventory_commit;
       return API.put(
-        "/vms/" + encodeURIComponent(name) + "/pinning-profile",
+        "/vms/" + encodeURIComponent(name) + "/seapath-alloc",
         { profile, restart },
         commit ? { "If-Match": commit } : undefined
       );
@@ -1704,7 +1704,7 @@
     };
     const fields = {
       enable: element("add-enable").checked,
-      vm_pinning_profile: element("add-profile").value.trim() || null,
+      seapath_alloc: element("add-profile").value.trim() || null,
     };
     if (chosenDeployment() !== "cluster") {
       return Object.assign(fields, {

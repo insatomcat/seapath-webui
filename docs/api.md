@@ -716,7 +716,7 @@ domain and the resource.
 | POST | `/vms/{name}/restart` | Shut a standalone guest down through ACPI, wait up to five minutes for libvirt to report it shut off, and start it, as a run. The same tasks end a domain or profile run that asked for a restart. `409 not_standalone` for a cluster guest, whose equivalent is `reconfigure`. `operator` |
 | GET | `/vms/{name}/xml` | A standalone guest's persistent definition, `virsh dumpxml --inactive` on the machine holding it, over the SSH path a run takes. `host` names that machine. `409 not_standalone` for a cluster guest, `409 no_domain` when no machine can be asked. `admin` |
 | PUT | `/vms/{name}/xml` | Define a standalone guest again from an edited `xml`, as a run of `community.libvirt.virt` `command: define` on its machine. `restart` ends the same run with the guest shut down through ACPI and started, which applies it; without it the guest takes it at its next start from shut off. The domain is read again first: an XML naming another domain, or another `<uuid>` than libvirt holds, is `400 invalid_domain`, and one identical to it answers `changed: false` with no run. The inventory is not changed. See [D66](decisions.md#d66). `admin` |
-| PUT | `/vms/{name}/pinning-profile` | Write a standalone guest's `vm_pinning_profile`, as one commit on its entry, `If-Match` on the commit hash; an empty `profile` takes it out. Then one run on its machine writes `/etc/seapath/alloc.d/<guest>.yaml` from the committed value, or removes it, and with `restart` shuts the guest down and starts it, since the seapath-alloc hook reads the file at start. Answers with the commit and `run_id`, neither when the entry already said this. `400 invalid_guest` for a profile that is not a YAML mapping, and for a cluster guest, whose profile is `_seapath_alloc` in its image's metadata; `409 no_domain` when no machine can be named for it. `admin` |
+| PUT | `/vms/{name}/seapath-alloc` | Write a standalone guest's `seapath_alloc`, as one commit on its entry, `If-Match` on the commit hash; an empty `profile` takes it out. Then one run on its machine writes `/etc/seapath/alloc.d/<guest>.yaml` from the committed value, or removes it, and with `restart` shuts the guest down and starts it, since the seapath-alloc hook reads the file at start. Answers with the commit and `run_id`, neither when the entry already said this. `400 invalid_guest` for a profile that is not a YAML mapping, and for a cluster guest, whose profile is `_seapath_alloc` in its image's metadata; `409 no_domain` when no machine can be named for it. `admin` |
 
 Reading is open to the `viewer` role. `POST /vms` is an administrator's act,
 because it commits the desired state and the run that follows creates a
@@ -882,7 +882,7 @@ destroys it and recreates it from its image.
 `POST /vms` also takes what `cluster_vm create` is given, and that is where it
 belongs: every one of `preferred_host`, `pinned_host`, `priority`,
 `live_migration`, `migrate_to_timeout`, `migration_downtime`, `disk_bus`,
-`nostart`, `colocated_vms`, `strong_colocation` and `vm_pinning_profile` is
+`nostart`, `colocated_vms`, `strong_colocation` and `seapath_alloc` is
 written once into the metadata of the guest's image, and changing one
 afterwards is the metadata window and an outage. Only what departs from the
 roles' own defaults reaches the file.
@@ -907,7 +907,7 @@ the template and has no Pacemaker, so placement, priority, migration and
 file that declares both, this is a question about the guest and never about
 the file.
 
-`vm_pinning_profile` is the one that crosses. A standalone deployment writes it
+`seapath_alloc` is the one that crosses. A standalone deployment writes it
 to `/etc/seapath/alloc.d/<vm>.yaml` and the same libvirt hook reads it there,
 so it is offered in both modes.
 

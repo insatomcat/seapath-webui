@@ -58,7 +58,7 @@ _DISPLAY_READERS = 8
 _DISPLAY_CONNECT_TIMEOUT = 5
 
 DEFINE_RECORD = "vm_define"
-PROFILE_RECORD = "vm_pinning_profile"
+PROFILE_RECORD = "seapath_alloc"
 
 
 class InvalidDomain(Exception):
@@ -260,7 +260,7 @@ def profile_play(guest: str, host: str, restart: bool = False) -> str:
     redeploys seapath-alloc, and none of that is what an operator changing
     one profile asked for. D66 records why this play exists.
     """
-    variable = "hostvars[seapath_webui_guest].vm_pinning_profile"
+    variable = "hostvars[seapath_webui_guest].seapath_alloc"
     path = "/etc/seapath/alloc.d/{{ seapath_webui_guest }}.yaml"
     document = yaml.safe_load(
         _play(

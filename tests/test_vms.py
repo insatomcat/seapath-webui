@@ -747,7 +747,7 @@ def test_a_pinning_profile_that_is_not_yaml_is_refused(signed_in: TestClient) ->
 
     response = signed_in.post(
         "/api/v1/vms",
-        json={"name": "newvm", "vm_pinning_profile": "version: [1"},
+        json={"name": "newvm", "seapath_alloc": "version: [1"},
     )
 
     assert response.status_code == 400
@@ -832,12 +832,12 @@ def test_the_real_time_profile_is_offered_on_a_standalone_machine_too(
 
     response = signed_in.post(
         "/api/v1/vms",
-        json={"name": "newvm", "vm_pinning_profile": "version: 1\n"},
+        json={"name": "newvm", "seapath_alloc": "version: 1\n"},
     )
 
     assert response.status_code == 201, response.text
     assert (
-        "vm_pinning_profile:" in (settings.inventory_dir / "inventory.yaml").read_text()
+        "seapath_alloc:" in (settings.inventory_dir / "inventory.yaml").read_text()
     )
 
 

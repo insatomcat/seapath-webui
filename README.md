@@ -258,7 +258,7 @@ and appears only when something did move.
 
 A standalone guest has no RBD image and so no metadata. Its row offers its
 libvirt domain and its pinning profile instead. The profile is
-`vm_pinning_profile` on its inventory entry, committed like any edit and put on
+`seapath_alloc` on its inventory entry, committed like any edit and put on
 the machine by a run of the two tasks `deploy_vms_standalone` writes it with,
 and a profile naming an isolation `seapath-alloc` does not know is refused
 before it is committed, since the hook would quietly leave those vCPUs on the
