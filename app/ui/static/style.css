@@ -272,6 +272,12 @@ button[aria-busy="true"] {
 /* `pre-wrap`, because the refusals worth reading in full are the ones that
    arrive shaped: a YAML parser points at the column it stopped on with a line
    of its own underneath, and reflowing that loses the answer. */
+/* A field a write refused, beside the reason given under it. */
+input[aria-invalid="true"],
+select[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
 .error {
   margin-top: 1rem;
   padding: 0.6rem 0.8rem;

@@ -58,6 +58,7 @@ class Action(str, Enum):
     UNIT_STOP = "unit_stop"
     RESOURCE_START = "resource_start"
     RESOURCE_STOP = "resource_stop"
+    RESOURCE_RESTART = "resource_restart"
     MOVE = "move"
     CLEAR = "clear"
     STANDBY = "standby"
@@ -249,6 +250,18 @@ _SPECS: dict[Action, ActionSpec] = {
             "with it."
         ),
     ),
+    Action.RESOURCE_RESTART: ActionSpec(
+        verb="Restart",
+        subject="resource",
+        prefix="resource",
+        record="resource_restart",
+        disruption=(
+            "Stops the resource where it runs and starts it again, which is how "
+            "a changed quadlet, image or site value takes effect. Whatever it "
+            "serves is down in between, for as long as the workload takes to "
+            "stop and to start."
+        ),
+    ),
     Action.MOVE: ActionSpec(
         verb="Move",
         subject="resource",
@@ -412,6 +425,7 @@ _CLUSTER_ONLY = (
     Action.REFRESH_ALL,
     Action.RESOURCE_START,
     Action.RESOURCE_STOP,
+    Action.RESOURCE_RESTART,
     Action.MOVE,
     Action.CLEAR,
     Action.STANDBY,
@@ -462,13 +476,17 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
                 },
             }
         ]
-    if action in (Action.RESOURCE_START, Action.RESOURCE_STOP):
+    if action in (Action.RESOURCE_START, Action.RESOURCE_STOP, Action.RESOURCE_RESTART):
         # `crm resource start|stop`, which writes the resource's target role
         # into the CIB and leaves the placement to Pacemaker. The same shape as
         # the refresh above and for the same reason: no module covers a
         # resource that is not a guest, `argv` keeps a shell out of it, and the
         # name has been checked against what the cluster reported.
-        verb = "start" if action is Action.RESOURCE_START else "stop"
+        verb = {
+            Action.RESOURCE_START: "start",
+            Action.RESOURCE_STOP: "stop",
+            Action.RESOURCE_RESTART: "restart",
+        }[action]
         return [
             {
                 "name": title,

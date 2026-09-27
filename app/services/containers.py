@@ -140,6 +140,9 @@ class ContainerView(BaseModel):
     `cluster_containers` for a workload `deploy_containers_cluster` deploys."""
     playbook: str = ""
     """The run that puts this container's declaration on the machines."""
+    values_editable: bool = False
+    """A workload installed from a delivery, whose `values.yaml` in the
+    inventory folder describes the site values the page may edit."""
     hosts: list[str] = Field(default_factory=list)
     """The machines this inventory sends it to."""
 
@@ -301,6 +304,14 @@ class ContainerService:
             if reference.variable in _DECLARING
         }
 
+        # The workloads a delivery installed keep their `values.yaml` there.
+        described = {
+            item.path.split("/")[1]
+            for item in self._inventory.files()
+            if item.path.startswith("inventories/")
+            and item.path.endswith("/values.yaml")
+            and item.path.count("/") == 2
+        }
         for name in sorted({quadlet.name for quadlet in declared}):
             entries = [quadlet for quadlet in declared if quadlet.name == name]
             first = entries[0]
@@ -322,6 +333,7 @@ class ContainerService:
                 playbook=(
                     WORKLOAD_PLAYBOOK if first.workload else view.upload_playbook
                 ),
+                values_editable=first.workload and name in described,
                 hosts=hosts,
                 file=files.get((first.host, first.src)),
                 managed="pacemaker" if resource else "systemd",
@@ -568,11 +580,9 @@ class ContainerService:
             )
 
         if pacemaker:
-            writes, intended = self._workload_writes(document, name, source)
-            commit, _ = self._inventory.declare_container(
-                name, writes, intended, author, expected_head
+            return self.write_workload(
+                name, {"quadlets": [source]}, author, expected_head
             )
-            return commit
 
         table = groups(document)
         # Raises where the scope names a group this file does not declare, or
@@ -621,16 +631,66 @@ class ContainerService:
         intended = {host: dict(variables) for host in affected}
         return [(scope, variables)], intended
 
+    def write_workload(
+        self,
+        name: str,
+        spec: dict[str, Any],
+        author: str,
+        expected_head: str | None = None,
+        files: dict[str, bytes] | None = None,
+        removed: list[str] | None = None,
+        message: str | None = None,
+    ) -> Commit:
+        """Write one workload of `cluster_containers`, its files with it.
+
+        The entry replaces the one of the same name, so a caller updating a
+        workload passes the whole of it.
+        """
+        document = self._inventory.raw()
+        writes, intended = self._workload_writes(document, name, spec)
+        commit, _ = self._inventory.declare_container(
+            name,
+            writes,
+            intended,
+            author,
+            expected_head,
+            files=files,
+            removed=removed,
+            message=message,
+        )
+        return commit
+
+    def workload(self, name: str) -> dict[str, Any] | None:
+        """A workload's entry as the file writes it, or None."""
+        document = self._inventory.raw()
+        if not document.strip():
+            return None
+        table = groups(document)
+        if "cluster_machines" not in table:
+            return None
+        machines = sorted(_members(table, "cluster_machines"))
+        try:
+            scope = _home(
+                table,
+                quadlets.WORKLOADS_VARIABLE,
+                machines,
+                Scope("group", "cluster_machines"),
+            )
+        except InvalidContainer:
+            return None
+        current = _at(document, scope, quadlets.WORKLOADS_VARIABLE)
+        found = current.get(name) if isinstance(current, dict) else None
+        return found if isinstance(found, dict) else None
+
     def _workload_writes(
-        self, document: str, name: str, source: str
+        self, document: str, name: str, spec: dict[str, Any]
     ) -> tuple[list[tuple[Scope, dict[str, Any]]], dict[str, dict[str, Any]]]:
-        """A workload of `cluster_containers`, with its quadlet and nothing else.
+        """A workload of `cluster_containers`, written where the cluster reads it.
 
         `deploy_containers_cluster` puts it on every hypervisor of the cluster
         and creates its Pacemaker resource, so there is no machine to choose:
         the mapping is written where the cluster members already read it, on
-        `cluster_machines` when nothing holds it yet. The images, the RBD image
-        and the placement are the file's to add, as for a guest.
+        `cluster_machines` when nothing holds it yet.
         """
         table = groups(document)
         if any(group not in table for group in quadlets.WORKLOAD_GROUPS):
@@ -654,9 +714,7 @@ class ContainerService:
                 "this inventory, and adding a workload to it would rewrite "
                 "what is there."
             )
-        variables = {
-            quadlets.WORKLOADS_VARIABLE: {**current, name: {"quadlets": [source]}}
-        }
+        variables = {quadlets.WORKLOADS_VARIABLE: {**current, name: spec}}
         intended = {host: dict(variables) for host in _affected(table, scope)}
         return [(scope, variables)], intended
 

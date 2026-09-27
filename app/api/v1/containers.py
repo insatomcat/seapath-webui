@@ -17,14 +17,18 @@ one: `systemd`, on the machine named in the request, one machine at a time.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Request
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, Field
 
 from app.api.v1 import reads
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
+from app.inventory import delivery
 from app.inventory.editor import Scope
+from app.inventory.repository import StaleWrite
 from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
 from app.runs.service import RunService
@@ -35,6 +39,15 @@ from app.services.containers import (
     InvalidContainer,
     QuadletFiles,
     UnknownContainer,
+)
+from app.services.deliveries import (
+    DeliveryService,
+    Installed,
+    RefusedValues,
+    StagedDelivery,
+    UnknownDelivery,
+    UnknownValues,
+    WorkloadValues,
 )
 
 router = APIRouter(
@@ -53,6 +66,16 @@ def _service(request: Request) -> ContainerService:
 
 def _runs(request: Request) -> RunService:
     return request.app.state.run_service
+
+
+def _deliveries(request: Request) -> DeliveryService:
+    return request.app.state.delivery_service
+
+
+class SiteValues(BaseModel):
+    """The site values of a workload, by key, as a form sends them."""
+
+    values: dict[str, Any] = Field(default_factory=dict)
 
 
 class ContainerDeclaration(BaseModel):
@@ -187,6 +210,118 @@ def declare(
     )
 
 
+# Deliveries: a workload as a supplier hands it over. Declared before the
+# routes taking a container name, which would otherwise read `deliveries` as one.
+
+
+@router.post("/deliveries", status_code=201)
+async def stage_delivery(request: Request, user: User = admin) -> StagedDelivery:
+    """Receive a delivery archive, unpack it and check it.
+
+    The body is the archive itself, as for an artefact. The answer is what it
+    holds and the site values it asks for, or every reason it cannot be
+    installed in `findings`. Nothing is written to the inventory yet.
+    """
+    return await _deliveries(request).stage(request.stream())
+
+
+@router.get("/deliveries/{staged}", response_model=StagedDelivery)
+def staged_delivery(request: Request, staged: str) -> StagedDelivery:
+    try:
+        return _deliveries(request).staged(staged)
+    except UnknownDelivery as error:
+        raise ApiError("unknown_delivery", str(error), 404) from error
+
+
+@router.delete("/deliveries/{staged}", status_code=204)
+def discard_delivery(request: Request, staged: str, user: User = admin) -> Response:
+    try:
+        _deliveries(request).discard(staged)
+    except UnknownDelivery as error:
+        raise ApiError("unknown_delivery", str(error), 404) from error
+    return Response(status_code=204)
+
+
+@router.post("/deliveries/{staged}/install", status_code=201)
+def install_delivery(
+    request: Request,
+    staged: str,
+    payload: SiteValues,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> Installed:
+    """Install a staged delivery with the site values, as one commit.
+
+    The quadlets and seed files go to the versioned folder, the image archives
+    to the artefacts, and the workload to `cluster_containers`. The answer
+    names the run that puts it on the machines, `deploy_containers_cluster`.
+    """
+    try:
+        return _deliveries(request).install(
+            staged, payload.values, user.username, if_match
+        )
+    except UnknownDelivery as error:
+        raise ApiError("unknown_delivery", str(error), 404) from error
+    except RefusedValues as error:
+        raise ApiError(
+            "invalid_values", str(error), 400, {"refused": error.refused}
+        ) from error
+    except delivery.InvalidDelivery as error:
+        raise ApiError(
+            "invalid_delivery", str(error), 400, {"findings": error.findings}
+        ) from error
+    except StaleWrite as error:
+        raise ApiError("stale_write", str(error), 409) from error
+    except (InvalidContainer, RefusedWrite) as error:
+        raise ApiError("invalid_container", str(error), 400) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+
+
+@router.get("/{name}/values", response_model=WorkloadValues)
+def workload_values(request: Request, name: str) -> WorkloadValues:
+    """The site values of a workload installed from a delivery, and their form."""
+    try:
+        return _deliveries(request).values(name)
+    except UnknownValues as error:
+        raise ApiError("no_values", str(error), 404) from error
+
+
+@router.put("/{name}/values")
+def set_workload_values(
+    request: Request,
+    name: str,
+    payload: SiteValues,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> Installed:
+    """Change the site values of a workload, as one commit.
+
+    They reach the machines on the next run of `deploy_containers_cluster`, and
+    the running workload once it is restarted: an environment variable is
+    read when a process starts.
+    """
+    try:
+        return _deliveries(request).set_values(
+            name, payload.values, user.username, if_match
+        )
+    except UnknownValues as error:
+        raise ApiError("no_values", str(error), 404) from error
+    except RefusedValues as error:
+        raise ApiError(
+            "invalid_values", str(error), 400, {"refused": error.refused}
+        ) from error
+    except StaleWrite as error:
+        raise ApiError("stale_write", str(error), 409) from error
+    except (InvalidContainer, RefusedWrite) as error:
+        raise ApiError("invalid_container", str(error), 400) from error
+
+
 @router.get("/{name}/files", response_model=QuadletFiles)
 def quadlet_files(request: Request, name: str) -> QuadletFiles:
     """Every file one container is made of, as the inventory holds them.
@@ -240,6 +375,39 @@ def stop(
     boot.
     """
     return _act(request, name, host, user, start=False)
+
+
+@router.post("/{name}/restart", status_code=202)
+def restart(request: Request, name: str, user: User = operator) -> ActionResponse:
+    """Restart a container Pacemaker holds, as a run.
+
+    `crm resource restart`, which is how a changed quadlet, image or site value
+    reaches a workload that is running. A container systemd owns is stopped and
+    started on its machine instead.
+    """
+    service = _service(request)
+    try:
+        quadlet = service.check_known(name)
+    except UnknownContainer as error:
+        raise ApiError("unknown_container", str(error), 404) from error
+    resource = service.resource_for(quadlet.unit)
+    if resource is None:
+        raise ApiError(
+            "not_a_resource",
+            f"No Pacemaker resource holds {name}, so there is nothing to restart "
+            "as a whole: stop it and start it again on its machine.",
+            409,
+        )
+    action = Action.RESOURCE_RESTART
+    record = _runs(request).launch_action(action, resource.id, user.username)
+    return ActionResponse(
+        run_id=record.id,
+        state=record.state.value,
+        container=name,
+        action=action.value,
+        target=resource.id,
+        managed="pacemaker",
+    )
 
 
 def _act(

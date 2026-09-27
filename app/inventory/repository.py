@@ -443,12 +443,19 @@ class InventoryRepository:
         message: str,
         author: str,
         expected_head: str | None = None,
+        files: dict[str, bytes] | None = None,
+        removed: list[str] | None = None,
     ) -> Commit | None:
         """Write the inventory and commit it. Returns None when nothing changed.
 
         `expected_head` is the `If-Match` of the API: a caller that read the
         inventory at one commit and writes back at another is told rather than
         allowed to overwrite a change it never saw.
+
+        `files` and `removed` are companion files written or deleted in the same
+        commit, for a change the inventory and its files make together: a
+        container delivery is its entry and its quadlets, and a commit holding
+        one without the other would be a state no run can use.
         """
         self.initialise()
         current = self.head()
@@ -458,11 +465,23 @@ class InventoryRepository:
                 f"{current or 'no commit'}, you sent {expected_head}."
             )
 
-        if self.inventory_file.exists() and self.inventory_file.read_text() == content:
-            return None
+        targets = {path: self.file_path(path) for path in (files or {})}
+        gone = [self.file_path(path) for path in (removed or [])]
+        for path, target in targets.items():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes((files or {})[path])
+        for target in gone:
+            if target.exists():
+                target.unlink()
+        for target in [*targets.values(), *gone]:
+            self._git("add", "--all", "--", target.relative_to(self._path).as_posix())
 
         self.inventory_file.write_text(content)
         self._git("add", INVENTORY_FILENAME)
+        # Staged against HEAD rather than compared on disk, so that files
+        # written with the content they already had count as no change.
+        if not self._git("diff", "--cached", "--name-only").strip():
+            return None
         # The authenticated operator is the author, the service is the
         # committer. `git log` then answers "who changed the desired state"
         # without anyone having to trust a separate audit log.

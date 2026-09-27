@@ -373,6 +373,8 @@ a machine quietly missing files.
 | 13 | A quadlet carrying `[Install]` under Pacemaker is flagged, and the machine confirms the conflict: the container comes back at the next boot with the resource stopped | The finding is about what systemd does at boot, which no fake reproduces | Pending |
 | 14 | A viewer sees no start or stop button, and both endpoints as a viewer are refused | They reach a live machine, so they are an operator's act | Pending |
 | 15 | Nothing else changed: `seapath_setup_main.yaml` from a conventional control machine reports no change on the machines after a session on this page, and the exported inventory produces the same containers from that machine | **The acceptance criterion.** A container declared here has to be a container that control machine would deploy | Pending |
+| 16 | Installing a supplier's delivery archive from the page, then running `deploy_containers_cluster`, starts the workload on one member | The whole path, archive to running pod, against a real delivery and a real cluster. Checked end to end over HTTP against the service with fakes, and by hand on ccv for the role | Pending |
+| 17 | Changing a site value of a running workload, running `deploy_containers_cluster`, then Restart, gives the workload the new value | The value reaches the process only through the restart, which is the claim the form makes | Pending |
 
 ### Result
 

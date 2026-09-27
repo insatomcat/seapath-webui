@@ -55,11 +55,11 @@ const API = (function () {
   // The body is the file itself, streamed by the browser. A multipart form
   // would mean a copy of a twenty gigabyte VM image for the sake of a name the
   // URL already carries.
-  async function upload(path, file, extra) {
+  async function upload(path, file, extra, method) {
     let response;
     try {
       response = await fetch("api/v1" + path, {
-        method: "PUT",
+        method: method || "PUT",
         headers: Object.assign(
           {
             Accept: "application/json",

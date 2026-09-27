@@ -633,8 +633,15 @@ class InventoryService:
         intended: dict[str, dict[str, Any]],
         author: str,
         expected_head: str | None = None,
+        files: dict[str, bytes] | None = None,
+        removed: list[str] | None = None,
+        message: str | None = None,
     ) -> tuple[Commit, ValidationResult]:
         """Write one container's variables into the inventory, as one commit.
+
+        `files` and `removed` are the companion files that change with it, a
+        delivery's quadlets for instance, written in the same commit and held
+        to the size the versioned folder takes.
 
         Two writes at most and no new host: the upload entry where the
         operator said, and, for a cluster container, the primitive on
@@ -674,11 +681,20 @@ class InventoryService:
         if not result.valid:
             raise ImportRefused(result.errors()[0].message, result)
 
+        for path, content in (files or {}).items():
+            self._refuse_the_inventory(path)
+            if len(content) > self._max_file_bytes:
+                raise RefusedFile(
+                    f"{path} is {_megabytes(len(content))}, and the versioned "
+                    f"folder takes files up to {_megabytes(self._max_file_bytes)}."
+                )
         commit = self._repository.commit(
             content=edited,
-            message=f"containers: declare {name}",
+            message=message or f"containers: declare {name}",
             author=author,
             expected_head=expected_head,
+            files=files,
+            removed=removed,
         )
         logger.info("Declared the container %s", name)
         return commit, result

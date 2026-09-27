@@ -122,6 +122,9 @@ class Settings(BaseSettings):
     max_inventory_file_bytes: int = 4 * 1024 * 1024
     # Run artefacts, written as a run progresses.
     runs_dir: Path = Path("/var/lib/seapath-webui/runs")
+    # Container deliveries between their upload and their installation. On the
+    # filesystem of the artefacts, so an image archive moves there by a rename.
+    imports_dir: Path = Path("/var/lib/seapath-webui/imports")
     # Where the image installed the seapath.ansible collection, and what a
     # source checkout is pointed at.
     collections_path: Path = Path("/opt/ansible/collections")

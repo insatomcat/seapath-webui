@@ -74,6 +74,7 @@ from app.services.backup import BackupService
 from app.services.backup_trust import BackupTrustService
 from app.services.cluster import ClusterService
 from app.services.containers import ContainerService
+from app.services.deliveries import DeliveryService
 from app.services.domain_xml import DomainXmlService
 from app.services.local_storage import LocalStorageService
 from app.services.logs import LogService
@@ -595,6 +596,11 @@ def create_app(
         client=exporters,
         port=settings.node_exporter_port,
         distribution=lambda: reader.node_identity().seapath_distro,
+    )
+    app.state.delivery_service = DeliveryService(
+        inventory=app.state.inventory_service,
+        containers=app.state.container_service,
+        imports_dir=settings.imports_dir,
     )
 
     # The backups: where the inventory says they go, what `rbd du` says a full

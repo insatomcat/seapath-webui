@@ -19,6 +19,7 @@
 
 (function () {
   let canAct = false;
+  let canWrite = false;
   let mode = "standalone";
   let view = null;
 
@@ -384,12 +385,18 @@
     // buttons call `/cluster/resources/{id}` rather than growing a second
     // route that would write the same constraint by another name.
     if (container.managed === "pacemaker" && container.resource) {
+      if (running) {
+        node.append(" ", action("Restart", () => confirmRestart(container)));
+      }
       if ((container.destinations || []).length) {
         node.append(" ", action("Move", () => confirmMove(container)));
       }
       if (container.constraint) {
         node.append(" ", action("Return", () => confirmReturn(container)));
       }
+    }
+    if (canWrite && container.values_editable) {
+      node.append(" ", action("Values", () => openValues(container)));
     }
     return node;
   }
@@ -615,6 +622,254 @@
     });
   }
 
+  // A restart is how a changed quadlet, image or site value reaches a running
+  // workload, and it stops what the workload serves until it is up again.
+  function confirmRestart(container) {
+    confirm({
+      title: "Restart " + container.name + " on the cluster",
+      body:
+        "Stops the resource where it runs and starts it again, which is how a " +
+        "changed quadlet, image or site value takes effect. Whatever it " +
+        "serves is down in between, for as long as the workload takes to " +
+        "stop and to start.",
+      label: "Restart it",
+      act: async () => {
+        const started = await API.post(
+          "/containers/" + encodeURIComponent(container.name) + "/restart"
+        );
+        RunWatch.open(started.run_id);
+      },
+    });
+  }
+
+  // Site values, as a delivery's values.yaml describes them. The form is
+  // built from the fields rather than written per workload, and the service
+  // checks each value against its format again before anything is committed.
+
+  function valueForm(holder, fields) {
+    holder.replaceChildren();
+    fields.forEach((field) => {
+      const id = holder.id + "-" + field.key;
+      const label = document.createElement("label");
+      label.htmlFor = id;
+      label.textContent = field.key;
+      let input;
+      if (field.format === "boolean") {
+        input = document.createElement("select");
+        ["true", "false"].forEach((value) => input.append(new Option(value, value)));
+      } else {
+        input = document.createElement("input");
+        input.type = field.format === "integer" ? "number" : "text";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        if (field.example !== null && field.example !== undefined) {
+          input.placeholder = String(field.example);
+        }
+      }
+      input.id = id;
+      input.dataset.key = field.key;
+      const initial =
+        field.current !== null && field.current !== undefined
+          ? field.current
+          : field.has_default
+            ? field.default
+            : "";
+      input.value = initial === null || initial === undefined ? "" : String(initial);
+      const help = document.createElement("p");
+      help.className = "help";
+      help.id = id + "-help";
+      help.textContent =
+        field.description +
+        " (" +
+        field.format +
+        (field.has_default ? ", " + String(field.default) + " when empty" : "") +
+        ")";
+      holder.append(label, input, help);
+    });
+  }
+
+  function formValues(holder) {
+    const found = {};
+    holder.querySelectorAll("[data-key]").forEach((input) => {
+      found[input.dataset.key] = input.value;
+    });
+    return found;
+  }
+
+  // A refusal names each value it refused, beside the field it is about.
+  function showRefusal(holder, error, failure) {
+    const refused = (failure.detail && failure.detail.refused) || {};
+    holder.querySelectorAll("[data-key]").forEach((input) => {
+      const reason = refused[input.dataset.key];
+      input.setAttribute("aria-invalid", reason ? "true" : "false");
+      const help = element(input.id + "-help");
+      if (reason) {
+        help.dataset.reason = reason;
+        help.textContent = input.dataset.key + " " + reason;
+      }
+    });
+    error.textContent = failure.message;
+    error.hidden = false;
+  }
+
+  // Installing a delivery
+
+  let staged = null;
+
+  function showDelivery(open) {
+    element("delivery").hidden = !open;
+    if (!open) {
+      if (staged && !staged.installed) {
+        API.del("/containers/deliveries/" + staged.id).catch(() => {});
+      }
+      staged = null;
+      return;
+    }
+    staged = null;
+    element("delivery-file").value = "";
+    element("delivery-pick").hidden = false;
+    element("delivery-summary").hidden = true;
+    element("delivery-findings").hidden = true;
+    element("delivery-error").hidden = true;
+    element("delivery-next").hidden = true;
+    element("delivery-check").hidden = false;
+    element("delivery-go").hidden = true;
+  }
+
+  async function checkDelivery() {
+    const file = element("delivery-file").files[0];
+    const error = element("delivery-error");
+    error.hidden = true;
+    if (!file) {
+      error.textContent = "Choose the archive the supplier sent.";
+      error.hidden = false;
+      return;
+    }
+    const check = element("delivery-check");
+    check.disabled = true;
+    element("delivery-loading").hidden = false;
+    try {
+      staged = await API.upload("/containers/deliveries", file, {}, "POST");
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      return;
+    } finally {
+      check.disabled = false;
+      element("delivery-loading").hidden = true;
+    }
+    const findings = clear(element("delivery-findings"));
+    (staged.findings || []).forEach((finding) => {
+      const item = document.createElement("li");
+      item.textContent = finding;
+      findings.append(item);
+    });
+    findings.hidden = findings.children.length === 0;
+    if (!findings.hidden) {
+      return;
+    }
+    element("delivery-pick").hidden = true;
+    element("delivery-check").hidden = true;
+    element("delivery-summary").hidden = false;
+    element("delivery-what").textContent =
+      (staged.update ? "Updates " : "Installs ") +
+      staged.name +
+      " from " +
+      staged.version +
+      ": " +
+      staged.images.join(", ") +
+      ", " +
+      staged.quadlets.length +
+      " quadlets" +
+      (staged.files.length ? ", " + staged.files.length + " files on its RBD image" : "") +
+      ".";
+    element("delivery-readme").textContent = staged.readme || "";
+    element("delivery-readme-box").hidden = !staged.readme;
+    valueForm(element("delivery-values"), staged.values || []);
+    element("delivery-go").hidden = false;
+  }
+
+  async function installDelivery() {
+    const holder = element("delivery-values");
+    const error = element("delivery-error");
+    error.hidden = true;
+    const go = element("delivery-go");
+    go.disabled = true;
+    try {
+      const installed = await API.post(
+        "/containers/deliveries/" + staged.id + "/install",
+        { values: formValues(holder) }
+      );
+      staged.installed = true;
+      go.hidden = true;
+      const next = element("delivery-next");
+      next.textContent =
+        (installed.commit
+          ? "Committed as " + installed.commit.slice(0, 12) + ". "
+          : "Nothing changed. ") +
+        "It reaches the machines on the next run of " +
+        installed.playbook +
+        ", launched from the Deployment page" +
+        (staged.update ? ", and the running workload once it is restarted." : ".");
+      next.hidden = false;
+      await refresh(true);
+    } catch (failure) {
+      showRefusal(holder, error, failure);
+    } finally {
+      go.disabled = false;
+    }
+  }
+
+  // The site values of an installed workload
+
+  let editing = null;
+
+  async function openValues(container) {
+    editing = container.name;
+    element("values-title").textContent = "Site values of " + container.name;
+    element("values-error").hidden = true;
+    element("values-next").hidden = true;
+    element("values").hidden = false;
+    try {
+      const answer = await API.get(
+        "/containers/" + encodeURIComponent(container.name) + "/values"
+      );
+      valueForm(element("values-form"), answer.values || []);
+    } catch (failure) {
+      element("values-error").textContent = failure.message;
+      element("values-error").hidden = false;
+    }
+  }
+
+  async function saveValues() {
+    const holder = element("values-form");
+    const error = element("values-error");
+    error.hidden = true;
+    const go = element("values-go");
+    go.disabled = true;
+    try {
+      const saved = await API.put(
+        "/containers/" + encodeURIComponent(editing) + "/values",
+        { values: formValues(holder) }
+      );
+      const next = element("values-next");
+      next.textContent = saved.commit
+        ? "Committed as " +
+          saved.commit.slice(0, 12) +
+          ". Run deploy_containers_cluster from the Deployment page, then " +
+          "restart " +
+          editing +
+          " here."
+        : "Nothing changed.";
+      next.hidden = false;
+      await refresh(true);
+    } catch (failure) {
+      showRefusal(holder, error, failure);
+    } finally {
+      go.disabled = false;
+    }
+  }
+
   // Declaring one
 
   function steps(names) {
@@ -768,6 +1023,14 @@
     Kept.release();
   }
 
+  element("install").addEventListener("click", () => showDelivery(true));
+  element("delivery-cancel").addEventListener("click", () => showDelivery(false));
+  element("delivery-check").addEventListener("click", checkDelivery);
+  element("delivery-go").addEventListener("click", installDelivery);
+  element("values-cancel").addEventListener("click", () => {
+    element("values").hidden = true;
+  });
+  element("values-go").addEventListener("click", saveValues);
   element("add").addEventListener("click", () => showAdd(true));
   element("add-cancel").addEventListener("click", () => showAdd(false));
   element("add-go").addEventListener("click", declare);
@@ -784,6 +1047,7 @@
     // Starting a container changes no desired state, so it is the operator's
     // act, the way starting a guest is.
     canAct = me.role === "operator" || Chrome.isAdmin(me);
+    canWrite = Chrome.isAdmin(me);
     // A reading that succeeds clears the failure the last one reported, and
     // one that fails leaves the table showing the answer it already had.
     Reread.attach(
@@ -808,6 +1072,9 @@
     // Declaring one is a commit, which is an administrator's act like every
     // other write in this service.
     element("add").hidden = !Chrome.isAdmin(me);
+    // A delivery is a workload Pacemaker runs, which a standalone machine has
+    // no cluster for.
+    element("install").hidden = !Chrome.isAdmin(me) || mode !== "cluster";
   }
 
   start().catch((failure) => {

@@ -93,6 +93,7 @@ def settings(tmp_path: Path, host_tree: Path, collections_path: Path) -> Setting
         inventory_dir=tmp_path / "inventory",
         artefacts_dir=tmp_path / "artefacts",
         runs_dir=tmp_path / "runs",
+        imports_dir=tmp_path / "imports",
         collections_path=collections_path,
         # Never the default here: it is a path on a real node, and a test that
         # installed a collection would install it there.

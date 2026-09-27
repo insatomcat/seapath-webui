@@ -5321,3 +5321,57 @@ where there is no resource, and a cluster inventory that still declares its
 containers with it keeps working: nothing here migrates a declaration, which
 is a change of running containers and a run of its own.
 
+
+## D69 - Settled: a supplier's delivery is installed from its archive, and its site values stay editable
+
+The first supplier to hand over a container workload sent an OCI index for a
+registry, a generator to run on site, and quadlets that started at boot on
+every node. seapath-ansible answered with a contract,
+`roles/deploy_containers_cluster/DELIVERY.md`: one loadable archive per image,
+quadlet templates, the first content of the RBD image, `values.yaml` naming
+each site value with its format, and an example `cluster_containers` entry.
+A delivery in that shape is a whole workload, and installing one by hand is a
+dozen files moved to the right places and an entry written to match them.
+This service does it.
+
+### Two steps, because the second needs the operator
+
+The archive is uploaded, unpacked in a staging area and checked against the
+contract: its structure, `SHA256SUMS`, the name each image archive gives its
+image against the name the quadlets use, `[Install]`, and the keys the
+templates read against the keys `values.yaml` describes. Every finding comes
+back at once, and nothing is written. The answer carries the form: one field
+per site value, with its format, example and default.
+
+The installation takes the values, checks each against its format, renders
+the templates with them the way the role will, and writes the workload as one
+commit: the quadlets, the seed files, `values.yaml` and the README under
+`inventories/<name>/`, and the entry in `cluster_containers`, written where the
+cluster members read it. The image archives go to the artefacts, `files/`,
+where `../files/` resolves for a run and git never carries them. Nothing
+reaches a machine: the answer names `deploy_containers_cluster`.
+
+### An update is an installation
+
+A delivery of a workload already installed replaces its entry and its files.
+The site values and the placement the site gave it are kept, a value the new
+version adds is asked for, and the files and archives the new version no
+longer has are removed. The role removes the replaced image versions from the
+nodes on its next run.
+
+### Site values stay editable
+
+The installation keeps `values.yaml` in the inventory folder, so the form
+comes back on the Containers page for the life of the workload, checked the
+same way. Saving is a commit. The value reaches the machines on the next run
+and the process when the workload restarts, since an environment variable is
+read at start; the page offers Restart, `crm resource restart`, as an
+operator's act. Settings an operator tunes in service belong to the
+application, on its RBD image, where no redeployment touches them.
+
+### What this does not write
+
+Secrets. The contract has the application read them from files on its RBD
+image, and nothing here puts them there yet: a password in the versioned
+folder would stay in its history. Which of a run writing it once or a vault in
+the inventory is the right answer is left open.

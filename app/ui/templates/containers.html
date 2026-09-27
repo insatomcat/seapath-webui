@@ -38,6 +38,7 @@ not.
       <h2>Containers</h2>
       <div class="card-acts">
         {{ reread("reread", "the containers") }}
+        <button type="button" id="install" class="secondary" hidden>Install a delivery</button>
         <button type="button" id="add" hidden>Add a container</button>
       </div>
     </div>
@@ -181,6 +182,72 @@ not.
     <ol class="steps" id="add-steps" hidden></ol>
     <p class="error" id="add-error" hidden></p>
     <p class="warning" id="add-next" hidden></p>
+  </div>
+</div>
+
+{# A delivery as a supplier hands it over, in the shape DELIVERY.md of the
+   deploy_containers_cluster role describes. Two steps, because the second
+   needs the operator: the archive is checked and answered with the site
+   values it asks for, then installed with them as one commit. Putting it on
+   the machines is the run named at the end, as for a declaration. #}
+<div class="modal" id="delivery" data-dismiss="delivery-cancel" hidden>
+  <div class="modal-body wide">
+    <h2 id="delivery-title">Install a delivery</h2>
+    <p class="lead">
+      The quadlets, the files and <code>values.yaml</code> are committed with
+      the inventory, the image archives go to the artefacts, and the workload
+      is declared in <code>cluster_containers</code>. A delivery of a workload
+      already installed updates it and keeps its site values.
+    </p>
+    <div id="delivery-pick">
+      <label for="delivery-file">Delivery archive</label>
+      <input type="file" id="delivery-file" accept=".tar,.tar.gz,.tgz">
+      <p class="help">
+        The archive the supplier sent: images, quadlet templates,
+        <code>values.yaml</code> and <code>inventory-example.yaml</code>. It is
+        checked before anything is written.
+      </p>
+    </div>
+    <div class="loading" id="delivery-loading" hidden>Checking the delivery</div>
+    <ul class="error" id="delivery-findings" hidden></ul>
+    <div id="delivery-summary" hidden>
+      <p id="delivery-what"></p>
+      <details id="delivery-readme-box">
+        <summary>README</summary>
+        <pre id="delivery-readme"></pre>
+      </details>
+      <h3>Site values</h3>
+      <div id="delivery-values"></div>
+    </div>
+    <p class="error" id="delivery-error" hidden></p>
+    <p class="warning" id="delivery-next" hidden></p>
+    <div class="card-actions">
+      <button type="button" id="delivery-check">Check it</button>
+      <button type="button" id="delivery-go" hidden>Install it</button>
+      <button type="button" id="delivery-cancel" class="secondary">Cancel</button>
+    </div>
+  </div>
+</div>
+
+{# The site values of a workload installed from a delivery, from the
+   values.yaml it keeps in the inventory folder. A commit, and nothing more:
+   the values reach the machines on the next run, and a running workload once
+   it restarts, since an environment variable is read when a process starts. #}
+<div class="modal" id="values" data-dismiss="values-cancel" hidden>
+  <div class="modal-body wide">
+    <h2 id="values-title"></h2>
+    <p class="lead">
+      Written in the inventory. They reach the machines on the next run of
+      <code>deploy_containers_cluster</code>, and the running workload once it
+      is restarted.
+    </p>
+    <div id="values-form"></div>
+    <p class="error" id="values-error" hidden></p>
+    <p class="warning" id="values-next" hidden></p>
+    <div class="card-actions">
+      <button type="button" id="values-go">Save</button>
+      <button type="button" id="values-cancel" class="secondary">Close</button>
+    </div>
   </div>
 </div>
 

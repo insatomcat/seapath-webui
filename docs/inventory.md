@@ -586,6 +586,12 @@ The fields are in the role's README. The Containers page reads both ways, and
 the first one stays the way for a standalone machine. See
 [D68](decisions.md#d68).
 
+A workload installed from a supplier's delivery archive keeps its files under
+`inventories/<name>/` (its quadlets, the seed files of its RBD image, its
+`values.yaml` and README) and its image archives in the artefacts under
+`files/`. Its site values are keys of its entry, editable on the Containers
+page against its `values.yaml`. See [D69](decisions.md#d69).
+
 ### The three variables a guest's network is
 
 A guest declared through the VMs page carries its files and, where the form's
