@@ -204,7 +204,8 @@ not.
     </p>
     <div id="delivery-pick">
       <label for="delivery-file">Delivery archive</label>
-      <input type="file" id="delivery-file" accept=".tar,.tar.gz,.tgz">
+      {# A browser matches the last extension alone, so `.tar.gz` is `.gz`. #}
+      <input type="file" id="delivery-file" accept=".tar,.gz,.tgz">
       <p class="help">
         The archive the supplier sent: images, quadlet templates,
         <code>values.yaml</code> and <code>inventory-example.yaml</code>. It is
