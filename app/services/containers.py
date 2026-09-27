@@ -184,17 +184,31 @@ class ContainerView(BaseModel):
 
 
 class QuadletFile(BaseModel):
-    """One quadlet's own text, read from where a run would read it."""
+    """One file of a container, read from where a run would read it."""
 
-    name: str
     file_name: str
     src: str
+    dest: str = ""
+    """Where the run puts it: under /etc/containers/systemd for a quadlet,
+    relative to the workload's RBD image for one of its files."""
+    on_rbd: bool = False
     where: str = ""
     """Which store holds it: the versioned folder, the artefacts, or the
     installed collection."""
     path: str = ""
     """What this node resolved the reference to."""
     content: str = ""
+    error: str = ""
+    """Why this file cannot be shown. Carried per file, so the one a site has
+    not uploaded yet does not hide the others."""
+
+
+class QuadletFiles(BaseModel):
+    """Every file one container is made of, the one its unit comes from
+    first."""
+
+    name: str
+    files: list[QuadletFile] = Field(default_factory=list)
 
 
 class ScopeOption(BaseModel):
@@ -356,85 +370,105 @@ class ContainerService:
     def hosts_of(self, name: str) -> list[str]:
         return quadlets.hosts_of(self._inventory.raw(), name)
 
-    def quadlet_file(self, name: str) -> QuadletFile:
-        """The text of one container's quadlet, read where a run would read it.
+    def quadlet_files(self, name: str) -> QuadletFiles:
+        """Every file one container is made of, read where a run would read it.
 
-        The page names the file the machines receive, and this is what is
-        behind that name: the same bytes `upload_extra_files` would copy,
-        found through the reference that already says which store holds them
-        and whether a convergence would find them at all.
+        A container is rarely one file. A workload names its pod, its
+        containers and their networks in `quadlets`, and the settings its RBD
+        image carries in `rbd.files`; an `upload_extra_files` container is
+        joined to the `.network`, `.volume` and `.pod` files it names, and a
+        pod to the containers that name it. The page shows all of them,
+        because the question it answers, what podman is about to be handed,
+        is not answered by one of them alone.
 
-        Bounded in the two ways that matter. A path this inventory names
-        outside the folders a run overlays is refused rather than served, so an
-        entry pointing at `/etc/shadow` cannot turn this page into a reader of
-        the filesystem; and a file too large to be a quadlet is refused with
+        Each file is bounded the same two ways. A path this inventory names
+        outside the folders a run overlays is refused rather than served, so
+        an entry pointing at `/etc/shadow` cannot turn this page into a reader
+        of the filesystem; and a file too large to be a quadlet is refused with
         its size, because a few hundred bytes is what one is.
         """
         quadlet = self.check_known(name)
-        answer = QuadletFile(name=name, file_name=quadlet.file_name, src=quadlet.src)
-        if "{{" in quadlet.src:
-            raise UnreadableQuadlet(
-                f"{quadlet.src} is templated, so which file it names is "
-                "Ansible's answer while the run is happening rather than this "
-                "service's before it starts."
-            )
+        # One reading of the references for every file, since each one is a
+        # walk of the stores.
+        found = {
+            (reference.host, reference.value): reference
+            for reference in self._inventory.references()
+            if reference.variable == _variable(quadlet)
+        }
+        if quadlet.workload:
+            entries = self._workload_entries(quadlet)
+        else:
+            entries = self._upload_entries(quadlet, found)
+        for entry in entries:
+            if not entry.path and not entry.error:
+                _fill(entry, found.get((quadlet.host, entry.src)))
+        return QuadletFiles(name=name, files=entries)
 
-        reference = self._reference(quadlet)
-        if reference is None or not reference.found or not reference.resolved:
-            expected = reference.expected if reference else None
-            raise UnreadableQuadlet(
-                f"Nothing this node holds answers to {quadlet.src}, so there "
-                "is no file to show and a convergence would fail on every "
-                "machine at once when it tried to copy it."
-                + (
-                    f" Upload it as {expected} on the Inventory page."
-                    if expected
-                    else ""
-                )
-            )
-        if reference.where is Where.NODE:
-            raise UnreadableQuadlet(
-                f"{quadlet.src} is an absolute path on this machine, outside "
-                "the folders a run overlays. This page shows what the "
-                "inventory carries, and a file beside it is read where it "
-                "lives."
-            )
-
-        path = Path(reference.resolved)
-        try:
-            size = path.stat().st_size
-        except OSError as error:
-            raise UnreadableQuadlet(
-                f"{quadlet.src} could not be read: {error.strerror or error}."
-            ) from error
-        if size > _MAX_QUADLET_BYTES:
-            raise UnreadableQuadlet(
-                f"{quadlet.src} is {size} bytes. A quadlet is a few hundred, "
-                f"so anything past {_MAX_QUADLET_BYTES} is something else and "
-                "the Inventory page is where the folder is read."
-            )
-        try:
-            answer.content = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as error:
-            raise UnreadableQuadlet(
-                f"{quadlet.src} is not text this page can show: {error}."
-            ) from error
-        answer.where = reference.where.value if reference.where else ""
-        answer.path = reference.resolved
-        return answer
-
-    def _reference(self, quadlet: quadlets.Quadlet) -> Reference | None:
-        """What a run would make of this quadlet's `src`."""
-        return next(
-            (
-                reference
-                for reference in self._inventory.references()
-                if reference.variable == _variable(quadlet)
-                and reference.host == quadlet.host
-                and reference.value == quadlet.src
-            ),
-            None,
+    def _workload_entries(self, quadlet: quadlets.Quadlet) -> list[QuadletFile]:
+        """The quadlets and RBD files of a workload, the unit's own first."""
+        spec = (
+            resolve(self._inventory.raw())
+            .get(quadlet.host, {})
+            .get(quadlets.WORKLOADS_VARIABLE, {})
+            .get(quadlet.name)
         )
+        entries = [
+            QuadletFile(
+                file_name=quadlets.on_machine(source),
+                src=source,
+                dest=f"{quadlets.QUADLET_DIR}/{quadlets.on_machine(source)}",
+            )
+            for source in quadlets.workload_sources(spec)
+        ]
+        entries.sort(key=lambda entry: entry.src != quadlet.src)
+        entries += [
+            QuadletFile(
+                file_name=dest.rsplit("/", 1)[-1],
+                src=source,
+                dest=dest,
+                on_rbd=True,
+            )
+            for source, dest in quadlets.workload_files(spec)
+        ]
+        return entries
+
+    def _upload_entries(
+        self, quadlet: quadlets.Quadlet, found: dict[tuple[str, str], Reference]
+    ) -> list[QuadletFile]:
+        """This quadlet and the ones the same machine receives beside it that
+        it is joined to, found by what the files name.
+
+        Followed both ways and to the end: a container names its pod, the pod
+        names its networks, and the other containers of the pod name it.
+        """
+        beside = {
+            item.file_name: item
+            for item in quadlets.declared(self._inventory.raw())
+            if item.host == quadlet.host
+        }
+        entries = {
+            file_name: _fill(
+                QuadletFile(file_name=file_name, src=item.src, dest=item.dest),
+                found.get((item.host, item.src)),
+            )
+            for file_name, item in beside.items()
+        }
+        names = {
+            file_name: quadlets.names_in(entry.content)
+            for file_name, entry in entries.items()
+        }
+
+        joined = [quadlet.file_name]
+        for file_name in joined:
+            more = names.get(file_name, set())
+            if file_name.endswith(".pod"):
+                more = more | {
+                    other for other, named in names.items() if file_name in named
+                }
+            joined += sorted(
+                item for item in more if item in beside and item not in joined
+            )
+        return [entries[file_name] for file_name in joined]
 
     def resource_for(self, unit: str) -> PacemakerResource | None:
         """The Pacemaker resource holding this unit, when the cluster has one."""
@@ -824,10 +858,68 @@ def _variable(quadlet: quadlets.Quadlet) -> str:
     return quadlets.WORKLOADS_VARIABLE if quadlet.workload else quadlets.UPLOAD_VARIABLE
 
 
+def _fill(entry: QuadletFile, reference: Reference | None) -> QuadletFile:
+    """The file's text in `entry`, or the sentence saying why it is not."""
+    try:
+        entry.content = _read(entry.src, reference)
+    except UnreadableQuadlet as error:
+        entry.error = str(error)
+        return entry
+    entry.where = reference.where.value if reference and reference.where else ""
+    entry.path = reference.resolved if reference else ""
+    return entry
+
+
+def _read(source: str, reference: Reference | None) -> str:
+    """One file the inventory names, where a run would read it."""
+    if "{{" in source:
+        raise UnreadableQuadlet(
+            f"{source} is templated, so which file it names is "
+            "Ansible's answer while the run is happening rather than this "
+            "service's before it starts."
+        )
+
+    if reference is None or not reference.found or not reference.resolved:
+        expected = reference.expected if reference else None
+        raise UnreadableQuadlet(
+            f"Nothing this node holds answers to {source}, so there "
+            "is no file to show and a convergence would fail on every "
+            "machine at once when it tried to copy it."
+            + (f" Upload it as {expected} on the Inventory page." if expected else "")
+        )
+    if reference.where is Where.NODE:
+        raise UnreadableQuadlet(
+            f"{source} is an absolute path on this machine, outside "
+            "the folders a run overlays. This page shows what the "
+            "inventory carries, and a file beside it is read where it "
+            "lives."
+        )
+
+    path = Path(reference.resolved)
+    try:
+        size = path.stat().st_size
+    except OSError as error:
+        raise UnreadableQuadlet(
+            f"{source} could not be read: {error.strerror or error}."
+        ) from error
+    if size > _MAX_QUADLET_BYTES:
+        raise UnreadableQuadlet(
+            f"{source} is {size} bytes. A quadlet is a few hundred, "
+            f"so anything past {_MAX_QUADLET_BYTES} is something else and "
+            "the Inventory page is where the folder is read."
+        )
+    try:
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        raise UnreadableQuadlet(
+            f"{source} is not text this page can show: {error}."
+        ) from error
+
+
 def _readable(reference: Reference | None) -> bool:
     """Whether the page can offer to open the quadlet.
 
-    The same three refusals `quadlet_file` raises, asked of the reading rather
+    The same three refusals `_read` raises, asked of the reading rather
     than of the act: a name that opens a window saying the file is not here is
     a name an operator clicks once and stops trusting.
     """

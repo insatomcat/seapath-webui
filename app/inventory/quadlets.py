@@ -96,6 +96,13 @@ NAME = re.compile(r"^[a-z0-9]([a-z0-9_.-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 # where the container runs and a unit that starts itself is a second opinion.
 _INSTALL = re.compile(r"^\s*\[Install\]\s*$", re.MULTILINE)
 
+# The keys through which a quadlet names another one, and what such a name
+# looks like once it is found in their value.
+_NAMING = re.compile(r"^\s*(?:Network|Pod|Volume|Image|Mount)\s*=(.*)$", re.MULTILINE)
+_QUADLET_NAME = re.compile(
+    r"[A-Za-z0-9_.@-]+\.(?:container|kube|pod|network|volume|image|build)\b"
+)
+
 
 @dataclass(frozen=True)
 class Quadlet:
@@ -235,6 +242,36 @@ def starts_itself(content: str) -> bool:
     return bool(_INSTALL.search(content))
 
 
+def names_in(content: str) -> set[str]:
+    """The other quadlet files this one names, by the name they take on disk.
+
+    `Network=web.network`, `Pod=web.pod`, `Volume=data.volume:/srv` and the
+    `source=` of a `Mount=` are how a container is joined to the files podman
+    turns into its dependencies. A name without a quadlet extension is a
+    network or volume podman already has, which no file here describes.
+    """
+    found: set[str] = set()
+    for match in _NAMING.finditer(content):
+        found.update(_QUADLET_NAME.findall(match.group(1)))
+    return found
+
+
+def workload_files(spec: Any) -> list[tuple[str, str]]:
+    """The text files `deploy_containers_cluster` writes onto a workload's RBD
+    image, as `(src, dest)`, `dest` being relative to the image."""
+    rbd = spec.get("rbd") if isinstance(spec, dict) else None
+    files = rbd.get("files") if isinstance(rbd, dict) else None
+    found: list[tuple[str, str]] = []
+    for item in files if isinstance(files, list) else []:
+        if not isinstance(item, dict):
+            continue
+        source, dest = item.get("src"), item.get("dest")
+        if isinstance(source, str) and source.strip():
+            name = dest if isinstance(dest, str) and dest.strip() else source
+            found.append((source.strip(), name.strip()))
+    return found
+
+
 def _entries(value: Any) -> list[dict[str, Any]]:
     if not isinstance(value, list):
         return []
@@ -278,7 +315,7 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
     # The quadlet the unit comes from is the one the page shows: the pod of a
     # workload made of a pod and its containers, the container of a single one.
     sources = workload_sources(spec)
-    files = {source: _on_machine(source) for source in sources}
+    files = {source: on_machine(source) for source in sources}
     source = next(
         (item for item in sources if unit_for(files[item]) == unit),
         sources[0] if sources else "",
@@ -297,7 +334,7 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
     )
 
 
-def _on_machine(source: str) -> str:
+def on_machine(source: str) -> str:
     """The name a quadlet takes on the machines: `.j2` is rendered away."""
     base = source.rsplit("/", 1)[-1]
     return base[: -len(".j2")] if base.endswith(".j2") else base

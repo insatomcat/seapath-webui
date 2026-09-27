@@ -2057,9 +2057,18 @@ two differ, which is a `.j2` rendered per machine.
 Clicking it shows the file. A quadlet is a dozen lines and they answer most of
 what the rest of the row raises: which image, which ports, and whether an
 `[Install]` section is about to start the container behind Pacemaker's back,
-which the row already flags. `GET /containers/{name}/file` reads it through the
-same reference the column carries, so a file a run would not find is a sentence
-here rather than an empty window.
+which the row already flags. `GET /containers/{name}/files` reads it through
+the same reference the column carries, so a file a run would not find is a
+sentence here rather than an empty window.
+
+A container is rarely one file, so the window shows all of them, one tab each,
+the one the unit comes from first. A workload lists its own in `quadlets`, and
+the settings its RBD image carries in `rbd.files`. An `upload_extra_files`
+entry has no such list, so the files are joined by what they name: `Pod=`,
+`Network=`, `Volume=`, `Image=` and a `Mount=` source that end in a quadlet
+extension and are uploaded to the same machine, followed to the end, and from a
+`.pod` to the containers naming it. Each file carries its own refusal, so the
+one a site has not uploaded yet does not hide the others.
 
 Two bounds on that reading, and they are the reason it is a route of its own
 rather than a link to the inventory folder. A path resolving outside the

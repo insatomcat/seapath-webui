@@ -3604,6 +3604,38 @@ button.quadlet-open:hover {
   text-decoration: underline;
 }
 
+/* The files of one container, as tabs above the one shown. They wrap rather
+   than scroll: a pod with its containers and networks is half a dozen names,
+   and a hidden one is a file an operator never learns is there. */
+.segmented.quadlet-files {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.quadlet-files button {
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel);
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.quadlet-files button:last-child {
+  border-right: 0;
+}
+
+.quadlet-files button[aria-pressed="true"] {
+  background: var(--accent-wash);
+  color: var(--accent);
+}
+
 /* The Logs page. The controls sit on one row while they fit, because the
    whole of the page below them is a table an operator scrolls, and a filter
    bar that wraps into four lines pushes it off the screen. */

@@ -33,9 +33,8 @@ from app.services.containers import (
     ContainerService,
     ContainersView,
     InvalidContainer,
-    QuadletFile,
+    QuadletFiles,
     UnknownContainer,
-    UnreadableQuadlet,
 )
 
 router = APIRouter(
@@ -188,25 +187,25 @@ def declare(
     )
 
 
-@router.get("/{name}/file", response_model=QuadletFile)
-def quadlet_file(request: Request, name: str) -> QuadletFile:
-    """The quadlet behind one container, as the inventory holds it.
+@router.get("/{name}/files", response_model=QuadletFiles)
+def quadlet_files(request: Request, name: str) -> QuadletFiles:
+    """Every file one container is made of, as the inventory holds them.
 
-    What the page shows in the Quadlet column is the name the file takes under
-    `/etc/containers/systemd`, and this is what is in it. Read through the same
-    reference the column already carries, so a file a run would not find is a
-    refusal here rather than an empty window.
+    The quadlet the Quadlet column names comes first, then the ones it is
+    joined to: the pod, the containers and the networks of a workload and the
+    files its RBD image carries, or the `.network`, `.volume` and `.pod` files
+    an uploaded quadlet names. Each is read through the reference a run would
+    follow, and a file that cannot be shown carries its own `error` rather
+    than failing the others.
 
     A path pointing outside the folders a run overlays is refused: this answers
     for the inventory, not for the filesystem of the machine it happens to be
     running on.
     """
     try:
-        return _service(request).quadlet_file(name)
+        return _service(request).quadlet_files(name)
     except UnknownContainer as error:
         raise ApiError("unknown_container", str(error), 404) from error
-    except UnreadableQuadlet as error:
-        raise ApiError("unreadable_quadlet", str(error), 409) from error
 
 
 @router.post("/{name}/start", status_code=202)

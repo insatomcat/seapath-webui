@@ -1707,7 +1707,11 @@ def test_the_containers_page_opens_the_quadlet_it_names(
 
     assert 'id="quadlet"' in body
     assert '<pre class="diff" id="quadlet-text" hidden></pre>' in body
-    assert '"/containers/" + encodeURIComponent(container.name) + "/file"' in script
+    assert '"/containers/" + encodeURIComponent(container.name) + "/files"' in script
+    # A container is rarely one file: a pod names its networks and its
+    # containers, and each one is a tab of the same window.
+    assert 'id="quadlet-files"' in body
+    assert "showQuadlet(container, file)" in script
     # A name that opens a window saying the file is not here is a name an
     # operator clicks once, so only a container this node holds a file for
     # carries one.

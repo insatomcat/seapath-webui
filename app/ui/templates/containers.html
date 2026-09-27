@@ -205,17 +205,21 @@ not.
     </div>
   </div>
 </div>
-{# The quadlet itself, opened from the name in the table. Read only: the file
-   is committed with the inventory and the Inventory page is where it is
+{# The files a container is made of, opened from the name in the table: the
+   quadlet its unit comes from first, then the pod, the containers, the
+   networks and the RBD files beside it, one tab each. Read only: the files
+   are committed with the inventory and the Inventory page is where they are
    edited, with the diff and the validation that belong to a write. What this
-   window is for is the question the table raises, which is what is in the
-   file podman is about to be handed. #}
+   window is for is the question the table raises, which is what podman is
+   about to be handed. #}
 <div class="modal" id="quadlet" data-dismiss="quadlet-close" hidden>
   <div class="modal-body wide">
     <h2 id="quadlet-title"></h2>
-    <p class="lead" id="quadlet-note"></p>
-    <div class="loading" id="quadlet-loading" hidden>Reading the file</div>
+    <div class="loading" id="quadlet-loading" hidden>Reading the files</div>
     <p class="error" id="quadlet-error" hidden></p>
+    <div class="segmented quadlet-files" id="quadlet-files" role="tablist" hidden></div>
+    <p class="lead" id="quadlet-note"></p>
+    <p class="error" id="quadlet-file-error" hidden></p>
     <pre class="diff" id="quadlet-text" hidden></pre>
     <div class="actions">
       <button type="button" id="quadlet-close" class="secondary">Close</button>

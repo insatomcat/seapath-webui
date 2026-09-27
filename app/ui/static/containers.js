@@ -199,38 +199,69 @@
     return node;
   }
 
-  // The file as the inventory carries it, read only. Editing it is the
+  // The files as the inventory carries them, read only. Editing them is the
   // Inventory page, where a write is a commit with a diff and the validation
   // that belongs to one.
+  //
+  // One tab per file, because a container is rarely one: a pod names its
+  // networks and its containers, and a workload carries the settings its RBD
+  // image holds. A file this node cannot show says why in its own tab, so the
+  // one a site has not uploaded yet does not hide the others.
   async function openQuadlet(container) {
-    const text = element("quadlet-text");
-    const error = element("quadlet-error");
-    element("quadlet-title").textContent = container.file_name;
-    element("quadlet-note").textContent =
-      "Uploaded to " +
-      (container.hosts || []).join(", ") +
-      " as " +
-      container.dest +
-      ", and kept in the inventory as " +
-      container.src +
-      ". The Inventory page is where it is edited.";
-    text.hidden = true;
-    text.textContent = "";
-    error.hidden = true;
+    const tabs = clear(element("quadlet-files"));
+    element("quadlet-title").textContent = container.name;
+    element("quadlet-note").textContent = "";
+    element("quadlet-text").hidden = true;
+    element("quadlet-file-error").hidden = true;
+    element("quadlet-error").hidden = true;
+    tabs.hidden = true;
     element("quadlet-loading").hidden = false;
     element("quadlet").hidden = false;
     try {
-      const file = await API.get(
-        "/containers/" + encodeURIComponent(container.name) + "/file"
+      const answer = await API.get(
+        "/containers/" + encodeURIComponent(container.name) + "/files"
       );
-      text.textContent = file.content;
-      text.hidden = false;
+      const files = answer.files || [];
+      const buttons = files.map((file, index) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("role", "tab");
+        button.textContent = file.file_name;
+        button.addEventListener("click", () => {
+          buttons.forEach((other) => other.setAttribute("aria-pressed", "false"));
+          button.setAttribute("aria-pressed", "true");
+          showQuadlet(container, file);
+        });
+        tabs.append(button);
+        return button;
+      });
+      // A single file needs no tab to be told apart from the others.
+      tabs.hidden = files.length < 2;
+      if (buttons.length) {
+        buttons[0].click();
+      }
     } catch (failure) {
-      error.textContent = failure.message;
-      error.hidden = false;
+      element("quadlet-error").textContent = failure.message;
+      element("quadlet-error").hidden = false;
     } finally {
       element("quadlet-loading").hidden = true;
     }
+  }
+
+  function showQuadlet(container, file) {
+    const text = element("quadlet-text");
+    const error = element("quadlet-file-error");
+    element("quadlet-note").textContent =
+      (file.on_rbd
+        ? "Written on the RBD image of " + container.name + " as " + file.dest
+        : "Uploaded to " + (container.hosts || []).join(", ") + " as " + file.dest) +
+      ", and kept in the inventory as " +
+      file.src +
+      ". The Inventory page is where it is edited.";
+    text.textContent = file.content || "";
+    text.hidden = Boolean(file.error);
+    error.textContent = file.error || "";
+    error.hidden = !file.error;
   }
 
   function scope(container) {

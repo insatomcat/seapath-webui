@@ -297,11 +297,15 @@ def test_the_quadlet_the_inventory_holds_is_shown(signed_in: TestClient) -> None
     )
 
     assert _by_name(_containers(signed_in))["nginxquadlet"]["readable"] is True
-    body = signed_in.get("/api/v1/containers/nginxquadlet/file").json()
+    body = signed_in.get("/api/v1/containers/nginxquadlet/files").json()
 
-    assert body["content"] == "[Container]\nImage=nginx\n"
-    assert body["file_name"] == "nginxquadlet.container"
-    assert body["where"] == "inventory"
+    assert body["name"] == "nginxquadlet"
+    [file] = body["files"]
+    assert file["content"] == "[Container]\nImage=nginx\n"
+    assert file["file_name"] == "nginxquadlet.container"
+    assert file["dest"] == "/etc/containers/systemd/nginxquadlet.container"
+    assert file["where"] == "inventory"
+    assert file["error"] == ""
 
 
 def test_a_quadlet_nothing_here_holds_is_refused_rather_than_shown(
@@ -312,11 +316,12 @@ def test_a_quadlet_nothing_here_holds_is_refused_rather_than_shown(
     _import(signed_in, CLUSTER)
 
     assert _by_name(_containers(signed_in))["nginxquadlet"]["readable"] is False
-    response = signed_in.get("/api/v1/containers/nginxquadlet/file")
+    response = signed_in.get("/api/v1/containers/nginxquadlet/files")
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "unreadable_quadlet"
-    assert "files/nginxquadlet.container" in response.json()["error"]["message"]
+    assert response.status_code == 200
+    [file] = response.json()["files"]
+    assert file["content"] == ""
+    assert "files/nginxquadlet.container" in file["error"]
 
 
 def test_a_path_outside_the_folders_a_run_overlays_is_not_served(
@@ -335,10 +340,128 @@ def test_a_path_outside_the_folders_a_run_overlays_is_not_served(
     )
 
     assert _by_name(_containers(signed_in))["nginxquadlet"]["readable"] is False
-    response = signed_in.get("/api/v1/containers/nginxquadlet/file")
+    [file] = signed_in.get("/api/v1/containers/nginxquadlet/files").json()["files"]
 
-    assert response.status_code == 409
-    assert "outside the folders a run overlays" in response.json()["error"]["message"]
+    assert file["content"] == ""
+    assert file["path"] == ""
+    assert "outside the folders a run overlays" in file["error"]
+
+
+def _store(client: TestClient, path: str, content: str) -> None:
+    response = client.put(
+        f"/api/v1/inventory/files/{path}",
+        content=content.encode(),
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert response.status_code in (200, 201), response.text
+
+
+def test_every_file_of_a_workload_is_shown_the_unit_s_own_first(
+    signed_in: TestClient,
+) -> None:
+    """A pod is its own file, its containers, its networks and its settings.
+
+    The window opened from the Quadlet column shows all of them, the one the
+    unit comes from first, and a file the site has not uploaded yet says so in
+    its own place rather than hiding the others.
+    """
+    _import(signed_in, WORKLOADS)
+    _store(signed_in, "files/protect.pod.j2", "[Pod]\nPodName=protect\n")
+    _store(signed_in, "files/settings.json", '{"relay": 1}\n')
+
+    body = signed_in.get("/api/v1/containers/protect/files").json()
+    files = {file["file_name"]: file for file in body["files"]}
+
+    assert [file["file_name"] for file in body["files"]] == [
+        "protect.pod",
+        "protect-rt.container",
+        "settings.json",
+    ]
+    assert files["protect.pod"]["content"] == "[Pod]\nPodName=protect\n"
+    assert files["protect.pod"]["dest"] == "/etc/containers/systemd/protect.pod"
+    assert "files/protect-rt.container" in files["protect-rt.container"]["error"]
+    # The settings land on the workload's RBD image rather than in
+    # /etc/containers/systemd, and the page says which.
+    assert files["settings.json"]["on_rbd"] is True
+    assert files["settings.json"]["dest"] == "settings.json"
+    assert files["settings.json"]["content"] == '{"relay": 1}\n'
+
+
+def test_an_uploaded_quadlet_is_shown_with_the_files_it_is_joined_to(
+    signed_in: TestClient,
+) -> None:
+    """`upload_extra_files` has no list of a container's files, so they are
+    found by what the files name: the container names its pod, the pod its
+    networks, and the other containers of the pod name the pod. A network
+    podman already has, which no file here describes, is not one of them, and
+    neither is a quadlet nothing joins to."""
+    uploads = "".join(
+        f"""          - src: ../files/{name}
+            dest: /etc/containers/systemd/{name}
+            mode: "0644"
+"""
+        for name in (
+            "relay.pod",
+            "relay-a.container",
+            "relay-b.container",
+            "relay-pb.network",
+            "other.container",
+        )
+    )
+    _import(
+        signed_in,
+        CLUSTER.replace(
+            "        upload_extra_files_upload_files:\n",
+            "        upload_extra_files_upload_files:\n" + uploads,
+        ),
+    )
+    _store(
+        signed_in,
+        "files/relay.pod",
+        "[Pod]\nNetwork=relay-pb.network:interface_name=pb0\nNetwork=host\n",
+    )
+    _store(signed_in, "files/relay-a.container", "[Container]\nPod=relay.pod\n")
+    _store(signed_in, "files/relay-b.container", "[Container]\nPod=relay.pod\n")
+    _store(signed_in, "files/relay-pb.network", "[Network]\n")
+    _store(signed_in, "files/other.container", "[Container]\nImage=nginx\n")
+
+    def names(container: str) -> list[str]:
+        body = signed_in.get(f"/api/v1/containers/{container}/files").json()
+        return [file["file_name"] for file in body["files"]]
+
+    assert names("relay-a") == [
+        "relay-a.container",
+        "relay.pod",
+        "relay-b.container",
+        "relay-pb.network",
+    ]
+    assert names("relay") == [
+        "relay.pod",
+        "relay-a.container",
+        "relay-b.container",
+        "relay-pb.network",
+    ]
+    assert names("other") == ["other.container"]
+
+
+def test_the_quadlets_a_quadlet_names_are_read_from_its_keys() -> None:
+    content = """\
+[Container]
+Image=localhost/relay.image
+Pod=relay.pod
+Volume=data.volume:/srv
+Mount=type=volume,source=logs.volume,destination=/var/log
+Network=relay-pb.network:interface_name=pb0,mac=02:00:00:00:00:01
+Network=host
+Environment=NAME=decoy.network
+"""
+    assert quadlets.names_in(content) == {
+        "relay.image",
+        "relay.pod",
+        "data.volume",
+        "logs.volume",
+        "relay-pb.network",
+    }
 
 
 def test_a_file_asked_for_by_a_name_nothing_declares_is_refused(
@@ -346,7 +469,7 @@ def test_a_file_asked_for_by_a_name_nothing_declares_is_refused(
 ) -> None:
     _import(signed_in, CLUSTER)
 
-    response = signed_in.get("/api/v1/containers/not-a-container/file")
+    response = signed_in.get("/api/v1/containers/not-a-container/files")
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "unknown_container"
