@@ -910,3 +910,82 @@ def test_the_configuration_is_shown_with_the_files_of_the_workload(
     assert config["src"] == "../inventories/vied/site/model.cid"
     assert config["dest"] == "/etc/seapath-containers/vied/model.cid"
     assert config["content"] == "<SCL example/>"
+
+
+# Applying now
+
+
+def test_applying_an_update_launches_the_run_that_restarts_the_workload(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+
+    response = _install(
+        signed_in,
+        _stage(signed_in, _build(tmp_path / "two", version="vied-2")),
+        apply=True,
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["commit"]
+    run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
+    assert run["playbook_id"] == "deploy_containers_cluster"
+    assert run["variables"] == {"deploy_containers_cluster_restart": "vied"}
+
+
+def test_resetting_wins_over_applying(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+
+    body = _install(
+        signed_in,
+        _stage(signed_in, _build(tmp_path / "two", version="vied-2")),
+        apply=True,
+        recreate=True,
+    ).json()
+
+    run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
+    assert run["variables"] == {"deploy_containers_cluster_recreate": "vied"}
+
+
+def test_site_values_saved_and_applied_launch_the_restarting_run(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path)))
+
+    response = signed_in.put(
+        "/api/v1/containers/vied/values",
+        json={"values": {**SITE, "clock": 1}, "apply": True},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["commit"]
+    run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
+    assert run["variables"] == {"deploy_containers_cluster_restart": "vied"}
+
+
+def test_a_workload_to_restart_is_one_the_inventory_declares(
+    signed_in: TestClient, settings: Settings, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+
+    response = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "deploy_containers_cluster",
+            "variables": {"deploy_containers_cluster_restart": "nothere"},
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "invalid_variable"

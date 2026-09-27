@@ -31,7 +31,7 @@ from app.inventory.editor import Scope
 from app.inventory.repository import StaleWrite
 from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
-from app.runs.catalogue import RECREATE_VARIABLE
+from app.runs.catalogue import RECREATE_VARIABLE, RESTART_VARIABLE
 from app.runs.service import RunService
 from app.services.containers import (
     WORKLOAD_PLAYBOOK,
@@ -79,6 +79,13 @@ class SiteValues(BaseModel):
     """The site values of a workload, by key, as a form sends them."""
 
     values: dict[str, Any] = Field(default_factory=dict)
+    apply: bool = Field(
+        default=False,
+        description=(
+            "Once committed, launch deploy_containers_cluster and restart the "
+            "workload at its end, so that the change applies now"
+        ),
+    )
 
 
 class DeliveryInstallation(SiteValues):
@@ -288,7 +295,7 @@ def install_delivery(
     configuration files to its `site/` when it has none yet, the image archives
     to the artefacts, and the workload to `cluster_containers`. The answer
     names the run that puts it on the machines, `deploy_containers_cluster`,
-    and carries it when `recreate` asked for it to be launched.
+    and carries it when `apply` or `recreate` asked for it to be launched.
     """
     try:
         installed = _deliveries(request).install(
@@ -322,15 +329,23 @@ def install_delivery(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
-    if not payload.recreate:
+    if payload.recreate:
+        variables = {RECREATE_VARIABLE: installed.name}
+    elif payload.apply:
+        variables = {RESTART_VARIABLE: installed.name}
+    else:
         return installed
-    # One gesture, one run: the window follows it. The commit is made either
-    # way, so a run the service refuses says so beside the commit it follows.
+    return _launch(request, user, installed, variables)
+
+
+def _launch(
+    request: Request, user: User, installed: Installed, variables: dict[str, str]
+) -> Installed:
+    """One gesture, one run: the window follows it. The commit is made either
+    way, so a run the service refuses says so beside the commit it follows."""
     try:
         record = _runs(request).launch(
-            WORKLOAD_PLAYBOOK,
-            user.username,
-            variables={RECREATE_VARIABLE: installed.name},
+            WORKLOAD_PLAYBOOK, user.username, variables=variables
         )
     except ApiError as error:
         raise ApiError(
@@ -338,7 +353,7 @@ def install_delivery(
             (
                 f"{installed.name} is committed"
                 + (f" as {installed.commit[:12]}" if installed.commit else "")
-                + f", and the run starting it again was not launched: {error.message}"
+                + f", and the run applying it was not launched: {error.message}"
             ),
             error.status_code,
             error.detail,
@@ -368,10 +383,11 @@ def set_workload_values(
 
     They reach the machines on the next run of `deploy_containers_cluster`, and
     the running workload once it is restarted: an environment variable is
-    read when a process starts.
+    read when a process starts. `apply` launches that run, which restarts the
+    workload at its end.
     """
     try:
-        return _deliveries(request).set_values(
+        installed = _deliveries(request).set_values(
             name, payload.values, user.username, if_match
         )
     except UnknownValues as error:
@@ -384,6 +400,9 @@ def set_workload_values(
         raise ApiError("stale_write", str(error), 409) from error
     except (InvalidContainer, RefusedWrite) as error:
         raise ApiError("invalid_container", str(error), 400) from error
+    if not payload.apply:
+        return installed
+    return _launch(request, user, installed, {RESTART_VARIABLE: name})
 
 
 @router.get("/{name}/files", response_model=QuadletFiles)

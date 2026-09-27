@@ -5504,3 +5504,17 @@ The checkbox that deleted the RBD image is now "Reset the operation state":
 the role puts the image aside under `<name>.<date>-<version>` and creates an
 empty one. The configuration is never touched, and the state can be brought
 back.
+
+### Amended: an update applies in one gesture
+
+An update took three steps: the import, a run from the Deployment page, then
+Restart. The installation now ends on a choice. "Apply now", the default,
+commits, launches `deploy_containers_cluster` with
+`deploy_containers_cluster_restart` naming the workload, and follows the run:
+the role restarts the workload once every node has the new version and
+configuration, and the RBD image was snapshotted before. "Commit only" is
+the former behaviour, for a change prepared ahead. "Apply and reset the
+operation state" is the former checkbox, confirmed on its own. The site
+values form gets "Save and apply" beside "Save only". The role still never
+restarts a workload of its own accord: the variable is for one run, given by
+this gesture.

@@ -238,20 +238,40 @@ not.
       <label for="delivery-node" id="delivery-node-label">Member</label>
       <select id="delivery-node"></select>
       <p class="help" id="delivery-placement-help"></p>
-      <div id="delivery-recreate-box" hidden>
-        <h3>Existing workload</h3>
-        <label class="switch">
-          <input type="checkbox" id="delivery-recreate">
-          Reset the operation state
+      <h3>Once committed</h3>
+      <div class="choices" id="delivery-mode">
+        <label>
+          <input type="radio" name="delivery-mode" value="apply" checked>
+          Apply now
         </label>
         <p class="help">
-          Launches <code>deploy_containers_cluster</code> once the delivery is
-          committed. The run stops the workload, deletes its Pacemaker
-          resource, puts its RBD image aside, then deploys it with an empty
-          one. The workload starts from the configuration of the site alone:
-          what it wrote in operation (settings changed by MMS) is on the image
-          put aside.
+          Launches <code>deploy_containers_cluster</code>, which puts the new
+          version and configuration on every node, then restarts the workload
+          so that they apply. What it wrote in operation is kept, and its RBD
+          image is snapshotted first.
         </p>
+        <label>
+          <input type="radio" name="delivery-mode" value="commit">
+          Commit only
+        </label>
+        <p class="help">
+          Nothing reaches the machines until <code>deploy_containers_cluster</code>
+          runs from the Deployment page, and the running workload keeps its
+          version until it is restarted.
+        </p>
+        <div id="delivery-recreate-box" hidden>
+          <label>
+            <input type="radio" name="delivery-mode" value="reset">
+            Apply and reset the operation state
+          </label>
+          <p class="help">
+            The run stops the workload, deletes its Pacemaker resource, puts
+            its RBD image aside, then deploys it with an empty one. The
+            workload starts from the configuration of the site alone: what it
+            wrote in operation (settings changed by MMS) is on the image put
+            aside.
+          </p>
+        </div>
       </div>
     </div>
     <p class="error" id="delivery-error" hidden></p>
@@ -274,13 +294,15 @@ not.
     <p class="lead">
       Written in the inventory. They reach the machines on the next run of
       <code>deploy_containers_cluster</code>, and the running workload once it
-      is restarted.
+      is restarted: "Save and apply" launches that run, which restarts the
+      workload at its end.
     </p>
     <div id="values-form"></div>
     <p class="error" id="values-error" hidden></p>
     <p class="warning" id="values-next" hidden></p>
     <div class="card-actions">
-      <button type="button" id="values-go">Save</button>
+      <button type="button" id="values-apply">Save and apply</button>
+      <button type="button" id="values-go" class="secondary">Save only</button>
       <button type="button" id="values-cancel" class="secondary">Close</button>
     </div>
   </div>

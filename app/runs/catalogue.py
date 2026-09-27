@@ -53,6 +53,8 @@ COLLECTION = "seapath.ansible"
 # What `deploy_containers_cluster` reads as the workloads it starts again from
 # nothing in one run.
 RECREATE_VARIABLE = "deploy_containers_cluster_recreate"
+# And as the workloads it restarts once deployed, so that a change applies now.
+RESTART_VARIABLE = "deploy_containers_cluster_restart"
 
 
 class Preview(str, Enum):
@@ -952,8 +954,10 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "it on one member and starting it on the other. A workload marked "
             "`state: absent` is stopped and removed, and its RBD image deleted "
             "when it says `remove_rbd`. A workload named in "
-            f"{RECREATE_VARIABLE} is stopped, its RBD image deleted, and "
-            "deployed again from nothing."
+            f"{RESTART_VARIABLE} is restarted once deployed, so that its new "
+            "version, configuration and site values apply now. A workload named "
+            f"in {RECREATE_VARIABLE} is stopped, its RBD image put aside, and "
+            "deployed again with an empty one."
         ),
         requires=[
             Precondition.INVENTORY_VALID,
@@ -967,17 +971,25 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
                 name=RECREATE_VARIABLE,
                 type=VariableType.WORKLOAD,
                 description=(
-                    "A workload to start again from nothing: its resource and "
-                    "its RBD image are deleted, then created and filled as on a "
-                    "first deployment"
+                    "A workload to start again from nothing: its resource is "
+                    "deleted and its RBD image put aside, then both are created "
+                    "as on a first deployment"
                 ),
-            )
+            ),
+            VariableSpec(
+                name=RESTART_VARIABLE,
+                type=VariableType.WORKLOAD,
+                description=(
+                    "A workload to restart once deployed, so that its new "
+                    "version, configuration and site values apply now"
+                ),
+            ),
         ],
         notes=(
-            "An RBD image is filled from the inventory once, when the run "
-            "creates it. What the workload writes there afterwards is never "
-            "overwritten by a later run, unless the run is told to start "
-            "that workload again from nothing."
+            "The RBD image holds what the workload writes, and no run writes "
+            "there: the configuration of the site goes to every node, read "
+            "only. Before a workload's images change, the run snapshots its "
+            "RBD image."
         ),
     ),
     PlaybookEntry(

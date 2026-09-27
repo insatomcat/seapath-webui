@@ -883,7 +883,7 @@
     element("delivery-readme-box").hidden = !staged.readme;
     valueForm(element("delivery-values"), staged.values || []);
     placementForm(staged.nodes || [], staged.placement || {});
-    element("delivery-recreate").checked = false;
+    document.querySelector('input[name="delivery-mode"][value="apply"]').checked = true;
     element("delivery-recreate-box").hidden = !staged.update;
     element("delivery-go").hidden = false;
   }
@@ -939,9 +939,15 @@
 
   // Putting the RBD image aside restarts the workload without its state, so
   // it is confirmed on its own, naming what it loses and what it keeps.
+  function deliveryMode() {
+    const chosen = document.querySelector('input[name="delivery-mode"]:checked');
+    return chosen ? chosen.value : "commit";
+  }
+
   function installDelivery() {
-    if (!(staged.update && element("delivery-recreate").checked)) {
-      submitDelivery(false);
+    const mode = deliveryMode();
+    if (!(staged.update && mode === "reset")) {
+      submitDelivery(mode);
       return;
     }
     confirm({
@@ -961,12 +967,12 @@
       label: "Install and reset",
       act: async () => {
         element("confirm").hidden = true;
-        await submitDelivery(true);
+        await submitDelivery("reset");
       },
     });
   }
 
-  async function submitDelivery(recreate) {
+  async function submitDelivery(mode) {
     const holder = element("delivery-values");
     const error = element("delivery-error");
     error.hidden = true;
@@ -979,7 +985,8 @@
           values: formValues(holder),
           placement: formPlacement(),
           examples: siteExamples(),
-          recreate,
+          apply: mode === "apply",
+          recreate: mode === "reset",
         }
       );
       staged.installed = true;
@@ -1029,17 +1036,22 @@
     }
   }
 
-  async function saveValues() {
+  async function saveValues(apply) {
     const holder = element("values-form");
     const error = element("values-error");
     error.hidden = true;
-    const go = element("values-go");
-    go.disabled = true;
+    const buttons = [element("values-go"), element("values-apply")];
+    buttons.forEach((button) => (button.disabled = true));
     try {
       const saved = await API.put(
         "/containers/" + encodeURIComponent(editing) + "/values",
-        { values: formValues(holder) }
+        { values: formValues(holder), apply }
       );
+      if (saved.run_id) {
+        element("values").hidden = true;
+        RunWatch.open(saved.run_id, () => refresh(true));
+        return;
+      }
       const next = element("values-next");
       next.textContent = saved.commit
         ? "Committed as " +
@@ -1054,7 +1066,7 @@
     } catch (failure) {
       showRefusal(holder, error, failure);
     } finally {
-      go.disabled = false;
+      buttons.forEach((button) => (button.disabled = false));
     }
   }
 
@@ -1219,7 +1231,8 @@
   element("values-cancel").addEventListener("click", () => {
     element("values").hidden = true;
   });
-  element("values-go").addEventListener("click", saveValues);
+  element("values-go").addEventListener("click", () => saveValues(false));
+  element("values-apply").addEventListener("click", () => saveValues(true));
   element("add").addEventListener("click", () => showAdd(true));
   element("add-cancel").addEventListener("click", () => showAdd(false));
   element("add-go").addEventListener("click", declare);
