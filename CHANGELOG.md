@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.192 - 2026-09-27
+
+- fix: let the delivery picker offer a .tar.gz
+
 ## 0.3.191 - 2026-09-27
 
 - feat: read a guest's preferred_host from seapath-preferred
