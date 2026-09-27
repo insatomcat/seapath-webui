@@ -64,6 +64,9 @@ SYSTEMD_AGENT = "systemd"
 # the honest answer for an inventory that mixes distributions.
 FULL_CONVERGENCE = "seapath_setup_main"
 WORKLOAD_PLAYBOOK = "deploy_containers_cluster"
+# Where deploy_containers_cluster writes the configuration of each workload on
+# every node (deploy_containers_cluster_config_dir).
+CONFIG_DIR = "/etc/seapath-containers"
 
 # How much of a quadlet is read to look for its `[Install]` section. A quadlet
 # is a few hundred bytes; anything past this is not one, and reading a file the
@@ -205,6 +208,8 @@ class QuadletFile(BaseModel):
     """Where the run puts it: under /etc/containers/systemd for a quadlet,
     relative to the workload's RBD image for one of its files."""
     on_rbd: bool = False
+    config: bool = False
+    """A configuration file, written to every node and mounted read only."""
     where: str = ""
     """Which store holds it: the versioned folder, the artefacts, or the
     installed collection."""
@@ -428,7 +433,8 @@ class ContainerService:
         return QuadletFiles(name=name, files=entries)
 
     def _workload_entries(self, quadlet: quadlets.Quadlet) -> list[QuadletFile]:
-        """The quadlets and RBD files of a workload, the unit's own first."""
+        """The quadlets, configuration and RBD files of a workload, the unit's
+        own first."""
         spec = (
             resolve(self._inventory.raw())
             .get(quadlet.host, {})
@@ -444,6 +450,15 @@ class ContainerService:
             for source in quadlets.workload_sources(spec)
         ]
         entries.sort(key=lambda entry: entry.src != quadlet.src)
+        entries += [
+            QuadletFile(
+                file_name=quadlets.on_machine(source),
+                src=source,
+                dest=f"{CONFIG_DIR}/{quadlet.name}/{quadlets.on_machine(source)}",
+                config=True,
+            )
+            for source in quadlets.workload_config(spec)
+        ]
         entries += [
             QuadletFile(
                 file_name=dest.rsplit("/", 1)[-1],

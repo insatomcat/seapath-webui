@@ -255,7 +255,11 @@
     element("quadlet-note").textContent =
       (file.on_rbd
         ? "Written on the RBD image of " + container.name + " as " + file.dest
-        : "Uploaded to " + (container.hosts || []).join(", ") + " as " + file.dest) +
+        : file.config
+          ? "Configuration of the site, written to every node as " +
+            file.dest +
+            " and mounted read only in the containers"
+          : "Uploaded to " + (container.hosts || []).join(", ") + " as " + file.dest) +
       ", and kept in the inventory as " +
       file.src +
       ". The Inventory page is where it is edited.";
@@ -871,8 +875,10 @@
       ", " +
       staged.quadlets.length +
       " quadlets" +
-      (staged.files.length ? ", " + staged.files.length + " files on its RBD image" : "") +
+      (staged.files.length ? ", " + staged.files.length + " configuration files" : "") +
+      (staged.checks ? ", " + staged.checks + " checks" : "") +
       ".";
+    siteForm(staged.site || [], staged.update);
     element("delivery-readme").textContent = staged.readme || "";
     element("delivery-readme-box").hidden = !staged.readme;
     valueForm(element("delivery-values"), staged.values || []);
@@ -882,27 +888,77 @@
     element("delivery-go").hidden = false;
   }
 
-  // Deleting the RBD image is the one part of an installation that cannot be
-  // undone, so it is confirmed on its own, naming what is lost.
+  // The site's configuration files. An import never writes one the site has;
+  // for each it lacks, the operator decides whether the example goes in its
+  // place, to be replaced before the first run.
+  function siteForm(files, update) {
+    const holder = clear(element("delivery-site"));
+    element("delivery-site-box").hidden = files.length === 0;
+    files.forEach((file) => {
+      const row = document.createElement("div");
+      const path = document.createElement("code");
+      path.textContent = file.path;
+      if (file.origin === "example") {
+        const label = document.createElement("label");
+        label.className = "switch";
+        const box = document.createElement("input");
+        box.type = "checkbox";
+        box.checked = true;
+        box.dataset.example = file.example;
+        label.append(box, " Start ", path, " from the example " + file.example);
+        row.append(label);
+      } else {
+        row.append(
+          path,
+          file.origin === "current"
+            ? ": the file this installation used, moved into site/."
+            : ": the site's, kept as it is."
+        );
+      }
+      holder.append(row);
+    });
+    const lacking = files.filter((file) => file.origin === "example").length;
+    element("delivery-site-help").textContent = !lacking
+      ? "The import leaves them as they are."
+      : update
+        ? "This version expects files the site does not have. An example " +
+          "carries the supplier's values: replace it on the Inventory page " +
+          "before the run. A file left unchecked stops the run until the " +
+          "site adds it."
+        : "An example carries the supplier's values, such as the reference " +
+          "CID: replace each on the Inventory page before the first run.";
+  }
+
+  function siteExamples() {
+    return Array.from(
+      element("delivery-site").querySelectorAll("input[data-example]")
+    )
+      .filter((box) => box.checked)
+      .map((box) => box.dataset.example);
+  }
+
+  // Putting the RBD image aside restarts the workload without its state, so
+  // it is confirmed on its own, naming what it loses and what it keeps.
   function installDelivery() {
     if (!(staged.update && element("delivery-recreate").checked)) {
       submitDelivery(false);
       return;
     }
     confirm({
-      title: "Start " + staged.name + " again from nothing",
+      title: "Reset the operation state of " + staged.name,
       body:
         "Commits " +
         staged.version +
         ", then runs deploy_containers_cluster, which stops " +
         staged.name +
-        ", deletes its Pacemaker resource and its RBD image, and deploys it " +
-        "as the first time. Everything it wrote on its RBD image is lost: " +
-        "settings changed in operation, an HMI's state, secrets.",
+        ", deletes its Pacemaker resource, puts its RBD image aside and " +
+        "deploys it with an empty one. It starts without what it wrote in " +
+        "operation: settings changed by MMS, an HMI's state. The configuration " +
+        "of the site is kept, and the image put aside can be brought back.",
       note:
         "The run also deploys the other workloads of cluster_containers, as " +
         "any run of that playbook does.",
-      label: "Install and start again",
+      label: "Install and reset",
       act: async () => {
         element("confirm").hidden = true;
         await submitDelivery(true);
@@ -919,7 +975,12 @@
     try {
       const installed = await API.post(
         "/containers/deliveries/" + staged.id + "/install",
-        { values: formValues(holder), placement: formPlacement(), recreate }
+        {
+          values: formValues(holder),
+          placement: formPlacement(),
+          examples: siteExamples(),
+          recreate,
+        }
       );
       staged.installed = true;
       go.hidden = true;

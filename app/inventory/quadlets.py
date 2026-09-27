@@ -259,6 +259,15 @@ def names_in(content: str) -> set[str]:
     return found
 
 
+def workload_config(spec: Any) -> list[str]:
+    """The configuration files `deploy_containers_cluster` writes to every
+    node of the cluster for a workload."""
+    value = spec.get("config") if isinstance(spec, dict) else None
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
 def workload_files(spec: Any) -> list[tuple[str, str]]:
     """The text files `deploy_containers_cluster` writes onto a workload's RBD
     image, as `(src, dest)`, `dest` being relative to the image."""

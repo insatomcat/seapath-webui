@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import tarfile
 from collections.abc import Callable
@@ -253,7 +254,7 @@ def test_installing_writes_the_workload_its_files_and_its_images_as_one_commit(
             "size": "64M",
             "files": [
                 {
-                    "src": "../inventories/vied/files/instance/model-1.cid",
+                    "src": "../inventories/vied/site/instance/model-1.cid",
                     "dest": "instance/model.cid",
                 }
             ],
@@ -265,6 +266,9 @@ def test_installing_writes_the_workload_its_files_and_its_images_as_one_commit(
     folder = settings.inventory_dir / "inventories/vied"
     assert (folder / "quadlets/vied.pod.j2").read_text() == POD
     assert (folder / "values.yaml").is_file()
+    # The example, and the site's copy the RBD image is seeded from.
+    assert (folder / "examples/instance/model-1.cid").read_text() == "<SCL 1/>"
+    assert (folder / "site/instance/model-1.cid").read_text() == "<SCL 1/>"
     assert (settings.artefacts_dir / "files/vied-1.tar").is_file()
     assert list(settings.imports_dir.iterdir()) == []
 
@@ -313,7 +317,7 @@ def test_values_that_do_not_fit_are_refused_by_key(
     assert sorted(refused) == ["clock", "sbus_ip", "sbus_mac"]
 
 
-def test_a_new_version_keeps_the_site_values_and_takes_the_old_files_away(
+def test_a_new_version_keeps_the_site_values_and_files_and_takes_the_old_ones_away(
     signed_in: TestClient, tmp_path: Path, settings: Settings
 ) -> None:
     _import(signed_in, CLUSTER)
@@ -343,8 +347,19 @@ def test_a_new_version_keeps_the_site_values_and_takes_the_old_files_away(
         {"name": "localhost/vied:2", "archive": "../files/vied-2.tar"}
     ]
     assert entry["clock"] == 1
-    folder = settings.inventory_dir / "inventories/vied/files/instance"
-    assert sorted(path.name for path in folder.iterdir()) == ["model-2.cid"]
+    # The example of the new version replaces the old one, and the site's file
+    # the RBD image is seeded from stays the site's.
+    folder = settings.inventory_dir / "inventories/vied"
+    assert sorted(path.name for path in (folder / "examples/instance").iterdir()) == [
+        "model-2.cid"
+    ]
+    assert entry["rbd"]["files"] == [
+        {
+            "src": "../inventories/vied/site/instance/model-1.cid",
+            "dest": "instance/model.cid",
+        }
+    ]
+    assert (folder / "site/instance/model-1.cid").read_text() == "<SCL 1/>"
     assert not (settings.artefacts_dir / "files/vied-1.tar").exists()
     assert (settings.artefacts_dir / "files/vied-2.tar").is_file()
 
@@ -609,3 +624,281 @@ def test_each_format_accepts_its_values_and_refuses_the_others(
 
     assert delivery.check(value, good) == ""
     assert delivery.check(value, bad) != ""
+
+
+# Configuration files
+
+
+CONFIG_APP = """[Unit]
+Description=vied app
+
+[Container]
+Pod=vied.pod
+Image={{ container.images[0].name }}
+Environment=CLOCK={{ container.clock }}
+Volume=/etc/seapath-containers/vied:/etc/vied:ro
+Volume=/mnt/rbd/vied:/var/lib/vied
+"""
+
+CHECKS = [
+    {
+        "file": "model.cid",
+        "xpath": "//scl:ConnectedAP/scl:Address/scl:P[@type='IP']",
+        "namespaces": {"scl": "http://www.iec.ch/61850/2003/SCL"},
+        "value": "sbus_ip",
+    }
+]
+
+
+def _build_config(
+    tmp_path: Path,
+    version: str = "vied-1",
+    examples: dict[str, str] | None = None,
+    change: Callable[[Path], None] | None = None,
+) -> bytes:
+    """A delivery with `examples/` and `checks.yaml`."""
+
+    def configure(root: Path) -> None:
+        shutil.rmtree(root / "files")
+        (root / "quadlets/vied-app.container.j2").write_text(CONFIG_APP)
+        for name, text in (examples or {"model.cid": "<SCL example/>"}).items():
+            (root / "examples" / name).parent.mkdir(parents=True, exist_ok=True)
+            (root / "examples" / name).write_text(text)
+        (root / "checks.yaml").write_text(yaml.safe_dump(CHECKS))
+        example = yaml.safe_load((root / "inventory-example.yaml").read_text())
+        spec = example["cluster_containers"]["vied"]
+        spec["rbd"] = {"size": "64M"}
+        spec["config"] = [f"examples/{name}" for name in examples or ["model.cid"]]
+        (root / "inventory-example.yaml").write_text(yaml.safe_dump(example))
+        if change:
+            change(root)
+
+    return _build(tmp_path, version, configure)
+
+
+def test_a_first_installation_starts_the_site_from_the_examples(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build_config(tmp_path))
+    assert staged["findings"] == []
+    assert staged["site"] == [
+        {
+            "example": "model.cid",
+            "path": "inventories/vied/site/model.cid",
+            "origin": "example",
+        }
+    ]
+    assert staged["checks"] == 1
+
+    response = _install(signed_in, staged)
+
+    assert response.status_code == 201, response.text
+    entry = _entry(signed_in)
+    assert entry["config"] == ["../inventories/vied/site/model.cid"]
+    assert entry["checks"] == CHECKS
+    assert entry["rbd"] == {"size": "64M"}
+    folder = settings.inventory_dir / "inventories/vied"
+    assert (folder / "site/model.cid").read_text() == "<SCL example/>"
+    assert (folder / "examples/model.cid").read_text() == "<SCL example/>"
+    assert yaml.safe_load((folder / "checks.yaml").read_text()) == CHECKS
+
+
+def test_a_new_version_never_replaces_the_site_configuration(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    # What happened on ccv on 2026-09-27: the import put the reference CID of
+    # the delivery where the site's was.
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build_config(tmp_path / "one")))
+    signed_in.put(
+        "/api/v1/inventory/files/inventories/vied/site/model.cid",
+        content=b"<SCL site/>",
+    )
+
+    staged = _stage(
+        signed_in,
+        _build_config(tmp_path / "two", "vied-2", {"model.cid": "<SCL reference 2/>"}),
+    )
+    assert [item["origin"] for item in staged["site"]] == ["site"]
+    response = _install(signed_in, staged)
+
+    assert response.status_code == 201, response.text
+    folder = settings.inventory_dir / "inventories/vied"
+    assert (folder / "site/model.cid").read_text() == "<SCL site/>"
+    assert (folder / "examples/model.cid").read_text() == "<SCL reference 2/>"
+    assert _entry(signed_in)["config"] == ["../inventories/vied/site/model.cid"]
+
+
+def test_a_template_the_site_chose_takes_the_place_of_the_example(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build_config(tmp_path / "one")))
+    signed_in.put(
+        "/api/v1/inventory/files/inventories/vied/site/model.cid.j2",
+        content=b"<SCL {{ container.sbus_ip }}/>",
+    )
+    signed_in.delete("/api/v1/inventory/files/inventories/vied/site/model.cid")
+
+    staged = _stage(signed_in, _build_config(tmp_path / "two", "vied-2"))
+
+    assert staged["site"] == [
+        {
+            "example": "model.cid",
+            "path": "inventories/vied/site/model.cid.j2",
+            "origin": "site",
+        }
+    ]
+    _install(signed_in, staged)
+    assert _entry(signed_in)["config"] == ["../inventories/vied/site/model.cid.j2"]
+
+
+def test_a_file_a_new_version_expects_is_copied_only_when_accepted(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build_config(tmp_path / "one")))
+    two = {"model.cid": "<SCL/>", "settings.json": "{}"}
+
+    staged = _stage(signed_in, _build_config(tmp_path / "two", "vied-2", two))
+    assert [(item["example"], item["origin"]) for item in staged["site"]] == [
+        ("model.cid", "site"),
+        ("settings.json", "example"),
+    ]
+    response = _install(signed_in, staged, examples=[])
+
+    assert response.status_code == 201, response.text
+    folder = settings.inventory_dir / "inventories/vied"
+    assert not (folder / "site/settings.json").exists()
+    # Still named: the run stops until the site adds it.
+    assert _entry(signed_in)["config"][1] == "../inventories/vied/site/settings.json"
+    missing = {
+        item["value"]
+        for item in signed_in.get("/api/v1/inventory/references").json()
+        if item["variable"] == "cluster_containers" and not item["found"]
+    }
+    assert missing == {"../inventories/vied/site/settings.json"}
+
+    staged = _stage(signed_in, _build_config(tmp_path / "three", "vied-3", two))
+    _install(signed_in, staged, examples=["settings.json"])
+    assert (folder / "site/settings.json").read_text() == "{}"
+
+
+def test_an_installation_made_before_site_moves_its_files_there(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    # A workload installed from files/, whose site file the operator replaced
+    # in place: that file, and not the new example, becomes the site's.
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+    signed_in.put(
+        "/api/v1/inventory/files/inventories/vied/files/instance/model.cid",
+        content=b"<SCL ccv/>",
+    )
+    document = signed_in.get("/api/v1/inventory/raw").text.replace(
+        "../inventories/vied/site/instance/model-1.cid",
+        "../inventories/vied/files/instance/model.cid",
+    )
+    assert (
+        signed_in.put("/api/v1/inventory/raw", json={"document": document}).status_code
+        == 200
+    )
+
+    staged = _stage(signed_in, _build_config(tmp_path / "two", "vied-2"))
+    assert staged["site"] == [
+        {
+            "example": "model.cid",
+            "path": "inventories/vied/site/model.cid",
+            "origin": "current",
+        }
+    ]
+    _install(signed_in, staged)
+
+    folder = settings.inventory_dir / "inventories/vied"
+    assert (folder / "site/model.cid").read_text() == "<SCL ccv/>"
+    assert [
+        path for path in folder.rglob("*") if path.is_file() and "files" in path.parts
+    ] == []
+    assert _entry(signed_in)["config"] == ["../inventories/vied/site/model.cid"]
+
+
+def test_a_check_on_a_value_the_delivery_does_not_describe_is_refused(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    def wrong(root: Path) -> None:
+        (root / "checks.yaml").write_text(
+            yaml.safe_dump([{**CHECKS[0], "value": "vlan", "match": "near"}])
+        )
+
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build_config(tmp_path, change=wrong))
+
+    assert staged["findings"] == [
+        "checks.yaml, check 1 compares vlan, which values.yaml does not describe.",
+        "checks.yaml, check 1: match is one of equal, in_list.",
+    ]
+
+
+def test_an_example_template_reads_the_site_values(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    staged = _stage(
+        signed_in,
+        _build_config(
+            tmp_path,
+            examples={"model.cid.j2": "<SCL {{ container.vlan }}/>"},
+            change=lambda root: (root / "checks.yaml").unlink(),
+        ),
+    )
+
+    assert staged["findings"] == [
+        "The templates read container.vlan, which values.yaml does not describe."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("checks", "finding"),
+    [
+        ({"not": "a list"}, "checks.yaml must be a list of checks."),
+        (["text"], "checks.yaml, check 1 is not a mapping."),
+        ([{**CHECKS[0], "xpath": ""}], "checks.yaml, check 1 has no xpath."),
+        (
+            [{**CHECKS[0], "file": "other.cid"}],
+            "checks.yaml, check 1 reads other.cid, which is not one of the examples.",
+        ),
+        (
+            [{**CHECKS[0], "base": "16"}],
+            "checks.yaml, check 1: base is an integer, 16 for hexadecimal.",
+        ),
+        (
+            [{**CHECKS[0], "namespaces": ["scl"]}],
+            "checks.yaml, check 1: namespaces maps each prefix to its URI.",
+        ),
+    ],
+)
+def test_each_rule_of_a_check_is_held(
+    signed_in: TestClient, tmp_path: Path, checks: object, finding: str
+) -> None:
+    def wrong(root: Path) -> None:
+        (root / "checks.yaml").write_text(yaml.safe_dump(checks))
+
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build_config(tmp_path, change=wrong))
+
+    assert staged["findings"] == [finding]
+
+
+def test_the_configuration_is_shown_with_the_files_of_the_workload(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build_config(tmp_path)))
+
+    files = signed_in.get("/api/v1/containers/vied/files").json()["files"]
+
+    [config] = [item for item in files if item["config"]]
+    assert config["src"] == "../inventories/vied/site/model.cid"
+    assert config["dest"] == "/etc/seapath-containers/vied/model.cid"
+    assert config["content"] == "<SCL example/>"

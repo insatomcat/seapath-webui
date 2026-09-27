@@ -196,11 +196,12 @@ not.
   <div class="modal-body wide">
     <h2 id="delivery-title">Install a delivery</h2>
     <p class="lead">
-      The quadlets, the files and <code>values.yaml</code> are committed with
-      the inventory, the image archives go to the artefacts, and the workload
-      is declared in <code>cluster_containers</code>. A delivery of a workload
-      already installed replaces it, the form starting from its site values
-      and its placement.
+      The quadlets, the examples and <code>values.yaml</code> are committed
+      with the inventory, the image archives go to the artefacts, and the
+      workload is declared in <code>cluster_containers</code>. A delivery of a
+      workload already installed replaces it, the form starting from its site
+      values and its placement. The site's configuration files, in
+      <code>site/</code>, are never replaced.
     </p>
     <div id="delivery-pick">
       <label for="delivery-file">Delivery archive</label>
@@ -222,6 +223,11 @@ not.
       </details>
       <h3>Site values</h3>
       <div id="delivery-values"></div>
+      <div id="delivery-site-box" hidden>
+        <h3>Configuration of the site</h3>
+        <div id="delivery-site"></div>
+        <p class="help" id="delivery-site-help"></p>
+      </div>
       <h3>Placement</h3>
       <label for="delivery-placement">Where it runs</label>
       <select id="delivery-placement">
@@ -236,14 +242,15 @@ not.
         <h3>Existing workload</h3>
         <label class="switch">
           <input type="checkbox" id="delivery-recreate">
-          Start it again from nothing
+          Reset the operation state
         </label>
         <p class="help">
           Launches <code>deploy_containers_cluster</code> once the delivery is
           committed. The run stops the workload, deletes its Pacemaker
-          resource and its RBD image, then deploys it as the first time: a new
-          RBD image filled from the delivery. What the workload wrote on its
-          RBD image is lost.
+          resource, puts its RBD image aside, then deploys it with an empty
+          one. The workload starts from the configuration of the site alone:
+          what it wrote in operation (settings changed by MMS) is on the image
+          put aside.
         </p>
       </div>
     </div>

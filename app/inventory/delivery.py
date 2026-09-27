@@ -5,9 +5,14 @@
 
 `roles/deploy_containers_cluster/DELIVERY.md` in seapath-ansible is the
 contract: a directory holding the images as archives, the quadlet templates,
-the first content of the workload's RBD image, `values.yaml` naming the site
-values the templates read, and `inventory-example.yaml`, the
-`cluster_containers` entry with example values.
+an example of each configuration file in `examples/`, `values.yaml` naming the
+site values the templates read, `checks.yaml` comparing configuration files
+with those values, and `inventory-example.yaml`, the `cluster_containers`
+entry with example values.
+
+A delivery made before `examples/` has `files/` instead, the first content of
+the RBD image: those are read as the examples of files the RBD image is seeded
+with, from the site's copies.
 
 This reads such a delivery and says what is wrong with it before anything is
 written: an installer that finds a missing image three minutes into a run has
@@ -36,7 +41,12 @@ import yaml
 from app.inventory import quadlets
 
 VALUES_FILE = "values.yaml"
+CHECKS_FILE = "checks.yaml"
 EXAMPLE_FILE = "inventory-example.yaml"
+EXAMPLES_DIR = "examples"
+LEGACY_DIR = "files"
+SITE_DIR = "site"
+MATCHES = ("equal", "in_list")
 README_FILE = "README.md"
 SUMS_FILE = "SHA256SUMS"
 
@@ -99,9 +109,24 @@ class Delivery:
     images: list[Image]
     quadlets: list[str]
     """The quadlet files, in the order the example lists them."""
+    examples: list[str] = field(default_factory=list)
+    """The example configuration files, by path under `examples/`, or under
+    `files/` for a delivery made before `examples/`."""
     files: dict[str, str] = field(default_factory=dict)
-    """RBD seed files: path under `files/` to the `dest` on the image."""
+    """Only for a delivery with `files/`: each example to the `dest` it has on
+    the RBD image."""
+    checks: list[dict[str, Any]] = field(default_factory=list)
     readme: str = ""
+
+    @property
+    def legacy(self) -> bool:
+        """Made before `examples/`: its quadlets read the RBD image, which the
+        role seeds once from `rbd.files`."""
+        return bool(self.files)
+
+    @property
+    def examples_dir(self) -> str:
+        return LEGACY_DIR if self.legacy else EXAMPLES_DIR
 
 
 # Unpacking
@@ -159,9 +184,19 @@ def read(root: Path) -> Delivery:
     values = _values(root, findings)
     images = _images(root, example, findings)
     names = _quadlets(root, example, findings)
-    files = _files(root, example, findings)
+    if (root / EXAMPLES_DIR).is_dir():
+        files: dict[str, str] = {}
+        examples = _examples(root / EXAMPLES_DIR)
+    else:
+        files = _files(root, example, findings)
+        examples = list(files)
     if values is not None and names:
-        _keys_match(root, names, values, findings)
+        templates = [root / "quadlets" / name for name in names] + [
+            root / (LEGACY_DIR if files else EXAMPLES_DIR) / example
+            for example in examples
+        ]
+        _keys_match(templates, values, findings)
+    checks = _checks(root, values or [], examples, findings)
     if findings:
         raise InvalidDelivery(findings)
     readme = root / README_FILE
@@ -172,9 +207,72 @@ def read(root: Path) -> Delivery:
         values=values or [],
         images=images,
         quadlets=names,
+        examples=examples,
         files=files,
+        checks=checks,
         readme=readme.read_text(errors="replace") if readme.is_file() else "",
     )
+
+
+def config_name(path: str) -> str:
+    """The name a configuration file is written under on the nodes."""
+    name = PurePosixPath(path).name
+    return name[: -len(".j2")] if name.endswith(".j2") else name
+
+
+def _examples(directory: Path) -> list[str]:
+    return sorted(
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_file()
+    )
+
+
+def _checks(
+    root: Path, values: list[Value], examples: list[str], findings: list[str]
+) -> list[dict[str, Any]]:
+    """The checks of `checks.yaml`, which the role runs before each deployment.
+
+    Only their shape is checked here: the XPath is evaluated by lxml on the
+    Ansible machine, against the site's files.
+    """
+    path = root / CHECKS_FILE
+    if not path.is_file():
+        return []
+    loaded = _yaml(path, findings)
+    if not isinstance(loaded, list):
+        findings.append(f"{CHECKS_FILE} must be a list of checks.")
+        return []
+    keys = {value.key for value in values}
+    names = {config_name(example) for example in examples}
+    found: list[dict[str, Any]] = []
+    for index, check in enumerate(loaded, start=1):
+        where = f"{CHECKS_FILE}, check {index}"
+        if not isinstance(check, dict):
+            findings.append(f"{where} is not a mapping.")
+            continue
+        for key in ("file", "xpath", "value"):
+            if not isinstance(check.get(key), str) or not check[key].strip():
+                findings.append(f"{where} has no {key}.")
+        if isinstance(check.get("value"), str) and check["value"] not in keys:
+            findings.append(
+                f"{where} compares {check['value']}, which {VALUES_FILE} "
+                "does not describe."
+            )
+        if isinstance(check.get("file"), str) and check["file"] not in names:
+            findings.append(
+                f"{where} reads {check['file']}, which is not one of the examples."
+            )
+        if check.get("match", "equal") not in MATCHES:
+            findings.append(f"{where}: match is one of {', '.join(MATCHES)}.")
+        if "base" in check and (
+            isinstance(check["base"], bool) or not isinstance(check["base"], int)
+        ):
+            findings.append(f"{where}: base is an integer, 16 for hexadecimal.")
+        if "namespaces" in check and not isinstance(check["namespaces"], dict):
+            findings.append(f"{where}: namespaces maps each prefix to its URI.")
+        found.append(check)
+    return found
 
 
 def _example(root: Path, findings: list[str]) -> tuple[str, dict[str, Any]]:
@@ -319,21 +417,23 @@ def _files(root: Path, example: dict[str, Any], findings: list[str]) -> dict[str
 
 
 def _keys_match(
-    root: Path, names: list[str], values: list[Value], findings: list[str]
+    templates: list[Path], values: list[Value], findings: list[str]
 ) -> None:
+    """The keys of `values.yaml` are those the templates, quadlets and example
+    configuration files, read."""
     read_keys: set[str] = set()
-    for name in names:
-        path = root / "quadlets" / name
-        if path.is_file() and name.endswith(".j2"):
+    for path in templates:
+        if path.is_file() and path.name.endswith(".j2"):
             read_keys.update(_READ.findall(path.read_text(errors="replace")))
     read_keys.discard("images")
     described = {value.key for value in values}
     for key in sorted(read_keys - described):
         findings.append(
-            f"The quadlets read container.{key}, which {VALUES_FILE} does not describe."
+            f"The templates read container.{key}, which {VALUES_FILE} "
+            "does not describe."
         )
     for key in sorted(described - read_keys):
-        findings.append(f"{VALUES_FILE} describes {key}, which no quadlet reads.")
+        findings.append(f"{VALUES_FILE} describes {key}, which no template reads.")
 
 
 # Values
@@ -430,12 +530,15 @@ def folder(name: str) -> str:
     return f"inventories/{name}"
 
 
-def entry(delivery: Delivery, values: dict[str, Any]) -> dict[str, Any]:
+def entry(
+    delivery: Delivery, values: dict[str, Any], site: dict[str, str] | None = None
+) -> dict[str, Any]:
     """The `cluster_containers` entry, pointing at where the files end up.
 
-    The quadlets, the seed files, `values.yaml` and the README go to the
+    The quadlets, the examples, `values.yaml` and the README go to the
     versioned folder; the image archives to the artefacts, which a run mounts
-    under the same root, so `../files/<archive>` finds them.
+    under the same root, so `../files/<archive>` finds them. `site` maps each
+    example to the site's file in the folder that takes its place.
     """
     home = f"../{folder(delivery.name)}"
     spec: dict[str, Any] = {}
@@ -447,34 +550,55 @@ def entry(delivery: Delivery, values: dict[str, Any]) -> dict[str, Any]:
         for image in delivery.images
     ]
     spec["quadlets"] = [f"{home}/quadlets/{name}" for name in delivery.quadlets]
+    site = site or {}
+    sources = [
+        f"../{site.get(example) or site_path(delivery, example)}"
+        for example in delivery.examples
+    ]
+    if sources and not delivery.legacy:
+        spec["config"] = sources
+    if delivery.checks:
+        spec["checks"] = delivery.checks
     rbd = delivery.example.get("rbd")
     if isinstance(rbd, dict) and rbd.get("size"):
         spec["rbd"] = {"size": rbd["size"]}
-        if delivery.files:
+        if delivery.legacy:
             spec["rbd"]["files"] = [
-                {"src": f"{home}/files/{relative}", "dest": dest}
-                for relative, dest in delivery.files.items()
+                {"src": source, "dest": delivery.files[example]}
+                for example, source in zip(delivery.examples, sources, strict=True)
             ]
     spec.update(values)
     return spec
 
 
+def site_path(delivery: Delivery, example: str) -> str:
+    """Where the site's file for an example goes when the site has none yet."""
+    return f"{folder(delivery.name)}/{SITE_DIR}/{example}"
+
+
 def inventory_files(delivery: Delivery) -> dict[str, bytes]:
-    """Every file the versioned folder receives, by its path there."""
+    """Every file of the delivery the versioned folder receives, by its path
+    there. The site's own files are the service's: an import never writes
+    them, beyond a first copy of an example."""
     home = folder(delivery.name)
     found = {
         f"{home}/quadlets/{name}": (delivery.root / "quadlets" / name).read_bytes()
         for name in delivery.quadlets
     }
-    for relative in delivery.files:
-        found[f"{home}/files/{relative}"] = (
-            delivery.root / "files" / relative
-        ).read_bytes()
+    for relative in delivery.examples:
+        found[f"{home}/{EXAMPLES_DIR}/{relative}"] = example_bytes(delivery, relative)
     found[f"{home}/{VALUES_FILE}"] = (delivery.root / VALUES_FILE).read_bytes()
+    checks = delivery.root / CHECKS_FILE
+    if checks.is_file():
+        found[f"{home}/{CHECKS_FILE}"] = checks.read_bytes()
     readme = delivery.root / README_FILE
     if readme.is_file():
         found[f"{home}/{README_FILE}"] = readme.read_bytes()
     return found
+
+
+def example_bytes(delivery: Delivery, example: str) -> bytes:
+    return (delivery.root / delivery.examples_dir / example).read_bytes()
 
 
 def render(delivery: Delivery, spec: dict[str, Any]) -> list[str]:

@@ -219,6 +219,8 @@ def _workload_paths(spec: Any) -> Iterator[str]:
     for image in images if isinstance(images, list) else []:
         if isinstance(image, dict):
             found.append(image.get("archive"))
+    config = spec.get("config")
+    found.extend(config if isinstance(config, list) else [])
     rbd = spec.get("rbd")
     files = rbd.get("files") if isinstance(rbd, dict) else None
     for item in files if isinstance(files, list) else []:

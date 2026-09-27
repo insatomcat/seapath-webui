@@ -91,12 +91,21 @@ class DeliveryInstallation(SiteValues):
             "sent with both fields empty, the cluster chooses"
         ),
     )
+    examples: list[str] | None = Field(
+        default=None,
+        description=(
+            "The examples to copy where the site has no configuration file of "
+            "its own. Omitted, every one is copied; one left out stays missing, "
+            "and the run stops until the site adds its file"
+        ),
+    )
     recreate: bool = Field(
         default=False,
         description=(
             "Launch the run that starts the workload again from nothing: its "
-            "resource and its RBD image are deleted, then created as on a first "
-            "deployment. What it wrote on its RBD image is lost"
+            "resource is deleted and its RBD image put aside, then both are "
+            "created as on a first deployment. The configuration of the site is "
+            "kept; the workload starts without the state it wrote"
         ),
     )
 
@@ -275,14 +284,20 @@ def install_delivery(
 ) -> Installed:
     """Install a staged delivery with the site values, as one commit.
 
-    The quadlets and seed files go to the versioned folder, the image archives
+    The quadlets and examples go to the versioned folder, the site's
+    configuration files to its `site/` when it has none yet, the image archives
     to the artefacts, and the workload to `cluster_containers`. The answer
     names the run that puts it on the machines, `deploy_containers_cluster`,
     and carries it when `recreate` asked for it to be launched.
     """
     try:
         installed = _deliveries(request).install(
-            staged, payload.values, user.username, if_match, payload.placement
+            staged,
+            payload.values,
+            user.username,
+            if_match,
+            payload.placement,
+            payload.examples,
         )
     except UnknownDelivery as error:
         raise ApiError("unknown_delivery", str(error), 404) from error

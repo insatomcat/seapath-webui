@@ -10,8 +10,13 @@ checked, and answered with the site values the delivery asks for; the
 installation takes those values, and writes the workload the way an operator
 editing the inventory by hand would.
 
-- The quadlets, the RBD seed files, `values.yaml` and the README go to
-  `inventories/<name>/` in the versioned folder.
+- The quadlets, the examples, `values.yaml`, `checks.yaml` and the README go
+  to `inventories/<name>/` in the versioned folder, replaced by each version.
+- The site's configuration files are in `inventories/<name>/site/`, which an
+  import never overwrites. A file the site lacks is copied there from the
+  example when the operator accepts it, or from where an installation made
+  before `site/` kept it. One the operator declines is still named by the
+  entry, and the run stops until the site adds it.
 - The image archives go to the artefacts, `files/<archive>`, which a run
   mounts where `../files/` resolves and git never carries.
 - The `cluster_containers` entry names them, with the site values.
@@ -22,9 +27,9 @@ the run of `deploy_containers_cluster`, named at the end.
 A new version of a workload already installed is the same path. Its entry is
 replaced by the delivery's, with the site values and the placement the form
 answers, prefilled with what it had. The files the old entry named and nothing
-names any more are removed, wherever they were in the folder. Asked to, the
-installation also launches the run that starts the workload again from
-nothing, its RBD image included.
+names any more are removed, wherever they were in the folder, `site/` apart.
+Asked to, the installation also launches the run that starts the workload
+again from nothing: its RBD image is put aside and a new one created.
 """
 
 from __future__ import annotations
@@ -78,6 +83,19 @@ class Placement(BaseModel):
     """The member it runs on, and nowhere else."""
 
 
+class SiteFile(BaseModel):
+    """One configuration file the delivery expects, and where the site's is."""
+
+    example: str
+    """The example's path under `examples/` (`files/` for an older delivery)."""
+    path: str
+    """The site's file in the folder, existing or to be written."""
+    origin: str
+    """`site`: the site has it. `current`: the installation keeps it outside
+    `site/`, and it is moved there. `example`: the site has none, and the
+    example is copied when the operator accepts it."""
+
+
 class StagedDelivery(BaseModel):
     id: str
     name: str = ""
@@ -89,6 +107,9 @@ class StagedDelivery(BaseModel):
     images: list[str] = Field(default_factory=list)
     quadlets: list[str] = Field(default_factory=list)
     files: list[str] = Field(default_factory=list)
+    site: list[SiteFile] = Field(default_factory=list)
+    """The configuration files, and which of them the site lacks."""
+    checks: int = 0
     readme: str = ""
     values: list[ValueField] = Field(default_factory=list)
     nodes: list[str] = Field(default_factory=list)
@@ -186,7 +207,9 @@ class DeliveryService:
         staged.update = bool(current)
         staged.images = [image.name for image in found.images]
         staged.quadlets = found.quadlets
-        staged.files = list(found.files)
+        staged.files = list(found.examples)
+        staged.site = self._site(found, current)
+        staged.checks = len(found.checks)
         staged.readme = found.readme
         staged.values = _fields(found.values, current)
         staged.nodes = self._containers.workload_hosts()
@@ -211,12 +234,14 @@ class DeliveryService:
         author: str,
         expected_head: str | None = None,
         placement: Placement | None = None,
+        examples: list[str] | None = None,
     ) -> Installed:
         """Write the staged delivery into the inventory, as one commit.
 
         The entry is the delivery's, the site values and the placement. Keys
         the old entry had beyond those are dropped with it. `placement` None
-        keeps the one the workload has.
+        keeps the one the workload has. `examples` names the examples to copy
+        where the site has no file; None copies every one.
         """
         root = self._tree(staged_id)
         found = delivery.read(root)
@@ -225,7 +250,8 @@ class DeliveryService:
             raise RefusedValues(refused)
 
         current = self._containers.workload(found.name) or {}
-        spec = delivery.entry(found, values)
+        site = self._site(found, current)
+        spec = delivery.entry(found, values, {item.example: item.path for item in site})
         spec.update({key: current[key] for key in _PLACEMENT if key in current})
         if placement is not None:
             spec.pop("preferred_host", None)
@@ -237,6 +263,15 @@ class DeliveryService:
 
         files = delivery.inventory_files(found)
         home = delivery.folder(found.name)
+        for item in site:
+            if item.origin == "current":
+                files[item.path] = self._inventory.read_file(
+                    _stored(item, current, found)
+                )
+            elif item.origin == "example" and (
+                examples is None or item.example in examples
+            ):
+                files[item.path] = delivery.example_bytes(found, item.example)
         # What the old entry named outside the workload's folder, a first
         # installation made by hand included, goes when nothing names it any
         # more. The folder itself is the delivery's, and what it no longer has
@@ -251,6 +286,7 @@ class DeliveryService:
             item.path
             for item in self._inventory.files()
             if item.path not in files
+            and not item.path.startswith(f"{home}/{delivery.SITE_DIR}/")
             and (item.path.startswith(f"{home}/") or item.path in orphans)
         ]
         replaced = _archives(current) - {image.archive for image in found.images}
@@ -282,6 +318,46 @@ class DeliveryService:
             commit=commit.hash if commit else None,
             message=commit.message if commit else None,
         )
+
+    def _site(
+        self, found: delivery.Delivery, current: dict[str, Any]
+    ) -> list[SiteFile]:
+        """Where the site's file for each example is, or will be."""
+        stored = {item.path for item in self._inventory.files()}
+        home = delivery.folder(found.name)
+        by_name, by_dest = _current_sources(current)
+        answer: list[SiteFile] = []
+        for example in found.examples:
+            name = delivery.config_name(example)
+            source = (
+                by_dest.get(found.files[example]) if found.legacy else by_name.get(name)
+            )
+            if source is not None and source in stored:
+                inside = source.startswith(f"{home}/{delivery.SITE_DIR}/")
+                answer.append(
+                    SiteFile(
+                        example=example,
+                        path=source if inside else delivery.site_path(found, example),
+                        origin="site" if inside else "current",
+                    )
+                )
+                continue
+            # A file the site put in site/ itself, as a template or not.
+            target = delivery.site_path(found, example)
+            parent = target.rsplit("/", 1)[0]
+            present = [
+                candidate
+                for candidate in (f"{parent}/{name}", f"{parent}/{name}.j2")
+                if candidate in stored
+            ]
+            answer.append(
+                SiteFile(
+                    example=example,
+                    path=present[0] if present else target,
+                    origin="site" if present else "example",
+                )
+            )
+        return answer
 
     def _placement(self, placement: Placement) -> dict[str, str]:
         preferred = (placement.preferred_host or "").strip()
@@ -410,6 +486,33 @@ def _fields(
         )
         for value in described
     ]
+
+
+def _current_sources(
+    current: dict[str, Any],
+) -> tuple[dict[str, str], dict[str, str]]:
+    """The folder paths of the configuration an installed workload has: by the
+    name written on the nodes, and by the `dest` of its RBD seed files."""
+    by_name: dict[str, str] = {}
+    by_dest: dict[str, str] = {}
+    for source in quadlets.workload_config(current):
+        stored = references.in_folder(source)
+        if stored is not None:
+            by_name[delivery.config_name(source)] = stored
+    for source, dest in quadlets.workload_files(current):
+        stored = references.in_folder(source)
+        if stored is not None:
+            by_dest[dest] = stored
+            by_name.setdefault(delivery.config_name(dest), stored)
+    return by_name, by_dest
+
+
+def _stored(item: SiteFile, current: dict[str, Any], found: delivery.Delivery) -> str:
+    """Where the installation keeps the file a `current` item moves."""
+    by_name, by_dest = _current_sources(current)
+    if found.legacy:
+        return by_dest[found.files[item.example]]
+    return by_name[delivery.config_name(item.example)]
 
 
 def _archives(spec: dict[str, Any]) -> set[str]:

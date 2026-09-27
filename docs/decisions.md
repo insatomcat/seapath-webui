@@ -5412,7 +5412,8 @@ same way. Saving is a commit. The value reaches the machines on the next run
 and the process when the workload restarts, since an environment variable is
 read at start; the page offers Restart, `crm resource restart`, as an
 operator's act. Settings an operator tunes in service belong to the
-application, on its RBD image, where no redeployment touches them.
+application, on its RBD image, where no redeployment touches them. The
+configuration files are the site's, apart from the delivery: see D70.
 
 ### Amended: placement is asked, and an installation can start from nothing
 
@@ -5452,3 +5453,54 @@ Secrets. The contract has the application read them from files on its RBD
 image, and nothing here puts them there yet: a password in the versioned
 folder would stay in its history. Which of a run writing it once or a vault in
 the inventory is the right answer is left open.
+
+## D70 - Settled: the configuration of a workload is the site's, apart from the delivery and from its state
+
+On 2026-09-27 an update of open61850-protect, checked to start again from
+nothing, cut its trip GOOSE for sixteen minutes. The RBD image was seeded from
+`files/` of the delivery, and those files were the supplier's reference CID,
+whose GOOSE VLAN the port of the relay dropped. The import had also written
+them over the site's copy in `inventories/open61850-protect/files/`. Every
+step did what it was meant to; the configuration had three owners mixed in
+two places.
+
+### Three layers, one owner each
+
+The code is the supplier's, replaced by each version: images, quadlets,
+`values.yaml`, and `examples/`, which replaces `files/` in DELIVERY.md. The
+configuration is the site's, in `inventories/<name>/site/`: the role writes
+it to every node, `/etc/seapath-containers/<name>/`, which the quadlets mount
+read only. The state is the application's, the whole RBD image, mounted on
+`/var/lib/<name>`, which no run writes.
+
+### What an import does with `site/`
+
+It never writes a file the site has. For each example the site lacks, the
+form offers to copy the example in, checked by default at a first
+installation, with a warning that it carries the supplier's values. One the
+operator unchecks is still named by the entry, and the role stops the run
+before any node changes until the site adds it. A site file ending in `.j2`
+takes the place of the example of the same name: renaming the CID is how a
+site switches it from its own tool's output to a template of the site values.
+
+An installation made before `site/` kept its files where `rbd.files` named
+them. The first import of a new version moves each into `site/`, matched by
+the name it has on the nodes, so ccv's own CID, and not the new example,
+becomes the site's.
+
+A delivery still made with `files/` is read the same way, its files as the
+examples: the entry keeps `rbd.files`, pointing at the site's copies.
+
+### Checks
+
+`checks.yaml` of a delivery lists values a configuration file repeats from the
+site values, such as the VLAN-ID of the GOOSE in the CID and `pb_vlans`. The
+import checks its shape and copies it into the entry; the role evaluates it
+with lxml before each run and warns.
+
+### Reset rather than recreate
+
+The checkbox that deleted the RBD image is now "Reset the operation state":
+the role puts the image aside under `<name>.<date>-<version>` and creates an
+empty one. The configuration is never touched, and the state can be brought
+back.
