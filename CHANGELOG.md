@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.194 - 2026-09-27
+
+- feat: keep the site's configuration apart from a delivery
+- fix: give the controller lxml for the checks of a workload
+- fix: move an installation's file into site/ under its own name
+
 ## 0.3.193 - 2026-09-27
 
 - fix: widen the containers page to the guest table's width
