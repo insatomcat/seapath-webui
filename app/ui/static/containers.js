@@ -280,13 +280,13 @@
 
   // Where a container Pacemaker holds is running, and what put it there. One
   // cell, because the second answers the question the first raises: a member
-  // is either the cluster's own choice or somebody's move, and the constraint
-  // is the only thing that says which.
+  // is either the cluster's own choice, the entry's `preferred_host`, or
+  // somebody's move, and only the constraints held against the entry say
+  // which.
   //
-  // Three states and no fourth. A container has no `preferred_host`: the
-  // inventory says which machines receive the quadlet and never which member
-  // runs it, so there is no declared placement to hold the constraint against
-  // and the whole reading is the constraint and the node.
+  // The states are the VMs page's, computed by the service: the entry, the
+  // rule in force and the node the resource is on are the three things held
+  // against each other.
   function placedCell(container) {
     const resource = container.resource || {};
     const node = document.createElement("td");
@@ -306,10 +306,16 @@
     return node;
   }
 
-  // The colour says which of the three states the placement is in, and the
-  // sentence behind it says what to do about that one.
+  // The colour says which state the placement is in, and the sentence behind
+  // it says what to do about that one. The rule in force is the move's
+  // `cli-prefer` where there is one, since its infinite score overrides the
+  // deployment's `prefer-`, whose score of 100 the cluster only weighs.
   function explainPlacement(container, where) {
-    const held = container.constraint;
+    const name = container.name;
+    const declared = container.preferred_host || "";
+    const moved = container.constraint;
+    const preference = container.preference;
+    const held = moved || preference;
     if (container.pinned) {
       return (
         container.pinned +
@@ -318,38 +324,71 @@
         "neither Move nor Return is offered here."
       );
     }
+    if (held && held.node !== where) {
+      const why = moved
+        ? ". A move carries an infinite score, so the cluster put it here " +
+          "only because " +
+          held.node +
+          " could not take it: offline, in standby, or the container failed " +
+          "there."
+        : ". The deployment wrote it with a score of 100, which the cluster " +
+          "weighs against the rest of its rules, so " +
+          held.node +
+          " could not take it or another rule outweighed it.";
+      return (
+        held.id + " names " + held.node + ", and " + name +
+        " is running on " + where + why + returnSentence(container)
+      );
+    }
+    if (!held && !declared) {
+      return (
+        "No constraint holds " + name + ", and its inventory entry declares " +
+        "no preferred_host, so the cluster places it. Move writes a " +
+        "constraint naming a machine."
+      );
+    }
     if (!held) {
       return (
-        "No constraint holds " +
-        container.name +
-        ", so the cluster places it and moves it where a member fails. Move " +
-        "writes a constraint naming a machine."
+        "No constraint holds " + name + ", and its inventory entry declares " +
+        "preferred_host: " + declared + ". A deployment run of " +
+        (container.playbook || "the workloads") +
+        " writes that preference to the cluster."
       );
     }
-    if (held.node !== where) {
+    if (held.node === declared) {
       return (
-        held.id +
-        " names " +
-        held.node +
-        ", and the container is running on " +
-        where +
-        ". A placement carries an infinite score, so the cluster put it here " +
-        "only because " +
-        held.node +
-        " could not take it: offline, in standby, or the container failed " +
-        "there. Return removes the constraint and gives the placement back " +
-        "to the cluster."
+        held.id + ". The cluster keeps " + name + " on " + held.node +
+        ", which is the preferred_host its inventory entry declares." +
+        (moved ? returnSentence(container) : "")
       );
     }
+    const entry = declared
+      ? ", and its inventory entry declares preferred_host: " + declared + "."
+      : ", and its inventory entry declares no preferred_host.";
+    const cause = moved
+      ? " A move from this page writes that constraint, and so does crm " +
+        "resource move typed on a machine." + returnSentence(container)
+      : " The rule is what the last deployment wrote, and a deployment run " +
+        "writes the entry's value again.";
     return (
-      held.id +
-      " holds " +
-      container.name +
-      " on " +
-      held.node +
-      ", so the cluster is not free to place it. Return removes the " +
-      "constraint."
+      held.id + ". The cluster keeps " + name + " on " + held.node + entry + cause
     );
+  }
+
+  // What Return leaves behind: `crm resource clear` removes the move's
+  // `cli-prefer` and never the deployment's `prefer-`, so the container goes
+  // back to the preference the cluster carries, or to no preference at all.
+  function returnSentence(container) {
+    const preference = container.preference;
+    if (!container.constraint) {
+      return "";
+    }
+    return preference
+      ? " Return removes " + container.constraint.id + " and leaves " +
+          preference.id + ", so the cluster leans to " + preference.node +
+          " again."
+      : " Return removes " + container.constraint.id + " and leaves the " +
+          "placement to the cluster.";
   }
 
   function actButton(container, host, running) {
@@ -585,10 +624,18 @@
         ", so Pacemaker places this container by its own rules again. It may " +
         "move it as a result, at the same cost the move had: the container " +
         "is stopped where it runs and started where the cluster puts it.",
-      note:
-        "The inventory declares no placement for a container, so nothing is " +
-        "written back: `upload_extra_files` says which machines receive the " +
-        "quadlet and the cluster decides which of them runs it.",
+      note: container.preference
+        ? container.preference.id +
+          " stays: a deployment wrote it from preferred_host: " +
+          container.preference.node +
+          ", and a clear leaves it, so the cluster leans back to that machine."
+        : container.preferred_host
+          ? "The inventory entry declares preferred_host: " +
+            container.preferred_host +
+            ", and the cluster carries no rule for it yet: a deployment run " +
+            "writes it."
+          : "The inventory entry declares no preferred_host, so nothing " +
+            "is written back and the cluster decides which member runs it.",
       label: "Return",
       act: async () => {
         const started = await API.post(

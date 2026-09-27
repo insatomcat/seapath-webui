@@ -509,31 +509,29 @@ def test_a_container_systemd_owns_has_no_placement_at_all(
     assert container["destinations"] == []
 
 
-def test_a_constraint_naming_the_node_it_runs_on_holds_the_container() -> None:
-    cluster = _held("seapath-machine", "seapath-machine")
-    view = ContainerView(name="c", unit="c.service", src="", dest="")
+def _placed(
+    running: str,
+    declared: str = "",
+    moved: str = "",
+    deployed: str = "",
+    pinned: str = "",
+) -> ContainerView:
+    """Where the service says a container is, from the rules the cluster holds.
 
-    containers_service._place(view, cluster, cluster.resources[0])
-
-    assert view.placement == "kept"
-    assert view.constraint is not None and view.constraint.id == "cli-prefer-c"
-
-
-def test_a_constraint_the_cluster_is_not_honouring_is_a_displaced_container() -> None:
-    # An infinite score the cluster is not honouring: the machine the
-    # constraint names could not take the container, so it is running
-    # elsewhere and the colour says that rather than a disagreement.
-    cluster = _held("elabo1", "seapath-machine")
-    view = ContainerView(name="c", unit="c.service", src="", dest="")
-
-    containers_service._place(view, cluster, cluster.resources[0])
-
-    assert view.placement == "displaced"
-
-
-def _held(preferred: str, running: str) -> PacemakerCluster:
-    """A cluster holding one container on `running` and preferring `preferred`."""
-    return PacemakerCluster(
+    `moved` is the `cli-prefer` a move writes, `deployed` the `prefer-` rule
+    `deploy_containers_cluster` writes from `preferred_host`, and `declared`
+    the entry's `preferred_host` itself.
+    """
+    rules = [
+        LocationConstraint(id=f"{prefix}c", resource="c", node=node, score=score)
+        for prefix, node, score in (
+            ("cli-prefer-", moved, "INFINITY"),
+            ("prefer-", deployed, "100"),
+            ("pin-", pinned, "INFINITY"),
+        )
+        if node
+    ]
+    cluster = PacemakerCluster(
         available=True,
         nodes=[
             PacemakerNode(name=name, type="member", online=True)
@@ -544,12 +542,120 @@ def _held(preferred: str, running: str) -> PacemakerCluster:
                 id="c", node=running, role="started", agent="systemd:c.service"
             )
         ],
-        constraints=[
-            LocationConstraint(
-                id="cli-prefer-c", resource="c", node=preferred, score="INFINITY"
-            )
-        ],
+        constraints=rules,
     )
+    view = ContainerView(
+        name="c", unit="c.service", src="", dest="", preferred_host=declared
+    )
+    containers_service._place(view, cluster, cluster.resources[0])
+    return view
+
+
+def test_a_container_nothing_declares_or_holds_is_placed_by_the_cluster() -> None:
+    assert _placed("elabo1").placement == "free"
+
+
+def test_a_deployed_preference_where_the_entry_declares_it_holds_the_container() -> (
+    None
+):
+    # The `prefer-` rule is the entry's `preferred_host` once a deployment ran:
+    # the cluster is running it where the inventory asks, which is not the
+    # cluster placing it on its own.
+    view = _placed("elabo1", declared="elabo1", deployed="elabo1")
+
+    assert view.placement == "kept"
+    assert view.preference is not None and view.preference.id == "prefer-c"
+    assert view.constraint is None
+
+
+def test_a_preferred_host_no_deployment_wrote_yet_is_a_disagreement() -> None:
+    # The inventory is ahead of the cluster: the entry names a member and the
+    # cluster carries no rule for it until the deployment run writes one.
+    assert _placed("elabo1", declared="elabo1").placement == "adrift"
+
+
+def test_a_preferred_host_changed_since_the_deployment_is_a_disagreement() -> None:
+    view = _placed("elabo1", declared="seapath-machine", deployed="elabo1")
+
+    assert view.placement == "adrift"
+
+
+def test_a_move_away_from_the_preferred_host_is_a_disagreement() -> None:
+    # The move's infinite score overrides the deployment's 100, so it is the
+    # rule in force, and it names another member than the entry.
+    view = _placed(
+        "seapath-machine",
+        declared="elabo1",
+        moved="seapath-machine",
+        deployed="elabo1",
+    )
+
+    assert view.placement == "adrift"
+    assert view.constraint is not None and view.constraint.id == "cli-prefer-c"
+
+
+def test_a_move_with_nothing_declared_is_a_disagreement() -> None:
+    # The same reading as on the VMs page: a member nobody declared, held by a
+    # rule the CIB cannot say who wrote.
+    assert _placed("elabo1", moved="elabo1").placement == "adrift"
+
+
+def test_a_move_to_the_preferred_host_holds_the_container() -> None:
+    view = _placed("elabo1", declared="elabo1", moved="elabo1", deployed="elabo1")
+
+    assert view.placement == "kept"
+
+
+def test_a_constraint_the_cluster_is_not_honouring_is_a_displaced_container() -> None:
+    # An infinite score the cluster is not honouring: the machine the
+    # constraint names could not take the container, so it is running
+    # elsewhere and the colour says that rather than a disagreement.
+    view = _placed("seapath-machine", declared="elabo1", moved="elabo1")
+
+    assert view.placement == "displaced"
+
+
+def test_a_deployed_preference_the_cluster_is_not_following_is_displaced() -> None:
+    view = _placed("seapath-machine", declared="elabo1", deployed="elabo1")
+
+    assert view.placement == "displaced"
+
+
+def test_a_pinned_container_is_pinned_whatever_else_it_declares() -> None:
+    view = _placed("elabo1", declared="seapath-machine", pinned="elabo1")
+
+    assert view.placement == "pinned"
+    assert view.pinned == "pin-c"
+    assert view.destinations == []
+
+
+def test_a_workload_carries_the_preferred_host_its_entry_declares() -> None:
+    document = {
+        "all": {
+            "children": {
+                "cluster_machines": {
+                    "hosts": {"elabo1": None},
+                    "vars": {
+                        "cluster_containers": {
+                            "relay": {
+                                "quadlets": ["../inventories/relay.container.j2"],
+                                "preferred_host": "elabo1",
+                            },
+                            "other": {
+                                "quadlets": ["../inventories/other.container.j2"],
+                            },
+                        }
+                    },
+                },
+                "hypervisors": {"hosts": {"elabo1": None}},
+            }
+        }
+    }
+
+    found = {item.name: item for item in quadlets.workloads(document)}
+
+    assert found["relay"].preferred_host == "elabo1"
+    assert found["other"].preferred_host == ""
 
 
 def test_a_systemd_resource_no_quadlet_explains_is_listed_on_its_own(

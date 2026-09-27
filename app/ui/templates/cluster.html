@@ -162,9 +162,12 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
         <p class="editor-meta">
           Where each resource is allowed or asked to run.
           <code>cli-prefer-</code> is a placement somebody asked for, whether
-          that was <code>preferred_host</code> at deployment or a Move here:
-          the two write the same object and the CIB cannot tell them apart.
-          <code>pin-</code> is <code>pinned_host</code>, which Return does not
+          that was a guest's <code>preferred_host</code> at deployment or a
+          Move here: the two write the same object and the CIB cannot tell
+          them apart. <code>prefer-</code> is a container's
+          <code>preferred_host</code>, written by its deployment with a score
+          of 100 that the cluster weighs rather than obeys, and Return leaves
+          it. <code>pin-</code> is <code>pinned_host</code>, which Return does not
           remove. <code>cli-ban-</code> keeps a resource off a node, which is
           how an observer is kept from running guests.
         </p>

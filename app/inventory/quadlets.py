@@ -122,6 +122,9 @@ class Quadlet:
     """Declared in `cluster_containers` rather than uploaded by
     `upload_extra_files`. `name` is then the workload's, which is the
     Pacemaker resource, and `unit` the one the resource starts."""
+    preferred_host: str = ""
+    """The member a workload's entry asks the cluster to run it on, which
+    `deploy_containers_cluster` writes as a `prefer-` rule."""
 
     @property
     def actionable(self) -> bool:
@@ -322,6 +325,7 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
     )
     file_name = files.get(source) or f"{name}.container"
     kind = _split(file_name)[1] or ".container"
+    preferred = spec.get("preferred_host")
     return Quadlet(
         host=host,
         name=name,
@@ -331,6 +335,7 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
         dest=f"{QUADLET_DIR}/{file_name}",
         mode="0644",
         workload=True,
+        preferred_host=preferred if isinstance(preferred, str) else "",
     )
 
 

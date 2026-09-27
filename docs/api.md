@@ -1033,7 +1033,7 @@ on the same port.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/containers` | Every container the inventory declares. Each carries the `hosts` it is uploaded to, the `scope` the entry is written at, `file_name`, which is what the file is called under `/etc/containers/systemd`, the quadlet `file` and whether a run would find it, `readable` saying whether this node can show it, `managed` saying whether Pacemaker or systemd owns it, the `resource` where there is one, and `units`, which is what each machine's exporter says about the unit. A container the cluster holds also carries `placement` (`free`, `kept` or `displaced`), the `constraint` holding it, the `pinned` rule where a site wrote one, and the `destinations` a move may name. `variable` says what declares it, `upload_extra_files_upload_files` or `cluster_containers`, and `playbook` names the run that puts it on the machines. `undeclared` lists the systemd resources the cluster runs that no quadlet here explains; `scopes` is where a declaration may be written, with the machines each one reaches and the reason the unavailable ones are refused; `upload_playbook` and `workload_playbook` name the runs of the two ways |
+| GET | `/containers` | Every container the inventory declares. Each carries the `hosts` it is uploaded to, the `scope` the entry is written at, `file_name`, which is what the file is called under `/etc/containers/systemd`, the quadlet `file` and whether a run would find it, `readable` saying whether this node can show it, `managed` saying whether Pacemaker or systemd owns it, the `resource` where there is one, and `units`, which is what each machine's exporter says about the unit. A workload of `cluster_containers` carries the `preferred_host` its entry declares. A container the cluster holds also carries `placement` (`free`, `kept`, `adrift`, `displaced` or `pinned`, the VMs page's states), the `constraint` a move wrote, the `preference` a deployment wrote from `preferred_host`, the `pinned` rule where a site wrote one, and the `destinations` a move may name. `variable` says what declares it, `upload_extra_files_upload_files` or `cluster_containers`, and `playbook` names the run that puts it on the machines. `undeclared` lists the systemd resources the cluster runs that no quadlet here explains; `scopes` is where a declaration may be written, with the machines each one reaches and the reason the unavailable ones are refused; `upload_playbook` and `workload_playbook` name the runs of the two ways |
 | POST | `/containers` | Declare one container, one commit, `If-Match` on the commit hash. `scope_kind` and `scope_name` say where the upload entry is written, `src` names the quadlet file, and `pacemaker` declares it as a workload of `cluster_containers` instead, where the cluster members read it, the scope then unused. `playbook` in the answer names the run to launch. `admin` |
 | POST | `/containers/{name}/start` | Start it. Through Pacemaker where the cluster holds the resource, through systemd on the machine named in `host` where it does not. `202` with the run. `operator` |
 | POST | `/containers/{name}/stop` | Stop it, the same two ways. `202` with the run. `operator` |
@@ -1049,8 +1049,9 @@ Pacemaker resource, so Move and Return are `POST /cluster/resources/{id}/move`
 and `/clear`, which write and remove the `cli-prefer` constraint. The reading
 above carries what those two need: `placement` says whether the cluster or a
 constraint decides, and `destinations` says which members a move may name.
-Nothing is written back by a return, because the inventory declares no
-placement for a container. See [D34](decisions.md#d34).
+Nothing is written back by a return: `crm resource clear` leaves the
+`prefer-` rule a deployment wrote from `preferred_host`, and the cluster leans
+back to it by itself. See [D34](decisions.md#d34).
 
 Adding a container is two requests the page makes one gesture: the quadlet to
 `PUT /inventory/files/files/<name>.container`, then this endpoint to declare

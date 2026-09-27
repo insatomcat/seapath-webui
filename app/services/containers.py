@@ -167,14 +167,23 @@ class ContainerView(BaseModel):
     placement: str = ""
     """What decides which member runs it, for a container Pacemaker holds.
 
-    `free` where no constraint holds it and the cluster places it, `kept` where
-    a constraint names the node it is running on, `displaced` where a
-    constraint names another one, which is the cluster failing to honour a rule
-    it carries. Empty for a container systemd owns, where the machines are the
-    ones the inventory uploads it to and there is nothing to place.
+    The four states of the VMs page: `free` where neither a rule nor the entry
+    names a member, `kept` where the rule in force names the member it runs on
+    and the entry's `preferred_host` names the same one, `adrift` where the
+    rule and the entry disagree, a missing rule included, and `displaced` where
+    the rule in force names another member than the one it runs on. Empty for
+    a container systemd owns, where the machines are the ones the inventory
+    uploads it to and there is nothing to place.
     """
+    preferred_host: str = ""
+    """Where the workload's entry asks the cluster to run it, when it asks."""
     constraint: LocationConstraint | None = None
     """The `cli-prefer` rule holding it, which a return removes."""
+    preference: LocationConstraint | None = None
+    """The `prefer-` rule a deployment wrote from `preferred_host`.
+
+    What the cluster weighs once no `cli-prefer` overrides it, and what a
+    return therefore gives the container back to."""
     pinned: str = ""
     """The id of the `pin-` constraint holding it, when a site wrote one.
 
@@ -341,6 +350,7 @@ class ContainerService:
                 units=[units[(host, first.unit)] for host in hosts],
                 warnings=self._container_warnings(first, resource, files),
                 readable=_readable(files.get((first.host, first.src))),
+                preferred_host=first.preferred_host,
             )
             if resource is not None:
                 _place(entry, cluster, resource)
@@ -991,25 +1001,35 @@ def _place(
 ) -> None:
     """What decides where a container runs, and where a move could send it.
 
-    Three states and no fourth: the only two things held against each other
-    are the `cli-prefer` constraint a move writes and the node the resource is
-    on. The `preferred_host` of a workload is a `prefer-` rule with a finite
-    score, which the cluster weighs rather than obeys, and a move overrides it
-    without removing it. The cluster places it, a
-    constraint places it and the resource is there, or a constraint places it
-    and the resource is somewhere else, which means the node it names could not
-    take it.
+    Three things are held against each other, as on the VMs page: the entry's
+    `preferred_host`, the rule in force, and the node the resource is on. The
+    rule in force is the `cli-prefer` a move writes where there is one, since
+    its infinite score overrides everything else, and otherwise the `prefer-`
+    rule a deployment wrote from `preferred_host`.
+
+    A rule naming another node than the one the resource is on is the cluster
+    not following it, which outranks any disagreement about where the
+    container belongs. An entry naming a member no rule carries is the
+    inventory ahead of the cluster, the state between an edit and the
+    deployment run that writes it, and it disagrees the same way a move away
+    from the declared member does.
     """
     constraint = ha.preference(cluster, resource.id)
+    preference = ha.declared(cluster, resource.id)
     pinned = ha.pin(cluster, resource.id)
     view.constraint = constraint
+    view.preference = preference
     view.pinned = pinned.id if pinned else ""
-    if constraint is None:
-        view.placement = "free"
-    elif resource.node and constraint.node == resource.node:
-        view.placement = "kept"
-    else:
+    held = constraint or preference
+    declared = view.preferred_host
+    if pinned is not None:
+        view.placement = "pinned"
+    elif held is not None and held.node != resource.node:
         view.placement = "displaced"
+    elif held is None:
+        view.placement = "adrift" if declared else "free"
+    else:
+        view.placement = "kept" if held.node == declared else "adrift"
     # A pinned resource runs where it is pinned or nowhere, and a clone runs
     # one instance per member: neither has a node to be sent to, and the whole
     # placement pair is withheld rather than offered and refused.

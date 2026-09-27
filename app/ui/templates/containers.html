@@ -66,14 +66,16 @@ not.
     <p class="pane-foot">
       <span class="pane-foot-note" id="runtime-note"></span>
       {# The key to the colour of a node name, on the rows Pacemaker places.
-         A container has no `preferred_host`: the inventory says which machines
-         receive the quadlet and never which member runs it, so there are three
-         states rather than the VMs page's four. Hidden where the cluster holds
-         nothing, since a key to a colour nothing on screen carries is noise. #}
+         The VMs page's states: a workload of `cluster_containers` declares a
+         `preferred_host` the way a guest does, and it is held against the
+         rule in force the same way. Hidden where the cluster holds nothing,
+         since a key to a colour nothing on screen carries is noise. #}
       <span class="pane-foot-note placement-key" id="placement-key" hidden>
         <span><span class="placement free">node</span> the cluster places it</span>
-        <span><span class="placement kept">node</span> a constraint holds it there</span>
+        <span><span class="placement kept">node</span> held where the inventory declares</span>
+        <span><span class="placement adrift">node</span> cluster and inventory disagree</span>
         <span><span class="placement displaced">node</span> not the machine the constraint names</span>
+        <span><span class="placement pinned">node</span> pinned there by the inventory</span>
       </span>
     </p>
   </section>

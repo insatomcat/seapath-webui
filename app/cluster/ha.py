@@ -155,7 +155,12 @@ class LocationConstraint(BaseModel):
 # `vm_manager` writes all three: `preferred_host` is a `crm resource move`,
 # an observer is a ban, and `pinned_host` alone gets a constraint of its own,
 # named after the field and left alone by a clear.
+#
+# `deploy_containers_cluster` writes a workload's `preferred_host` as
+# `prefer-<resource>` with a score of 100, which the cluster weighs rather
+# than obeys, and which a clear leaves alone as well.
 PREFER_PREFIX = "cli-prefer-"
+DECLARED_PREFIX = "prefer-"
 BAN_PREFIX = "cli-ban-"
 PIN_PREFIX = "pin-"
 
@@ -208,6 +213,15 @@ def preference(cluster: PacemakerCluster, resource: str) -> LocationConstraint |
     and the page draws that.
     """
     return _constraint(cluster, resource, PREFER_PREFIX)
+
+
+def declared(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
+    """The `prefer-` rule a workload's `preferred_host` becomes, when there is one.
+
+    Finite, so it says where the cluster leans rather than where it must run
+    the resource, and a move overrides it without removing it.
+    """
+    return _constraint(cluster, resource, DECLARED_PREFIX)
 
 
 def pin(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:

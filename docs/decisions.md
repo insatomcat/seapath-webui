@@ -2107,6 +2107,30 @@ A return writes nothing back, for the same reason there is no fourth colour.
 The inventory declares no placement for a container, so there is nothing to
 restore and `crm resource clear` alone is the whole act.
 
+### Amended: a workload declares a preferred_host, and the colour has the guest's states
+
+The three states were written before `cluster_containers`. A workload of that
+variable carries `preferred_host` like a guest, and `deploy_containers_cluster`
+writes it as `location prefer-<name> <name> 100: <node>`. Read with the rule
+above, a workload running on its declared member through that rule was blue,
+"the cluster places it", and a `preferred_host` just added to the inventory and
+not yet deployed was blue as well: the page said nothing about the one thing
+the entry had asked for.
+
+The container is now read the way a guest is, with the same colours and the
+same key. The rule in force is the move's `cli-prefer` where there is one,
+since its infinite score overrides the deployment's 100, and otherwise the
+`prefer-` rule. That rule naming another member than the one the container
+runs on is `displaced`; the rule and the entry agreeing on the member is
+`kept`; the two disagreeing, including an entry naming a member no rule
+carries yet, is `adrift`; neither naming one is `free`; a `pin-` rule is
+`pinned`. A container of `upload_extra_files` declares no placement and keeps
+reading as before, with an empty `preferred_host`.
+
+A return still writes nothing. `crm resource clear` removes the `cli-prefer`
+and leaves the `prefer-` rule, so the cluster leans back to the declared member
+by itself, and the confirmation says which rule stays.
+
 ## D34 - Settled: a placement can be told to the cluster, and a return puts back what the inventory declares
 
 Moving a guest on purpose is the one act nobody would design a declarative

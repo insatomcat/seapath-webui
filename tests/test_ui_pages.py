@@ -1722,20 +1722,22 @@ def test_the_containers_page_opens_the_quadlet_it_names(
 def test_the_containers_page_says_what_places_a_container_the_cluster_holds(
     signed_in: TestClient,
 ) -> None:
-    """Three states, because a container has no preferred_host.
+    """The VMs page's states, because a workload declares a preferred_host.
 
-    The inventory says which machines receive the quadlet and never which
-    member runs it, so there is no declared placement to hold the constraint
-    against: the whole reading is the constraint and the node the resource is
-    on.
+    `deploy_containers_cluster` writes it as a `prefer-` rule, so the entry,
+    the rule in force and the node the resource is on are held against each
+    other the way a guest's are, and a row running where its entry asks is
+    not the cluster placing it on its own.
     """
     body = signed_in.get("/containers").text
     script = signed_in.get("/static/containers.js").text
 
     assert 'name.className = "placement " + container.placement;' in script
     assert "the cluster places it" in body
-    assert "a constraint holds it there" in body
+    assert "held where the inventory declares" in body
+    assert "cluster and inventory disagree" in body
     assert "not the machine the constraint names" in body
+    assert "pinned there by the inventory" in body
     # And the key is hidden where nothing on screen carries the colour.
     assert 'element("placement-key").hidden = !containers.some(' in script
 
