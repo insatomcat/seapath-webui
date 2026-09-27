@@ -308,8 +308,9 @@
 
   // The colour says which state the placement is in, and the sentence behind
   // it says what to do about that one. The rule in force is the move's
-  // `cli-prefer` where there is one, since its infinite score overrides the
-  // deployment's `prefer-`, whose score of 100 the cluster only weighs.
+  // `cli-prefer` where there is one, since a move overrides the rule the
+  // deployment wrote from preferred_host: `seapath-preferred-`, or the
+  // `prefer-` of score 100 an older role wrote and the next run replaces.
   function explainPlacement(container, where) {
     const name = container.name;
     const declared = container.preferred_host || "";
@@ -320,8 +321,8 @@
       return (
         container.pinned +
         " pins this container to that machine: it runs there or nowhere. " +
-        "Nothing short of rebuilding the resource removes that rule, so " +
-        "neither Move nor Return is offered here."
+        "It is the entry's pinned_host, which a deployment run writes and " +
+        "removes, so neither Move nor Return is offered here."
       );
     }
     if (held && held.node !== where) {
@@ -331,10 +332,10 @@
           held.node +
           " could not take it: offline, in standby, or the container failed " +
           "there."
-        : ". The deployment wrote it with a score of 100, which the cluster " +
-          "weighs against the rest of its rules, so " +
+        : ". The deployment wrote it from preferred_host, so " +
           held.node +
-          " could not take it or another rule outweighed it.";
+          " could not take it: offline, in standby, the container failed " +
+          "there, or another rule outweighed it.";
       return (
         held.id + " names " + held.node + ", and " + name +
         " is running on " + where + why + returnSentence(container)
@@ -376,7 +377,7 @@
   }
 
   // What Return leaves behind: `crm resource clear` removes the move's
-  // `cli-prefer` and never the deployment's `prefer-`, so the container goes
+  // `cli-prefer` and never the deployment's rule, so the container goes
   // back to the preference the cluster carries, or to no preference at all.
   function returnSentence(container) {
     const preference = container.preference;
@@ -763,6 +764,48 @@
 
   let staged = null;
 
+  // Where the workload runs is the site's choice, among members no supplier
+  // knows, so the form asks it. It starts from the placement the installed
+  // workload has, and the cluster choosing for a new one.
+  function placementForm(nodes, current) {
+    const mode = element("delivery-placement");
+    const node = element("delivery-node");
+    node.replaceChildren();
+    nodes.forEach((name) => node.append(new Option(name, name)));
+    const chosen = current.pinned_host
+      ? "pinned_host"
+      : current.preferred_host
+        ? "preferred_host"
+        : "";
+    mode.value = chosen;
+    node.value = current.pinned_host || current.preferred_host || nodes[0] || "";
+    showPlacement();
+  }
+
+  function showPlacement() {
+    const mode = element("delivery-placement").value;
+    element("delivery-node").hidden = !mode;
+    element("delivery-node-label").hidden = !mode;
+    element("delivery-placement-help").textContent =
+      mode === "preferred_host"
+        ? "Written to the cluster as seapath-preferred-<name>. The workload " +
+          "runs on that member whenever it can take it, and on another one " +
+          "while it cannot."
+        : mode === "pinned_host"
+          ? "Written to the cluster as pin-<name>. The workload runs on that " +
+            "member or nowhere."
+          : "No placement rule: Pacemaker picks the member.";
+  }
+
+  function formPlacement() {
+    const mode = element("delivery-placement").value;
+    const placement = { preferred_host: null, pinned_host: null };
+    if (mode) {
+      placement[mode] = element("delivery-node").value;
+    }
+    return placement;
+  }
+
   function showDelivery(open) {
     element("delivery").hidden = !open;
     if (!open) {
@@ -833,10 +876,41 @@
     element("delivery-readme").textContent = staged.readme || "";
     element("delivery-readme-box").hidden = !staged.readme;
     valueForm(element("delivery-values"), staged.values || []);
+    placementForm(staged.nodes || [], staged.placement || {});
+    element("delivery-recreate").checked = false;
+    element("delivery-recreate-box").hidden = !staged.update;
     element("delivery-go").hidden = false;
   }
 
-  async function installDelivery() {
+  // Deleting the RBD image is the one part of an installation that cannot be
+  // undone, so it is confirmed on its own, naming what is lost.
+  function installDelivery() {
+    if (!(staged.update && element("delivery-recreate").checked)) {
+      submitDelivery(false);
+      return;
+    }
+    confirm({
+      title: "Start " + staged.name + " again from nothing",
+      body:
+        "Commits " +
+        staged.version +
+        ", then runs deploy_containers_cluster, which stops " +
+        staged.name +
+        ", deletes its Pacemaker resource and its RBD image, and deploys it " +
+        "as the first time. Everything it wrote on its RBD image is lost: " +
+        "settings changed in operation, an HMI's state, secrets.",
+      note:
+        "The run also deploys the other workloads of cluster_containers, as " +
+        "any run of that playbook does.",
+      label: "Install and start again",
+      act: async () => {
+        element("confirm").hidden = true;
+        await submitDelivery(true);
+      },
+    });
+  }
+
+  async function submitDelivery(recreate) {
     const holder = element("delivery-values");
     const error = element("delivery-error");
     error.hidden = true;
@@ -845,10 +919,16 @@
     try {
       const installed = await API.post(
         "/containers/deliveries/" + staged.id + "/install",
-        { values: formValues(holder) }
+        { values: formValues(holder), placement: formPlacement(), recreate }
       );
       staged.installed = true;
       go.hidden = true;
+      if (installed.run_id) {
+        // One gesture, one run: the window closes onto it.
+        showDelivery(false);
+        RunWatch.open(installed.run_id, () => refresh(true));
+        return;
+      }
       const next = element("delivery-next");
       next.textContent =
         (installed.commit
@@ -1074,6 +1154,7 @@
   element("delivery-cancel").addEventListener("click", () => showDelivery(false));
   element("delivery-check").addEventListener("click", checkDelivery);
   element("delivery-go").addEventListener("click", installDelivery);
+  element("delivery-placement").addEventListener("change", showPlacement);
   element("values-cancel").addEventListener("click", () => {
     element("values").hidden = true;
   });

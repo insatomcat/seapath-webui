@@ -180,7 +180,7 @@ class ContainerView(BaseModel):
     constraint: LocationConstraint | None = None
     """The `cli-prefer` rule holding it, which a return removes."""
     preference: LocationConstraint | None = None
-    """The `prefer-` rule a deployment wrote from `preferred_host`.
+    """The rule a deployment wrote from `preferred_host`.
 
     What the cluster weighs once no `cli-prefer` overrides it, and what a
     return therefore gives the container back to."""
@@ -189,7 +189,8 @@ class ContainerView(BaseModel):
 
     A pinned resource runs there or nowhere: a move would leave two mandatory
     rules pulling in opposite directions and a return would not remove this
-    one, so the page offers neither.
+    one, so the page offers neither. The entry's `pinned_host` is what a
+    deployment run writes or removes.
     """
     destinations: list[str] = Field(default_factory=list)
     """The members a move may send it to, which is where one can be offered."""
@@ -670,6 +671,20 @@ class ContainerService:
         )
         return commit
 
+    def workload_hosts(self) -> list[str]:
+        """The members a workload runs on, which its placement may name."""
+        document = self._inventory.raw()
+        if not document.strip():
+            return []
+        table = groups(document)
+        if any(group not in table for group in quadlets.WORKLOAD_GROUPS):
+            return []
+        return sorted(
+            set.intersection(
+                *(_members(table, group) for group in quadlets.WORKLOAD_GROUPS)
+            )
+        )
+
     def workload(self, name: str) -> dict[str, Any] | None:
         """A workload's entry as the file writes it, or None."""
         document = self._inventory.raw()
@@ -1004,8 +1019,8 @@ def _place(
     Three things are held against each other, as on the VMs page: the entry's
     `preferred_host`, the rule in force, and the node the resource is on. The
     rule in force is the `cli-prefer` a move writes where there is one, since
-    its infinite score overrides everything else, and otherwise the `prefer-`
-    rule a deployment wrote from `preferred_host`.
+    its infinite score overrides everything else, and otherwise the rule a
+    deployment wrote from `preferred_host`.
 
     A rule naming another node than the one the resource is on is the cluster
     not following it, which outranks any disagreement about where the

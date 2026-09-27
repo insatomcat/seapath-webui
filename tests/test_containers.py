@@ -515,18 +515,19 @@ def _placed(
     moved: str = "",
     deployed: str = "",
     pinned: str = "",
+    rule: str = "prefer-",
 ) -> ContainerView:
     """Where the service says a container is, from the rules the cluster holds.
 
-    `moved` is the `cli-prefer` a move writes, `deployed` the `prefer-` rule
-    `deploy_containers_cluster` writes from `preferred_host`, and `declared`
-    the entry's `preferred_host` itself.
+    `moved` is the `cli-prefer` a move writes, `deployed` the rule
+    `deploy_containers_cluster` writes from `preferred_host`, `rule` its
+    prefix, and `declared` the entry's `preferred_host` itself.
     """
     rules = [
         LocationConstraint(id=f"{prefix}c", resource="c", node=node, score=score)
         for prefix, node, score in (
             ("cli-prefer-", moved, "INFINITY"),
-            ("prefer-", deployed, "100"),
+            (rule, deployed, "100" if rule == "prefer-" else "INFINITY"),
             ("pin-", pinned, "INFINITY"),
         )
         if node
@@ -566,6 +567,18 @@ def test_a_deployed_preference_where_the_entry_declares_it_holds_the_container()
     assert view.placement == "kept"
     assert view.preference is not None and view.preference.id == "prefer-c"
     assert view.constraint is None
+
+
+def test_the_rule_the_role_writes_now_holds_the_container_as_the_old_one_did() -> None:
+    # `seapath-preferred-`, infinite, the name vm_manager gives a guest's
+    # preferred_host. An older role wrote `prefer-`, which its next run replaces.
+    view = _placed(
+        "elabo1", declared="elabo1", deployed="elabo1", rule="seapath-preferred-"
+    )
+
+    assert view.placement == "kept"
+    assert view.preference is not None
+    assert view.preference.id == "seapath-preferred-c"
 
 
 def test_a_preferred_host_no_deployment_wrote_yet_is_a_disagreement() -> None:

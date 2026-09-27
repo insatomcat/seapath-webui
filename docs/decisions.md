@@ -5414,6 +5414,38 @@ read at start; the page offers Restart, `crm resource restart`, as an
 operator's act. Settings an operator tunes in service belong to the
 application, on its RBD image, where no redeployment touches them.
 
+### Amended: placement is asked, and an installation can start from nothing
+
+Two gaps showed on the first real update. The placement was kept from the old
+entry and never asked, while a supplier cannot know the members of a site:
+`inventory-example.yaml` no longer carries it, and the form asks where the
+workload runs, the cluster choosing, preferably on a member, or only on one,
+prefilled from the installed workload. And an update left behind whatever the
+old entry named outside `inventories/<name>/`, such as the quadlets of a
+workload first declared by hand, and on the nodes the quadlets a new version
+renamed.
+
+The entry is now the delivery's, the site values and the placement: another
+key the old entry had goes with it, the colocations excepted. The files it
+named that nothing names any more are removed from the folder in the same
+commit. The role removes a dropped quadlet from the nodes itself, from the
+list each node keeps of what it wrote for the workload.
+
+The role also makes placement follow the entry on a resource that exists:
+`preferred_host` is written as `seapath-preferred-<name>`, infinite, the rule
+`vm_manager` writes for a guest, and `pinned_host` as `pin-<name>`, each
+rewritten or deleted when the entry changes. The `prefer-` rule of score 100
+the role wrote before is read as the same thing and replaced by its next run.
+
+Starting a workload again from nothing, its RBD image deleted, is a checkbox
+beside the placement, offered on an update. It is an act made once, so it is
+a value given to one run, `deploy_containers_cluster_recreate`, and never
+written in the inventory, where every later run would delete the data again.
+Checked, it is confirmed on its own, and the installation commits then
+launches that run and follows it, as D66 does for a guest's domain: one
+gesture, one run. The Deployment page names the variable and sends the
+operator here, since it deletes what the workload wrote.
+
 ### What this does not write
 
 Secrets. The contract has the application read them from files on its RBD

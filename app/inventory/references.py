@@ -139,6 +139,39 @@ def references(document: str | dict[str, Any]) -> list[tuple[str, Variable, str]
     return found
 
 
+def in_use(document: str | dict[str, Any], leaving: str = "") -> set[str]:
+    """Where the files the inventory names are stored in the folder.
+
+    `leaving` is a workload of `cluster_containers` whose paths are left out,
+    so that what is left says which of its files something else still names.
+    """
+    found: set[str] = set()
+    for variables in resolve(document).values():
+        for variable in KNOWN:
+            if variable.name not in variables:
+                continue
+            value = variables[variable.name]
+            if variable.shape is Shape.WORKLOADS and isinstance(value, dict):
+                value = {name: spec for name, spec in value.items() if name != leaving}
+            for path in _paths(variable, value):
+                stored = in_folder(path)
+                if stored is not None:
+                    found.add(stored)
+    return found
+
+
+def workload_in_folder(spec: Any) -> set[str]:
+    """Where the files one workload names are stored in the folder."""
+    found: set[str] = set()
+    for path in _workload_paths(spec):
+        stored = (
+            None if "{{" in path or path.startswith(("/", "~")) else in_folder(path)
+        )
+        if stored is not None:
+            found.add(stored)
+    return found
+
+
 def check(document: str | dict[str, Any], roots: Roots) -> list[Reference]:
     """What a run would find, one line per path the inventory names."""
     return [

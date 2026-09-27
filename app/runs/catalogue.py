@@ -50,6 +50,10 @@ from app.runs import analysis
 # true rather than nearly true.
 COLLECTION = "seapath.ansible"
 
+# What `deploy_containers_cluster` reads as the workloads it starts again from
+# nothing in one run.
+RECREATE_VARIABLE = "deploy_containers_cluster_recreate"
+
 
 class Preview(str, Enum):
     FULL = "full"
@@ -171,6 +175,12 @@ class VariableType(str, Enum):
     a machine name. They are typed rather than free text for the reason D8
     gives about tags: a value this service cannot check is a free form extra
     vars box, and this one refuses to have one.
+    """
+    WORKLOAD = "workload"
+    """A workload `cluster_containers` declares present, which the API checks.
+
+    Offered on the Containers page, where a delivery is installed, rather
+    than on the Deployment page: it deletes what the workload wrote.
     """
     UNKNOWN = "unknown"
     """A variable analysis found and nothing here knows how to ask for.
@@ -937,8 +947,13 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "hypervisor, creates the RBD images and the Pacemaker resources "
             "that are missing, and starts those new resources. A workload "
             "already running is never restarted: a changed quadlet applies at "
-            "its next start. A workload marked `state: absent` is stopped and "
-            "removed, and its RBD image deleted when it says `remove_rbd`."
+            "its next start. A changed preferred_host or pinned_host is "
+            "written to the cluster, which moves the workload there, stopping "
+            "it on one member and starting it on the other. A workload marked "
+            "`state: absent` is stopped and removed, and its RBD image deleted "
+            "when it says `remove_rbd`. A workload named in "
+            f"{RECREATE_VARIABLE} is stopped, its RBD image deleted, and "
+            "deployed again from nothing."
         ),
         requires=[
             Precondition.INVENTORY_VALID,
@@ -947,10 +962,22 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.CLUSTER,
             Precondition.PLAYBOOK_PRESENT,
         ],
+        variables=[
+            VariableSpec(
+                name=RECREATE_VARIABLE,
+                type=VariableType.WORKLOAD,
+                description=(
+                    "A workload to start again from nothing: its resource and "
+                    "its RBD image are deleted, then created and filled as on a "
+                    "first deployment"
+                ),
+            )
+        ],
         notes=(
             "An RBD image is filled from the inventory once, when the run "
             "creates it. What the workload writes there afterwards is never "
-            "overwritten by a later run."
+            "overwritten by a later run, unless the run is told to start "
+            "that workload again from nothing."
         ),
     ),
     PlaybookEntry(

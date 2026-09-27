@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import subprocess
 import tarfile
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +26,7 @@ from fastapi.testclient import TestClient
 
 from app.core.settings import Settings
 from app.inventory import delivery
+from app.trust import known_hosts
 from tests.test_containers import CLUSTER, _import
 
 POD = """[Unit]
@@ -345,6 +347,182 @@ def test_a_new_version_keeps_the_site_values_and_takes_the_old_files_away(
     assert sorted(path.name for path in folder.iterdir()) == ["model-2.cid"]
     assert not (settings.artefacts_dir / "files/vied-1.tar").exists()
     assert (settings.artefacts_dir / "files/vied-2.tar").is_file()
+
+
+def _entry(client: TestClient, name: str = "vied") -> dict:
+    document = yaml.safe_load(client.get("/api/v1/inventory/raw").text)
+    return document["all"]["children"]["cluster_machines"]["vars"][
+        "cluster_containers"
+    ][name]
+
+
+def _install(client: TestClient, staged: dict, **extra: object):
+    return client.post(
+        f"/api/v1/containers/deliveries/{staged['id']}/install",
+        json={"values": SITE, **extra},
+    )
+
+
+# Placement
+
+
+def test_the_form_offers_the_members_and_writes_the_placement_chosen(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build(tmp_path))
+
+    assert staged["nodes"] == ["elabo1", "elabo2", "seapath-machine"]
+    assert staged["placement"] == {"preferred_host": None, "pinned_host": None}
+
+    response = _install(
+        signed_in, staged, placement={"preferred_host": "elabo2", "pinned_host": None}
+    )
+
+    assert response.status_code == 201, response.text
+    assert _entry(signed_in)["preferred_host"] == "elabo2"
+    assert "pinned_host" not in _entry(signed_in)
+
+
+@pytest.mark.parametrize(
+    ("placement", "reason"),
+    [
+        ({"preferred_host": "elabo1", "pinned_host": "elabo2"}, "not both"),
+        ({"pinned_host": "observer"}, "not a member"),
+    ],
+)
+def test_a_placement_the_cluster_cannot_follow_is_refused(
+    signed_in: TestClient, tmp_path: Path, placement: dict, reason: str
+) -> None:
+    _import(signed_in, CLUSTER)
+    before = signed_in.get("/api/v1/inventory/raw").text
+    staged = _stage(signed_in, _build(tmp_path))
+
+    response = _install(signed_in, staged, placement=placement)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_placement"
+    assert reason in response.json()["error"]["message"]
+    assert signed_in.get("/api/v1/inventory/raw").text == before
+
+
+def test_a_new_version_takes_the_placement_answered_and_drops_other_keys(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _install(
+        signed_in,
+        _stage(signed_in, _build(tmp_path / "one")),
+        placement={"pinned_host": "elabo1"},
+    )
+    document = yaml.safe_load(signed_in.get("/api/v1/inventory/raw").text)
+    document["all"]["children"]["cluster_machines"]["vars"]["cluster_containers"][
+        "vied"
+    ]["stale"] = 1
+    _import(signed_in, yaml.safe_dump(document, sort_keys=False))
+    assert _entry(signed_in)["stale"] == 1
+
+    second = _stage(signed_in, _build(tmp_path / "two", version="vied-2"))
+    assert second["placement"] == {"preferred_host": None, "pinned_host": "elabo1"}
+
+    # Sent without a placement, the one it has is kept.
+    _install(signed_in, second)
+    assert _entry(signed_in)["pinned_host"] == "elabo1"
+    assert "stale" not in _entry(signed_in)
+
+    third = _stage(signed_in, _build(tmp_path / "three", version="vied-3"))
+    _install(signed_in, third, placement={"preferred_host": None, "pinned_host": None})
+    assert "pinned_host" not in _entry(signed_in)
+
+
+def test_the_files_a_workload_declared_by_hand_named_go_unless_still_named(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    # The workload was first written by hand, its quadlets beside the
+    # inventory. One file is also uploaded by upload_extra_files.
+    _import(signed_in, CLUSTER)
+    for path in ("inventories/vied.pod.j2", "files/nginxquadlet.container"):
+        response = signed_in.put(
+            f"/api/v1/inventory/files/{path}",
+            content=b"[Unit]\n",
+            headers={"Content-Type": "application/octet-stream"},
+        )
+        assert response.status_code < 300, response.text
+    raw = signed_in.get("/api/v1/inventory/raw").text
+    by_hand = raw.replace(
+        "        extra_crm_cmd_to_run:",
+        "        cluster_containers:\n"
+        "          vied:\n"
+        "            quadlets:\n"
+        "              - ../inventories/vied.pod.j2\n"
+        "              - ../files/nginxquadlet.container\n"
+        "        extra_crm_cmd_to_run:",
+    )
+    _import(signed_in, by_hand)
+
+    response = _install(signed_in, _stage(signed_in, _build(tmp_path)))
+
+    assert response.status_code == 201, response.text
+    assert not (settings.inventory_dir / "inventories/vied.pod.j2").exists()
+    assert (settings.inventory_dir / "files/nginxquadlet.container").is_file()
+
+
+# Starting again from nothing
+
+
+def _reach_the_members(client: TestClient, settings: Settings, tmp_path: Path) -> None:
+    """The site key and the members' host keys, which a run of the cluster needs."""
+    key = tmp_path / "site_key"
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(key)], check=True
+    )
+    client.put("/api/v1/trust/site-key", json={"material": key.read_text()})
+    known_hosts.accept_peers(
+        settings.known_hosts_file,
+        {
+            "192.168.200.126": ["ssh-ed25519 AAAAelabo1"],
+            "192.168.200.127": ["ssh-ed25519 AAAAelabo2"],
+        },
+    )
+
+
+def test_recreating_launches_the_run_with_the_workload_named(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+
+    response = _install(
+        signed_in,
+        _stage(signed_in, _build(tmp_path / "two", version="vied-2")),
+        recreate=True,
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["commit"]
+    run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
+    assert run["playbook_id"] == "deploy_containers_cluster"
+    assert run["variables"] == {"deploy_containers_cluster_recreate": "vied"}
+
+
+def test_a_workload_to_recreate_is_one_the_inventory_declares(
+    signed_in: TestClient, settings: Settings, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+
+    response = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "deploy_containers_cluster",
+            "variables": {"deploy_containers_cluster_recreate": "nothere"},
+        },
+    )
+
+    assert response.status_code == 400, response.text
+    assert response.json()["error"]["code"] == "invalid_variable"
 
 
 # The site values of an installed workload

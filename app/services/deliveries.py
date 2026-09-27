@@ -20,8 +20,11 @@ All of the inventory side is one commit. Nothing reaches a machine: that is
 the run of `deploy_containers_cluster`, named at the end.
 
 A new version of a workload already installed is the same path. Its entry is
-replaced by the delivery's, the site values and the placement it had are
-kept, and a value the new version adds is asked for.
+replaced by the delivery's, with the site values and the placement the form
+answers, prefilled with what it had. The files the old entry named and nothing
+names any more are removed, wherever they were in the folder. Asked to, the
+installation also launches the run that starts the workload again from
+nothing, its RBD image included.
 """
 
 from __future__ import annotations
@@ -37,15 +40,15 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
-from app.inventory import delivery, quadlets
+from app.inventory import delivery, quadlets, references
 from app.inventory.service import InventoryService, RefusedFile
 from app.services.containers import WORKLOAD_PLAYBOOK, ContainerService
 
 logger = logging.getLogger(__name__)
 
-# The keys of an entry a delivery writes. Every other key an installed entry
-# holds is the site's, placement included, and an update keeps it.
-_DELIVERED = ("unit", "images", "quadlets", "rbd")
+# Where a workload runs, which the site decides and no delivery knows. The
+# form answers the first two; the colocations are kept as the entry has them.
+_PLACEMENT = ("preferred_host", "pinned_host", "colocated_with", "strong_colocation")
 
 # A staged delivery nobody installed is removed after this long.
 _STALE_SECONDS = 24 * 3600
@@ -66,6 +69,15 @@ class ValueField(BaseModel):
     """What the installed workload has, when there is one."""
 
 
+class Placement(BaseModel):
+    """Where the site runs a workload: one of the two, or neither."""
+
+    preferred_host: str | None = None
+    """The member it runs on while that member is up."""
+    pinned_host: str | None = None
+    """The member it runs on, and nowhere else."""
+
+
 class StagedDelivery(BaseModel):
     id: str
     name: str = ""
@@ -79,6 +91,10 @@ class StagedDelivery(BaseModel):
     files: list[str] = Field(default_factory=list)
     readme: str = ""
     values: list[ValueField] = Field(default_factory=list)
+    nodes: list[str] = Field(default_factory=list)
+    """The members a placement may name."""
+    placement: Placement = Field(default_factory=Placement)
+    """What the installed workload has, when there is one."""
     findings: list[str] = Field(default_factory=list)
     """Why it cannot be installed. Empty when it can."""
 
@@ -93,6 +109,12 @@ class Installed(BaseModel):
     commit: str | None = None
     message: str | None = None
     playbook: str = WORKLOAD_PLAYBOOK
+    run_id: str | None = None
+    """The run starting the workload again from nothing, when it was asked."""
+
+
+class RefusedPlacement(Exception):
+    """A placement naming no member, or two rules at once."""
 
 
 class RefusedValues(Exception):
@@ -167,6 +189,11 @@ class DeliveryService:
         staged.files = list(found.files)
         staged.readme = found.readme
         staged.values = _fields(found.values, current)
+        staged.nodes = self._containers.workload_hosts()
+        staged.placement = Placement(
+            preferred_host=current.get("preferred_host"),
+            pinned_host=current.get("pinned_host"),
+        )
         if found.name in self._containers.known() and not current:
             staged.findings.append(
                 f"{found.name} is already declared by upload_extra_files, so "
@@ -183,8 +210,14 @@ class DeliveryService:
         given: dict[str, Any],
         author: str,
         expected_head: str | None = None,
+        placement: Placement | None = None,
     ) -> Installed:
-        """Write the staged delivery into the inventory, as one commit."""
+        """Write the staged delivery into the inventory, as one commit.
+
+        The entry is the delivery's, the site values and the placement. Keys
+        the old entry had beyond those are dropped with it. `placement` None
+        keeps the one the workload has.
+        """
         root = self._tree(staged_id)
         found = delivery.read(root)
         values, refused = delivery.site_values(found.values, given)
@@ -192,22 +225,33 @@ class DeliveryService:
             raise RefusedValues(refused)
 
         current = self._containers.workload(found.name) or {}
-        spec = {
-            key: value
-            for key, value in current.items()
-            if key not in _DELIVERED and key not in {v.key for v in found.values}
-        }
-        spec.update(delivery.entry(found, values))
+        spec = delivery.entry(found, values)
+        spec.update({key: current[key] for key in _PLACEMENT if key in current})
+        if placement is not None:
+            spec.pop("preferred_host", None)
+            spec.pop("pinned_host", None)
+            spec.update(self._placement(placement))
         rendering = delivery.render(found, spec)
         if rendering:
             raise delivery.InvalidDelivery(rendering)
 
         files = delivery.inventory_files(found)
         home = delivery.folder(found.name)
+        # What the old entry named outside the workload's folder, a first
+        # installation made by hand included, goes when nothing names it any
+        # more. The folder itself is the delivery's, and what it no longer has
+        # goes whoever wrote it.
+        document = self._inventory.raw()
+        orphans = (
+            references.workload_in_folder(current)
+            - references.workload_in_folder(spec)
+            - references.in_use(document, leaving=found.name)
+        )
         removed = [
             item.path
             for item in self._inventory.files()
-            if item.path.startswith(f"{home}/") and item.path not in files
+            if item.path not in files
+            and (item.path.startswith(f"{home}/") or item.path in orphans)
         ]
         replaced = _archives(current) - {image.archive for image in found.images}
 
@@ -238,6 +282,25 @@ class DeliveryService:
             commit=commit.hash if commit else None,
             message=commit.message if commit else None,
         )
+
+    def _placement(self, placement: Placement) -> dict[str, str]:
+        preferred = (placement.preferred_host or "").strip()
+        pinned = (placement.pinned_host or "").strip()
+        if preferred and pinned:
+            raise RefusedPlacement(
+                "A workload is either preferred on a member or pinned to one, "
+                "not both."
+            )
+        chosen = preferred or pinned
+        if not chosen:
+            return {}
+        members = self._containers.workload_hosts()
+        if chosen not in members:
+            raise RefusedPlacement(
+                f"{chosen} is not a member the workload can run on. The "
+                f"cluster's are {', '.join(members) or 'none'}."
+            )
+        return {"preferred_host": preferred} if preferred else {"pinned_host": pinned}
 
     def _move_images(self, found: delivery.Delivery) -> list[Path]:
         moved: list[Path] = []

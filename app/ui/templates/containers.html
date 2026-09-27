@@ -199,7 +199,8 @@ not.
       The quadlets, the files and <code>values.yaml</code> are committed with
       the inventory, the image archives go to the artefacts, and the workload
       is declared in <code>cluster_containers</code>. A delivery of a workload
-      already installed updates it and keeps its site values.
+      already installed replaces it, the form starting from its site values
+      and its placement.
     </p>
     <div id="delivery-pick">
       <label for="delivery-file">Delivery archive</label>
@@ -220,6 +221,30 @@ not.
       </details>
       <h3>Site values</h3>
       <div id="delivery-values"></div>
+      <h3>Placement</h3>
+      <label for="delivery-placement">Where it runs</label>
+      <select id="delivery-placement">
+        <option value="">The cluster chooses</option>
+        <option value="preferred_host">Preferably on</option>
+        <option value="pinned_host">Only on</option>
+      </select>
+      <label for="delivery-node" id="delivery-node-label">Member</label>
+      <select id="delivery-node"></select>
+      <p class="help" id="delivery-placement-help"></p>
+      <div id="delivery-recreate-box" hidden>
+        <h3>Existing workload</h3>
+        <label class="switch">
+          <input type="checkbox" id="delivery-recreate">
+          Start it again from nothing
+        </label>
+        <p class="help">
+          Launches <code>deploy_containers_cluster</code> once the delivery is
+          committed. The run stops the workload, deletes its Pacemaker
+          resource and its RBD image, then deploys it as the first time: a new
+          RBD image filled from the delivery. What the workload wrote on its
+          RBD image is lost.
+        </p>
+      </div>
     </div>
     <p class="error" id="delivery-error" hidden></p>
     <p class="warning" id="delivery-next" hidden></p>

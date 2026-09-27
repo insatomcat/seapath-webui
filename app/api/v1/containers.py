@@ -31,6 +31,7 @@ from app.inventory.editor import Scope
 from app.inventory.repository import StaleWrite
 from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
+from app.runs.catalogue import RECREATE_VARIABLE
 from app.runs.service import RunService
 from app.services.containers import (
     WORKLOAD_PLAYBOOK,
@@ -43,6 +44,8 @@ from app.services.containers import (
 from app.services.deliveries import (
     DeliveryService,
     Installed,
+    Placement,
+    RefusedPlacement,
     RefusedValues,
     StagedDelivery,
     UnknownDelivery,
@@ -76,6 +79,26 @@ class SiteValues(BaseModel):
     """The site values of a workload, by key, as a form sends them."""
 
     values: dict[str, Any] = Field(default_factory=dict)
+
+
+class DeliveryInstallation(SiteValues):
+    """What installing a delivery asks the operator for."""
+
+    placement: Placement | None = Field(
+        default=None,
+        description=(
+            "Where the workload runs. Omitted, it keeps the placement it has; "
+            "sent with both fields empty, the cluster chooses"
+        ),
+    )
+    recreate: bool = Field(
+        default=False,
+        description=(
+            "Launch the run that starts the workload again from nothing: its "
+            "resource and its RBD image are deleted, then created as on a first "
+            "deployment. What it wrote on its RBD image is lost"
+        ),
+    )
 
 
 class ContainerDeclaration(BaseModel):
@@ -246,7 +269,7 @@ def discard_delivery(request: Request, staged: str, user: User = admin) -> Respo
 def install_delivery(
     request: Request,
     staged: str,
-    payload: SiteValues,
+    payload: DeliveryInstallation,
     if_match: str | None = Header(default=None, alias="If-Match"),
     user: User = admin,
 ) -> Installed:
@@ -254,14 +277,17 @@ def install_delivery(
 
     The quadlets and seed files go to the versioned folder, the image archives
     to the artefacts, and the workload to `cluster_containers`. The answer
-    names the run that puts it on the machines, `deploy_containers_cluster`.
+    names the run that puts it on the machines, `deploy_containers_cluster`,
+    and carries it when `recreate` asked for it to be launched.
     """
     try:
-        return _deliveries(request).install(
-            staged, payload.values, user.username, if_match
+        installed = _deliveries(request).install(
+            staged, payload.values, user.username, if_match, payload.placement
         )
     except UnknownDelivery as error:
         raise ApiError("unknown_delivery", str(error), 404) from error
+    except RefusedPlacement as error:
+        raise ApiError("invalid_placement", str(error), 400) from error
     except RefusedValues as error:
         raise ApiError(
             "invalid_values", str(error), 400, {"refused": error.refused}
@@ -281,6 +307,29 @@ def install_delivery(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
+    if not payload.recreate:
+        return installed
+    # One gesture, one run: the window follows it. The commit is made either
+    # way, so a run the service refuses says so beside the commit it follows.
+    try:
+        record = _runs(request).launch(
+            WORKLOAD_PLAYBOOK,
+            user.username,
+            variables={RECREATE_VARIABLE: installed.name},
+        )
+    except ApiError as error:
+        raise ApiError(
+            error.code,
+            (
+                f"{installed.name} is committed"
+                + (f" as {installed.commit[:12]}" if installed.commit else "")
+                + f", and the run starting it again was not launched: {error.message}"
+            ),
+            error.status_code,
+            error.detail,
+        ) from error
+    installed.run_id = record.id
+    return installed
 
 
 @router.get("/{name}/values", response_model=WorkloadValues)

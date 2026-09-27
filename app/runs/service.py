@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from app.core.errors import ApiError
 from app.core.logging import audit_event
 from app.hosts.local import parse_cpu_list
+from app.inventory import quadlets
 from app.inventory.model import Inventory, Mode
 from app.inventory.service import InventoryService, InventoryState
 from app.runs import (
@@ -906,6 +907,8 @@ class RunService:
             spec = declared[name]
             if spec.type is VariableType.MACHINE:
                 self._check_machine(entry, name, value, state)
+            elif spec.type is VariableType.WORKLOAD:
+                self._check_workload(name, value)
             else:
                 supplied[name] = _checked_value(entry, spec, value)
         return dict(supplied)
@@ -957,6 +960,26 @@ class RunService:
                 {"this_host": this_host, "others": others},
             )
         return this_host
+
+    def _check_workload(self, name: str, value: Any) -> None:
+        """A workload variable names a workload the inventory declares present.
+
+        The role refuses any other name too, but only once the run has started,
+        and this one deletes data: it is refused before anything is launched.
+        """
+        declared = sorted(
+            {item.name for item in quadlets.workloads(self._inventory.raw())}
+        )
+        if not isinstance(value, str) or value not in declared:
+            raise ApiError(
+                "invalid_variable",
+                (
+                    f"{value!r} is not a workload cluster_containers declares. "
+                    + (f"It declares {', '.join(declared)}." if declared else "")
+                ).strip(),
+                400,
+                {"variable": name, "workloads": declared},
+            )
 
     def _check_machine(
         self,

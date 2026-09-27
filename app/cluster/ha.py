@@ -159,9 +159,10 @@ class LocationConstraint(BaseModel):
 # `crm resource move`, and a guest it deployed carries a `cli-prefer` nobody
 # can tell from a move until it is deployed again.
 #
-# `deploy_containers_cluster` writes a workload's `preferred_host` as
-# `prefer-<resource>` with a score of 100, which the cluster weighs rather
-# than obeys, and which a clear leaves alone as well.
+# `deploy_containers_cluster` writes a workload's the same way, as
+# `seapath-preferred-<resource>`, and `pinned_host` as `pin-<resource>`. The
+# role wrote `prefer-<resource>` with a score of 100 before, which the cluster
+# weighs rather than obeys; its next run replaces it.
 PREFER_PREFIX = "cli-prefer-"
 DECLARED_PREFIXES = ("seapath-preferred-", "prefer-")
 BAN_PREFIX = "cli-ban-"
@@ -220,11 +221,11 @@ def preference(cluster: PacemakerCluster, resource: str) -> LocationConstraint |
 def declared(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
     """The rule a deployment wrote from `preferred_host`, when there is one.
 
-    `seapath-preferred-` for a guest, infinite, and `prefer-` for a container
-    workload, with a finite score that says where the cluster leans rather
-    than where it must run the resource. A move overrides either without
-    removing it, and a clear leaves it, so it is what a return gives the
-    resource back to.
+    `seapath-preferred-`, infinite, for a guest and for a container workload,
+    or the `prefer-` of score 100 an older `deploy_containers_cluster` wrote,
+    which says where the cluster leans rather than where it must run the
+    resource. A move overrides either without removing it, and a clear leaves
+    it, so it is what a return gives the resource back to.
     """
     for prefix in DECLARED_PREFIXES:
         found = _constraint(cluster, resource, prefix)
