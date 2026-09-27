@@ -318,14 +318,21 @@ def test_the_bounds_are_absolute_and_carry_their_timezone() -> None:
 def test_a_naive_moment_is_read_as_utc_by_the_endpoint(
     client: TestClient, remote_runner
 ) -> None:
+    # Relative to the clock: the endpoint measures the window up to now, and a
+    # fixed date falls out of its seven days a week after it was written.
+    moment = (datetime.now(UTC) - timedelta(hours=1)).replace(microsecond=0)
     answers = Answers({})
     build(client, answers)
     response = client.get(
         "/api/v1/logs",
-        params={"unit": "pacemaker.service", "since": "2026-09-20T09:00:00"},
+        params={
+            "unit": "pacemaker.service",
+            "since": moment.replace(tzinfo=None).isoformat(),
+        },
     )
     assert response.status_code == 200, response.text
-    assert "--since=2026-09-20 09:00:00 UTC" in answers.requests[0].command
+    expected = moment.strftime("%Y-%m-%d %H:%M:%S")
+    assert f"--since={expected} UTC" in answers.requests[0].command
 
 
 def test_the_query_asks_for_the_fields_the_page_shows_and_no_more() -> None:
