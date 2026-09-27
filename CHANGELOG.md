@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.187 - 2026-09-27
+
+- feat: read and declare the containers of cluster_containers
+
 ## 0.3.186 - 2026-09-26
 
 - fix: keep a guest's disks when the exporter publishes them as 0
