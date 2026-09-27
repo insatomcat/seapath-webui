@@ -152,15 +152,18 @@ class LocationConstraint(BaseModel):
 #
 # `crm resource move` writes `cli-prefer-<resource>` and `crm resource ban`
 # writes `cli-ban-<resource>-on-<node>`, and `crm resource clear` removes both.
-# `vm_manager` writes all three: `preferred_host` is a `crm resource move`,
-# an observer is a ban, and `pinned_host` alone gets a constraint of its own,
-# named after the field and left alone by a clear.
+# `vm_manager` bans a guest from an observer, writes `pinned_host` as
+# `pin-<resource>-on<node>`, and writes `preferred_host` as
+# `seapath-preferred-<resource>` with an infinite score. Both are left alone by
+# a clear. A `vm_manager` older than that last rule wrote `preferred_host` with
+# `crm resource move`, and a guest it deployed carries a `cli-prefer` nobody
+# can tell from a move until it is deployed again.
 #
 # `deploy_containers_cluster` writes a workload's `preferred_host` as
 # `prefer-<resource>` with a score of 100, which the cluster weighs rather
 # than obeys, and which a clear leaves alone as well.
 PREFER_PREFIX = "cli-prefer-"
-DECLARED_PREFIX = "prefer-"
+DECLARED_PREFIXES = ("seapath-preferred-", "prefer-")
 BAN_PREFIX = "cli-ban-"
 PIN_PREFIX = "pin-"
 
@@ -206,22 +209,28 @@ def running(cluster: PacemakerCluster, resource: str) -> PacemakerResource | Non
 def preference(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
     """The `cli-prefer` constraint holding a resource, when there is one.
 
-    It says where the resource is being kept and says nothing about who asked:
-    `preferred_host` and an operator's move produce the same object, because
-    upstream implements the first by running the command that writes the
-    second. What the difference is worth is a comparison against the inventory,
-    and the page draws that.
+    A move wrote it, from this service or from a shell on a machine. On a
+    guest an older `vm_manager` deployed it can also be the guest's
+    `preferred_host`, written by the same command, and only a comparison
+    against the inventory says which.
     """
     return _constraint(cluster, resource, PREFER_PREFIX)
 
 
 def declared(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:
-    """The `prefer-` rule a workload's `preferred_host` becomes, when there is one.
+    """The rule a deployment wrote from `preferred_host`, when there is one.
 
-    Finite, so it says where the cluster leans rather than where it must run
-    the resource, and a move overrides it without removing it.
+    `seapath-preferred-` for a guest, infinite, and `prefer-` for a container
+    workload, with a finite score that says where the cluster leans rather
+    than where it must run the resource. A move overrides either without
+    removing it, and a clear leaves it, so it is what a return gives the
+    resource back to.
     """
-    return _constraint(cluster, resource, DECLARED_PREFIX)
+    for prefix in DECLARED_PREFIXES:
+        found = _constraint(cluster, resource, prefix)
+        if found is not None:
+            return found
+    return None
 
 
 def pin(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:

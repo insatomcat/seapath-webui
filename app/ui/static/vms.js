@@ -470,9 +470,12 @@
   // entry never named is either Pacemaker's own choice or somebody's move, and
   // the constraint is the only thing that says which.
   //
-  // The comparison is the whole point. `preferred_host` and a move here write
-  // the same `cli-prefer` object, so the CIB cannot say who asked for it; held
-  // against the entry it can say whether anybody declared it.
+  // The comparison is the whole point. `vm_manager` writes `preferred_host`
+  // as `seapath-preferred-<guest>` and a move writes `cli-prefer-<guest>`,
+  // whose infinite score overrides it while it is there; the rule in force is
+  // the move where there is one. A guest an older `vm_manager` deployed has
+  // only the `cli-prefer`, and held against the entry it can still say whether
+  // anybody declared it.
   //
   // Three things are held against each other and not two: the entry, the
   // constraint, and the machine the guest is running on at this moment. A
@@ -508,10 +511,10 @@
       box.append(name);
       return box;
     }
-    const held = preferenceOf(guest);
+    const held = preferenceOf(guest) || declaredOf(guest);
     const declared = guest.preferred_host || "";
     name.className = "placement " + placementState(held, declared, where);
-    name.title = explain(guest.name, held, declared, where);
+    name.title = explain(guest, held, declared, where);
     box.append(name);
     return box;
   }
@@ -554,7 +557,10 @@
   // every one of them is the placement and never the guest: "declared" alone
   // would read as whether the inventory has the guest at all, which is a
   // different question this page also answers.
-  function explain(name, held, declared, where) {
+  function explain(guest, held, declared, where) {
+    const name = guest.name;
+    const kept = declaredOf(guest);
+    const moved = held && held === preferenceOf(guest);
     // The cluster is running the guest away from an infinite preference, which
     // is a finding about a machine rather than a drift between two records.
     // What the entry says is still worth a clause, because it decides what a
@@ -568,7 +574,7 @@
         name +
         " is running on " +
         where +
-        ". A placement carries an infinite score, so the cluster put the " +
+        ". The rule carries an infinite score, so the cluster put the " +
         "guest elsewhere only because " +
         held.node +
         " could not take it: offline, in standby, or the guest failed there.";
@@ -582,12 +588,8 @@
         );
       }
       if (declared) {
-        return (
-          unheld +
-          " The inventory entry declares " +
-          declared +
-          ", and Return writes that placement back."
-        );
+        return unheld + " The inventory entry declares " + declared + "." +
+          returnSentence(guest);
       }
       return (
         unheld +
@@ -619,13 +621,23 @@
         name +
         " on " +
         held.node +
-        ", which is the placement its inventory entry declares."
+        ", which is the placement its inventory entry declares." +
+        (moved && kept ? returnSentence(guest) : "")
       );
     }
-    const cause =
-      " A move from this page writes the same constraint preferred_host " +
-      "writes, and so does crm resource move typed on a machine, so the " +
-      "cluster cannot say which of the two asked for it.";
+    // Without the deployment's own rule the `cli-prefer` may be the entry's
+    // `preferred_host` as an older `vm_manager` wrote it, and the sentence
+    // cannot say which.
+    const cause = !moved
+      ? " The rule is what the last deployment wrote, and a deployment run " +
+        "writes the entry's value again."
+      : kept
+        ? " A move from this page writes that constraint, and so does crm " +
+          "resource move typed on a machine." + returnSentence(guest)
+        : " A move from this page writes that constraint, and so does crm " +
+          "resource move typed on a machine or a vm_manager older than " +
+          "seapath-preferred, so the cluster cannot say which of them asked " +
+          "for it.";
     if (declared) {
       return (
         held.id +
@@ -637,9 +649,7 @@
         declared +
         "." +
         cause +
-        " Return writes " +
-        declared +
-        " back."
+        (moved && !kept ? " Return writes " + declared + " back." : "")
       );
     }
     return (
@@ -650,17 +660,47 @@
       held.node +
       ", and its inventory entry declares no placement at all." +
       cause +
-      " Return removes the constraint and leaves the placement to Pacemaker."
+      (moved && !kept
+        ? " Return removes the constraint and leaves the placement to " +
+          "Pacemaker."
+        : "")
     );
   }
 
-  // The `cli-prefer` constraint, which is what a move writes and what
-  // `preferred_host` writes: the same object, and telling them apart is the
-  // page's job rather than the cluster's. `pin-` is `pinned_host`, a different
-  // rule that a return does not remove.
+  // What Return leaves behind. `crm resource clear` removes the move's
+  // `cli-prefer` and never the deployment's `seapath-preferred-`, so the
+  // guest goes back to that rule; without one, the run writes the entry's
+  // `preferred_host` back, the way an older `vm_manager` wrote it.
+  function returnSentence(guest) {
+    const moved = preferenceOf(guest);
+    const kept = declaredOf(guest);
+    if (!moved) {
+      return "";
+    }
+    if (kept) {
+      return (
+        " Return removes " + moved.id + " and leaves " + kept.id +
+        ", so the guest goes back to " + kept.node + "."
+      );
+    }
+    return guest.preferred_host
+      ? " Return writes preferred_host: " + guest.preferred_host + " back."
+      : " Return removes the constraint and leaves the placement to Pacemaker.";
+  }
+
+  // The `cli-prefer` constraint, which is what a move writes, and what an
+  // older `vm_manager` wrote for `preferred_host`. `seapath-preferred-` is
+  // what `vm_manager` writes for it now, and `pin-` is `pinned_host`: a
+  // return removes neither.
   function preferenceOf(guest) {
     return (guest.constraints || []).find((item) =>
       item.id.startsWith("cli-prefer-")
+    );
+  }
+
+  function declaredOf(guest) {
+    return (guest.constraints || []).find((item) =>
+      item.id.startsWith("seapath-preferred-")
     );
   }
 
@@ -705,14 +745,18 @@
       box.append(move);
     }
     // Return is the inverse of a move, so it is offered where there is a move
-    // to undo: a constraint naming a machine the entry does not name. Where
-    // the two already agree the run would clear the constraint and write the
-    // same one straight back, moving nothing and changing nothing, at the cost
-    // of a run and a line of the audit trail. Offered there it also made the
-    // green state unreadable, since a button on a row is a claim that the row
-    // has something to put right.
+    // to undo. On a guest an older `vm_manager` deployed, whose
+    // `preferred_host` is itself a `cli-prefer`, that is a constraint naming a
+    // machine the entry does not name: where the two agree the run would
+    // clear the constraint and write the same one straight back, moving
+    // nothing and changing nothing, and a button on a green row is a claim
+    // that the row has something to put right. Beside the deployment's own
+    // `seapath-preferred-` rule a `cli-prefer` is always a move.
     const held = preferenceOf(guest);
-    if (held && held.node !== (guest.preferred_host || "")) {
+    if (
+      held &&
+      (declaredOf(guest) || held.node !== (guest.preferred_host || ""))
+    ) {
       const back = document.createElement("button");
       back.type = "button";
       back.className = "secondary";
@@ -728,9 +772,9 @@
     confirm({
       title: "Move " + guest.name,
       body:
-        "Writes the cli-prefer constraint that names the node, which is the " +
-        "same object preferred_host produces and written by the same command. " +
-        "With live_migration on this guest's image Pacemaker migrates the " +
+        "Writes the cli-prefer constraint that names the node, whose infinite " +
+        "score overrides the placement preferred_host declares while it is " +
+        "there. With live_migration on this guest's image Pacemaker migrates the " +
         "domain and it keeps running; without it the guest is stopped where " +
         "it is and started on the other node, and whatever it was serving " +
         "stops in between.",
@@ -769,10 +813,14 @@
       body:
         "Removes " +
         (held ? held.id : "the cli-prefer constraint") +
-        (guest.preferred_host
-          ? ", and writes back preferred_host: " + guest.preferred_host + "."
-          : ", and the inventory declares no placement to write back, so " +
-            "Pacemaker places the guest by its own rules.") +
+        (declaredOf(guest)
+          ? ", and leaves " + declaredOf(guest).id + ", which the deployment " +
+            "wrote from preferred_host, so the guest goes back to " +
+            declaredOf(guest).node + "."
+          : guest.preferred_host
+            ? ", and writes back preferred_host: " + guest.preferred_host + "."
+            : ", and the inventory declares no placement to write back, so " +
+              "Pacemaker places the guest by its own rules.") +
         " It may move as a result, at the same cost the move had." +
         (bans.length
           ? " crm resource clear takes the bans on this guest with it: " +
@@ -780,10 +828,12 @@
             ". A ban is how a guest is kept off an observer, and the next " +
             "deployment run is what writes it again."
           : ""),
-      note:
-        "What is written back is the inventory's preferred_host. Where that " +
-        "differs from _preferred_host on the guest's image, the metadata " +
-        "window is where the difference is settled.",
+      note: declaredOf(guest)
+        ? "Nothing is written: the rule the deployment wrote is the placement " +
+          "the guest returns to."
+        : "What is written back is the inventory's preferred_host. Where " +
+          "that differs from _preferred_host on the guest's image, the " +
+          "metadata window is where the difference is settled.",
       label: "Return",
       act: async () => {
         const started = await API.post(

@@ -2303,6 +2303,27 @@ targeted `crm configure delete cli-prefer-<resource>` would leave this service
 composing CIB surgery of its own, where the whole point of D34 is that it runs
 the commands upstream already runs.
 
+### Amended: `preferred_host` is a rule of its own
+
+`vm_manager` wrote `preferred_host` with `crm resource move`, so the declared
+placement and an operator's move were the same `cli-prefer` object, and a
+clear removed both. Since seapath/vm_manager#102 it writes
+`seapath-preferred-<guest>` instead, with the same infinite score, and a clear
+leaves it.
+
+The pages read the rule in force as the move's `cli-prefer` where there is
+one, since it overrides the other, and the deployment's rule otherwise, the
+way the Containers page reads a workload's `prefer-`. Beside
+`seapath-preferred-` a `cli-prefer` is always a move, so Return is offered on
+it whatever node it names, and the return is the clear alone: writing the node
+back with a move would add the manual constraint the return is there to
+remove.
+
+A guest deployed by an older `vm_manager` keeps its `cli-prefer` until it is
+deployed again, and everything above still describes it: the colour holds the
+constraint against the entry, Return is offered where the two disagree, and
+the run writes `preferred_host` back after the clear.
+
 ### What was refused
 
 **A constraint editor.** Add, change and remove a location constraint from a

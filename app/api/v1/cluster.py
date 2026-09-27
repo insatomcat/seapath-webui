@@ -352,19 +352,25 @@ def clear(request: Request, name: str, user: User = operator) -> PlacementRespon
     """Give a resource's placement back to the cluster, as a run.
 
     `crm resource clear <resource>`, which removes the `cli-prefer` and
-    `cli-ban` constraints crmsh writes, followed by the one command that puts
-    back what the inventory declares. The second half is the part worth having:
-    a bare clear also removes the constraint `preferred_host` had put there,
-    and a guest would silently lose its declared placement until somebody
-    rebuilt its Pacemaker resource.
+    `cli-ban` constraints crmsh writes. Where the cluster holds the rule a
+    deployment wrote from `preferred_host`, `seapath-preferred-` or `prefer-`,
+    the clear leaves it and that is the whole act: the resource goes back to
+    it. A guest an older `vm_manager` deployed has no such rule, its
+    `preferred_host` is the `cli-prefer` the clear removes, and the run writes
+    it back with the command that wrote it, or the guest would silently lose
+    its declared placement until somebody rebuilt its Pacemaker resource.
 
-    `restored` names what will be written back, empty for a resource the
-    inventory says nothing about. Pacemaker may move the resource either way,
-    at the cost the move had.
+    `restored` names what will be written back, empty where nothing is.
+    Pacemaker may move the resource either way, at the cost the move had.
     """
     cluster = _reading(request)
     _placeable(cluster, name)
     declared = _service(request).declared_placement(name)
+    # The rule survives the clear, and writing the node back with a move would
+    # add a `cli-prefer` beside it, which is the manual placement this return
+    # is there to remove.
+    if ha.declared(cluster, name) is not None:
+        declared = ""
     # A declared placement the cluster cannot honour is not written back: the
     # inventory naming a machine this cluster does not report is a finding the
     # Inventory page owns, and a run that ends on a `crm` error helps nobody.

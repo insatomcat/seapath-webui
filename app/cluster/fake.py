@@ -379,13 +379,17 @@ def _pacemaker(dc: str = _DC) -> str:
         f'ha_cluster_pacemaker_fail_count{{node="{first}",resource="vm-guest3"}} 3',
         f'ha_cluster_pacemaker_migration_threshold{{node="{first}",'
         'resource="vm-guest3"} 3',
-        # The two shapes a placement takes, because they behave differently
-        # and only their names say which is which. `cli-prefer` is what both
-        # `preferred_host` and an operator's move write, and a clear removes
-        # it; `pin-` is what `pinned_host` writes, and nothing short of
-        # rebuilding the resource removes that one.
+        # The shapes a placement takes, because they behave differently and
+        # only their names say which is which. `cli-prefer` is what a move
+        # writes, and what an older `vm_manager` wrote for `preferred_host`,
+        # and a clear removes it; `seapath-preferred-` is what `vm_manager`
+        # writes for `preferred_host` now, and `pin-` what `pinned_host`
+        # writes, and a clear leaves both.
         'ha_cluster_pacemaker_location_constraints{constraint="cli-prefer-vm-guest1"'
         f',node="{first}",resource="vm-guest1",role="Started"}} 1000000',
+        "ha_cluster_pacemaker_location_constraints{"
+        'constraint="seapath-preferred-vm-guest3"'
+        f',node="{first}",resource="vm-guest3",role=""}} 1000000',
         'ha_cluster_pacemaker_location_constraints{constraint="pin-vm-guest2-on'
         f'{second}",node="{second}",resource="vm-guest2",role="Started"}} 1000000',
         "ha_cluster_pacemaker_stonith_enabled 1",

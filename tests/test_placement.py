@@ -10,10 +10,12 @@ convergence uses, with both names checked against what the cluster reported
 first. None of them touches the inventory, and the inventory is what a
 convergence still reads.
 
-The fake cluster is the fixture, and it carries both shapes a placement takes:
-`cli-prefer-vm-guest1`, which is what `preferred_host` and a move both write,
-and `pin-vm-guest2-onelabo1`, which is what `pinned_host` writes and what makes
-a resource one this service refuses to place.
+The fake cluster is the fixture, and it carries the shapes a placement takes:
+`cli-prefer-vm-guest1`, which is what a move writes and what an older
+`vm_manager` wrote for `preferred_host`, `seapath-preferred-vm-guest3`, which is
+what `vm_manager` writes for it now, and `pin-vm-guest2-onelabo1`, which is
+what `pinned_host` writes and what makes a resource one this service refuses to
+place.
 """
 
 from __future__ import annotations
@@ -69,16 +71,13 @@ def _play(settings, run: dict, name: str) -> dict:
 # 1. Moving a resource, which writes the constraint `preferred_host` writes.
 
 
-def test_a_move_writes_the_constraint_preferred_host_writes(
+def test_a_move_is_the_command_an_operator_would_type(
     signed_in: TestClient, settings
 ) -> None:
-    """One task, and the command an operator would type on the machine.
+    """One task, `crm resource move`, and the node always named.
 
-    `crm resource move` is what `vm_manager` calls to honour `preferred_host`,
-    so a deliberate move introduces no kind of rule the cluster did not already
-    carry. The node is always named: a bare `crm resource move` bans the
-    resource from the node it is on, which is a different act with the same
-    words.
+    A bare `crm resource move` bans the resource from the node it is on, which
+    is a different act with the same words.
     """
     response = _cluster(signed_in).post(
         "/api/v1/cluster/resources/vm-guest3/move", json={"node": "elabo1"}
@@ -202,18 +201,42 @@ def test_a_resource_the_cluster_does_not_report_is_not_placed(
 # 2. Returning a placement, which is the half that keeps the inventory true.
 
 
-def test_a_return_writes_back_what_the_inventory_declares(
+def test_a_return_leaves_the_rule_the_deployment_wrote(
     signed_in: TestClient, settings
 ) -> None:
-    """The reason a bare clear is the wrong command.
+    """A clear alone, beside `seapath-preferred-`.
 
-    `crm resource clear` removes the `cli-prefer` constraint, and that is the
-    same constraint `preferred_host` had put there. Clearing alone would drop a
-    declared placement with nothing anywhere saying it had gone, until somebody
-    rebuilt the guest's Pacemaker resource.
+    `vm_manager` writes `preferred_host` as a rule of its own, which a clear
+    leaves, so the guest goes back to it. Writing the node back with a move
+    would add a `cli-prefer` beside it, which is the manual placement the
+    return is there to remove.
     """
     response = _cluster(signed_in, _GUESTS).post(
         "/api/v1/cluster/resources/vm-guest3/clear"
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json()["restored"] == ""
+
+    tasks = _play(settings, response.json(), "resource_clear")["tasks"]
+    assert [task["ansible.builtin.command"]["argv"] for task in tasks] == [
+        ["crm", "resource", "clear", "vm-guest3"],
+    ]
+
+
+def test_a_return_writes_back_what_an_older_vm_manager_wrote_as_a_move(
+    signed_in: TestClient, settings
+) -> None:
+    """The reason a bare clear was the wrong command, and still is there.
+
+    A `vm_manager` older than `seapath-preferred-` wrote `preferred_host` with
+    `crm resource move`, so on a guest it deployed the `cli-prefer` a clear
+    removes is the declared placement itself. Clearing alone would drop it with
+    nothing anywhere saying it had gone, until the guest is deployed again.
+    """
+    guests = _GUESTS.replace("vm-guest3", "vm-guest1")
+    response = _cluster(signed_in, guests).post(
+        "/api/v1/cluster/resources/vm-guest1/clear"
     )
 
     assert response.status_code == 202, response.text
@@ -221,8 +244,8 @@ def test_a_return_writes_back_what_the_inventory_declares(
 
     tasks = _play(settings, response.json(), "resource_clear")["tasks"]
     assert [task["ansible.builtin.command"]["argv"] for task in tasks] == [
-        ["crm", "resource", "clear", "vm-guest3"],
-        ["crm", "resource", "move", "vm-guest3", "seapath-machine"],
+        ["crm", "resource", "clear", "vm-guest1"],
+        ["crm", "resource", "move", "vm-guest1", "seapath-machine"],
     ]
 
 
@@ -248,14 +271,16 @@ def test_a_declared_placement_the_cluster_cannot_honour_is_not_written_back(
     A finding the Inventory page owns, and writing it into the CIB would end
     the run on a `crm` error three minutes later instead.
     """
-    guests = _GUESTS.replace("preferred_host: seapath-machine", "preferred_host: node2")
+    guests = _GUESTS.replace(
+        "preferred_host: seapath-machine", "preferred_host: node2"
+    ).replace("vm-guest3", "vm-guest1")
     document = signed_in.get("/api/v1/inventory/raw").text
     signed_in.post(
         "/api/v1/inventory/import",
         json={"document": document + _CLUSTER_GROUP + guests},
     )
 
-    response = signed_in.post("/api/v1/cluster/resources/vm-guest3/clear")
+    response = signed_in.post("/api/v1/cluster/resources/vm-guest1/clear")
 
     assert response.json()["restored"] == ""
     tasks = _play(settings, response.json(), "resource_clear")["tasks"]
@@ -388,10 +413,10 @@ def test_a_guest_carries_the_constraint_holding_it_and_what_it_declares(
 ) -> None:
     """The comparison the page draws, and the reason it needs both.
 
-    `preferred_host` and a move write the same `cli-prefer` object, so the CIB
-    cannot say who asked for it. Held against the entry it can say whether
-    anybody declared it, which is what makes an operator's override visible
-    rather than silent.
+    On a guest an older `vm_manager` deployed, `preferred_host` and a move are
+    the same `cli-prefer` object, so the CIB cannot say who asked for it. Held
+    against the entry it can say whether anybody declared it, which is what
+    makes an operator's override visible rather than silent.
     """
     guests = _GUESTS.replace("vm-guest3", "vm-guest1")
     view = _cluster(signed_in, guests).get("/api/v1/vms").json()

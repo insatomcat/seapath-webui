@@ -503,13 +503,22 @@
     return button;
   }
 
-  // The two constraint shapes, told apart by the only thing that tells them
+  // The constraint shapes, told apart by the only thing that tells them
   // apart: their name. `crm resource move` writes the first and `crm resource
-  // clear` removes it; `vm_manager` writes the second for `pinned_host` and
-  // nothing short of rebuilding the resource removes that one.
+  // clear` removes it; a deployment writes the second from `preferred_host`,
+  // and `vm_manager` the third for `pinned_host`. A clear leaves both.
   function preferenceOf(cluster, id) {
     return cluster.constraints.find(
       (item) => item.resource === id && item.id.startsWith("cli-prefer-")
+    );
+  }
+
+  function declaredOf(cluster, id) {
+    return cluster.constraints.find(
+      (item) =>
+        item.resource === id &&
+        (item.id.startsWith("seapath-preferred-") ||
+          item.id.startsWith("prefer-"))
     );
   }
 
@@ -544,9 +553,9 @@
     confirm({
       title: "Move " + resource.id,
       body:
-        "Writes the cli-prefer constraint that names the node, which is the " +
-        "same object preferred_host produces and written by the same command. " +
-        "A guest whose image allows live migration moves without stopping; " +
+        "Writes the cli-prefer constraint that names the node, whose infinite " +
+        "score overrides the placement preferred_host declares while it is " +
+        "there. A guest whose image allows live migration moves without stopping; " +
         "one that does not is stopped where it runs and started on the other " +
         "node, and whatever it was serving stops in between.",
       note: held
@@ -573,6 +582,7 @@
 
   function confirmClear(resource, cluster) {
     const held = preferenceOf(cluster, resource.id);
+    const kept = declaredOf(cluster, resource.id);
     // `crm resource clear` removes the bans along with the preference, and a
     // ban is how an observer is kept from running guests. Nobody asks for that
     // when they ask for a placement back, so the disruption says it.
@@ -584,19 +594,25 @@
       body:
         "Removes " +
         (held ? held.id : "the cli-prefer constraint") +
-        ", and writes back the placement the inventory declares for this " +
-        "guest where it declares one. Pacemaker may move the resource as a " +
-        "result, at the same cost the move had." +
+        (kept
+          ? ", and leaves " + kept.id + ", which the deployment wrote from " +
+            "preferred_host, so the resource goes back to " + kept.node + "."
+          : ", and writes back the placement the inventory declares for this " +
+            "guest where it declares one.") +
+        " Pacemaker may move the resource as a result, at the same cost the " +
+        "move had." +
         (bans.length
           ? " It takes the bans on this resource with it: " +
             bans.map((item) => item.id).join(", ") +
             ". A ban is how a guest is kept off an observer, and the next " +
             "deployment run is what writes it again."
           : ""),
-      note:
-        "What is written back is the inventory's preferred_host. Where that " +
-        "differs from the value on the guest's image, the metadata window is " +
-        "where the difference is settled.",
+      note: kept
+        ? "Nothing is written: the rule the deployment wrote is the placement " +
+          "the resource returns to."
+        : "What is written back is the inventory's preferred_host. Where " +
+          "that differs from the value on the guest's image, the metadata " +
+          "window is where the difference is settled.",
       label: "Return",
       act: async () => {
         const started = await API.post(

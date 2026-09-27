@@ -1273,10 +1273,9 @@ def test_the_cluster_page_says_where_a_cluster_is_changed_from(
     assert "<code>crm resource refresh</code>" in body
     assert "run on a cluster member over the connection a convergence uses" in prose
     # Moving a resource is a button now, and the page says what the button
-    # writes: the same constraint `preferred_host` writes, which is why a
-    # deliberate placement is legible beside a declared one. See D34.
+    # writes and what Return gives the resource back to. See D34.
     assert "Move overrides the decision" in prose
-    assert "the same object <code>preferred_host</code> writes" in prose
+    assert "until Return removes it and gives the resource back" in prose
     assert "Standby is <code>crm node standby</code>, run on a cluster member" in prose
     # And adding storage is the path every other change takes here.
     assert "<code>ceph_osd_disks</code> in the" in body
@@ -1299,7 +1298,10 @@ def test_the_resources_panel_carries_the_refresh_and_opens_the_constraints(
     # spaced off it, and it says what each prefix means: the ids are the only
     # thing that tells a pin from a preference.
     assert 'class="sub-panel" id="constraints" open' in body
-    assert "<code>cli-prefer-</code> is a placement somebody asked for" in body
+    assert "<code>cli-prefer-</code> is a Move" in body
+    # `vm_manager` writes a guest's `preferred_host` as a rule of its own,
+    # and the page names it beside the container's.
+    assert "<code>seapath-preferred-</code> is a guest's" in body
 
 
 def test_the_resources_panel_places_a_resource_and_gives_it_back(
@@ -1568,9 +1570,9 @@ def test_the_vms_page_moves_a_guest_and_gives_the_placement_back(
     # lives: the guest name is the resource id, so the page has one door.
     assert '"/cluster/resources/" + encodeURIComponent(guest.name) + "/move"' in script
     assert '"/cluster/resources/" + encodeURIComponent(guest.name) + "/clear"' in script
-    # And what the confirmation has to say: the same constraint the entry's own
-    # placement writes, and what it costs the guest.
-    assert "same object preferred_host produces" in script
+    # And what the confirmation has to say: the constraint overrides the
+    # entry's own placement, and what it costs the guest.
+    assert "score overrides the placement preferred_host declares" in script
     assert "without it the guest is stopped where" in script
     # Pacemaker refuses a move to the node the resource is already active on,
     # so that node is not offered and the confirmation says where the wish to
@@ -1582,12 +1584,16 @@ def test_the_vms_page_moves_a_guest_and_gives_the_placement_back(
 def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
     signed_in: TestClient,
 ) -> None:
-    # The only reading that makes an override visible: `preferred_host` and a
-    # move write the same `cli-prefer` object, so the CIB cannot say who asked
-    # for it and the entry is what the constraint is held against. See D34.
+    # The only reading that makes an override visible: the rule in force is the
+    # move's `cli-prefer` where there is one and the deployment's
+    # `seapath-preferred-` otherwise, and the entry is what it is held against.
+    # A guest an older `vm_manager` deployed has only the `cli-prefer`, for its
+    # `preferred_host` as for a move. See D34.
     script = signed_in.get("/static/vms.js").text
 
     assert 'item.id.startsWith("cli-prefer-")' in script
+    assert 'item.id.startsWith("seapath-preferred-")' in script
+    assert "const held = preferenceOf(guest) || declaredOf(guest);" in script
     assert 'item.id.startsWith("pin-")' in script
     # Four states in the colour of the node name, and an entry declaring a
     # placement the cluster does not hold is one of them: the inventory and the
@@ -1602,7 +1608,7 @@ def test_the_vms_page_marks_a_guest_held_somewhere_it_was_not_declared(
     # The subject of every one of them is the placement rather than the guest:
     # "declared" on its own would read as whether the inventory has the guest
     # at all, which is a different question this page also answers.
-    assert "name.title = explain(guest.name, held, declared, where)" in script
+    assert "name.title = explain(guest, held, declared, where)" in script
     assert '"No constraint holds " +' in script
     assert "declares no placement, so the cluster " in script
     assert '". A deployment run writes that placement to the cluster."' in script
@@ -1656,12 +1662,16 @@ def test_the_vms_page_marks_a_guest_the_cluster_could_not_place_where_it_says(
 def test_the_vms_page_offers_a_return_only_where_there_is_one_to_make(
     signed_in: TestClient,
 ) -> None:
-    # Return on a guest whose constraint already names what the entry declares
-    # clears it and writes the identical one straight back: no migration, no
-    # change in the CIB, one run in the audit trail for nothing. See D34.
+    # On a guest an older `vm_manager` deployed, Return where the constraint
+    # already names what the entry declares clears it and writes the identical
+    # one straight back: no migration, no change in the CIB, one run in the
+    # audit trail for nothing. Beside `seapath-preferred-` a `cli-prefer` is
+    # always a move, and Return is offered. See D34.
     script = signed_in.get("/static/vms.js").text
 
-    assert 'if (held && held.node !== (guest.preferred_host || "")) {' in script
+    assert (
+        '(declaredOf(guest) || held.node !== (guest.preferred_host || ""))'
+    ) in script
     # `crm resource clear` takes the bans with the preference, and a ban is how
     # a guest is kept off an observer. Nobody asks for that when they ask for a
     # placement back, so the window that names the disruption names them.

@@ -18,8 +18,8 @@ Where no module covers the act, the task is the `crm` command an operator
 would type on the machine, with `argv` so no shell parses it and the name
 checked against what the cluster reported before it arrives here. Placement is
 that case and [D34](../../docs/decisions.md) has its bounds: a move writes the
-same `cli-prefer` constraint `preferred_host` writes, because upstream
-implements that field by running this very command.
+`cli-prefer` constraint `crm resource move` writes, which is also what an older
+`vm_manager` made of `preferred_host`, by running this very command.
 
 The alternative was the libvirt socket and `vm_manager` in process. It reaches
 the local node alone, and the guests of a three node cluster move between all
@@ -269,10 +269,10 @@ _SPECS: dict[Action, ActionSpec] = {
         record="resource_move",
         title="Move {name} to {node}",
         disruption=(
-            "Writes the cli-prefer constraint that names the node, which is "
-            "the same object `preferred_host` produces and written by the same "
-            "command. A guest whose image allows live migration moves without "
-            "stopping; one that does not is stopped where it runs and started "
+            "Writes the cli-prefer constraint that names the node, the one "
+            "crm resource move writes. A guest whose image allows live "
+            "migration moves without stopping; one that does not is stopped "
+            "where it runs and started "
             "on the other node, and whatever it was serving stops in between. "
             "The constraint stays until it is returned, and it overrides the "
             "placement the inventory declares for as long as it is there."
@@ -285,9 +285,11 @@ _SPECS: dict[Action, ActionSpec] = {
         record="resource_clear",
         title="Return {name} to the placement the inventory declares",
         disruption=(
-            "Removes the cli-prefer constraint, and writes the placement the "
-            "inventory declares back where there is one. Pacemaker may move "
-            "the resource as a result, at the same cost the move had."
+            "Removes the cli-prefer constraint. The rule a deployment wrote "
+            "from preferred_host stays and the resource goes back to it; a "
+            "guest an older vm_manager deployed has none, and the placement "
+            "the inventory declares is written back instead. Pacemaker may "
+            "move the resource as a result, at the same cost the move had."
         ),
     ),
     Action.STANDBY: ActionSpec(
@@ -534,10 +536,9 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
         ]
     if action is Action.MOVE:
         # `crm resource move <resource> <node>`, which writes the
-        # `cli-prefer-<resource>` location constraint. The same object
-        # `preferred_host` produces: `vm_manager` implements that field by
-        # calling this very command, so a deliberate move introduces no kind of
-        # rule the cluster did not already carry. The node is always named,
+        # `cli-prefer-<resource>` location constraint. Its infinite score
+        # overrides the rule `preferred_host` became without removing it, so a
+        # return has something to go back to. The node is always named,
         # because a bare `crm resource move` bans the resource from the node it
         # is on, which is a different act with the same words.
         return [
@@ -550,12 +551,13 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
             }
         ]
     if action is Action.CLEAR:
-        # `crm resource clear` removes the `cli-prefer-<resource>` constraint,
-        # and that is the whole difficulty: the constraint a move overwrote was
-        # the one `preferred_host` had put there, so a bare clear would drop a
-        # declared placement and leave nothing saying it had gone. The second
-        # task writes it back. `node` is what the inventory declares, empty for
-        # a resource it says nothing about.
+        # `crm resource clear` removes the `cli-prefer-<resource>` constraint.
+        # On a guest an older `vm_manager` deployed, that constraint was the
+        # one `preferred_host` had put there, so a bare clear would drop a
+        # declared placement and leave nothing saying it had gone, and the
+        # second task writes it back. `node` is that placement, empty where
+        # the inventory declares none or where the cluster holds the rule a
+        # deployment wrote, which the clear leaves.
         tasks = [
             {
                 "name": title,

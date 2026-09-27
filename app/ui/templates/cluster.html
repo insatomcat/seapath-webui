@@ -161,14 +161,16 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
         <summary>Location constraints</summary>
         <p class="editor-meta">
           Where each resource is allowed or asked to run.
-          <code>cli-prefer-</code> is a placement somebody asked for, whether
-          that was a guest's <code>preferred_host</code> at deployment or a
-          Move here: the two write the same object and the CIB cannot tell
-          them apart. <code>prefer-</code> is a container's
-          <code>preferred_host</code>, written by its deployment with a score
-          of 100 that the cluster weighs rather than obeys, and Return leaves
-          it. <code>pin-</code> is <code>pinned_host</code>, which Return does not
-          remove. <code>cli-ban-</code> keeps a resource off a node, which is
+          <code>cli-prefer-</code> is a Move, here or with
+          <code>crm resource move</code> on a machine, and a guest deployed by
+          a <code>vm_manager</code> older than <code>seapath-preferred-</code>
+          carries one for its <code>preferred_host</code> as well.
+          <code>seapath-preferred-</code> is a guest's
+          <code>preferred_host</code>, and <code>prefer-</code> a
+          container's, written by its deployment with a score of 100 that the
+          cluster weighs rather than obeys. Return removes neither.
+          <code>pin-</code> is <code>pinned_host</code>, which Return does not
+          remove either. <code>cli-ban-</code> keeps a resource off a node, which is
           how an observer is kept from running guests.
         </p>
         <div class="table-scroll">
@@ -195,10 +197,9 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
         <code>crm resource refresh</code>, run on a cluster member over the
         connection a convergence uses, under the same lock and in the same run
         history. Move overrides the decision, with the
-        <code>cli-prefer</code> constraint below: it is the same object
-        <code>preferred_host</code> writes, because <code>vm_manager</code>
-        writes it by running the same command, and it holds the resource until
-        Return puts back what the inventory declares. A guest that is pinned is
+        <code>cli-prefer</code> constraint below, and it holds the resource
+        until Return removes it and gives the resource back to what the
+        inventory declares. A guest that is pinned is
         not offered either, because <code>pinned_host</code> means it runs
         there or nowhere. A resource whose agent is <code>systemd:</code> is a
         container the cluster holds, and the
