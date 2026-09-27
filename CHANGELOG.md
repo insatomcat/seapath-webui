@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.195 - 2026-09-27
+
+- fix: ban the declared node when a move leaves it
+- feat: apply an update or new site values in one gesture
+- style: format deliveries.py with black
+
 ## 0.3.194 - 2026-09-27
 
 - feat: keep the site's configuration apart from a delivery
