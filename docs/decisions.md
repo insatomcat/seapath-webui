@@ -2324,6 +2324,38 @@ deployed again, and everything above still describes it: the colour holds the
 constraint against the entry, Return is offered where the two disagree, and
 the run writes `preferred_host` back after the clear.
 
+### Amended: a move bans the node the deployment's rule names
+
+The amendment above read the `cli-prefer` as overriding
+`seapath-preferred-`. Pacemaker adds location scores per node, and two
+infinite ones on two nodes leave both at INFINITY, a tie the scheduler settles
+by keeping the resource where it runs. `crm_simulate` on Pacemaker 3.0.0 with
+crmsh 5.0.0, the versions a SEAPATH node carries, keeps a resource on its
+declared node after `crm resource move` to another one, with or without
+stickiness and whatever else the nodes run: the run succeeds and nothing
+moves. The demo cluster once settled the same tie the other way, which is no
+better, since which way it falls is nowhere written.
+
+So where the deployment's rule is infinite and names another node than the
+one chosen, the move also runs `crm resource ban <resource> <that node>`.
+INFINITY plus -INFINITY is -INFINITY, the tie is gone, and the ban is a
+`cli-ban`, which the same `crm resource clear` removes, so Return is
+unchanged and the rule itself is never touched. A move back to the declared
+node needs no ban, and `crm resource move` removes the one on the node it
+names by itself. The order of the two commands is chosen so the resource is
+placed once: the ban comes second when the resource runs on the banned node,
+where the tie keeps it until the ban sends it on, and first otherwise, where
+it moves nothing.
+
+The ban has a cost, and the confirmation names it: until Return, the
+resource cannot run on its declared node even when every other one is gone.
+That is the meaning of a move while it holds. The pages keep that node a
+destination and leave its ban out of the ones a Return warns about, since it
+is the move's own.
+
+The `prefer-` of score 100 an older `deploy_containers_cluster` wrote loses to
+a `cli-prefer` without help, and gets no ban.
+
 ### What was refused
 
 **A constraint editor.** Add, change and remove a location constraint from a

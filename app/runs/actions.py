@@ -19,7 +19,9 @@ would type on the machine, with `argv` so no shell parses it and the name
 checked against what the cluster reported before it arrives here. Placement is
 that case and [D34](../../docs/decisions.md) has its bounds: a move writes the
 `cli-prefer` constraint `crm resource move` writes, which is also what an older
-`vm_manager` made of `preferred_host`, by running this very command.
+`vm_manager` made of `preferred_host`, by running this very command, and the
+`cli-ban` of `crm resource ban` on the node the deployment's rule names, which
+would otherwise tie with it.
 
 The alternative was the libvirt socket and `vm_manager` in process. It reaches
 the local node alone, and the guests of a three node cluster move between all
@@ -270,12 +272,16 @@ _SPECS: dict[Action, ActionSpec] = {
         title="Move {name} to {node}",
         disruption=(
             "Writes the cli-prefer constraint that names the node, the one "
-            "crm resource move writes. A guest whose image allows live "
+            "crm resource move writes, and where preferred_host holds the "
+            "resource on another node, the cli-ban of crm resource ban on that "
+            "node. A guest whose image allows live "
             "migration moves without stopping; one that does not is stopped "
             "where it runs and started "
             "on the other node, and whatever it was serving stops in between. "
-            "The constraint stays until it is returned, and it overrides the "
-            "placement the inventory declares for as long as it is there."
+            "The constraints stay until it is returned, and they override the "
+            "placement the inventory declares for as long as they are there: "
+            "the resource cannot fall back to a banned node, even when it is "
+            "the last one left."
         ),
     ),
     Action.CLEAR: ActionSpec(
@@ -396,7 +402,15 @@ def _targets(cluster: bool) -> list[str]:
     return ["cluster_machines[0]"] if cluster else ["standalone_machine"]
 
 
-def play(action: Action, guest: str, mode: Mode, host: str = "", node: str = "") -> str:
+def play(
+    action: Action,
+    guest: str,
+    mode: Mode,
+    host: str = "",
+    node: str = "",
+    ban: str = "",
+    ban_first: bool = False,
+) -> str:
     """The one task play, as YAML.
 
     Dumped rather than templated, so a guest name cannot become YAML of its
@@ -409,7 +423,7 @@ def play(action: Action, guest: str, mode: Mode, host: str = "", node: str = "")
             "hosts": _hosts(Mode.CLUSTER if action in _CLUSTER_ONLY else mode, host),
             "gather_facts": False,
             "become": True,
-            "tasks": _tasks(action, guest, mode, node),
+            "tasks": _tasks(action, guest, mode, node, ban, ban_first),
         }
     ]
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
@@ -460,7 +474,14 @@ def _hosts(mode: Mode, host: str = "") -> str:
     return "standalone_machine"
 
 
-def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]:
+def _tasks(
+    action: Action,
+    guest: str,
+    mode: Mode,
+    node: str = "",
+    ban: str = "",
+    ban_first: bool = False,
+) -> list[dict]:
     """The task or tasks the action is, named for the operator reading them."""
     title = _title(action, guest, node=node)
     if action in (Action.UNIT_START, Action.UNIT_STOP):
@@ -536,12 +557,10 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
         ]
     if action is Action.MOVE:
         # `crm resource move <resource> <node>`, which writes the
-        # `cli-prefer-<resource>` location constraint. Its infinite score
-        # overrides the rule `preferred_host` became without removing it, so a
-        # return has something to go back to. The node is always named,
-        # because a bare `crm resource move` bans the resource from the node it
-        # is on, which is a different act with the same words.
-        return [
+        # `cli-prefer-<resource>` location constraint. The node is always
+        # named, because a bare `crm resource move` bans the resource from the
+        # node it is on, which is a different act with the same words.
+        tasks = [
             {
                 "name": title,
                 "ansible.builtin.command": {
@@ -550,6 +569,25 @@ def _tasks(action: Action, guest: str, mode: Mode, node: str = "") -> list[dict]
                 "changed_when": True,
             }
         ]
+        # Beside the infinite rule `preferred_host` became, the preference
+        # only ties with it, and Pacemaker keeps a tied resource where it
+        # runs. `crm resource ban` on the rule's node breaks the tie and
+        # leaves the rule itself, so a return has something to go back to.
+        # The order is the one that places the resource once: banning first
+        # would send a resource running on that node wherever the scores
+        # happen to fall, before the move sends it again, and moving first
+        # would let a resource running on a third node settle on the tied
+        # rule's node before the ban sends it again.
+        if ban:
+            banning = {
+                "name": f"Keep {guest} off {ban}, where preferred_host holds it",
+                "ansible.builtin.command": {
+                    "argv": ["crm", "resource", "ban", guest, ban]
+                },
+                "changed_when": True,
+            }
+            tasks.insert(0 if ban_first else 1, banning)
+        return tasks
     if action is Action.CLEAR:
         # `crm resource clear` removes the `cli-prefer-<resource>` constraint.
         # On a guest an older `vm_manager` deployed, that constraint was the

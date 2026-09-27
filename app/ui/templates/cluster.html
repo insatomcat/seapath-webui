@@ -171,7 +171,9 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
           cluster weighs rather than obeys. Return removes neither.
           <code>pin-</code> is <code>pinned_host</code>, which Return does not
           remove either. <code>cli-ban-</code> keeps a resource off a node, which is
-          how an observer is kept from running guests.
+          how an observer is kept from running guests, and what a Move writes
+          on the node <code>seapath-preferred-</code> names, whose infinite
+          score would otherwise tie with the <code>cli-prefer</code>.
         </p>
         <div class="table-scroll">
           <table>
@@ -197,7 +199,8 @@ a run, and evicting an OSD is still the `ceph` CLI. See D30 and D34.
         <code>crm resource refresh</code>, run on a cluster member over the
         connection a convergence uses, under the same lock and in the same run
         history. Move overrides the decision, with the
-        <code>cli-prefer</code> constraint below, and it holds the resource
+        <code>cli-prefer</code> constraint below and a <code>cli-ban</code>
+        where the deployment's rule names another node, and it holds the resource
         until Return removes it and gives the resource back to what the
         inventory declares. A guest that is pinned is
         not offered either, because <code>pinned_host</code> means it runs

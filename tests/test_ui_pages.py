@@ -1570,9 +1570,10 @@ def test_the_vms_page_moves_a_guest_and_gives_the_placement_back(
     # lives: the guest name is the resource id, so the page has one door.
     assert '"/cluster/resources/" + encodeURIComponent(guest.name) + "/move"' in script
     assert '"/cluster/resources/" + encodeURIComponent(guest.name) + "/clear"' in script
-    # And what the confirmation has to say: the constraint overrides the
-    # entry's own placement, and what it costs the guest.
-    assert "score overrides the placement preferred_host declares" in script
+    # And what the confirmation has to say: the ban that keeps the constraint
+    # from tying with the entry's own placement, and what it costs the guest.
+    assert "same infinite score, the two would tie" in script
+    assert "cannot fall " in script
     assert "without it the guest is stopped where" in script
     # Pacemaker refuses a move to the node the resource is already active on,
     # so that node is not offered and the confirmation says where the wish to

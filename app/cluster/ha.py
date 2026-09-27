@@ -224,14 +224,33 @@ def declared(cluster: PacemakerCluster, resource: str) -> LocationConstraint | N
     `seapath-preferred-`, infinite, for a guest and for a container workload,
     or the `prefer-` of score 100 an older `deploy_containers_cluster` wrote,
     which says where the cluster leans rather than where it must run the
-    resource. A move overrides either without removing it, and a clear leaves
-    it, so it is what a return gives the resource back to.
+    resource. A move overrides either without removing it, the first with a
+    ban beside the preference, and a clear leaves it, so it is what a return
+    gives the resource back to.
     """
     for prefix in DECLARED_PREFIXES:
         found = _constraint(cluster, resource, prefix)
         if found is not None:
             return found
     return None
+
+
+def contested(cluster: PacemakerCluster, resource: str, node: str) -> str:
+    """The node a move to `node` has to ban, empty when there is none.
+
+    Pacemaker adds the scores of every location constraint per node, so a
+    `cli-prefer` of INFINITY on one node and a `seapath-preferred-` of
+    INFINITY on another leave the two nodes equal, and on equal scores the
+    scheduler keeps the resource where it runs. Moving a resource off the node
+    its deployment rule names would then write a constraint and move nothing.
+    A ban on that node makes it `-INFINITY` there, which is the only score an
+    infinite rule loses to, and `crm resource clear` removes it with the
+    preference. The `prefer-` of score 100 loses to a move without one.
+    """
+    rule = declared(cluster, resource)
+    if rule is None or rule.score != "INFINITY" or rule.node == node:
+        return ""
+    return rule.node
 
 
 def pin(cluster: PacemakerCluster, resource: str) -> LocationConstraint | None:

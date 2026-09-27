@@ -341,7 +341,7 @@ is where this service answers "who changed what, and when".
 | GET | `/conformance` | Result of the last check run per host, and its age |
 | POST | `/cluster/resources/{name}/refresh` | Clear one resource's operation history, failures included, and ask Pacemaker to probe it again: `crm resource refresh <name>` on a cluster member, as a run. `operator`. 202 with the `run_id` to watch, `404 unknown_resource` for a name the cluster does not report, `409 no_cluster` when none answered. See [D29](decisions.md#d29) |
 | POST | `/cluster/resources/refresh` | The same, for every resource on every node: `crm resource refresh` with nothing named. `operator`. It costs a probe per resource per node, so it is the larger of the two and the page says so |
-| POST | `/cluster/resources/{name}/move` | Ask Pacemaker to run a resource on a named node: `crm resource move <name> <node>` on a cluster member, as a run. Body `{"node": "elabo1"}`. `operator`. It writes the `cli-prefer-<name>` constraint, which is the object `preferred_host` produces and written by the same command. `404 unknown_resource`, `404 unknown_node` for a machine the cluster does not report, `409 node_in_standby`, `409 already_there` for the node the resource is already running on, which Pacemaker refuses to move it to and which is `preferred_host` in the inventory rather than a move, `409 resource_pinned` for a guest `pinned_host` holds, `409 resource_is_cloned`, `409 no_cluster`. See [D34](decisions.md#d34) |
+| POST | `/cluster/resources/{name}/move` | Ask Pacemaker to run a resource on a named node: `crm resource move <name> <node>` on a cluster member, as a run. Body `{"node": "elabo1"}`. `operator`. It writes the `cli-prefer-<name>` constraint, the object an older `vm_manager` made of `preferred_host` with the same command. Where the rule a deployment wrote from `preferred_host` (`seapath-preferred-<name>`, infinite) names another node, the run also runs `crm resource ban <name> <that node>`, which writes `cli-ban-<name>-on-<node>`: the two infinite scores would otherwise tie, and Pacemaker keeps a tied resource where it runs. `banned` in the answer names that node, empty where nothing is banned. `404 unknown_resource`, `404 unknown_node` for a machine the cluster does not report, `409 node_in_standby`, `409 already_there` for the node the resource is already running on, which Pacemaker refuses to move it to and which is `preferred_host` in the inventory rather than a move, `409 resource_pinned` for a guest `pinned_host` holds, `409 resource_is_cloned`, `409 no_cluster`. See [D34](decisions.md#d34) |
 | POST | `/cluster/resources/{name}/clear` | Give the placement back: `crm resource clear <name>`, which leaves the rule a deployment wrote from `preferred_host` (`seapath-preferred-` for a guest, `prefer-` for a container). On a guest an older `vm_manager` deployed, which has no such rule, it is followed by a `crm resource move` writing back the `preferred_host` the inventory declares, where it declares one the cluster reports. `operator`. `restored` in the answer names what is written back, empty when nothing is. `crm resource clear` also removes the `cli-ban` constraints on the resource, which the confirmations name. Same refusals as the move |
 | POST | `/cluster/nodes/{name}/standby` | Empty a machine: `crm node standby <name>` on a cluster member, as a run. `operator`. Pacemaker moves every resource off it and places nothing there until it is brought back online. Quorum is untouched. `404 unknown_node`, `409 already_there`, `409 no_cluster` |
 | POST | `/cluster/nodes/{name}/online` | End the standby: `crm node online <name>`. `operator`. What moves back is Pacemaker's decision |
@@ -374,11 +374,12 @@ same lock and in the same history, so no `crm` executes inside this container.
 
 They qualify because each of them writes to the CIB and nowhere else. Deleting
 an operation history is how Pacemaker is told to look again. A placement is the
-`cli-prefer` constraint `vm_manager` itself writes for `preferred_host`, by
-calling the same `crm resource move`, so the move adds no kind of rule the
-cluster did not already carry; the return puts back what the inventory
-declares, because a bare clear removes the declared constraint along with the
-operator's one. Standby is the same question at the scale of a machine. None of
+`cli-prefer` constraint an older `vm_manager` wrote for `preferred_host`, by
+calling the same `crm resource move`, with the `cli-ban` of `crm resource ban`
+beside it where the deployment's own infinite rule names another node, so the
+move adds no kind of rule the cluster did not already carry; the return
+removes both with `crm resource clear` and puts back what the inventory
+declares where the clear would take it too. Standby is the same question at the scale of a machine. None of
 them writes a file on a host, restarts a service or touches the inventory, and
 a redeployment of a guest restores its declared placement whatever was done
 here. [D34](decisions.md#d34) has the bounds.
@@ -1046,7 +1047,9 @@ on the same port.
 
 **Moving one is the Cluster page's act.** A container Pacemaker holds is a
 Pacemaker resource, so Move and Return are `POST /cluster/resources/{id}/move`
-and `/clear`, which write and remove the `cli-prefer` constraint. The reading
+and `/clear`, which write and remove the `cli-prefer` constraint, and the
+`cli-ban` a move writes beside it on the node an infinite `seapath-preferred-`
+names. The reading
 above carries what those two need: `placement` says whether the cluster or a
 constraint decides, and `destinations` says which members a move may name.
 Nothing is written back by a return: `crm resource clear` leaves the

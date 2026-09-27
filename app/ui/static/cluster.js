@@ -533,10 +533,17 @@
   // running guests, and a preference on a node that carries one is a
   // constraint Pacemaker adds up to a refusal, so the move would write a rule
   // and change nothing.
+  //
+  // The ban a move writes on the node the deployment's rule names is the
+  // move's own, and that node stays a destination: a move back there is what
+  // removes it, since `crm resource move` clears the bans on the node it
+  // names.
   function destinations(cluster, id) {
+    const kept = declaredOf(cluster, id);
     const banned = cluster.constraints
       .filter((item) => item.resource === id && item.id.startsWith("cli-ban-"))
-      .map((item) => item.node);
+      .map((item) => item.node)
+      .filter((node) => !(kept && node === kept.node));
     return cluster.nodes
       .filter(
         (node) =>
@@ -550,12 +557,21 @@
 
   function confirmMove(resource, cluster, options) {
     const held = preferenceOf(cluster, resource.id);
+    const kept = declaredOf(cluster, resource.id);
+    const tied = kept && kept.score === "INFINITY";
     confirm({
       title: "Move " + resource.id,
       body:
-        "Writes the cli-prefer constraint that names the node, whose infinite " +
-        "score overrides the placement preferred_host declares while it is " +
-        "there. A guest whose image allows live migration moves without stopping; " +
+        "Writes the cli-prefer constraint that names the node." +
+        (tied
+          ? " Unless that node is " + kept.node + ", it also bans the " +
+            "resource from " + kept.node + ": " + kept.id + " holds it there " +
+            "with the same infinite score, the two would tie, and Pacemaker " +
+            "keeps a tied resource where it runs. Until Return, the resource " +
+            "cannot fall back to " + kept.node + ", even when it is the last " +
+            "node left."
+          : "") +
+        " A guest whose image allows live migration moves without stopping; " +
         "one that does not is stopped where it runs and started on the other " +
         "node, and whatever it was serving stops in between.",
       note: held
@@ -586,8 +602,14 @@
     // `crm resource clear` removes the bans along with the preference, and a
     // ban is how an observer is kept from running guests. Nobody asks for that
     // when they ask for a placement back, so the disruption says it.
+    //
+    // The ban a move writes on the node the deployment's rule names is the
+    // move's own, and it is named with the preference instead.
     const bans = cluster.constraints.filter(
-      (item) => item.resource === resource.id && item.id.startsWith("cli-ban-")
+      (item) =>
+        item.resource === resource.id &&
+        item.id.startsWith("cli-ban-") &&
+        !(kept && item.node === kept.node)
     );
     confirm({
       title: "Return " + resource.id + " to the cluster",
@@ -595,7 +617,8 @@
         "Removes " +
         (held ? held.id : "the cli-prefer constraint") +
         (kept
-          ? ", and leaves " + kept.id + ", which the deployment wrote from " +
+          ? " and any ban on " + kept.node + " a move wrote beside it, and " +
+            "leaves " + kept.id + ", which the deployment wrote from " +
             "preferred_host, so the resource goes back to " + kept.node + "."
           : ", and writes back the placement the inventory declares for this " +
             "guest where it declares one.") +

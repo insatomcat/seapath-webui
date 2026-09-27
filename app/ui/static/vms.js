@@ -472,8 +472,8 @@
   //
   // The comparison is the whole point. `vm_manager` writes `preferred_host`
   // as `seapath-preferred-<guest>` and a move writes `cli-prefer-<guest>`,
-  // whose infinite score overrides it while it is there; the rule in force is
-  // the move where there is one. A guest an older `vm_manager` deployed has
+  // with a ban on the declared node that keeps the two from tying; the rule in
+  // force is the move where there is one. A guest an older `vm_manager` deployed has
   // only the `cli-prefer`, and held against the entry it can still say whether
   // anybody declared it.
   //
@@ -713,9 +713,14 @@
   // removes those along with the preference, which is a side effect of the
   // return rather than anything it was asked for, so the confirmation names
   // them and says what puts them back.
+  //
+  // A move writes one more, on the node the deployment's rule names, and that
+  // one is the move's own: the confirmation names it with the preference.
   function bansOf(guest) {
-    return (guest.constraints || []).filter((item) =>
-      item.id.startsWith("cli-ban-")
+    const kept = declaredOf(guest);
+    return (guest.constraints || []).filter(
+      (item) =>
+        item.id.startsWith("cli-ban-") && !(kept && item.node === kept.node)
     );
   }
 
@@ -769,12 +774,19 @@
 
   function confirmMove(guest, options) {
     const held = preferenceOf(guest);
+    const kept = declaredOf(guest);
     confirm({
       title: "Move " + guest.name,
       body:
-        "Writes the cli-prefer constraint that names the node, whose infinite " +
-        "score overrides the placement preferred_host declares while it is " +
-        "there. With live_migration on this guest's image Pacemaker migrates the " +
+        "Writes the cli-prefer constraint that names the node." +
+        (kept
+          ? " Unless that node is " + kept.node + ", it also bans the guest " +
+            "from " + kept.node + ": " + kept.id + " holds it there with the " +
+            "same infinite score, the two would tie, and Pacemaker keeps a " +
+            "tied guest where it runs. Until Return, the guest cannot fall " +
+            "back to " + kept.node + ", even when it is the last node left."
+          : "") +
+        " With live_migration on this guest's image Pacemaker migrates the " +
         "domain and it keeps running; without it the guest is stopped where " +
         "it is and started on the other node, and whatever it was serving " +
         "stops in between.",
@@ -814,7 +826,9 @@
         "Removes " +
         (held ? held.id : "the cli-prefer constraint") +
         (declaredOf(guest)
-          ? ", and leaves " + declaredOf(guest).id + ", which the deployment " +
+          ? " and any ban on " + declaredOf(guest).node + " a move wrote " +
+            "beside it, and leaves " + declaredOf(guest).id + ", which the " +
+            "deployment " +
             "wrote from preferred_host, so the guest goes back to " +
             declaredOf(guest).node + "."
           : guest.preferred_host

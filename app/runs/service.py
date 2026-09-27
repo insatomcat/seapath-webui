@@ -553,6 +553,8 @@ class RunService:
         deployment: Mode | None = None,
         host: str = "",
         node: str = "",
+        ban: str = "",
+        ban_first: bool = False,
     ) -> RunRecord:
         """Start or stop one guest, as a run like any other.
 
@@ -569,6 +571,10 @@ class RunService:
         move says where the resource is to go, and the play still runs on
         whichever cluster member answers. The caller has checked it against
         what the cluster reported.
+
+        `ban` is the node a move has to ban so the deployment's own rule stops
+        holding the resource, and `ban_first` says which of the two commands
+        runs first, so the resource is placed once rather than twice.
         """
         # The guest's own deployment, so a Pacemaker guest is started through
         # `cluster_vm` and a libvirt one through `community.libvirt.virt`, in a
@@ -579,7 +585,7 @@ class RunService:
             launched_by,
             variables=None,
             check=False,
-            play=actions.play(action, guest, mode, host, node),
+            play=actions.play(action, guest, mode, host, node, ban, ban_first),
             guest=guest,
         )
 

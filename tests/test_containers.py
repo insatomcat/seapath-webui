@@ -516,12 +516,14 @@ def _placed(
     deployed: str = "",
     pinned: str = "",
     rule: str = "prefer-",
+    banned: str = "",
 ) -> ContainerView:
     """Where the service says a container is, from the rules the cluster holds.
 
     `moved` is the `cli-prefer` a move writes, `deployed` the rule
     `deploy_containers_cluster` writes from `preferred_host`, `rule` its
-    prefix, and `declared` the entry's `preferred_host` itself.
+    prefix, `banned` a `cli-ban`, and `declared` the entry's `preferred_host`
+    itself.
     """
     rules = [
         LocationConstraint(id=f"{prefix}c", resource="c", node=node, score=score)
@@ -529,6 +531,7 @@ def _placed(
             ("cli-prefer-", moved, "INFINITY"),
             (rule, deployed, "100" if rule == "prefer-" else "INFINITY"),
             ("pin-", pinned, "INFINITY"),
+            (f"cli-ban-c-on-{banned}" if banned else "cli-ban-", banned, "-INFINITY"),
         )
         if node
     ]
@@ -632,6 +635,29 @@ def test_a_deployed_preference_the_cluster_is_not_following_is_displaced() -> No
     view = _placed("seapath-machine", declared="elabo1", deployed="elabo1")
 
     assert view.placement == "displaced"
+
+
+def test_the_node_a_move_banned_stays_a_destination() -> None:
+    # The ban a move writes on the node `seapath-preferred-` names is the
+    # move's own, and a move back there removes it: `crm resource move` clears
+    # the bans on the node it names.
+    view = _placed(
+        "elabo1",
+        declared="seapath-machine",
+        moved="elabo1",
+        deployed="seapath-machine",
+        rule="seapath-preferred-",
+        banned="seapath-machine",
+    )
+
+    assert view.destinations == ["seapath-machine"]
+
+
+def test_a_ban_nothing_declares_still_keeps_a_node_out() -> None:
+    # Any other ban is how a machine is kept from running the resource.
+    view = _placed("elabo1", banned="seapath-machine")
+
+    assert view.destinations == []
 
 
 def test_a_pinned_container_is_pinned_whatever_else_it_declares() -> None:

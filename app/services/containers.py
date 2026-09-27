@@ -1074,11 +1074,18 @@ def _destinations(cluster: PacemakerCluster, resource: PacemakerResource) -> lis
     banned from, minus the node it is already running on: Pacemaker refuses a
     move to the node a resource is active on, and a preference on a banned node
     is a rule that would change nothing.
+
+    The ban a move writes on the node the deployment's rule names is the
+    move's own, and that node stays a destination: `crm resource move` clears
+    the bans on the node it names, so a move back there removes it.
     """
+    kept = ha.declared(cluster, resource.id)
     banned = {
         item.node
         for item in cluster.constraints
-        if item.resource == resource.id and item.id.startswith(ha.BAN_PREFIX)
+        if item.resource == resource.id
+        and item.id.startswith(ha.BAN_PREFIX)
+        and not (kept is not None and item.node == kept.node)
     }
     return [
         node.name

@@ -330,6 +330,7 @@ it, and the guests are what an operator watches while it happens.
 | 15 | A viewer sees no Move, Return or Standby button, and all four endpoints as a viewer are refused | They write to a live CIB, so they are an operator's act | Pending |
 | 16 | **The acceptance criterion.** After a session of moves and standbys, `disable` then `enable` on the guest through the VMs page restores the declared placement, and `deploy_vms_cluster` from a conventional Ansible control machine reports no change | Placement written here must never outlive a redeployment, or the inventory has stopped describing the cluster | Pending |
 | 17 | Every one of these appears in the run history with the machine it ran on, the command line, and the user who launched it | The audit trail is the product claim, and a CIB write with no run behind it would break it | Pending |
+| 18 | **Move** of a resource off the node its `seapath-preferred-` names runs `crm resource move` and `crm resource ban` on that node, the resource ends on the node chosen, and **Return** brings it back with no `cli-` constraint left | A `cli-prefer` alone only ties with the infinite rule, and on a tie Pacemaker keeps the resource where it runs: `crm_simulate` on Pacemaker 3.0.0 shows it, and only a real cluster shows the ban breaking it | Pending |
 
 ### Result
 

@@ -586,11 +586,22 @@
   function confirmMove(container) {
     const held = container.constraint;
     const resource = container.resource || {};
+    const kept = container.preference;
+    const tied = kept && kept.score === "INFINITY";
     confirm({
       title: "Move " + container.name,
       body:
         "Writes the cli-prefer constraint naming the machine, and the cluster " +
-        "then runs the container there. It is stopped on " +
+        "then runs the container there." +
+        (tied
+          ? " Unless that machine is " + kept.node + ", it also bans the " +
+            "container from " + kept.node + ": " + kept.id + " holds it " +
+            "there with the same infinite score, the two would tie, and " +
+            "Pacemaker keeps a tied container where it runs. Until Return, " +
+            "the container cannot fall back to " + kept.node + ", even when " +
+            "it is the last machine left."
+          : "") +
+        " It is stopped on " +
         (resource.node || "the member running it") +
         " and started on the machine chosen here, so whatever it was serving " +
         "stops in between: a container has no live migration.",
@@ -626,6 +637,10 @@
       body:
         "Removes " +
         (held ? held.id : "the cli-prefer constraint") +
+        (container.preference
+          ? " and any ban on " + container.preference.node + " a move wrote " +
+            "beside it"
+          : "") +
         ", so Pacemaker places this container by its own rules again. It may " +
         "move it as a result, at the same cost the move had: the container " +
         "is stopped where it runs and started where the cluster puts it.",

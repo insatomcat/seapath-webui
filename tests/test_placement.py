@@ -77,16 +77,18 @@ def test_a_move_is_the_command_an_operator_would_type(
     """One task, `crm resource move`, and the node always named.
 
     A bare `crm resource move` bans the resource from the node it is on, which
-    is a different act with the same words.
+    is a different act with the same words. `vm-guest1` carries no rule a
+    deployment wrote, so there is nothing for the preference to tie with.
     """
     response = _cluster(signed_in).post(
-        "/api/v1/cluster/resources/vm-guest3/move", json={"node": "elabo1"}
+        "/api/v1/cluster/resources/vm-guest1/move", json={"node": "elabo1"}
     )
 
     assert response.status_code == 202, response.text
     body = response.json()
-    assert body["resource"] == "vm-guest3"
+    assert body["resource"] == "vm-guest1"
     assert body["node"] == "elabo1"
+    assert body["banned"] == ""
     # Watched on the Runs page, with the same event stream and the same record
     # a convergence has.
     assert signed_in.get(f"/api/v1/runs/{body['run_id']}").status_code == 200
@@ -95,8 +97,118 @@ def test_a_move_is_the_command_an_operator_would_type(
     assert play["hosts"] == "{{ groups['cluster_machines'][0] }}"
     assert len(play["tasks"]) == 1
     assert play["tasks"][0]["ansible.builtin.command"] == {
-        "argv": ["crm", "resource", "move", "vm-guest3", "elabo1"]
+        "argv": ["crm", "resource", "move", "vm-guest1", "elabo1"]
     }
+
+
+def test_a_move_off_the_declared_node_bans_the_resource_from_it(
+    signed_in: TestClient, settings
+) -> None:
+    """The preference alone ties with the rule `preferred_host` became.
+
+    `seapath-preferred-vm-guest3` names seapath-machine with an infinite
+    score, and so does the `cli-prefer` on elabo1: Pacemaker keeps a tied
+    resource where it runs, so the run would succeed and move nothing. The
+    ban makes seapath-machine -INFINITY, and `crm resource clear` removes it
+    with the preference. The guest last ran on the banned node, so the move
+    comes first and the tie holds it there until the ban.
+    """
+    response = _cluster(signed_in).post(
+        "/api/v1/cluster/resources/vm-guest3/move", json={"node": "elabo1"}
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json()["banned"] == "seapath-machine"
+    tasks = _play(settings, response.json(), "resource_move")["tasks"]
+    assert [task["ansible.builtin.command"]["argv"] for task in tasks] == [
+        ["crm", "resource", "move", "vm-guest3", "elabo1"],
+        ["crm", "resource", "ban", "vm-guest3", "seapath-machine"],
+    ]
+    assert all(task["changed_when"] is True for task in tasks)
+
+
+def test_a_move_back_to_the_declared_node_bans_nothing(
+    signed_in: TestClient, settings, monkeypatch
+) -> None:
+    # `crm resource move` clears the bans on the node it names, so the one an
+    # earlier move wrote there goes by itself, and a ban anywhere else would
+    # keep the guest from a node nobody asked about.
+    from app.cluster import fake
+
+    running = fake._pacemaker().replace(
+        'node="seapath-machine",resource="vm-guest3",role="stopped",'
+        'managed="true",status="failed"',
+        'node="elabo1",resource="vm-guest3",role="started",'
+        'managed="true",status="active"',
+    )
+    assert running != fake._pacemaker()
+    for address in fake.HA_EXPORTERS:
+        monkeypatch.setitem(fake.HA_EXPORTERS, address, running)
+
+    response = _cluster(signed_in).post(
+        "/api/v1/cluster/resources/vm-guest3/move",
+        json={"node": "seapath-machine"},
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json()["banned"] == ""
+    tasks = _play(settings, response.json(), "resource_move")["tasks"]
+    assert [task["ansible.builtin.command"]["argv"] for task in tasks] == [
+        ["crm", "resource", "move", "vm-guest3", "seapath-machine"],
+    ]
+
+
+def test_a_resource_away_from_the_banned_node_is_banned_first() -> None:
+    """The order that places the resource once.
+
+    Running on a third node, the ban moves nothing and the move then sends it
+    where it was asked. The other way round, the move alone would leave the
+    tied rule's node and the chosen one equal, with the resource on neither,
+    and it could settle on the first before the ban sent it on.
+    """
+    from app.inventory.model import Mode
+    from app.runs.actions import Action, play
+
+    document = yaml.safe_load(
+        play(
+            Action.MOVE,
+            "vm-guest3",
+            Mode.CLUSTER,
+            node="elabo1",
+            ban="seapath-machine",
+            ban_first=True,
+        )
+    )
+    assert [
+        task["ansible.builtin.command"]["argv"] for task in document[0]["tasks"]
+    ] == [
+        ["crm", "resource", "ban", "vm-guest3", "seapath-machine"],
+        ["crm", "resource", "move", "vm-guest3", "elabo1"],
+    ]
+
+
+def test_only_an_infinite_declared_rule_is_contested() -> None:
+    # The `prefer-` of score 100 an older role wrote loses to a move without
+    # help, and a move to the node the rule names needs nothing either.
+    from app.cluster import ha
+    from app.cluster.ha import LocationConstraint, PacemakerCluster
+
+    def cluster(rule: str, score: str) -> PacemakerCluster:
+        return PacemakerCluster(
+            constraints=[
+                LocationConstraint(
+                    id=rule + "web", resource="web", node="node3", score=score
+                )
+            ]
+        )
+
+    assert (
+        ha.contested(cluster("seapath-preferred-", "INFINITY"), "web", "node1")
+        == "node3"
+    )
+    assert ha.contested(cluster("seapath-preferred-", "INFINITY"), "web", "node3") == ""
+    assert ha.contested(cluster("prefer-", "100"), "web", "node1") == ""
+    assert ha.contested(PacemakerCluster(), "web", "node1") == ""
 
 
 def test_the_run_is_titled_with_both_names(signed_in: TestClient, settings) -> None:

@@ -11,9 +11,10 @@ Three acts sit beside the reading, and they are the exception D30 makes for
 starting a guest, extended once by D34. None of them changes a desired state.
 Refreshing deletes an operation history Pacemaker keeps, so a failure that has
 been dealt with stops holding a resource down. Moving writes the `cli-prefer`
-location constraint, which is the object `preferred_host` already produces:
-`vm_manager` implements that field by running this very command, so a
-deliberate move adds no kind of rule the cluster did not carry. Standby is the
+location constraint, which is the object an older `vm_manager` made of
+`preferred_host` by running this very command, and where the deployment's own
+rule names another node, the `cli-ban` of `crm resource ban` on it, without
+which the two would tie. Standby is the
 node scoped form of the same thing, and it is what an operator does before
 rebooting a hypervisor.
 
@@ -160,6 +161,11 @@ class PlacementResponse(BaseModel):
     resource: str
     node: str = ""
     """Where a move sends it. Empty for a return."""
+    banned: str = ""
+    """The node a move bans the resource from, because the rule a deployment
+    wrote from `preferred_host` names it with an infinite score and would
+    otherwise tie with the move. Empty where there is no such rule, and for a
+    return."""
     restored: str = ""
     """The placement the inventory declares, which a return writes back.
 
@@ -313,15 +319,24 @@ def move(
     """Ask Pacemaker to run a resource on a named node, as a run.
 
     `crm resource move <resource> <node>` on a cluster member, which writes the
-    `cli-prefer-<resource>` location constraint. That is the same object
-    `preferred_host` produces, written by the same command: `vm_manager`
-    implements the field by calling it, so this adds no kind of rule the
-    cluster did not already carry and the Cluster page's constraint table shows
-    it beside the others.
+    `cli-prefer-<resource>` location constraint. That is the object an older
+    `vm_manager` made of `preferred_host`, written by the same command, so
+    this adds no kind of rule the cluster did not already carry and the
+    Cluster page's constraint table shows it beside the others.
 
-    It is an override and it says so. The constraint stays until the placement
-    is returned or the resource is rebuilt from its metadata, and while it is
-    there it wins over whatever the inventory declares. What it costs the guest
+    Beside the rule a deployment wrote from `preferred_host`,
+    `seapath-preferred-` and infinite, the preference only ties with it, and
+    Pacemaker keeps a tied resource where it runs: the run would succeed and
+    move nothing. So where that rule names another node the run also bans the
+    resource from it, `crm resource ban <resource> <node>`, which writes
+    `cli-ban-<resource>-on-<node>` and is removed by the same clear. `banned`
+    in the answer names it.
+
+    It is an override and it says so. The constraints stay until the placement
+    is returned or the resource is rebuilt from its metadata, and while they
+    are there they win over whatever the inventory declares, down to keeping
+    the resource off its declared node when that is the last one left. What it
+    costs the guest
     is the guest's own `live_migration`: with it Pacemaker migrates the domain,
     without it the guest is stopped where it runs and started on the other
     node.
@@ -336,14 +351,26 @@ def move(
     _placeable(cluster, name)
     _target(cluster, payload.node)
     _elsewhere(cluster, name, payload.node)
+    banned = ha.contested(cluster, name, payload.node)
+    # Where the resource does not run on the banned node, banning it first
+    # moves nothing and the move then places it once. Where it does, the move
+    # comes first and the tie keeps it there until the ban sends it on.
+    line = ha.running(cluster, name)
+    ban_first = bool(banned) and (line is None or line.node != banned)
     record = _runs(request).launch_action(
-        Action.MOVE, name, user.username, node=payload.node
+        Action.MOVE,
+        name,
+        user.username,
+        node=payload.node,
+        ban=banned,
+        ban_first=ban_first,
     )
     return PlacementResponse(
         run_id=record.id,
         state=record.state.value,
         resource=name,
         node=payload.node,
+        banned=banned,
     )
 
 
