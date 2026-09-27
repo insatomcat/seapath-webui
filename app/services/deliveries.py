@@ -340,9 +340,9 @@ class DeliveryService:
                 answer.append(
                     SiteFile(
                         example=example,
-                        path=source
-                        if inside
-                        else f"{moved}/{source.rsplit('/', 1)[-1]}",
+                        path=(
+                            source if inside else f"{moved}/{source.rsplit('/', 1)[-1]}"
+                        ),
                         origin="site" if inside else "current",
                     )
                 )
