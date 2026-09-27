@@ -35,6 +35,12 @@ netaddr==1.3.0
 # gives no hint that the missing install is the controller's.
 jmespath==1.0.1
 
+# And for deploy_containers_cluster: the `checks` of a workload read its
+# configuration files with community.general.xml, which needs lxml on the
+# controller. Without it a workload that declares checks fails its run at
+# "Read the values the checks of the workloads compare".
+lxml==6.1.3
+
 # The configuration plane. ansible-core stays inside the 2.16 series, which is
 # what seapath-ansible's own CI installs (`ansible-core~=2.16.0`): an image
 # carrying a different series runs playbooks against a version they were never
