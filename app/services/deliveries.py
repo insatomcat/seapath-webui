@@ -334,10 +334,15 @@ class DeliveryService:
             )
             if source is not None and source in stored:
                 inside = source.startswith(f"{home}/{delivery.SITE_DIR}/")
+                # Moved under its own name: a plain CID stays plain where the
+                # example is a template.
+                moved = delivery.site_path(found, example).rsplit("/", 1)[0]
                 answer.append(
                     SiteFile(
                         example=example,
-                        path=source if inside else delivery.site_path(found, example),
+                        path=source
+                        if inside
+                        else f"{moved}/{source.rsplit('/', 1)[-1]}",
                         origin="site" if inside else "current",
                     )
                 )

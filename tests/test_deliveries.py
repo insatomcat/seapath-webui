@@ -805,10 +805,18 @@ def test_an_installation_made_before_site_moves_its_files_there(
         == 200
     )
 
-    staged = _stage(signed_in, _build_config(tmp_path / "two", "vied-2"))
+    # The example is a template: the site's file keeps its own name, plain.
+    staged = _stage(
+        signed_in,
+        _build_config(
+            tmp_path / "two",
+            "vied-2",
+            {"model.cid.j2": "<SCL {{ container.sbus_ip }}/>"},
+        ),
+    )
     assert staged["site"] == [
         {
-            "example": "model.cid",
+            "example": "model.cid.j2",
             "path": "inventories/vied/site/model.cid",
             "origin": "current",
         }
