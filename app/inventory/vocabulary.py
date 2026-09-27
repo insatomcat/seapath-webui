@@ -582,6 +582,19 @@ _FILES: tuple[Term, ...] = (
         ),
     ),
     Term(
+        "cluster_containers",
+        Kind.MAPPING,
+        Scope.GROUP,
+        "Container workloads Pacemaker runs, by name: their quadlets, images, "
+        "RBD image and placement.",
+        role="deploy_containers_cluster",
+        example="nginxquadlet:",
+        caution=(
+            "No quadlet of a workload may have an [Install] section: the role "
+            "refuses it, since systemd would start it on every node at boot."
+        ),
+    ),
+    Term(
         "iptables_rules_path",
         Kind.STRING,
         Scope.ANY,

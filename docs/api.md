@@ -1019,6 +1019,12 @@ a cluster `extra_crm_cmd_to_run` hands that unit to Pacemaker's systemd
 resource agent. Three variables the upstream roles already read, and no schema
 of this service's own. See [D33](decisions.md#d33).
 
+A cluster has a second way, which is what a container Pacemaker runs is
+declared with now: a workload of `cluster_containers`, which
+`deploy_containers_cluster` puts on every hypervisor of the cluster with its
+images and its RBD image before creating its resource. Both ways are read, and
+a container says which one declares it. See [D68](decisions.md#d68).
+
 So a container has three faces and this joins them: declared by the inventory,
 a unit on each machine that receives it, and a resource where the cluster holds
 one. The unit half is read from the `systemd` collector of
@@ -1027,8 +1033,8 @@ on the same port.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/containers` | Every container the inventory declares. Each carries the `hosts` it is uploaded to, the `scope` the entry is written at, `file_name`, which is what the file is called under `/etc/containers/systemd`, the quadlet `file` and whether a run would find it, `readable` saying whether this node can show it, `managed` saying whether Pacemaker or systemd owns it, the `resource` where there is one, and `units`, which is what each machine's exporter says about the unit. A container the cluster holds also carries `placement` (`free`, `kept` or `displaced`), the `constraint` holding it, the `pinned` rule where a site wrote one, and the `destinations` a move may name. `undeclared` lists the systemd resources the cluster runs that no quadlet here explains; `scopes` is where a declaration may be written, with the machines each one reaches and the reason the unavailable ones are refused; `upload_playbook` and `cluster_playbook` name the runs that make a declaration real |
-| POST | `/containers` | Declare one container, one commit, `If-Match` on the commit hash. `scope_kind` and `scope_name` say where the upload entry is written, `src` names the quadlet file, and `pacemaker` appends the primitive. `admin` |
+| GET | `/containers` | Every container the inventory declares. Each carries the `hosts` it is uploaded to, the `scope` the entry is written at, `file_name`, which is what the file is called under `/etc/containers/systemd`, the quadlet `file` and whether a run would find it, `readable` saying whether this node can show it, `managed` saying whether Pacemaker or systemd owns it, the `resource` where there is one, and `units`, which is what each machine's exporter says about the unit. A container the cluster holds also carries `placement` (`free`, `kept` or `displaced`), the `constraint` holding it, the `pinned` rule where a site wrote one, and the `destinations` a move may name. `variable` says what declares it, `upload_extra_files_upload_files` or `cluster_containers`, and `playbook` names the run that puts it on the machines. `undeclared` lists the systemd resources the cluster runs that no quadlet here explains; `scopes` is where a declaration may be written, with the machines each one reaches and the reason the unavailable ones are refused; `upload_playbook` and `workload_playbook` name the runs of the two ways |
+| POST | `/containers` | Declare one container, one commit, `If-Match` on the commit hash. `scope_kind` and `scope_name` say where the upload entry is written, `src` names the quadlet file, and `pacemaker` declares it as a workload of `cluster_containers` instead, where the cluster members read it, the scope then unused. `playbook` in the answer names the run to launch. `admin` |
 | POST | `/containers/{name}/start` | Start it. Through Pacemaker where the cluster holds the resource, through systemd on the machine named in `host` where it does not. `202` with the run. `operator` |
 | POST | `/containers/{name}/stop` | Stop it, the same two ways. `202` with the run. `operator` |
 | GET | `/containers/{name}/file` | The quadlet's own text, read where a run would read it. `409` where nothing here holds the file, where the path is templated, where it is too large to be a quadlet, or where it resolves outside the folders a run overlays: this answers for the inventory rather than for the filesystem of the node it runs on |
@@ -1059,10 +1065,10 @@ from, and any other scope is refused with the place named. `scopes` carries the
 same refusal ahead of time, so the form offers it as unavailable rather than
 accepting it and failing.
 
-The primitive follows the same rule and one more. `configure_ha` loads
-`extra_crm_cmd_to_run` with `run_once`, so the value that counts is the one the
-member Ansible plays first: the line is appended where the cluster already
-reads that variable, and on `cluster_machines` when nothing holds it yet.
+A workload follows the same rule: it is added to the `cluster_containers`
+the cluster members already read, and on `cluster_machines` when nothing holds
+it yet. Its images, RBD image and placement are the file's to add afterwards,
+as a guest's are.
 
 **Which act a container carries is decided by who owns it.** A Pacemaker
 resource means `crm resource start|stop <id>` on a member, one act for the

@@ -303,10 +303,11 @@ them. See D49 and D50 in [docs/decisions.md](docs/decisions.md).
 **Containers** is the same idea one layer down, and almost all of it already
 existed. A container in SEAPATH is a quadlet: `upload_extra_files` copies a
 `.container` file to `/etc/containers/systemd`, podman's generator turns it
-into a systemd unit at the next `daemon-reload`, and on a cluster
-`extra_crm_cmd_to_run` hands that unit to Pacemaker's systemd resource agent.
-Three variables the upstream roles already read, which the page reads back and
-joins to what the machines publish: the unit state comes from the systemd
+into a systemd unit at the next `daemon-reload`. On a cluster, a container
+Pacemaker runs is a workload of `cluster_containers`, which
+`deploy_containers_cluster` deploys on every hypervisor with its images, its
+RBD image and its resource. Variables the upstream roles already read, which
+the page reads back and joins to what the machines publish: the unit state comes from the systemd
 collector of the `node_exporter` every node runs, out of the same exposition
 the CPU pool is read from, so the reading costs no new request anywhere.
 

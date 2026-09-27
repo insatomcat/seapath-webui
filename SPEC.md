@@ -100,7 +100,8 @@ Proxmox clone:
   [decisions.md](docs/decisions.md).
 - The containers a site deploys, which are quadlets: `upload_extra_files` puts
   a `.container` file on the machines, podman's generator makes it a systemd
-  unit, and on a cluster `extra_crm_cmd_to_run` hands that unit to Pacemaker.
+  unit, and on a cluster a workload of `cluster_containers` is deployed with
+  its resource by `deploy_containers_cluster`.
   Reading them costs nothing new, since the unit state comes out of the
   exposition the CPU pool is already read from; starting and stopping one is
   the runtime plane, through Pacemaker where the cluster holds the resource and

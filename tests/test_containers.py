@@ -86,6 +86,41 @@ all:
         cluster_machines:
 """
 
+# The same cluster once its containers moved to `deploy_containers_cluster`: a
+# single container and a pod, and one being removed.
+WORKLOADS = (
+    CLUSTER.split("        upload_extra_files_upload_files:")[0]
+    + """        cluster_containers:
+          nginxquadlet:
+            images:
+              - name: public.ecr.aws/nginx/nginx:1.31.5
+            quadlets:
+              - ../files/nginxquadlet.container.j2
+              - ../files/nginxquadlet.network.j2
+            rbd:
+              size: 1G
+          protect:
+            unit: protect-pod.service
+            images:
+              - name: localhost/protect:1.0
+                archive: ../files/protect-1.0.tar
+            quadlets:
+              - ../files/protect-rt.container
+              - ../files/protect.pod.j2
+            rbd:
+              size: 128M
+              files:
+                - { src: ../files/settings.json, dest: settings.json }
+          retired:
+            state: absent
+            quadlets:
+              - ../files/retired.container
+    hypervisors:
+      children:
+        cluster_machines:
+"""
+)
+
 
 def _import(client: TestClient, document: str) -> None:
     response = client.post("/api/v1/inventory/import", json={"document": document})
@@ -153,6 +188,70 @@ def test_a_container_joins_its_declaration_its_unit_and_its_resource(
     # A machine that answers nothing is a row carrying the reason it gave.
     assert units["elabo2"]["reachable"] is False
     assert units["elabo2"]["error"]
+
+
+def test_a_cluster_workload_is_a_container_pacemaker_holds(
+    signed_in: TestClient,
+) -> None:
+    _import(signed_in, WORKLOADS)
+
+    payload = _containers(signed_in)
+    containers = _by_name(payload)
+
+    # A workload being removed is not a container any more.
+    assert sorted(containers) == ["nginxquadlet", "protect"]
+    nginx = containers["nginxquadlet"]
+    assert nginx["variable"] == "cluster_containers"
+    assert nginx["playbook"] == "deploy_containers_cluster"
+    assert (nginx["scope_kind"], nginx["scope_name"]) == ("group", "cluster_machines")
+    assert nginx["hosts"] == ["elabo1", "elabo2", "seapath-machine"]
+    # The template is shown under the name it takes on the machines.
+    assert nginx["file_name"] == "nginxquadlet.container"
+    assert nginx["src"] == "../files/nginxquadlet.container.j2"
+    # Joined to the resource the cluster runs, which is therefore no longer
+    # listed as undeclared.
+    assert nginx["managed"] == "pacemaker"
+    assert nginx["resource"]["id"] == "nginxquadlet"
+    assert payload["undeclared"] == []
+
+
+def test_a_pod_workload_is_read_from_the_quadlet_its_unit_comes_from(
+    signed_in: TestClient,
+) -> None:
+    _import(signed_in, WORKLOADS)
+
+    protect = _by_name(_containers(signed_in))["protect"]
+
+    assert protect["unit"] == "protect-pod.service"
+    assert protect["kind"] == ".pod"
+    assert protect["file_name"] == "protect.pod"
+    # Started and stopped as a whole through its resource, pod or not.
+    assert protect["actionable"] is True
+
+
+def test_a_workload_is_read_on_the_machines_the_playbook_plays() -> None:
+    # `cluster_machines:&hypervisors`: an observer is a member and no
+    # hypervisor, and a standalone machine is neither.
+    document = """
+all:
+  hosts:
+    lone:
+  vars:
+    cluster_containers:
+      web:
+        quadlets: [../files/web.container]
+  children:
+    cluster_machines:
+      hosts:
+        node1:
+        observer:
+    hypervisors:
+      hosts:
+        node1:
+        lone:
+"""
+    assert [item.host for item in quadlets.workloads(document)] == ["node1"]
+    assert quadlets.workloads(document.replace("hypervisors:", "others:")) == []
 
 
 def test_a_container_whose_file_is_missing_says_so_before_the_run(
@@ -493,37 +592,56 @@ def test_a_scope_that_would_shadow_the_list_is_offered_as_unavailable(
     assert "replaces a variable" in scopes[("group", "cluster_machines")]["reason"]
 
 
-def test_a_cluster_container_gets_its_primitive_where_the_file_keeps_them(
+def test_a_container_pacemaker_runs_is_declared_as_a_cluster_workload(
     signed_in: TestClient,
 ) -> None:
-    # `configure_ha` loads `extra_crm_cmd_to_run` with `run_once`, so the value
-    # that counts is the one the member Ansible plays first. Writing the
-    # primitive anywhere but where the cluster already reads it would be a coin
-    # toss between two values.
-    _import(signed_in, REAL.read_text())
+    # `deploy_containers_cluster` puts a workload on every hypervisor of the
+    # cluster and creates its resource, so the scope the form carries is not
+    # where it goes: the mapping lands where the cluster members read it.
+    _import(signed_in, CLUSTER)
+
+    response = signed_in.post(
+        "/api/v1/containers",
+        json={
+            "name": "mosquitto",
+            "scope_kind": "host",
+            "scope_name": "elabo1",
+            "pacemaker": True,
+        },
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["playbook"] == "deploy_containers_cluster"
+    document = yaml.safe_load(signed_in.get("/api/v1/inventory/raw").text)
+    cluster = document["all"]["children"]["cluster_machines"]["vars"]
+    assert cluster["cluster_containers"] == {
+        "mosquitto": {"quadlets": ["../files/mosquitto.container"]}
+    }
+    # Nothing of the old way is written for it.
+    assert len(cluster["upload_extra_files_upload_files"]) == 1
+    assert "mosquitto" not in cluster["extra_crm_cmd_to_run"]
+
+
+def test_a_second_workload_is_added_beside_the_first(signed_in: TestClient) -> None:
+    _import(signed_in, WORKLOADS)
 
     response = signed_in.post(
         "/api/v1/containers",
         json={
             "name": "mosquitto",
             "scope_kind": "group",
-            "scope_name": "all",
+            "scope_name": "cluster_machines",
             "pacemaker": True,
         },
     )
 
     assert response.status_code == 201, response.text
-    assert response.json()["cluster_playbook"] == "cluster_setup_ha"
     document = yaml.safe_load(signed_in.get("/api/v1/inventory/raw").text)
-    crm = document["all"]["vars"]["extra_crm_cmd_to_run"].splitlines()
-    # The site's own primitive is untouched and the new one sits under it.
-    assert crm[0].startswith("primitive nginxquadlet systemd:nginxquadlet.service")
-    assert crm[1] == (
-        "primitive mosquitto systemd:mosquitto.service "
-        "op monitor interval=30s "
-        "op start timeout=60s interval=0s "
-        "op stop timeout=60s interval=0s"
-    )
+    workloads = document["all"]["children"]["cluster_machines"]["vars"][
+        "cluster_containers"
+    ]
+    assert sorted(workloads) == ["mosquitto", "nginxquadlet", "protect", "retired"]
+    assert workloads["nginxquadlet"]["rbd"] == {"size": "1G"}
 
 
 def test_the_declaration_names_the_run_that_makes_it_so(
@@ -539,8 +657,6 @@ def test_the_declaration_names_the_run_that_makes_it_so(
     assert body["commit"]
     assert body["message"] == "containers: declare mosquitto"
     assert body["playbook"] == "seapath_setup_prerequisitesdebian"
-    # No primitive was asked for, so no cluster run is named.
-    assert body["cluster_playbook"] is None
 
 
 def test_a_name_that_cannot_be_a_unit_is_refused(signed_in: TestClient) -> None:

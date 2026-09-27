@@ -16,10 +16,14 @@ upload_extra_files_upload_files:
     mode: "0644"
 ```
 
-So there is no container variable to invent, no group to add and no schema to
-extend. This module reads that list back, host by host, and says which entries
-are quadlets. Everything the Containers page shows about the desired state
-comes from here, and everything it writes is an entry of exactly this shape.
+This module reads that list back, host by host, and says which entries are
+quadlets.
+
+A cluster has a second way since `deploy_containers_cluster`: a workload in
+`cluster_containers`, keyed by name, which that role puts on every hypervisor
+of the cluster with its images, its RBD image and its Pacemaker resource.
+`workloads` reads those back in the same shape, so the page joins both to what
+the machines publish the same way.
 
 **The unit name is derived, not stored.** podman's generator names the unit
 after the file, and the rule differs per extension. It is reproduced here
@@ -40,7 +44,7 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-from app.inventory.resolve import resolve
+from app.inventory.resolve import groups, members, resolve
 
 # Where podman's generator looks. A file copied anywhere else is an ordinary
 # upload, whatever its extension says.
@@ -48,7 +52,12 @@ QUADLET_DIR = "/etc/containers/systemd"
 
 UPLOAD_VARIABLE = "upload_extra_files_upload_files"
 COMMANDS_VARIABLE = "upload_extra_files_commands_to_run_after_upload"
-CRM_VARIABLE = "extra_crm_cmd_to_run"
+WORKLOADS_VARIABLE = "cluster_containers"
+
+# The machines `deploy_containers_cluster.yaml` plays,
+# `cluster_machines:&hypervisors`: the cluster members Pacemaker may start a
+# workload on, the observers left out.
+WORKLOAD_GROUPS = ("cluster_machines", "hypervisors")
 
 # What has to run once the files have landed, and the only command this service
 # ever adds. The generator reads `/etc/containers/systemd` on a reload and
@@ -102,10 +111,16 @@ class Quadlet:
     src: str
     dest: str
     mode: str = ""
+    workload: bool = False
+    """Declared in `cluster_containers` rather than uploaded by
+    `upload_extra_files`. `name` is then the workload's, which is the
+    Pacemaker resource, and `unit` the one the resource starts."""
 
     @property
     def actionable(self) -> bool:
-        return self.kind in ACTIONABLE
+        # A workload is started as a whole through its resource, whatever the
+        # kind of the quadlet its unit comes from: a pod included.
+        return self.workload or self.kind in ACTIONABLE
 
     @property
     def file_name(self) -> str:
@@ -117,7 +132,7 @@ class Quadlet:
         machine is `src`, and that is a fact about the inventory rather than
         about the container.
         """
-        return f"{self.name}{self.kind}"
+        return self.dest.rsplit("/", 1)[-1]
 
 
 def unit_for(dest: str) -> str:
@@ -144,9 +159,44 @@ def declared(document: str | dict[str, Any]) -> list[Quadlet]:
     return found
 
 
+def workloads(document: str | dict[str, Any]) -> list[Quadlet]:
+    """Every workload `cluster_containers` declares, one entry per machine.
+
+    The machines are the ones the playbook plays, whatever group the variable
+    is written on. A workload being removed, `state: absent`, is no longer a
+    container: the next run takes it away.
+    """
+    table = groups(document)
+    if any(name not in table for name in WORKLOAD_GROUPS):
+        return []
+    played = members(table, WORKLOAD_GROUPS[0]) & members(table, WORKLOAD_GROUPS[1])
+    found: list[Quadlet] = []
+    for host, variables in sorted(resolve(document).items()):
+        value = variables.get(WORKLOADS_VARIABLE)
+        if host not in played or not isinstance(value, dict):
+            continue
+        for name, spec in sorted(value.items(), key=lambda item: str(item[0])):
+            quadlet = _workload(host, name, spec)
+            if quadlet is not None:
+                found.append(quadlet)
+    return found
+
+
+def workload_sources(spec: Any) -> list[str]:
+    """The quadlet files a workload names, as the inventory writes them."""
+    value = spec.get("quadlets") if isinstance(spec, dict) else None
+    if not isinstance(value, list):
+        return []
+    return [item.strip() for item in value if isinstance(item, str) and item.strip()]
+
+
 def hosts_of(document: str | dict[str, Any], name: str) -> list[str]:
     """The machines an inventory sends this quadlet to."""
-    return [quadlet.host for quadlet in declared(document) if quadlet.name == name]
+    return [
+        quadlet.host
+        for quadlet in [*declared(document), *workloads(document)]
+        if quadlet.name == name
+    ]
 
 
 def upload_entry(name: str, source: str, kind: str = ".container") -> dict[str, str]:
@@ -161,28 +211,6 @@ def upload_entry(name: str, source: str, kind: str = ".container") -> dict[str, 
         "dest": f"{QUADLET_DIR}/{name}{kind}",
         "mode": "0644",
     }
-
-
-def primitive(name: str, unit: str) -> str:
-    """The `crm` line that makes a quadlet a Pacemaker resource.
-
-    Pacemaker's `systemd` resource agent, which starts the unit podman's
-    generator wrote. One primitive and its three operations, with nothing about
-    where it runs: placement is Pacemaker's, and the constraints that narrow it
-    are the roles'.
-
-    Written in the shape a real SEAPATH inventory already carries, timeouts
-    included, so a site reading its own `extra_crm_cmd_to_run` afterwards finds
-    the line it would have written itself. The timeouts are there because the
-    agent's defaults are the ones a container pulling an image on first start
-    overruns.
-    """
-    return (
-        f"primitive {name} systemd:{unit} "
-        "op monitor interval=30s "
-        "op start timeout=60s interval=0s "
-        "op stop timeout=60s interval=0s"
-    )
 
 
 def reloads(command: str) -> bool:
@@ -237,6 +265,42 @@ def _quadlet(host: str, item: dict[str, Any]) -> Quadlet | None:
         dest=dest.strip(),
         mode=str(mode) if mode is not None else "",
     )
+
+
+def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
+    if not isinstance(name, str) or not NAME.match(name) or not isinstance(spec, dict):
+        return None
+    if spec.get("state", "present") != "present":
+        return None
+    unit = spec.get("unit") or f"{name}.service"
+    if not isinstance(unit, str) or "{{" in unit:
+        return None
+    # The quadlet the unit comes from is the one the page shows: the pod of a
+    # workload made of a pod and its containers, the container of a single one.
+    sources = workload_sources(spec)
+    files = {source: _on_machine(source) for source in sources}
+    source = next(
+        (item for item in sources if unit_for(files[item]) == unit),
+        sources[0] if sources else "",
+    )
+    file_name = files.get(source) or f"{name}.container"
+    kind = _split(file_name)[1] or ".container"
+    return Quadlet(
+        host=host,
+        name=name,
+        kind=kind,
+        unit=unit,
+        src=source,
+        dest=f"{QUADLET_DIR}/{file_name}",
+        mode="0644",
+        workload=True,
+    )
+
+
+def _on_machine(source: str) -> str:
+    """The name a quadlet takes on the machines: `.j2` is rendered away."""
+    base = source.rsplit("/", 1)[-1]
+    return base[: -len(".j2")] if base.endswith(".j2") else base
 
 
 def _split(dest: str) -> tuple[str, str]:

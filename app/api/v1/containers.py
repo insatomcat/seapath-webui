@@ -29,6 +29,7 @@ from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
 from app.runs.service import RunService
 from app.services.containers import (
+    WORKLOAD_PLAYBOOK,
     ContainerService,
     ContainersView,
     InvalidContainer,
@@ -83,8 +84,9 @@ class ContainerDeclaration(BaseModel):
     pacemaker: bool = Field(
         default=False,
         description=(
-            "Hand the unit to Pacemaker, by appending a primitive to "
-            "extra_crm_cmd_to_run on cluster_machines. Cluster only."
+            "Let Pacemaker run it, as a workload of cluster_containers that "
+            "deploy_containers_cluster deploys on every hypervisor of the "
+            "cluster. The scope is then not used. Cluster only."
         ),
     )
 
@@ -94,11 +96,11 @@ class DeclarationResponse(BaseModel):
     commit: str
     message: str
     playbook: str = Field(
-        description="The run that uploads the file and reloads systemd"
-    )
-    cluster_playbook: str | None = Field(
-        default=None,
-        description="The run that loads the primitive into the CIB, when there is one",
+        description=(
+            "The run that puts it on the machines: the one that uploads the "
+            "file and reloads systemd, or deploy_containers_cluster for a "
+            "container Pacemaker runs"
+        )
     )
 
 
@@ -180,8 +182,9 @@ def declare(
         name=payload.name,
         commit=commit.hash,
         message=commit.message,
-        playbook=service.upload_playbook(),
-        cluster_playbook=service.cluster_playbook if payload.pacemaker else None,
+        playbook=(
+            WORKLOAD_PLAYBOOK if payload.pacemaker else service.upload_playbook()
+        ),
     )
 
 

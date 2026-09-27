@@ -1882,7 +1882,7 @@ copy held by a machine the inventory declares, at the path
 configuration file, no unit restarted, no command beyond what `git push` runs
 on the far side. A machine still changes only when a playbook converges it.
 
-## D33 - Settled: a container is a quadlet, and the page reads the three variables that already deploy one
+## D33 - Superseded in part by [D68](#d68): a container is a quadlet, and the page reads the three variables that already deploy one
 
 Containers were the one thing running on a SEAPATH machine that this service
 could not see. They appeared in the Cluster page's resource table, as rows
@@ -5264,3 +5264,51 @@ there.
 on one machine never reaches a port, and a container on the host's network has
 no traffic of its own, so the bands would not add up to the machine's total.
 Each workload's I/O is in the table under the charts instead.
+
+## D68 - Settled: a container Pacemaker runs is a workload of `cluster_containers`, and both ways are read
+
+D33 found no role for containers and read the three variables that stood in
+for one: `upload_extra_files` copying the quadlet to every machine,
+`daemon-reload` among the commands after it, and a primitive in
+`extra_crm_cmd_to_run`. On a cluster that left real gaps, which D33 could
+only report: the image had to be pulled or loaded on every node by hand, the
+RBD image a container keeps its data on was filled by hand, a network quadlet
+with an `[Install]` section ran on every node whichever one held the
+container, and the primitive was loaded by `cluster_setup_ha`, a playbook that
+reconfigures the whole cluster.
+
+`seapath-ansible` now has the role: `deploy_containers_cluster` deploys the
+workloads of `cluster_containers`, each with its quadlets, its images (pulled,
+or loaded from an archive on a site with no registry), its RBD image filled
+once when it is created, and its Pacemaker resource with its constraints. It is
+to containers what `deploy_vms_cluster` is to guests, and this service takes it
+the way it takes that one.
+
+### What changes here
+
+- **Reading.** `quadlets.workloads` reads `cluster_containers` on the machines
+  the playbook plays, `cluster_machines:&hypervisors`, and gives each workload
+  the shape a declared quadlet has, so the rest of the page joins it to its
+  unit and its resource unchanged. A container says which variable declares it
+  and which run deploys it. A workload marked `state: absent` is no longer a
+  container.
+- **Acting.** A workload is started and stopped through its resource whatever
+  the kind of the quadlet its unit comes from, a pod included: the resource is
+  the workload.
+- **Declaring.** The form's Pacemaker option writes a workload of
+  `cluster_containers` where the cluster members read it, with the quadlet and
+  nothing else, and names `deploy_containers_cluster` as the run. It no longer
+  appends a primitive to `extra_crm_cmd_to_run`. Images, RBD image and
+  placement are written in the file, as a guest's disk and placement are.
+- **Files.** The quadlets, image archives and RBD seed files of a workload are
+  references like any other, so a missing one is named before a run.
+- **Catalogue.** `deploy_containers_cluster` is a reviewed entry. Its preview
+  is `none`: the role reads the return code of commands check mode skips.
+
+### What stays
+
+The first way stays read and written. It is the way on a standalone machine,
+where there is no resource, and a cluster inventory that still declares its
+containers with it keeps working: nothing here migrates a declaration, which
+is a change of running containers and a run of its own.
+

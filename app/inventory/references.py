@@ -43,6 +43,9 @@ class Shape(str, Enum):
     """A list of mappings, each with a `src`, which is `upload_extra_files`."""
     MAPPING = "mapping"
     """A mapping with one key that is a path, which is `cloud_init`."""
+    WORKLOADS = "workloads"
+    """`cluster_containers`: per workload, its quadlets, its image archives and
+    the files its RBD image starts with."""
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,7 @@ KNOWN: tuple[Variable, ...] = (
     Variable("xml_path", Shape.SCALAR, "deploy_vms"),
     Variable("additional_disk", Shape.LIST, "deploy_vms"),
     Variable("cloud_init", Shape.MAPPING, "cloud_init_seed", key="user_data_file"),
+    Variable("cluster_containers", Shape.WORKLOADS, "deploy_containers_cluster"),
 )
 
 # Where a relative `src` is looked for, in the order `path_dwim_relative_stack`
@@ -162,6 +166,32 @@ def _paths(variable: Variable, value: Any) -> Iterator[str]:
                 yield source.strip()
     elif variable.shape is Shape.MAPPING and isinstance(value, dict):
         source = value.get(variable.key)
+        if isinstance(source, str) and source.strip():
+            yield source.strip()
+    elif variable.shape is Shape.WORKLOADS and isinstance(value, dict):
+        for spec in value.values():
+            yield from _workload_paths(spec)
+
+
+def _workload_paths(spec: Any) -> Iterator[str]:
+    """The files one workload makes a run copy or render.
+
+    A workload being removed names none: the role only needs the names of what
+    it takes away, and a file already deleted from the folder is not missing.
+    """
+    if not isinstance(spec, dict) or spec.get("state", "present") != "present":
+        return
+    found: list[Any] = list(spec.get("quadlets") or [])
+    images = spec.get("images")
+    for image in images if isinstance(images, list) else []:
+        if isinstance(image, dict):
+            found.append(image.get("archive"))
+    rbd = spec.get("rbd")
+    files = rbd.get("files") if isinstance(rbd, dict) else None
+    for item in files if isinstance(files, list) else []:
+        if isinstance(item, dict):
+            found.append(item.get("src"))
+    for source in found:
         if isinstance(source, str) and source.strip():
             yield source.strip()
 

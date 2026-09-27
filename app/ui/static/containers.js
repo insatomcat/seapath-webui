@@ -628,6 +628,14 @@
     const cluster = mode === "cluster";
     element("add-pacemaker-row").hidden = !cluster;
     element("add-pacemaker-help").hidden = !cluster;
+    showScope();
+  }
+
+  // A workload Pacemaker runs goes on every hypervisor of the cluster, so
+  // there is no machine to choose for it.
+  function showScope() {
+    element("add-scope-block").hidden =
+      element("add-pacemaker").checked && mode === "cluster";
   }
 
   function showAdd(open) {
@@ -643,7 +651,10 @@
   async function declare() {
     const name = element("add-name").value.trim();
     const file = element("add-file").files[0];
-    const chosen = element("add-scope").value;
+    const pacemaker = element("add-pacemaker").checked && mode === "cluster";
+    const chosen = pacemaker
+      ? "group:cluster_machines"
+      : element("add-scope").value;
     const error = element("add-error");
     error.hidden = true;
 
@@ -660,7 +671,6 @@
     const suffix = file.name.endsWith(".j2") ? ".container.j2" : ".container";
     const path = "files/" + name + suffix;
     const [kind, scopeName] = chosen.split(":");
-    const pacemaker = element("add-pacemaker").checked && mode === "cluster";
 
     const progress = steps([
       "Committing " + path,
@@ -684,19 +694,15 @@
       });
       progress.at(1, "done");
 
-      // The runs that make it so, named rather than launched. Both are wide
-      // acts on live machines, and the page that describes what they disturb
-      // is the one that launches them.
+      // The run that makes it so, named rather than launched. It is a wide
+      // act on live machines, and the page that describes what it disturbs
+      // is the one that launches it.
       const next = element("add-next");
       next.textContent =
         "Declared as " +
         declared.commit.slice(0, 12) +
         ". It reaches the machines on the next run of " +
         declared.playbook +
-        (declared.cluster_playbook
-          ? ", and Pacemaker takes it over on the next run of " +
-            declared.cluster_playbook
-          : "") +
         ", launched from the Deployment page.";
       next.hidden = false;
       await refresh();
@@ -734,6 +740,7 @@
   element("add").addEventListener("click", () => showAdd(true));
   element("add-cancel").addEventListener("click", () => showAdd(false));
   element("add-go").addEventListener("click", declare);
+  element("add-pacemaker").addEventListener("change", showScope);
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });

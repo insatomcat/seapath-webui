@@ -166,3 +166,43 @@ def test_a_path_above_the_folder_says_no_run_can_reach_it(roots: Roots) -> None:
 
     assert reference.found is False
     assert reference.expected is None
+
+
+def test_every_file_a_cluster_workload_makes_a_run_copy_is_a_reference(
+    roots: Roots,
+) -> None:
+    document = """
+cluster_machines:
+  hosts:
+    node1:
+  vars:
+    cluster_containers:
+      protect:
+        images:
+          - name: localhost/protect:1.0
+            archive: ../files/protect.tar
+          - name: docker.io/library/nginx:1.31
+        quadlets:
+          - ../files/protect.pod.j2
+        rbd:
+          size: 128M
+          files:
+            - { src: ../files/settings.json, dest: settings.json }
+      retired:
+        state: absent
+        quadlets:
+          - ../files/retired.container
+"""
+    found = sorted(
+        reference.value
+        for reference in check(document, roots)
+        if reference.variable == "cluster_containers"
+    )
+
+    # The quadlet, the archive and the RBD seed; neither the image a node
+    # pulls nor what a removal only names.
+    assert found == [
+        "../files/protect.pod.j2",
+        "../files/protect.tar",
+        "../files/settings.json",
+    ]

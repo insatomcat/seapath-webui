@@ -917,6 +917,42 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.SEED_BUILDABLE,
         ],
     ),
+    # The containers `cluster_containers` declares, which are to a cluster what
+    # the guests are: a run of it is a statement about every workload there.
+    PlaybookEntry(
+        id="deploy_containers_cluster",
+        playbook=f"{COLLECTION}.deploy_containers_cluster",
+        title="Deploy the containers on the cluster",
+        # `hosts: cluster_machines:&hypervisors`: every member Pacemaker may
+        # start a workload on receives its images and quadlets, and the first
+        # one creates the RBD images and the resources.
+        targets=["cluster_machines:&hypervisors"],
+        # `rbd info`, `crm configure show` and `podman image exists` are
+        # commands whose return code the next task reads. Check mode skips
+        # them and the play dies on the attribute that is not there.
+        preview=Preview.NONE,
+        reboots=Reboots.NO,
+        disruption=(
+            "Puts the images and quadlets of every declared workload on each "
+            "hypervisor, creates the RBD images and the Pacemaker resources "
+            "that are missing, and starts those new resources. A workload "
+            "already running is never restarted: a changed quadlet applies at "
+            "its next start. A workload marked `state: absent` is stopped and "
+            "removed, and its RBD image deleted when it says `remove_rbd`."
+        ),
+        requires=[
+            Precondition.INVENTORY_VALID,
+            Precondition.SELF_TRUST,
+            Precondition.PEER_REACHABLE,
+            Precondition.CLUSTER,
+            Precondition.PLAYBOOK_PRESENT,
+        ],
+        notes=(
+            "An RBD image is filled from the inventory once, when the run "
+            "creates it. What the workload writes there afterwards is never "
+            "overwritten by a later run."
+        ),
+    ),
     PlaybookEntry(
         id="test_run_cyclictest",
         playbook=f"{COLLECTION}.test_run_cyclictest",

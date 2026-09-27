@@ -4,11 +4,12 @@ SPDX-License-Identifier: CC-BY-4.0
 
 The containers, which are quadlets and have always been ordinary parts of an
 inventory. `upload_extra_files` copies a `.container` file to
-/etc/containers/systemd, podman's generator turns it into a systemd unit at the
-next daemon-reload, and on a cluster `extra_crm_cmd_to_run` hands that unit to
-Pacemaker's systemd resource agent. Nothing here is new machinery: what was
-missing was a page that reads those three variables back and joins them to what
-the machines publish.
+/etc/containers/systemd and podman's generator turns it into a systemd unit at
+the next daemon-reload. On a cluster, a workload of `cluster_containers` is
+deployed by `deploy_containers_cluster`, which puts its quadlets on every
+hypervisor and hands its unit to Pacemaker's systemd resource agent. Nothing
+here is new machinery: this page reads those variables back and joins them to
+what the machines publish.
 
 The row an operator came for says who owns the container. Pacemaker holds a
 resource for it: one act for the whole cluster, and the cluster chooses the
@@ -108,10 +109,11 @@ not.
     <code>upload_extra_files_upload_files</code> putting a
     <code>.container</code> file in <code>/etc/containers/systemd</code>, with
     <code>systemctl daemon-reload</code> among the commands that follow the
-    upload. The file itself is committed with the inventory and editable on the
-    <a href="inventory">Inventory</a> page. Its image is either baked into the
-    ISO or pulled at the first start, which is what the quadlet's
-    <code>Image=</code> line decides.
+    upload. On a cluster, a container Pacemaker runs is a workload of
+    <code>cluster_containers</code>, deployed with its images, its RBD image
+    and its resource by <code>deploy_containers_cluster</code>. The files are
+    committed with the inventory and editable on the
+    <a href="inventory">Inventory</a> page.
   </p>
 
 </main>
@@ -145,27 +147,31 @@ not.
       that needs a machine's own address is written as one.
     </p>
 
-    <label for="add-scope">Uploaded to</label>
-    <select id="add-scope"></select>
-    <p class="help" id="add-scope-help">
-      The group or the machine the entry is written on. A group whose machines
-      already read that list from somewhere else is refused rather than
-      shadowed: Ansible replaces a variable instead of merging it, so an entry
-      in the wrong place stops the site's other uploads on those machines.
-    </p>
-
     <label class="switch" id="add-pacemaker-row" hidden>
       <input type="checkbox" id="add-pacemaker">
       Let Pacemaker run it, on one member at a time
     </label>
     <p class="help" id="add-pacemaker-help" hidden>
-      Appends a <code>primitive</code> using Pacemaker's systemd agent to
-      <code>extra_crm_cmd_to_run</code>, which <code>configure_ha</code> loads
-      into the CIB. The cluster then decides which member runs it and restarts
-      it where it fails. A quadlet handed to Pacemaker must carry no
-      <code>[Install]</code> section, or systemd will start it at boot behind
-      the cluster's back.
+      Declares a workload of <code>cluster_containers</code>, which
+      <code>deploy_containers_cluster</code> puts on every hypervisor of the
+      cluster before creating its Pacemaker resource. The cluster then decides
+      which member runs it and restarts it where it fails. Its images, its RBD
+      image and its placement are added in the file afterwards, on the
+      Inventory page. The quadlet must carry no <code>[Install]</code>
+      section: the role refuses one.
     </p>
+
+    <div id="add-scope-block">
+      <label for="add-scope">Uploaded to</label>
+      <select id="add-scope"></select>
+      <p class="help" id="add-scope-help">
+        The group or the machine the entry is written on. A group whose
+        machines already read that list from somewhere else is refused rather
+        than shadowed: Ansible replaces a variable instead of merging it, so an
+        entry in the wrong place stops the site's other uploads on those
+        machines.
+      </p>
+    </div>
 
     <div class="card-actions">
       <button type="button" id="add-go">Declare it</button>

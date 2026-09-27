@@ -374,6 +374,18 @@ run then ends green having created the guest with no seed at all. The refusal
 names the guests and, for the first case, the package. See
 [D48](decisions.md#d48).
 
+### Containers
+
+| Playbook | Targets | Preview | Reboots | Notes |
+|---|---|---|---|---|
+| `deploy_containers_cluster.yaml` | `cluster_machines:&hypervisors` | none | no | Deploys the workloads of `cluster_containers`: images and quadlets on every hypervisor, then the RBD images and Pacemaker resources that are missing, from the first one. A running workload is never restarted. |
+
+The preview is `none` for the reason the VM entries give: the role registers
+`rbd info`, `crm configure show` and `podman image exists`, and the next task
+reads the return code of a command check mode skipped. An RBD image is filled
+from the inventory once, when the run creates it, so what the workload wrote
+there since is never overwritten. See [D68](decisions.md#d68).
+
 ### Software updates
 
 | Playbook | Targets | Preview | Reboots | Notes |

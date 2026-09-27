@@ -570,6 +570,22 @@ consequences worth knowing while editing the file by hand:
 
 See [D33](decisions.md#d33).
 
+On a cluster, a container Pacemaker runs is now declared as a workload of
+`cluster_containers`, which `deploy_containers_cluster` deploys on every
+hypervisor of the cluster, with its images, its RBD image and its Pacemaker
+resource. The page writes the smallest one, and the rest is the file's:
+
+```yaml
+cluster_containers:
+  mosquitto:
+    quadlets:
+      - ../files/mosquitto.container
+```
+
+The fields are in the role's README. The Containers page reads both ways, and
+the first one stays the way for a standalone machine. See
+[D68](decisions.md#d68).
+
 ### The three variables a guest's network is
 
 A guest declared through the VMs page carries its files and, where the form's

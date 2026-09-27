@@ -8,7 +8,9 @@ to `/etc/containers/systemd/`, which podman's generator turns into a systemd
 unit. That gives one object with three faces, and this joins them:
 
 - **declared**, by `upload_extra_files_upload_files`, which says which machines
-  receive the file and which file it is. `app/inventory/quadlets.py` reads it.
+  receive the file and which file it is, or on a cluster by
+  `cluster_containers`, which `deploy_containers_cluster` deploys on every
+  hypervisor. `app/inventory/quadlets.py` reads both.
 - **a unit**, on each of those machines, published by the `systemd` collector
   of the `node_exporter` every node already runs. The same exposition the CPU
   pool is read from, on the same port, in the same GET.
@@ -23,11 +25,11 @@ resource start`; no resource means it is an ordinary unit on each machine and
 starting it is systemd's, one machine at a time. A page that offered the same
 button for both would be asking Pacemaker and systemd to disagree.
 
-This writes to the inventory and to nothing else. Deploying a quadlet is the
-prerequisites playbook, which is where `upload_extra_files` runs; making one a
-Pacemaker resource is `cluster_setup_ha`, which is where `extra_crm_cmd_to_run`
-is loaded into the CIB. Both are ordinary runs, named here and launched through
-`/runs` like every other.
+This writes to the inventory and to nothing else. Deploying an uploaded
+quadlet is the prerequisites playbook, which is where `upload_extra_files`
+runs; deploying a cluster workload, its Pacemaker resource included, is
+`deploy_containers_cluster`. Both are ordinary runs, named here and launched
+through `/runs` like every other.
 """
 
 from __future__ import annotations
@@ -61,7 +63,7 @@ SYSTEMD_AGENT = "systemd"
 # `upload_extra_files` runs; `seapath_setup_main` picks between the five and is
 # the honest answer for an inventory that mixes distributions.
 FULL_CONVERGENCE = "seapath_setup_main"
-CLUSTER_PLAYBOOK = "cluster_setup_ha"
+WORKLOAD_PLAYBOOK = "deploy_containers_cluster"
 
 # How much of a quadlet is read to look for its `[Install]` section. A quadlet
 # is a few hundred bytes; anything past this is not one, and reading a file the
@@ -74,8 +76,9 @@ _NO_INVENTORY = (
 )
 _NO_CONTAINERS = (
     "This inventory declares no container. A container is a quadlet: a "
-    "`.container` file uploaded to /etc/containers/systemd, which is an entry "
-    "of `upload_extra_files_upload_files`. Add one here and the file is "
+    "`.container` file uploaded to /etc/containers/systemd by an entry of "
+    "`upload_extra_files_upload_files`, or on a cluster a workload of "
+    "`cluster_containers` that Pacemaker runs. Add one here and the file is "
     "committed with the inventory."
 )
 _FROM_EXPORTERS = (
@@ -132,6 +135,11 @@ class ContainerView(BaseModel):
     scope_name: str = ""
     """Where the entry that declares it sits, which is what the page shows and
     what a second declaration is written into."""
+    variable: str = ""
+    """The variable declaring it: `upload_extra_files_upload_files`, or
+    `cluster_containers` for a workload `deploy_containers_cluster` deploys."""
+    playbook: str = ""
+    """The run that puts this container's declaration on the machines."""
     hosts: list[str] = Field(default_factory=list)
     """The machines this inventory sends it to."""
 
@@ -209,8 +217,8 @@ class ContainersView(BaseModel):
     scopes: list[ScopeOption] = Field(default_factory=list)
     upload_playbook: str = FULL_CONVERGENCE
     """The run that puts the files on the machines and reloads systemd."""
-    cluster_playbook: str = CLUSTER_PLAYBOOK
-    """The run that loads the primitives into the CIB."""
+    workload_playbook: str = WORKLOAD_PLAYBOOK
+    """The run that deploys the workloads of `cluster_containers`."""
     runtime_note: str = ""
     note: str = ""
     warnings: list[str] = Field(default_factory=list)
@@ -263,7 +271,7 @@ class ContainerService:
             inventory_commit=state.commit,
         )
 
-        declared = quadlets.declared(document)
+        declared = [*quadlets.declared(document), *quadlets.workloads(document)]
         # One reading of the cluster for the whole page: the resources it holds
         # and the rules placing them come out of the same exposition, and
         # asking twice would be one fan out per column.
@@ -276,7 +284,7 @@ class ContainerService:
         files = {
             (reference.host, reference.value): reference
             for reference in self._inventory.references()
-            if reference.variable == quadlets.UPLOAD_VARIABLE
+            if reference.variable in _DECLARING
         }
 
         for name in sorted({quadlet.name for quadlet in declared}):
@@ -284,7 +292,7 @@ class ContainerService:
             first = entries[0]
             hosts = [quadlet.host for quadlet in entries]
             resource = resources.get(first.unit)
-            scope = self._scope_of(document, hosts)
+            scope = self._scope_of(document, hosts, _variable(first))
             entry = ContainerView(
                 name=name,
                 kind=first.kind,
@@ -296,6 +304,10 @@ class ContainerService:
                 mode=first.mode,
                 scope_kind=scope.kind,
                 scope_name=scope.name,
+                variable=_variable(first),
+                playbook=(
+                    WORKLOAD_PLAYBOOK if first.workload else view.upload_playbook
+                ),
                 hosts=hosts,
                 file=files.get((first.host, first.src)),
                 managed="pacemaker" if resource else "systemd",
@@ -327,8 +339,9 @@ class ContainerService:
         aimed at a name read out of an exposition is a stop this service cannot
         describe before it runs.
         """
+        document = self._inventory.raw()
         found: dict[str, quadlets.Quadlet] = {}
-        for quadlet in quadlets.declared(self._inventory.raw()):
+        for quadlet in [*quadlets.declared(document), *quadlets.workloads(document)]:
             found.setdefault(quadlet.name, quadlet)
         return found
 
@@ -416,7 +429,7 @@ class ContainerService:
             (
                 reference
                 for reference in self._inventory.references()
-                if reference.variable == quadlets.UPLOAD_VARIABLE
+                if reference.variable == _variable(quadlet)
                 and reference.host == quadlet.host
                 and reference.value == quadlet.src
             ),
@@ -443,17 +456,6 @@ class ContainerService:
             if entry.distribution == running:
                 return entry.id
         return FULL_CONVERGENCE
-
-    @property
-    def cluster_playbook(self) -> str:
-        """The run that loads the primitives into the CIB.
-
-        `configure_ha` is the only place `extra_crm_cmd_to_run` is read, and it
-        is the last thing that playbook does, so a container handed to
-        Pacemaker becomes a resource on the next `cluster_setup_ha` and not
-        before.
-        """
-        return CLUSTER_PLAYBOOK
 
     def scopes(self) -> list[ScopeOption]:
         """Where a declaration may be written, with what each one reaches.
@@ -505,12 +507,11 @@ class ContainerService:
     ) -> Commit:
         """Write one container into the inventory, as a commit.
 
-        Three variables and no new schema, which is the point: the entry that
-        uploads the file, the `daemon-reload` that makes systemd read it, and
-        for a cluster container the `crm` primitive that hands it to Pacemaker.
-        Every one of them is a variable the upstream roles already read, and an
-        operator who exports this inventory and runs the playbooks from a
-        control machine gets the same containers.
+        Variables the upstream roles already read, and no schema of this
+        service: the entry that uploads the file and the `daemon-reload` that
+        makes systemd read it, or for a container Pacemaker runs, a workload of
+        `cluster_containers`. An operator who exports this inventory and runs
+        the playbooks from a control machine gets the same containers.
         """
         document = self._inventory.raw()
         if not document.strip():
@@ -532,6 +533,13 @@ class ContainerService:
                 "a name."
             )
 
+        if pacemaker:
+            writes, intended = self._workload_writes(document, name, source)
+            commit, _ = self._inventory.declare_container(
+                name, writes, intended, author, expected_head
+            )
+            return commit
+
         table = groups(document)
         # Raises where the scope names a group this file does not declare, or
         # one holding no machine, which is a container uploaded nowhere.
@@ -546,8 +554,6 @@ class ContainerService:
             raise InvalidContainer(refusal)
 
         writes, intended = self._writes(document, name, scope, source, affected)
-        if pacemaker:
-            self._cluster_writes(document, name, writes, intended)
 
         commit, _ = self._inventory.declare_container(
             name, writes, intended, author, expected_head
@@ -581,50 +587,44 @@ class ContainerService:
         intended = {host: dict(variables) for host in affected}
         return [(scope, variables)], intended
 
-    def _cluster_writes(
-        self,
-        document: str,
-        name: str,
-        writes: list[tuple[Scope, dict[str, Any]]],
-        intended: dict[str, dict[str, Any]],
-    ) -> None:
-        """The Pacemaker half: one primitive, appended to `extra_crm_cmd_to_run`.
+    def _workload_writes(
+        self, document: str, name: str, source: str
+    ) -> tuple[list[tuple[Scope, dict[str, Any]]], dict[str, dict[str, Any]]]:
+        """A workload of `cluster_containers`, with its quadlet and nothing else.
 
-        Written where that variable already lives, and on `cluster_machines`
-        when nothing holds it yet. `configure_ha` loads it with `run_once`, so
-        the value that counts is the one the member Ansible happens to play
-        first: a primitive written on a host, or on a group shadowing the one
-        the cluster already reads, would be a coin toss between the two values.
+        `deploy_containers_cluster` puts it on every hypervisor of the cluster
+        and creates its Pacemaker resource, so there is no machine to choose:
+        the mapping is written where the cluster members already read it, on
+        `cluster_machines` when nothing holds it yet. The images, the RBD image
+        and the placement are the file's to add, as for a guest.
         """
         table = groups(document)
-        if "cluster_machines" not in table:
+        if any(group not in table for group in quadlets.WORKLOAD_GROUPS):
             raise InvalidContainer(
-                "This inventory declares no cluster_machines group, so there "
-                "is no cluster to hold a resource. A container on a standalone "
-                "machine is a systemd unit and starts as one."
+                "This inventory declares no cluster_machines group among its "
+                "hypervisors, so there is no cluster to hold a resource. A "
+                "container on a standalone machine is a systemd unit and "
+                "starts as one."
             )
-        members = sorted(_members(table, "cluster_machines"))
+        machines = sorted(_members(table, "cluster_machines"))
         scope = _home(
-            table, quadlets.CRM_VARIABLE, members, Scope("group", "cluster_machines")
+            table,
+            quadlets.WORKLOADS_VARIABLE,
+            machines,
+            Scope("group", "cluster_machines"),
         )
-        affected = _affected(table, scope)
-        unit = quadlets.unit_for(f"{quadlets.QUADLET_DIR}/{name}.container")
-        current = _at(document, scope, quadlets.CRM_VARIABLE) or ""
-        if not isinstance(current, str):
+        current = _at(document, scope, quadlets.WORKLOADS_VARIABLE) or {}
+        if not isinstance(current, dict):
             raise InvalidContainer(
-                "extra_crm_cmd_to_run holds something other than text in this "
-                "inventory, and appending a primitive to it would rewrite what "
-                "is there."
+                "cluster_containers holds something other than a mapping in "
+                "this inventory, and adding a workload to it would rewrite "
+                "what is there."
             )
-        line = quadlets.primitive(name, unit)
-        if line in current:
-            raise InvalidContainer(f"{name} is already a primitive in this file.")
-        value = f"{current.rstrip()}\n{line}\n" if current.strip() else f"{line}\n"
-
-        variables = {quadlets.CRM_VARIABLE: value}
-        writes.append((scope, variables))
-        for host in affected:
-            intended.setdefault(host, {}).update(variables)
+        variables = {
+            quadlets.WORKLOADS_VARIABLE: {**current, name: {"quadlets": [source]}}
+        }
+        intended = {host: dict(variables) for host in _affected(table, scope)}
+        return [(scope, variables)], intended
 
     def _scope_hosts(self, document: str, scope: Scope, table: Any) -> list[str]:
         state = self._inventory.state()
@@ -674,11 +674,11 @@ class ContainerService:
             )
         return ""
 
-    def _scope_of(self, document: str, hosts: list[str]) -> Scope:
+    def _scope_of(self, document: str, hosts: list[str], variable: str) -> Scope:
         """Where the entry that declares a container sits, for the page."""
         table = groups(document)
         if hosts:
-            source = _source_of(table, hosts[0], quadlets.UPLOAD_VARIABLE)
+            source = _source_of(table, hosts[0], variable)
             if source is not None:
                 return source
         return Scope("host", hosts[0] if hosts else "")
@@ -814,6 +814,16 @@ class ContainerService:
             return False
 
 
+# The variables a container is declared by, which are the references its file
+# is found through.
+_DECLARING = (quadlets.UPLOAD_VARIABLE, quadlets.WORKLOADS_VARIABLE)
+
+
+def _variable(quadlet: quadlets.Quadlet) -> str:
+    """The variable that declares this container."""
+    return quadlets.WORKLOADS_VARIABLE if quadlet.workload else quadlets.UPLOAD_VARIABLE
+
+
 def _readable(reference: Reference | None) -> bool:
     """Whether the page can offer to open the quadlet.
 
@@ -831,10 +841,11 @@ def _place(
 ) -> None:
     """What decides where a container runs, and where a move could send it.
 
-    Three states and no fourth, because a container has no `preferred_host`:
-    the inventory says which machines receive the quadlet and never which
-    member runs it, so the only two things to hold against each other are the
-    constraint and the node the resource is on. The cluster places it, a
+    Three states and no fourth: the only two things held against each other
+    are the `cli-prefer` constraint a move writes and the node the resource is
+    on. The `preferred_host` of a workload is a `prefer-` rule with a finite
+    score, which the cluster weighs rather than obeys, and a move overrides it
+    without removing it. The cluster places it, a
     constraint places it and the resource is there, or a constraint places it
     and the resource is somewhere else, which means the node it names could not
     take it.
