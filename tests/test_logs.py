@@ -112,7 +112,9 @@ def entry(
     )
 
 
-NOW = datetime(2026, 9, 20, 10, 0, 0, tzinfo=UTC)
+# Read from the clock: a query with no end runs until now, and one that
+# starts from a fixed date stops fitting in the widest window a week later.
+NOW = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
 
 
 def a_query(**changes) -> Query:
@@ -311,8 +313,8 @@ def test_the_bounds_are_absolute_and_carry_their_timezone() -> None:
     built = journal.argv(
         journal.checked(a_query(since=NOW - timedelta(hours=1), until=NOW))
     )
-    assert "--since=2026-09-20 09:00:00 UTC" in built
-    assert "--until=2026-09-20 10:00:00 UTC" in built
+    assert f"--since={NOW - timedelta(hours=1):%Y-%m-%d %H:%M:%S} UTC" in built
+    assert f"--until={NOW:%Y-%m-%d %H:%M:%S} UTC" in built
 
 
 def test_a_naive_moment_is_read_as_utc_by_the_endpoint(
