@@ -1061,6 +1061,13 @@ td button {
   justify-content: center;
 }
 
+/* The container table carries seven columns, a node name per row and a
+   quadlet path, which the 62rem column held only behind a horizontal scroll.
+   It takes the width the guest table takes. */
+.page.containers {
+  grid-template-columns: minmax(0, 88rem);
+}
+
 /* The Updates page: a kernel release is one word an operator compares with
    the one below it, and it reads badly broken across two lines. */
 .page.updates .warning-text {
