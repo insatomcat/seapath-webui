@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.197 - 2026-09-28
+
+- fix: refuse a run whose role would ignore its variable
+
 ## 0.3.196 - 2026-09-28
 
 - build: ship the collection of seapathalloc at 22146d4
