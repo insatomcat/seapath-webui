@@ -140,6 +140,10 @@ SPDX-License-Identifier: Apache-2.0
       <span class="reach-label">The other machines</span>
       <span class="reach-state" id="replicas-state"></span>
     </button>
+    <button type="button" class="panel-open" id="ptp-open">
+      <span class="reach-label">PTP</span>
+      <span class="reach-state" id="ptp-state"></span>
+    </button>
     <button type="button" class="panel-open" id="history-open">
       <span class="reach-label">History</span>
       <span class="reach-state" id="history-state"></span>
@@ -208,8 +212,121 @@ SPDX-License-Identifier: Apache-2.0
     </div>
   </div>
 </div>
+
+{# PTP, which is four variables in two roles, and the two a site forgets are the
+   ones that make the VLAN device timemaster waits for. The wizard asks what a
+   person knows (which machines, which port, which VLAN) and writes the rest.
+   The last step is the diff, and nothing is committed before it. #}
+<div class="modal" id="ptp-modal" data-dismiss="ptp-cancel" hidden>
+  <div class="modal-body wide">
+    <div class="modal-head">
+      <h2>Set up PTP</h2>
+      <button type="button" class="secondary" id="ptp-cancel">Close</button>
+    </div>
+
+    <ol class="wizard-steps" id="ptp-steps">
+      <li data-step="0">Machines</li>
+      <li data-step="1">Ports</li>
+      <li data-step="2">VLAN</li>
+      <li data-step="3">Review</li>
+    </ol>
+
+    <p class="warning" id="ptp-dirty" hidden>
+      <code>inventory.yaml</code> has changes in the editor that are not saved.
+      Save or discard them first: this commit would otherwise land under them.
+    </p>
+
+    <section class="wizard-page" data-page="0">
+      <p class="lead">
+        Where the setup is written. On a group, what the machines share is
+        written once, and a machine joining the group later receives it too.
+        On chosen machines, each one carries its own.
+      </p>
+      <label class="switch">
+        <input type="radio" name="ptp-where" value="group" checked>
+        On a group
+      </label>
+      <div id="ptp-group-block">
+        <select id="ptp-group"></select>
+        <p class="help" id="ptp-group-help"></p>
+      </div>
+      <label class="switch">
+        <input type="radio" name="ptp-where" value="hosts">
+        On chosen machines
+      </label>
+      <div class="wizard-hosts" id="ptp-hosts" hidden></div>
+    </section>
+
+    <section class="wizard-page" data-page="1" hidden>
+      <p class="lead">
+        The port the PTP frames arrive on, on each machine. It needs hardware
+        timestamping: timemaster reads its clock. The ports listed are the
+        physical ones each machine's exporter reports.
+      </p>
+      <label for="ptp-all">The same port on every machine</label>
+      <div class="with-button">
+        <input type="text" id="ptp-all" list="ptp-all-ports" autocomplete="off"
+               spellcheck="false" placeholder="eno12419">
+        <button type="button" class="secondary" id="ptp-all-go">Use it everywhere</button>
+      </div>
+      <datalist id="ptp-all-ports"></datalist>
+      <div class="table-scroll">
+        <table id="ptp-ports">
+          <thead>
+            <tr><th>Machine</th><th>Port</th><th>Now</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="wizard-page" data-page="2" hidden>
+      <label class="switch">
+        <input type="checkbox" id="ptp-tagged">
+        The PTP frames arrive tagged on a VLAN
+      </label>
+      <div id="ptp-vlan-block" hidden>
+        <label for="ptp-vlan">VLAN ID</label>
+        <input type="number" id="ptp-vlan" min="1" max="4094" step="1"
+               placeholder="800">
+        <p class="help">
+          Besides <code>ptp_vlanid</code>, which timemaster reads, the VLAN
+          device <code>&lt;port&gt;.&lt;id&gt;</code> it listens on is declared
+          for <code>network_systemdnetworkd</code>: an entry
+          <code>01-physicalptpinterface</code> in <code>custom_network</code>
+          and <code>00-vlan&lt;id&gt;</code> in <code>custom_netdev</code>,
+          added next to the entries the site already has there.
+        </p>
+      </div>
+      <p class="help" id="ptp-untagged-help">
+        Untagged, timemaster listens on the port itself. A VLAN device a
+        previous setup declared for PTP is taken out of the file.
+      </p>
+    </section>
+
+    <section class="wizard-page" data-page="3" hidden>
+      <p class="lead">
+        What the commit changes in <code>inventory.yaml</code>. Nothing reaches
+        a machine until <code>seapath_setup_network</code> and
+        <code>seapath_setup_timemaster</code> run from the Deployment page.
+      </p>
+      <p class="loading" id="ptp-diff-loading" hidden>Writing the change</p>
+      <pre class="diff" id="ptp-diff" hidden></pre>
+    </section>
+
+    <p class="error" id="ptp-error" hidden></p>
+    <ul class="findings" id="ptp-findings" hidden></ul>
+
+    <div class="card-actions">
+      <button type="button" class="secondary" id="ptp-back">Back</button>
+      <button type="button" id="ptp-next">Next</button>
+      <button type="button" id="ptp-commit" hidden>Commit</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}{{ script("yamledit.js") }}
 {{ script("complete.js") }}
+{{ script("ptp.js") }}
 {{ script("inventory.js") }}{% endblock %}

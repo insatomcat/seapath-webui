@@ -183,7 +183,7 @@ const API = (function () {
     get: (path) => request("GET", path),
     started,
     reading,
-    post: (path, body) => request("POST", path, body),
+    post: (path, body, extra) => request("POST", path, body, extra),
     put: (path, body, extra) => request("PUT", path, body, extra),
     del: (path) => request("DELETE", path),
     upload,

@@ -1407,8 +1407,41 @@
     Kept.hold(["add-file", "new-file", "save", "commit"]);
   }
 
+  // The PTP wizard writes the inventory as a commit of its own, so it has to
+  // know when the editor holds changes that commit would land under, and the
+  // editor has to drop its copy of the file once it lands.
+  function inventoryBuffer() {
+    return state.buffers.get(keyOf("inventory", INVENTORY)) || null;
+  }
+
+  PtpWizard.attach({
+    admin,
+    dirty: () => {
+      const buffer = inventoryBuffer();
+      return buffer !== null && buffer.text !== buffer.saved;
+    },
+    committed: async (committed) => {
+      const key = keyOf("inventory", INVENTORY);
+      const wasOpen = state.current === key;
+      state.buffers.delete(key);
+      await refresh();
+      if (wasOpen) {
+        state.current = null;
+        const entry = state.entries.find((item) => item.store === "inventory");
+        if (entry) {
+          await open(entry);
+        }
+      }
+      showBannerCommit(committed, INVENTORY);
+      PtpWizard.refresh().catch(() => {});
+    },
+  });
+
   async function start() {
     state.me = Chrome.current();
+    PtpWizard.refresh().catch(() => {
+      element("ptp-state").textContent = "";
+    });
     if (!admin()) {
       ["add-file", "new-file"].forEach((id) => {
         element(id).disabled = true;

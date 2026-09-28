@@ -27,6 +27,9 @@ from app.inventory.files import StoredFile, UnsafePath
 from app.inventory.grub import hash_password
 from app.inventory.model import Inventory
 from app.inventory.parser import InvalidInventory
+from app.inventory.ptp import PtpPlan, PtpRefused, PtpSetup, PtpSurvey
+from app.inventory.ptp import plan as ptp_plan
+from app.inventory.ptp import survey as ptp_survey
 from app.inventory.references import Reference
 from app.inventory.replication import Replica, ReplicationService
 from app.inventory.repository import Commit, RepositoryError, StaleWrite
@@ -382,6 +385,73 @@ def replace_raw(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
+    return _commit_response(commit, ValidationResult())
+
+
+@router.get("/ptp")
+def ptp(request: Request, user: User = viewer) -> PtpSurvey:
+    """What each machine receives for PTP, and the groups a setup can go on."""
+    return ptp_survey(_service(request).raw())
+
+
+def _ptp_plan(request: Request, setup: PtpSetup) -> PtpPlan:
+    try:
+        return ptp_plan(_service(request).raw(), setup)
+    except PtpRefused as error:
+        raise ApiError("ptp_refused", str(error), 409) from error
+
+
+def _ptp_refusal(error: Exception) -> ApiError:
+    if isinstance(error, RefusedWrite):
+        return _read_only(error)
+    if isinstance(error, StaleWrite):
+        return ApiError("stale_write", str(error), 409)
+    assert isinstance(error, ImportRefused)
+    return ApiError(
+        "invalid_inventory",
+        str(error),
+        422,
+        {"findings": [f.model_dump() for f in error.validation.findings]},
+    )
+
+
+@router.post("/ptp/preview")
+def ptp_preview(request: Request, setup: PtpSetup, user: User = viewer) -> Response:
+    """The diff a PTP setup would commit, committing nothing."""
+    planned = _ptp_plan(request, setup)
+    try:
+        diff = _service(request).preview_variables(
+            planned.writes, planned.intended, planned.removals
+        )
+    except (RefusedWrite, ImportRefused) as error:
+        raise _ptp_refusal(error) from error
+    return Response(content=diff, media_type="text/x-diff")
+
+
+@router.post("/ptp")
+def ptp_setup(
+    request: Request,
+    setup: PtpSetup,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> CommitResponse:
+    """Write a PTP setup: the interface, the VLAN, and the device it needs.
+
+    One commit, applied by nobody. timemaster and the network roles converge
+    it at the next run from the Deployment page.
+    """
+    planned = _ptp_plan(request, setup)
+    try:
+        commit = _service(request).write_variables(
+            planned.writes,
+            planned.intended,
+            planned.message,
+            user.username,
+            removals=planned.removals,
+            expected_head=if_match,
+        )
+    except (RefusedWrite, ImportRefused, StaleWrite) as error:
+        raise _ptp_refusal(error) from error
     return _commit_response(commit, ValidationResult())
 
 

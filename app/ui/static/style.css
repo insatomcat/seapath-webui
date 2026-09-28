@@ -4051,3 +4051,36 @@ td.log-line .tag {
 .page.paned.usage .pane-body {
   overflow: visible;
 }
+
+/* The steps of a wizard, as one line over its pages: where it is, and what
+   is left. */
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0 0 1rem;
+  padding-left: 1.2rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.wizard-steps li.doing {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.wizard-steps li.done {
+  color: var(--ok);
+}
+
+.wizard-hosts {
+  margin-left: 1.4rem;
+}
+
+.wizard-hosts label.switch .help {
+  margin: 0;
+}
+
+#ptp-ports input[type="text"] {
+  margin-top: 0;
+}

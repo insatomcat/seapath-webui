@@ -192,6 +192,22 @@ Ansible before it is written, and `PUT /inventory/raw` is where that happens. A
 path that would leave the folder, by `..` or through a symlink already in the
 tree, is refused with `400 unsafe_path`.
 
+### PTP
+
+The wizard of the Inventory page. PTP is `ptp_interface` and `ptp_vlanid`, read
+by `timemaster`, and with a VLAN two entries of `custom_network` and
+`custom_netdev` that make `network_systemdnetworkd` create the
+`<port>.<vlan>` device timemaster listens on. The entries are templated on the
+two variables, so a group carries them while each machine names its own port.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/inventory/ptp` | What each machine receives now (`interface`, `vlan`, where each is written, whether the VLAN device is declared) and the groups a setup can be written on: those holding machines and no guest |
+| POST | `/inventory/ptp/preview` | The diff a setup would commit, committing nothing. Viewers may ask |
+| POST | `/inventory/ptp` | Write the setup as one commit, `If-Match` against the head the wizard read |
+
+The body is `{"group": "hypervisors" | null, "interfaces": {"node1": "eno12419", ...}, "vlan": 800 | null}`. With a group, `interfaces` names every machine it holds; the VLAN and the entries are written on it, and the port too when it is the same everywhere, the machines' own overrides removed. Without one, everything is written on each machine. Ansible replaces a dictionary rather than merging it, so the entries are added to the very `custom_network` and `custom_netdev` each machine receives, beside the site's own; a machine receiving one from its own entry or from a group applied later gets them there. A setup that would need to write where machines left out of it read, or under a group value that overrides the chosen one, is refused with `409 ptp_refused` naming both. Running it again replaces the entries a previous setup wrote, and an untagged setup removes them. The write then goes through the fidelity check of every write here (`409 refused_write`).
+
 ### The other machines of the inventory
 
 A write lands in this node's own repository. Bringing the other machines to the

@@ -720,6 +720,29 @@ class InventoryService:
         changed what a machine receives shows up as a divergence, and nothing
         is committed.
         """
+        edited = self._edited(writes, intended, removals)
+        return self._repository.commit(
+            content=edited,
+            message=message,
+            author=author,
+            expected_head=expected_head,
+        )
+
+    def preview_variables(
+        self,
+        writes: list[tuple[Scope, dict[str, Any]]],
+        intended: dict[str, dict[str, Any]],
+        removals: dict[str, list[str]] | None = None,
+    ) -> str:
+        """The diff `write_variables` would commit, refused the same way."""
+        return self._repository.diff_against(self._edited(writes, intended, removals))
+
+    def _edited(
+        self,
+        writes: list[tuple[Scope, dict[str, Any]]],
+        intended: dict[str, dict[str, Any]],
+        removals: dict[str, list[str]] | None,
+    ) -> str:
         document = self._repository.read()
         if not document.strip():
             raise RefusedWrite(
@@ -752,13 +775,7 @@ class InventoryService:
         result = self.check_document(edited)
         if not result.valid:
             raise ImportRefused(result.errors()[0].message, result)
-
-        return self._repository.commit(
-            content=edited,
-            message=message,
-            author=author,
-            expected_head=expected_head,
-        )
+        return edited
 
     def revert(self, commit: str, author: str) -> Commit:
         return self._repository.revert(commit, author)
