@@ -989,3 +989,79 @@ def test_a_workload_to_restart_is_one_the_inventory_declares(
 
     assert response.status_code == 400, response.text
     assert response.json()["error"]["code"] == "invalid_variable"
+
+
+def _without_restart(collections_path: Path) -> None:
+    """The role as a collection built before it read the restart variable."""
+    defaults = (
+        collections_path
+        / "ansible_collections/seapath/ansible/roles/deploy_containers_cluster"
+        / "defaults/main.yml"
+    )
+    defaults.write_text("deploy_containers_cluster_recreate: []\n")
+
+
+def _head(settings: Settings) -> str:
+    return subprocess.run(
+        ["git", "-C", str(settings.inventory_dir), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+
+def test_applying_is_refused_before_the_commit_when_the_role_ignores_it(
+    signed_in: TestClient, tmp_path: Path, settings: Settings, collections_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+    _without_restart(collections_path)
+    before = _head(settings)
+
+    staged = _stage(signed_in, _build(tmp_path / "two", version="vied-2"))
+    response = _install(signed_in, staged, apply=True)
+
+    assert response.status_code == 409, response.text
+    assert "deploy_containers_cluster_restart" in response.json()["error"]["message"]
+    assert _head(settings) == before
+    # Committing alone is still possible, and a restart by hand then applies it.
+    assert _install(signed_in, staged).status_code == 201
+
+
+def test_saving_and_applying_is_refused_before_the_commit_when_the_role_ignores_it(
+    signed_in: TestClient, tmp_path: Path, settings: Settings, collections_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path)))
+    _without_restart(collections_path)
+    before = _head(settings)
+
+    response = signed_in.put(
+        "/api/v1/containers/vied/values",
+        json={"values": {**SITE, "clock": 1}, "apply": True},
+    )
+
+    assert response.status_code == 409, response.text
+    assert _head(settings) == before
+
+
+def test_a_run_is_refused_a_variable_its_role_would_ignore(
+    signed_in: TestClient, tmp_path: Path, settings: Settings, collections_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path)))
+    _without_restart(collections_path)
+
+    response = signed_in.post(
+        "/api/v1/runs",
+        json={
+            "playbook": "deploy_containers_cluster",
+            "variables": {"deploy_containers_cluster_restart": "vied"},
+        },
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "precondition_failed"

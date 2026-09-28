@@ -297,6 +297,13 @@ def install_delivery(
     names the run that puts it on the machines, `deploy_containers_cluster`,
     and carries it when `apply` or `recreate` asked for it to be launched.
     """
+    variable = (
+        RECREATE_VARIABLE
+        if payload.recreate
+        else RESTART_VARIABLE if payload.apply else None
+    )
+    if variable:
+        _refuse_ignored(request, variable)
     try:
         installed = _deliveries(request).install(
             staged,
@@ -329,13 +336,23 @@ def install_delivery(
             422,
             {"findings": [f.model_dump() for f in error.validation.findings]},
         ) from error
-    if payload.recreate:
-        variables = {RECREATE_VARIABLE: installed.name}
-    elif payload.apply:
-        variables = {RESTART_VARIABLE: installed.name}
-    else:
+    if not variable:
         return installed
-    return _launch(request, user, installed, variables)
+    return _launch(request, user, installed, {variable: installed.name})
+
+
+def _refuse_ignored(request: Request, variable: str) -> None:
+    """Before the commit: a collection whose role would ignore the variable
+    would turn "apply now" into a commit and a run that applies nothing."""
+    refused = _runs(request).undeclared(WORKLOAD_PLAYBOOK, [variable])
+    if not refused:
+        return
+    if variable == RESTART_VARIABLE:
+        refused += (
+            " Until then, commit without applying, run "
+            f"{WORKLOAD_PLAYBOOK} and restart the workload on this page."
+        )
+    raise ApiError("precondition_failed", refused, 409, {"unmet": [refused]})
 
 
 def _launch(
@@ -386,6 +403,8 @@ def set_workload_values(
     read when a process starts. `apply` launches that run, which restarts the
     workload at its end.
     """
+    if payload.apply:
+        _refuse_ignored(request, RESTART_VARIABLE)
     try:
         installed = _deliveries(request).set_values(
             name, payload.values, user.username, if_match

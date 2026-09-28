@@ -5550,3 +5550,9 @@ operation state" is the former checkbox, confirmed on its own. The site
 values form gets "Save and apply" beside "Save only". The role still never
 restarts a workload of its own accord: the variable is for one run, given by
 this gesture.
+
+Ansible takes an `-e` no task reads without a word, so an image whose
+collection predates the variable would commit, run green and restart
+nothing. A catalogue variable now names the role that reads it, and a run
+is refused unless that role declares it in its defaults; "Apply now" and
+"Save and apply" ask the same before they commit.

@@ -874,6 +874,36 @@ class RunService:
         audit_event("run.cancel_requested", run=run_id)
         return record
 
+    def undeclared(self, playbook_id: str, names: list[str]) -> str | None:
+        """Why the installed collection would ignore one of these variables.
+
+        Asked at launch, and by a caller that commits before it launches, so
+        that a gesture meant to act now is refused before it writes anything
+        rather than ending on a green run that did nothing.
+        """
+        entry = catalogue.get(playbook_id)
+        if entry is None:
+            return None
+        specs = {spec.name: spec for spec in entry.variables}
+        ignored = [
+            name
+            for name in names
+            if name in specs
+            and specs[name].role
+            and not catalogue.role_declares(
+                self._paths.collections_path, specs[name].role, name
+            )
+        ]
+        if not ignored:
+            return None
+        return (
+            f"The SEAPATH collection this image ships "
+            f"({self.collection_version()}) has a {specs[ignored[0]].role} role "
+            f"that does not read {', '.join(ignored)}. Ansible would take it "
+            "and ignore it, and the run would end without doing what it was "
+            "given for. Update the image to one whose collection reads it."
+        )
+
     def _accepted_variables(
         self,
         entry: PlaybookEntry,
@@ -908,6 +938,14 @@ class RunService:
                 "missing_variable",
                 f"{entry.title} requires {', '.join(missing)}.",
                 400,
+            )
+        refused = self.undeclared(entry.id, list(supplied))
+        if refused:
+            raise ApiError(
+                "precondition_failed",
+                refused,
+                409,
+                {"unmet": [refused], "codes": [Precondition.PLAYBOOK_PRESENT.value]},
             )
         for name, value in supplied.items():
             spec = declared[name]

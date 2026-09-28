@@ -31,9 +31,10 @@ def write_fake_collection(
 
     `roles` does the same for the roles the service asks about by name rather
     than through a playbook, which are `cloud_init_seed`, `backup_restore` and
-    `configure_local_storage`. The default lays them down, because a collection
-    of the version this service is written against carries them; passing `[]`
-    is the older collection.
+    `configure_local_storage`, and the ones whose defaults are read to know
+    whether they take a variable. The default lays them down, because a
+    collection of the version this service is written against carries them;
+    passing `[]` is the older collection.
 
     `MANIFEST.json` and `FILES.json` are written the way `ansible-galaxy`
     writes them, because what a run records about the code it ran is read from
@@ -82,14 +83,25 @@ def write_fake_collection(
     # The roles this service asks about by name rather than through a
     # playbook: the cloud-init seed builder, and the one whose scripts the
     # backup acts call.
+    # Their defaults declare the variables the catalogue says they read.
+    declared: dict[str, list[str]] = {}
+    for entry in catalogue.CATALOGUE:
+        for spec in entry.variables:
+            if spec.role:
+                declared.setdefault(spec.role, []).append(spec.name)
     for role in (
-        [catalogue.SEED_ROLE, backup.ROLE, "configure_local_storage"]
+        [catalogue.SEED_ROLE, backup.ROLE, "configure_local_storage", *declared]
         if roles is None
         else roles
     ):
         tasks = root / "roles" / role / "tasks"
         tasks.mkdir(parents=True, exist_ok=True)
         (tasks / "main.yml").write_text(contents)
+        if role in declared:
+            (root / "roles" / role / "defaults").mkdir(exist_ok=True)
+            (root / "roles" / role / "defaults" / "main.yml").write_text(
+                "".join(f"{name}: []\n" for name in declared[role])
+            )
     return collections_path
 
 

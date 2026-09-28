@@ -41,6 +41,7 @@ import json
 from enum import Enum
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel, Field
 
 from app.runs import analysis
@@ -55,6 +56,8 @@ COLLECTION = "seapath.ansible"
 RECREATE_VARIABLE = "deploy_containers_cluster_recreate"
 # And as the workloads it restarts once deployed, so that a change applies now.
 RESTART_VARIABLE = "deploy_containers_cluster_restart"
+# The role that reads both.
+WORKLOAD_ROLE = "deploy_containers_cluster"
 
 
 class Preview(str, Enum):
@@ -197,6 +200,16 @@ class VariableSpec(BaseModel):
     type: VariableType
     description: str
     required: bool = False
+    role: str | None = None
+    """The role that reads the variable, when a collection older than it
+    lacks the variable.
+
+    Ansible takes any `-e` without a word, and a role that does not read a
+    variable runs to a green end as if it had never been given. A run that
+    exists to do what the variable asks has then done nothing, and says so
+    nowhere. Naming the role lets the launch check that the installed one
+    declares it in its defaults, and refuse the run if it does not.
+    """
 
 
 class Derivation(BaseModel):
@@ -975,6 +988,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
                     "deleted and its RBD image put aside, then both are created "
                     "as on a first deployment"
                 ),
+                role=WORKLOAD_ROLE,
             ),
             VariableSpec(
                 name=RESTART_VARIABLE,
@@ -983,6 +997,7 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
                     "A workload to restart once deployed, so that its new "
                     "version, configuration and site values apply now"
                 ),
+                role=WORKLOAD_ROLE,
             ),
         ],
         notes=(
@@ -1320,6 +1335,24 @@ def select_root(site: Path, image: Path) -> Path:
     if installed_in(site):
         return Path(site)
     return Path(image)
+
+
+def role_declares(collections_path: Path, role: str, variable: str) -> bool:
+    """Whether the installed role declares the variable in its defaults.
+
+    The defaults are where a role declares every variable it reads, and the
+    upstream roles keep to that, including for a variable given to one run
+    only, whose default is empty. A defaults file that cannot be read is a
+    role that declares nothing.
+    """
+    path = Path(collections_path).joinpath(
+        *_COLLECTION_DIRECTORY[:-1], "roles", role, "defaults", "main.yml"
+    )
+    try:
+        defaults = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return False
+    return isinstance(defaults, dict) and variable in defaults
 
 
 def missing_from(collections_path: Path) -> set[str]:
