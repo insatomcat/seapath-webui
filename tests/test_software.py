@@ -600,6 +600,8 @@ def test_this_machine_is_read_then_its_reboot_scheduled_and_the_run_ends(
     update, check, reboot = _update_plays(settings, run_id)
     assert update["vars"] == {"defer_reboot": True}
     assert check["hosts"] == "all"
+    # Given again: the vars of an import end with the plays it imports.
+    assert check["vars"] == {"defer_reboot": True}
     assert reboot["hosts"] == "seapath-machine"
     (task,) = reboot["tasks"]
     assert task["ansible.builtin.command"]["argv"] == [
@@ -626,8 +628,9 @@ def test_the_others_are_updated_without_a_reboot_of_this_machine(
     )
 
     assert response.status_code == 202, response.text
-    update, _ = _update_plays(settings, response.json()["run_id"])
+    update, check = _update_plays(settings, response.json()["run_id"])
     assert "vars" not in update
+    assert "vars" not in check
 
 
 def test_each_machine_is_drawn_from_the_newest_run_that_read_it(

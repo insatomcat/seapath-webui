@@ -368,9 +368,15 @@ def update_play(this_host: str | None) -> str:
     update never reached is not checked, since a failure stops the run.
     """
     upgrade: dict = {"import_playbook": f"{COLLECTION}.{UPDATE}"}
+    check = _check("Check the machines the update left")
     if this_host is not None:
         upgrade["vars"] = {DEFER_REBOOT: True}
-    document = [upgrade, _check("Check the machines the update left")]
+        # The vars of an `import_playbook` end with the plays it imports, and
+        # the check reads `defer_reboot` to tell a reboot still to come from
+        # an update left unfinished. `update_debian_reboot` is a fact and
+        # carries over by itself.
+        check["vars"] = {DEFER_REBOOT: True}
+    document = [upgrade, check]
     if this_host is not None:
         document.append(
             {
