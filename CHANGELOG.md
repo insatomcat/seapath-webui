@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.199 - 2026-09-29
+
+- fix: do not report this machine's pending reboot as an unfinished update
+
 ## 0.3.198 - 2026-09-28
 
 - feat: set up PTP from a wizard on the inventory page
