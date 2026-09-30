@@ -179,11 +179,12 @@ def test_only_an_administrator_reads_or_defines_a_domain(
 # Shutting down and starting.
 
 
-def test_restarting_waits_for_the_guest_to_be_shut_off_before_starting_it(
+def test_restarting_shuts_the_guest_off_before_starting_it(
     signed_in: TestClient, remote_runner: FakeRemoteRunner, settings: Settings
 ) -> None:
     # `shutdown` only asks the guest, so a start right behind it would find it
-    # still running and do nothing.
+    # still running and do nothing. One that ignores ACPI is forced off, as a
+    # stop does, rather than failing the run and staying on the old definition.
     _standalone(signed_in, remote_runner)
 
     response = signed_in.post("/api/v1/vms/ABBICT/restart")
@@ -195,10 +196,12 @@ def test_restarting_waits_for_the_guest_to_be_shut_off_before_starting_it(
     assert [task["community.libvirt.virt"] for task in tasks] == [
         {"name": "ABBICT", "state": "shutdown"},
         {"name": "ABBICT", "command": "status"},
+        {"name": "ABBICT", "state": "destroyed"},
         {"name": "ABBICT", "state": "running"},
     ]
     assert tasks[1]["until"] == "seapath_webui_domain.status == 'shutdown'"
-    assert tasks[1]["retries"] * tasks[1]["delay"] == 300
+    assert tasks[1]["retries"] * tasks[1]["delay"] == 120
+    assert tasks[1]["ignore_errors"] is True
 
 
 def test_a_cluster_guest_is_not_restarted_behind_pacemaker(
@@ -364,9 +367,10 @@ def test_asking_for_a_restart_ends_the_same_run_with_it(
     ):
         wait_for(signed_in, run_id)
         tasks = _written(settings, run_id, record)[0]["tasks"]
-        assert [task["name"] for task in tasks[-3:]] == [
+        assert [task["name"] for task in tasks[-4:]] == [
             "Shut ABBICT down",
             "Wait for ABBICT to be shut off",
+            "Force ABBICT off, as it ignored ACPI",
             "Start ABBICT",
         ]
 

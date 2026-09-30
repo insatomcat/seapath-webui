@@ -181,7 +181,7 @@ def _entry(
 _RESTART = (
     " Then the guest is shut down through ACPI and started again, which is "
     "what applies it: whatever it serves stops in between, and a guest that "
-    "ignores ACPI for five minutes fails the run and keeps running."
+    "ignores ACPI for two minutes is forced off first."
 )
 _NEXT_START = (
     " The guest keeps running as it is, and takes the change the next time it "

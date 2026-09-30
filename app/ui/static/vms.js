@@ -973,8 +973,8 @@
       body: DISRUPTION[action],
       note:
         action === "stop" && mode !== "cluster"
-          ? "This machine has no Pacemaker, so the guest is asked to shut " +
-            "down through ACPI. One that ignores ACPI keeps running."
+          ? "The guest is asked to shut down through ACPI. One still " +
+            "running two minutes later is forced off, as a power cut would."
           : action === "delete"
             ? "What the guest had written on its disk is lost, and nothing " +
               "here brings it back. Should the run fail, the images stay in " +
@@ -1137,7 +1137,8 @@
       }
       element(id + "-ask-text").textContent =
         guest + " reads this when it starts from shut off, and a reboot from " +
-        "inside it is not that. Restarting it now shuts it down through ACPI " +
+        "inside it is not that. Restarting it now shuts it down through ACPI, " +
+        "forcing it off after two minutes if it has not stopped, " +
         "and starts it again at the end of the same run: whatever it serves " +
         "stops in between.";
       element(id + "-restart").textContent = "Apply and restart " + guest;

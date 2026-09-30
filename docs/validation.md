@@ -688,7 +688,7 @@ port. See [D52](decisions.md#d52).
 | 1 | The XML window of a standalone guest on ccvadmin opens with the domain `virsh dumpxml --inactive` prints there | The `sudo` rule, `virsh` and the SSH path together | Pending |
 | 2 | An edited `<vcpu>` saved with "Apply and restart" is one run that defines the domain, shuts the guest down, and starts it with the new count, which `virsh dumpxml` then shows | `community.libvirt.virt define` over a domain that exists, and libvirt applying it at the start the same run makes | Pending |
 | 3 | Saved with "Apply at its next start", the run defines the domain and leaves the guest running; closing the run window mid run changes nothing about it | The run going on without anybody watching | Pending |
-| 4 | The restart fails with the wait task's message on a guest that ignores ACPI, and leaves it running | The `until` on `command: status` against a real guest | Pending |
+| 4 | On a guest that ignores ACPI, the restart is forced off after two minutes and started, and the run succeeds; the same guest stopped from the VM page is forced off the same way | The `until` on `command: status`, `ignore_errors` and `destroyed` against a real guest | Pending |
 | 5 | A pinning profile saved with "Apply and restart" is one commit and one run that writes `/etc/seapath/alloc.d/<guest>.yaml` and restarts the guest, and its vCPUs then sit where the profile says | The value read from `hostvars` in the staged inventory, the seapath-alloc hook and the CPU pool together | Pending |
 | 6 | Exporting the inventory after step 5 and running `deploy_vms_standalone` from a control machine changes nothing | The acceptance criterion: the file the play writes is the one the role writes from the same entry | Pending |
 

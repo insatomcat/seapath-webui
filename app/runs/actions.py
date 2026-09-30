@@ -112,14 +112,14 @@ _SPECS: dict[Action, ActionSpec] = {
         verb="Shut down and start",
         title="Shut down and start {name}",
         disruption=(
-            "Asks the guest to shut down through ACPI, waits up to five "
+            "Asks the guest to shut down through ACPI, waits up to two "
             "minutes for libvirt to report it shut off, then starts it. That "
             "is what makes a new definition or pinning profile take effect: "
             "libvirt reads the definition, and the seapath-alloc hook the "
             "profile, when the guest starts from shut off, and a reboot from "
             "inside the guest is neither. Whatever the guest serves stops in "
-            "between. A guest that ignores ACPI is left running and the run "
-            "fails, saying so."
+            "between. A guest still running after the two minutes is forced "
+            "off, as a power cut would, before it is started."
         ),
     ),
     Action.RECONFIGURE: ActionSpec(
@@ -199,7 +199,8 @@ _SPECS: dict[Action, ActionSpec] = {
             "Stops the guest, and whatever it was serving stops with it. In a "
             "cluster the resource is disabled as well as stopped, so Pacemaker "
             "leaves it down until it is started again, a node failure "
-            "included."
+            "included. A guest that does not shut down on its own in time is "
+            "forced off, as a power cut would."
         ),
     ),
     Action.UNIT_START: ActionSpec(
@@ -688,17 +689,27 @@ def _tasks(
         ]
     if action is Action.RESTART:
         return restart_tasks(guest)
+    if action is Action.STOP and mode is Mode.STANDALONE:
+        return shutdown_tasks(guest)
     return [{"name": title, **_task(action, guest, mode)}]
 
 
-def restart_tasks(guest: str) -> list[dict]:
-    """A standalone guest shut down and started, which is what applies a new
-    definition or pinning profile: both are read when it starts from shut off.
+#: How long a standalone guest is given to act on ACPI before it is forced off.
+#: `vm_manager` gives Pacemaker 30 seconds by default for the same thing on a
+#: cluster guest; a guest alone on its machine has nothing to fail over to, so
+#: it gets longer to shut down cleanly.
+SHUTDOWN_GRACE = 120
+_POLL = 5
 
-    Three calls of the module `deploy_vms_standalone` starts guests with.
-    `shutdown` only asks the guest and returns, so the start would find it
-    still running and do nothing: the status is polled in between, for five
-    minutes, and a guest that ignores ACPI fails the run and keeps running.
+
+def shutdown_tasks(guest: str) -> list[dict]:
+    """A standalone guest shut off, cleanly if it answers ACPI and by force if
+    it does not, which is what Pacemaker's `VirtualDomain` does to a cluster
+    guest at the end of its stop timeout.
+
+    `shutdown` only asks the guest and returns. The status is polled for
+    `SHUTDOWN_GRACE` seconds, the wait running out is not a failure of the
+    run, and `destroyed` cuts the guest's power only when it is still up.
     """
     return [
         {
@@ -710,9 +721,23 @@ def restart_tasks(guest: str) -> list[dict]:
             "community.libvirt.virt": {"name": guest, "command": "status"},
             "register": "seapath_webui_domain",
             "until": "seapath_webui_domain.status == 'shutdown'",
-            "retries": 60,
-            "delay": 5,
+            "retries": SHUTDOWN_GRACE // _POLL,
+            "delay": _POLL,
+            "ignore_errors": True,
         },
+        {
+            "name": f"Force {guest} off, as it ignored ACPI",
+            "community.libvirt.virt": {"name": guest, "state": "destroyed"},
+            "when": "seapath_webui_domain.status | default('') != 'shutdown'",
+        },
+    ]
+
+
+def restart_tasks(guest: str) -> list[dict]:
+    """A standalone guest shut off and started, which is what applies a new
+    definition or pinning profile: both are read when it starts from shut off.
+    """
+    return shutdown_tasks(guest) + [
         {
             "name": f"Start {guest}",
             "community.libvirt.virt": {"name": guest, "state": "running"},
@@ -730,12 +755,5 @@ def _task(action: Action, guest: str, mode: Mode) -> dict:
         }
     # A standalone machine has no Pacemaker, so the guest is a libvirt domain
     # and `community.libvirt.virt` is what `deploy_vms_standalone` already
-    # uses. `shutdown` asks the guest through ACPI rather than cutting its
-    # power, which is why a guest that ignores ACPI keeps running and the page
-    # says so.
-    return {
-        "community.libvirt.virt": {
-            "name": guest,
-            "state": "running" if action is Action.START else "shutdown",
-        }
-    }
+    # uses. A stop is `shutdown_tasks`, so only a start reaches here.
+    return {"community.libvirt.virt": {"name": guest, "state": "running"}}

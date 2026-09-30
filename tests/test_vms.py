@@ -397,13 +397,13 @@ def test_the_generated_play_calls_the_upstream_module_and_nothing_else(
     signed_in: TestClient, settings: Settings
 ) -> None:
     # The one exception D30 makes, and its bounds: one task, one upstream
-    # module, one command value. A play that grew a second task would be this
+    # module, one state value. A play that grew a second task would be this
     # service writing Ansible, which is the thing it does not do.
     _declare(signed_in)
 
-    run = signed_in.post("/api/v1/vms/vm-guest1/stop").json()
+    run = signed_in.post("/api/v1/vms/vm-guest1/start").json()
 
-    written = list((settings.runs_dir / run["run_id"]).rglob("vm_stop.yaml"))
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_start.yaml"))
     assert len(written) == 1
     document = yaml.safe_load(written[0].read_text())
     assert len(document) == 1
@@ -412,8 +412,33 @@ def test_the_generated_play_calls_the_upstream_module_and_nothing_else(
     assert len(tasks) == 1
     assert tasks[0]["community.libvirt.virt"] == {
         "name": "vm-guest1",
-        "state": "shutdown",
+        "state": "running",
     }
+
+
+def test_a_standalone_stop_forces_off_a_guest_that_ignores_acpi(
+    signed_in: TestClient, settings: Settings
+) -> None:
+    # `shutdown` only asks the guest. What Pacemaker does to a cluster guest at
+    # the end of its stop timeout is done here after the wait: the wait running
+    # out does not fail the run, and the power is cut only if it is still up.
+    _declare(signed_in)
+
+    run = signed_in.post("/api/v1/vms/vm-guest1/stop").json()
+
+    written = list((settings.runs_dir / run["run_id"]).rglob("vm_stop.yaml"))
+    tasks = yaml.safe_load(written[0].read_text())[0]["tasks"]
+    assert [task["community.libvirt.virt"] for task in tasks] == [
+        {"name": "vm-guest1", "state": "shutdown"},
+        {"name": "vm-guest1", "command": "status"},
+        {"name": "vm-guest1", "state": "destroyed"},
+    ]
+    assert tasks[1]["until"] == "seapath_webui_domain.status == 'shutdown'"
+    assert tasks[1]["retries"] * tasks[1]["delay"] == 120
+    assert tasks[1]["ignore_errors"] is True
+    assert tasks[2]["when"] == (
+        "seapath_webui_domain.status | default('') != 'shutdown'"
+    )
 
 
 def test_the_command_line_runs_the_generated_play(signed_in: TestClient) -> None:

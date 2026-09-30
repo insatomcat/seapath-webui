@@ -5146,10 +5146,13 @@ did it two different ways.
 
 The restart is three calls of `community.libvirt.virt`, the module the
 standalone role starts guests with: `shutdown`, `status` polled until libvirt
-reports the guest shut off, for up to five minutes, then `running`.
-`shutdown` only asks the guest through ACPI, so a start right behind it would
-find it running and do nothing. A guest that ignores ACPI fails the run and
-is left running.
+reports the guest shut off, for up to two minutes, `destroyed` when it is
+still running after them, then `running`. `shutdown` only asks the guest
+through ACPI, so a start right behind it would find it running and do
+nothing. The first version failed the run on a guest that ignored ACPI and
+left it running on its old definition; the forced stop is the one a stop
+makes, and Pacemaker makes for a cluster guest at the end of its stop
+timeout.
 
 ### The pinning profile is an entry, and a play of two tasks writes it
 

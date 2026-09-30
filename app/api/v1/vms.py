@@ -378,7 +378,8 @@ def stop(request: Request, name: str, user: User = operator) -> ActionResponse:
 
     In a cluster the resource is disabled as well as stopped, so Pacemaker
     leaves it down until it is started again. On a standalone machine the
-    guest is asked through ACPI, so one that ignores ACPI keeps running.
+    guest is asked through ACPI and forced off if it is still running two
+    minutes later, which is what Pacemaker does at the end of its stop timeout.
     """
     return _act(request, name, Action.STOP, user)
 
