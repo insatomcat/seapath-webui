@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.200 - 2026-09-30
+
+- feat: force a standalone guest off when it ignores ACPI
+
 ## 0.3.199 - 2026-09-29
 
 - fix: do not report this machine's pending reboot as an unfinished update
