@@ -1326,6 +1326,12 @@
     });
   }
 
+  // Whether cluster_containers declares the workload now. A restore of one a
+  // removal took out succeeds and brings back an image nothing runs on.
+  function declared(name) {
+    return ((view && view.containers) || []).some((plan) => plan.name === name);
+  }
+
   // `item` is a guest or a container workload: its name, the dates it can be
   // restored to, and which of the two it is.
   function showRestore(backup, item) {
@@ -1343,7 +1349,12 @@
         "on the image it restarts with. It is on the image put aside, " +
         item.name + ".<date>-restore, which a recreation or a removal of the " +
         "workload prunes. The restore staging directory on the machine is " +
-        "emptied first.";
+        "emptied first." +
+        (declared(item.name)
+          ? ""
+          : " " + item.name + " is no longer declared in cluster_containers: " +
+            "only its image comes back, and nothing starts on it. Declaring " +
+            "it again, on the Containers page, runs it on that image.");
     } else {
       element("restore-title").textContent =
         "Restore " + item.name + " from " + readable(backup.date);

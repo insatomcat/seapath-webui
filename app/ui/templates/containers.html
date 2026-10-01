@@ -104,6 +104,20 @@ not.
     </div>
   </section>
 
+  {# Workloads a run removed and the inventory no longer declares. Their
+     entry is in the history and their state may be in the pool or a backup,
+     and a restore from the Backup page brings back only the image. #}
+  <section class="card" id="forgotten-card" hidden>
+    <h2>Removed</h2>
+    <p class="lead">
+      A run of <code>deploy_containers_cluster</code> took these workloads off
+      the machines, and their entry and files left the inventory. Declaring one
+      again writes them back as they were and runs the playbook, which keeps
+      the RBD image it finds in the pool, one restored from a backup included.
+    </p>
+    <ul id="forgotten-rows"></ul>
+  </section>
+
   <section class="card" id="undeclared-card" hidden>
     <h2>Held by the cluster, and not declared</h2>
     <p class="lead">

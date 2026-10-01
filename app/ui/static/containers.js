@@ -519,6 +519,37 @@
     });
   }
 
+  // A workload a run removed is still in the inventory's history, and its
+  // state may still be in the pool or in a backup. Declaring it again is the
+  // way back, and a restore from the Backup page brings back only its image.
+  function renderForgotten(payload) {
+    const forgotten = payload.forgotten || [];
+    element("forgotten-card").hidden = forgotten.length === 0;
+    const list = clear(element("forgotten-rows"));
+    forgotten.forEach((workload) => {
+      const item = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = workload.name;
+      const hash = document.createElement("code");
+      hash.textContent = workload.commit.slice(0, 12);
+      item.append(name, ", taken out by ", hash);
+      if (workload.missing_archives.length) {
+        item.append(
+          ", needs " + workload.missing_archives.join(", ") +
+            " uploaded again under files/ first"
+        );
+      } else if (workload.remove_rbd) {
+        item.append(", its RBD image deleted with it");
+      }
+      if (canWrite) {
+        const button = action("Declare again", () => confirmRedeclare(workload));
+        button.disabled = workload.missing_archives.length > 0;
+        item.append(" ", button);
+      }
+      list.append(item);
+    });
+  }
+
   function renderUndeclared(payload) {
     const undeclared = payload.undeclared || [];
     element("undeclared-card").hidden = undeclared.length === 0;
@@ -791,6 +822,38 @@
         const started = await API.post("/runs", {
           playbook: "deploy_containers_cluster",
         });
+        RunWatch.open(started.run_id, () => refresh(true));
+      },
+    });
+  }
+
+  // The entry comes back as it was before the removal marked it, so the
+  // window says what the run then finds in the pool: the image a restore put
+  // back, the image a removal kept, or none, which the role creates empty.
+  function confirmRedeclare(workload) {
+    confirm({
+      title: "Declare " + workload.name + " again",
+      body:
+        "Writes back the entry and the files commit " +
+        workload.commit.slice(0, 12) + " took out of the inventory, as they " +
+        "were before the removal, and runs deploy_containers_cluster on every " +
+        "member. The run puts its quadlets and images back on the nodes, " +
+        "creates its Pacemaker resource and starts it.",
+      note: !workload.rbd
+        ? ""
+        : workload.remove_rbd
+        ? "Its RBD image was deleted with it. Restored from a backup first, on " +
+          "the Backup page, it starts on that state; otherwise the run " +
+          "creates an empty one. A restore made after this one works too."
+        : "Its RBD image was kept in the pool, or restored from a backup " +
+          "since: the run keeps the image it finds and the workload starts on " +
+          "that state.",
+      label: "Declare it again",
+      act: async () => {
+        const started = await API.post(
+          "/containers/" + encodeURIComponent(workload.name) + "/redeclare",
+          {}
+        );
         RunWatch.open(started.run_id, () => refresh(true));
       },
     });
@@ -1316,6 +1379,7 @@
     mode = answer.mode;
     renderContainers(answer);
     renderRemoving(answer);
+    renderForgotten(answer);
     renderUndeclared(answer);
     fillScopes(answer);
   }
@@ -1372,7 +1436,12 @@
     const age = Kept.paint(KEPT, draw);
     if (age !== null) {
       Kept.rereading(["loading"], age);
-      Kept.hold(["card-containers", "removing-card", "undeclared-card"]);
+      Kept.hold([
+        "card-containers",
+        "removing-card",
+        "forgotten-card",
+        "undeclared-card",
+      ]);
     }
     await refresh(false, pending);
     // Declaring one is a commit, which is an administrator's act like every

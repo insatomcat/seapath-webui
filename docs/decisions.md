@@ -5677,6 +5677,29 @@ a removal is called off.
   guest's deletion makes.
 - **A workload already marked.** The run is what it waits for.
 
+### Declaring one again
+
+A workload's state outlives its removal. With the RBD image kept, it
+is still in the pool, and either way the backups taken before hold it, which
+`restore_container.sh` brings back as `rbd/<name>`. That restore succeeds on a
+workload nothing declares any more and leaves an image nothing runs on: the
+script restarts the Pacemaker resource it finds, and there is none.
+
+The entry is still in the history, in the parent of the commit that took it
+out. **Declare again**, in a card of the workloads a removal took out and
+nothing declares since, writes back that entry without `state` and
+`remove_rbd`, with the files the same commit deleted, as one commit, and
+launches `deploy_containers_cluster`. The role creates and fills an RBD image
+only when it finds none, so the workload starts on the image a restore put
+back or a removal kept, and a restore made afterwards works as on any declared
+workload. The Backup page says so in the confirmation of a restore of a
+workload nothing declares.
+
+Two limits. The image archives left the artefacts with the entry, and they
+are not in the history, so a workload loading its images from one is refused
+until it is uploaded again; the card names it. And a file the folder holds
+again since is left as it is, the operator's newer one being what a run uses.
+
 ### Why it keeps the acceptance criterion
 
 Each commit is the role's own interface. An inventory exported after the first

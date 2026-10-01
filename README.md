@@ -338,7 +338,10 @@ on one member and starts on the other.
 A workload of `cluster_containers` also carries **Remove**: the entry is
 marked `state: absent`, `deploy_containers_cluster` takes it off every node,
 its RBD image too when the operator checks it, and once that run has
-succeeded the entry and its files leave the inventory.
+succeeded the entry and its files leave the inventory. A workload removed that
+way is listed with **Declare again**, which writes its entry and files back
+from the history and redeploys it on the RBD image it finds, one restored from
+a backup included.
 
 ![A quadlet opened from its row: where it is uploaded, where the inventory keeps it, and the file podman reads](img/7-2-container-quadlet.png)
 
