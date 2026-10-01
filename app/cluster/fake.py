@@ -706,11 +706,14 @@ class FakeRbdClient:
 # volume is their sum. `vm-guest2` is the case that matters: a full backup
 # snapshotted it and nothing wrote to it since, so its own row is `0 B` and
 # everything it exports sits in the snapshot. `vm-guest3` is the other end, an
-# image whose rows add up past what it provisions. `nginxquadlet` belongs to
-# no guest, and a backup never exports it.
+# image whose rows add up past what it provisions. `nginxquadlet` is the
+# image of a container workload, which `get_containers.py` names and a backup
+# exports with the guests. `scratch` belongs to nothing, and a backup never
+# exports it.
 DU_ROWS = {
     "data_vm-guest1_0": (64, [11]),
     "nginxquadlet": (1, [1]),
+    "scratch": (8, [1]),
     "system_vm-guest1": (32, [4, 2]),
     "system_vm-guest2": (32, [4, 0]),
     "system_vm-guest3": (32, [20, 9, 7]),
@@ -749,5 +752,10 @@ def du_document(command: str = "") -> str:
 
 
 def rbd_answers() -> dict:
-    """The two `rbd` readings a member answers, for a `FakeRemoteRunner`."""
-    return {"rbd -p rbd ls": image_list, "rbd -p rbd du": du_document}
+    """The `rbd` readings a member answers, for a `FakeRemoteRunner`, and the
+    container workloads its `get_containers.py` names."""
+    return {
+        "rbd -p rbd ls": image_list,
+        "rbd -p rbd du": du_document,
+        "get_containers.py": "nginxquadlet\n",
+    }

@@ -155,15 +155,17 @@
     element("estimate-error").textContent = estimate.error || "";
     element("estimate-error").hidden = !estimate.error;
     element("estimate-table").hidden = guests.length === 0;
+    const workloads = guests.filter((guest) => guest.container).length;
     element("estimate-total").textContent = guests.length
-      ? "at most " + size(estimate.used_bytes) + " over " + guests.length +
-        " guests"
+      ? "at most " + size(estimate.used_bytes) + " over " +
+        (guests.length - workloads) + " guests" +
+        (workloads ? " and " + workloads + " container workloads" : "")
       : "";
 
     const body = clear(element("estimate-rows"));
     guests.forEach((guest) => {
       row(body, [
-        cell(guest.guest),
+        cell(guest.guest + (guest.container ? " (container)" : "")),
         cell(String(guest.images.length)),
         cell(size(guest.used_bytes)),
         cell(size(guest.provisioned_bytes)),
@@ -1149,7 +1151,27 @@
                     : "")
               : "no libvirt XML"
           ),
-          restoreCell(backup, guest),
+          restoreCell(backup, guest, guest.guest, false),
+        ]);
+      });
+      // A container workload's state is its one RBD image, and it can be
+      // restored to every date whose metadata is there, provided the image
+      // of the full backup they replay onto is there too.
+      (backup.containers || []).forEach((container) => {
+        const dates = container.dates || [];
+        row(body, [
+          cell(readable(backup.date)),
+          cell(container.name + " (container)"),
+          cell("1"),
+          cell(
+            dates.length
+              ? readable(dates[0]) +
+                  (dates.length > 1
+                    ? " to " + readable(dates[dates.length - 1])
+                    : "")
+              : "no image of the full backup"
+          ),
+          restoreCell(backup, container, container.name, true),
         ]);
       });
     });
@@ -1165,17 +1187,19 @@
     return at.toLocaleString();
   }
 
-  function restoreCell(backup, guest) {
+  function restoreCell(backup, item, name, container) {
     const node = document.createElement("td");
     node.className = "acts";
-    if (!canWrite || !(guest.dates || []).length) {
+    if (!canWrite || !(item.dates || []).length) {
       return node;
     }
     const button = document.createElement("button");
     button.type = "button";
     button.className = "secondary";
     button.textContent = "Restore";
-    button.addEventListener("click", () => showRestore(backup, guest));
+    button.addEventListener("click", () =>
+      showRestore(backup, { name, dates: item.dates, container })
+    );
     node.append(button);
     return node;
   }
@@ -1252,21 +1276,40 @@
     });
   }
 
-  function showRestore(backup, guest) {
-    element("restore-title").textContent =
-      "Restore " + guest.guest + " from " + readable(backup.date);
-    element("restore-disruption").textContent =
-      "Recreates " + guest.guest + " from the backup and starts it. " +
-      "`vm-mgr create --force` replaces whatever is there under that name: " +
-      "the disks it has now, its Pacemaker resource and the metadata on its " +
-      "image are all overwritten by what the backup carries.";
-    element("restore-note").textContent =
-      "Everything written to " + guest.guest + " since the date chosen here " +
-      "is gone, and nothing on this page brings it back. If it is running " +
-      "now, the running guest is destroyed. The restore staging directory " +
-      "on the machine is emptied first.";
+  // `item` is a guest or a container workload: its name, the dates it can be
+  // restored to, and which of the two it is.
+  function showRestore(backup, item) {
+    if (item.container) {
+      element("restore-title").textContent =
+        "Restore the state of " + item.name + " from " + readable(backup.date);
+      element("restore-disruption").textContent =
+        "Stops the container workload " + item.name + ", puts its RBD image " +
+        "aside, recreates the image from the backup and starts the workload " +
+        "again, unless it was stopped already. Its quadlets, images and " +
+        "configuration stay as the inventory has them: it runs the version " +
+        "the inventory gives it, on the state the backup holds.";
+      element("restore-note").textContent =
+        "What " + item.name + " wrote since the date chosen here is no longer " +
+        "on the image it restarts with. It is on the image put aside, " +
+        item.name + ".<date>-restore, which a recreation or a removal of the " +
+        "workload prunes. The restore staging directory on the machine is " +
+        "emptied first.";
+    } else {
+      element("restore-title").textContent =
+        "Restore " + item.name + " from " + readable(backup.date);
+      element("restore-disruption").textContent =
+        "Recreates " + item.name + " from the backup and starts it. " +
+        "`vm-mgr create --force` replaces whatever is there under that name: " +
+        "the disks it has now, its Pacemaker resource and the metadata on its " +
+        "image are all overwritten by what the backup carries.";
+      element("restore-note").textContent =
+        "Everything written to " + item.name + " since the date chosen here " +
+        "is gone, and nothing on this page brings it back. If it is running " +
+        "now, the running guest is destroyed. The restore staging directory " +
+        "on the machine is emptied first.";
+    }
     const picker = clear(element("restore-date"));
-    guest.dates.forEach((value) => {
+    item.dates.forEach((value) => {
       const option = document.createElement("option");
       option.value = value;
       option.textContent = readable(value);
@@ -1274,11 +1317,11 @@
     });
     // The newest is what an operator almost always wants, and the list is
     // oldest first because that is the order the diffs are replayed in.
-    picker.value = guest.dates[guest.dates.length - 1];
+    picker.value = item.dates[item.dates.length - 1];
     element("restore-error").hidden = true;
     const go = element("restore-go");
     go.disabled = false;
-    go.onclick = () => restore(backup, guest);
+    go.onclick = () => restore(backup, item);
     element("catalogue-list").hidden = true;
     element("restore").hidden = false;
     go.focus();
@@ -1289,18 +1332,25 @@
     element("catalogue-list").hidden = false;
   }
 
-  async function restore(backup, guest) {
+  async function restore(backup, item) {
     const go = element("restore-go");
     const error = element("restore-error");
     go.disabled = true;
     go.setAttribute("aria-busy", "true");
     error.hidden = true;
     try {
-      const started = await API.post("/backup/restore", {
-        guest: guest.guest,
-        full_date: backup.date,
-        date: element("restore-date").value,
-      });
+      const date = element("restore-date").value;
+      const started = item.container
+        ? await API.post("/backup/restore/container", {
+            name: item.name,
+            full_date: backup.date,
+            date,
+          })
+        : await API.post("/backup/restore", {
+            guest: item.name,
+            full_date: backup.date,
+            date,
+          });
       element("catalogue").hidden = true;
       showList();
       RunWatch.open(started.run_id);

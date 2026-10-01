@@ -85,7 +85,8 @@ Proxmox clone:
   which is what the application in that guest actually waits for. See D24 and
   D41 in [decisions.md](docs/decisions.md).
 - VM runtime operations through `vm_manager`.
-- The backups the `backup_restore` role already takes. Its four scripts take
+- The backups the `backup_restore` role already takes, of the guests and of
+  the state of the container workloads (D71). Its scripts take
   every value as an argument, so the seven settings live in the inventory and a
   run passes them on the command line; its whiptail menu, which reads and
   writes `/etc/backup-restore.conf`, stays on the machine. What a full backup

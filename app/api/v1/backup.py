@@ -90,6 +90,12 @@ class RestoreRequest(BaseModel):
     date: str = Field(description="The date inside it to replay up to")
 
 
+class ContainerRestoreRequest(BaseModel):
+    name: str = Field(description="The container workload")
+    full_date: str = Field(description="The full backup directory, twelve digits")
+    date: str = Field(description="The date inside it to replay up to")
+
+
 class HostKeysRequest(BaseModel):
     host_keys: list[str] = Field(
         description="The server's host keys, as known_hosts lines, confirmed"
@@ -110,6 +116,7 @@ class RunResponse(BaseModel):
     state: str
     action: str
     guest: str = ""
+    container: str = ""
 
 
 @router.get("", response_model=BackupView, dependencies=[reads.reading])
@@ -301,6 +308,27 @@ def restore(
         full_date=payload.full_date,
         incremental_date=payload.date,
     )
+
+
+@router.post("/restore/container", status_code=202)
+def restore_container(
+    request: Request, payload: ContainerRestoreRequest, user: User = admin
+) -> RunResponse:
+    """Bring the RBD image of one container workload back from a backup.
+
+    The workload is stopped, its image put aside and recreated from the
+    backup, then started again unless it was stopped. The name and both dates
+    are checked against the listing this service last read.
+    """
+    response = _launch(
+        request,
+        BackupAction.RESTORE_CONTAINER,
+        user,
+        guest=payload.name,
+        full_date=payload.full_date,
+        incremental_date=payload.date,
+    )
+    return response.model_copy(update={"guest": "", "container": payload.name})
 
 
 def _launch(

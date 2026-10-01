@@ -462,6 +462,12 @@ about to be replaced and the date its changes are replayed up to, and the
 restore is a run of `restore_vm.sh`, which recreates the guest with
 `vm-mgr create --force`. See D54.
 
+The backups take the state of the container workloads with the guests: the RBD
+image each workload writes to, filtered by name like a guest. Their rows in the
+listing restore that image alone, through `restore_container.sh`, which stops
+the workload, puts its current image aside and starts it again on the image of
+the chosen date, with the version the inventory gives it. See D71.
+
 ![The Updates page: one row per machine of the inventory, its kernel, what an upgrade would bring and its last update, under the date of the check](img/14-updates.png)
 
 **Updates** says what an upgrade would bring to each machine and runs it.

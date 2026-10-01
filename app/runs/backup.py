@@ -9,7 +9,10 @@ configure. What it puts in `/usr/local/bin` is four programs and a menu over
 them: `backup_full.sh` exports every guest's RBD images as qcow2 and rsyncs
 them to a backup server, `backup_inc.sh` exports RBD diffs against the latest
 snapshot into the same directory, `restore_vm.sh` brings one guest back from a
-chosen date, and `backup_du.py` estimates what a full backup would weigh.
+chosen date, and `backup_du.py` estimates what a full backup would weigh. The
+two backups also export the RBD image of every container workload
+`deploy_containers_cluster` deployed, and `restore_container.sh` brings one of
+those images back.
 `backup-restore.sh` is a whiptail menu that asks for the arguments and calls
 them.
 
@@ -52,11 +55,18 @@ from __future__ import annotations
 import shlex
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 
 import yaml
 
 from app.cluster.rbd import POOL
-from app.runs.catalogue import PlaybookEntry, Precondition, Preview, Reboots
+from app.runs.catalogue import (
+    COLLECTION_PLAYBOOKS,
+    PlaybookEntry,
+    Precondition,
+    Preview,
+    Reboots,
+)
 
 # The recorded playbook name, as `actions.py` records its own. Deliberately not
 # `seapath.ansible.*`: the play was written here. What it calls belongs to the
@@ -70,6 +80,11 @@ ROLE = "backup_restore"
 # Where the role's `synchronize` puts them.
 SCRIPTS = "/usr/local/bin"
 
+# The script a container restore calls, which the role gained after the
+# others: a collection older than it would launch a run that fails on a file
+# the machines do not have.
+CONTAINER_RESTORE = "restore_container.sh"
+
 # What answers the `read -r` each script pauses on. A newline, which is what an
 # operator types at that prompt.
 CONFIRMATION = "\n"
@@ -79,6 +94,7 @@ class BackupAction(str, Enum):
     FULL = "full"
     INCREMENTAL = "incremental"
     RESTORE = "restore"
+    RESTORE_CONTAINER = "restore_container"
 
 
 @dataclass(frozen=True)
@@ -130,6 +146,7 @@ _TITLES = {
     BackupAction.FULL: "Back up every guest, in full",
     BackupAction.INCREMENTAL: "Back up what changed since the last full backup",
     BackupAction.RESTORE: "Restore {guest} from {date}",
+    BackupAction.RESTORE_CONTAINER: "Restore the state of {guest} from {date}",
 }
 
 _DISRUPTIONS = {
@@ -162,7 +179,27 @@ _DISRUPTIONS = {
         "is emptied first. Restore over a guest that is running, and the "
         "running one is destroyed."
     ),
+    BackupAction.RESTORE_CONTAINER: (
+        "Stops the container workload, puts its RBD image aside as "
+        "`<name>.<date>-restore`, recreates the image from the backup up to "
+        "the chosen date, and starts the workload again unless it was stopped "
+        "before. What the workload wrote since that date is on the image put "
+        "aside, not on the one it restarts with. Its quadlets, images and "
+        "configuration are not touched: it runs the version the inventory "
+        "gives it, on the state the backup holds. The staging directory on the "
+        "machine is emptied first."
+    ),
 }
+
+
+def ships_container_restore(collections_path: Path) -> bool:
+    """Whether the installed collection's role carries `restore_container.sh`."""
+    return (
+        Path(collections_path)
+        .joinpath(*COLLECTION_PLAYBOOKS[:-1], "roles", ROLE, "files", "scripts")
+        .joinpath(CONTAINER_RESTORE)
+        .is_file()
+    )
 
 
 def record(action: BackupAction) -> str:
@@ -246,9 +283,12 @@ def _tasks(
     full_date: str,
     incremental_date: str,
 ) -> list[dict]:
-    if action is BackupAction.RESTORE:
+    if action in (BackupAction.RESTORE, BackupAction.RESTORE_CONTAINER):
+        script = (
+            "restore_vm.sh" if action is BackupAction.RESTORE else CONTAINER_RESTORE
+        )
         argv = [
-            f"{SCRIPTS}/restore_vm.sh",
+            f"{SCRIPTS}/{script}",
             target.local_tmp_dir,
             target.remote_shell,
             target.destination,
@@ -296,7 +336,11 @@ _NOTHING = "NonExistingGuestNameForDefault"
 # minute it started, holding the qcow2 of every image, the libvirt XML and the
 # metadata of each guest, and the diffs of the incremental backups made since.
 #
-# It prints one line per entry rather than a recursive listing, because that is
+# The container workloads sit one level further down, in
+# `containers/<name>/`, where nothing matches the patterns a guest's restore
+# downloads with.
+#
+# It prints one line per file rather than a recursive listing, because that is
 # what a remote shell can be relied on to have: `find -printf` is GNU's, and a
 # backup server is whatever the site already had.
 _LISTING_SCRIPT = (
@@ -304,8 +348,8 @@ _LISTING_SCRIPT = (
     "for d in */; do "
     '[ -d "$d" ] || continue; '
     "printf 'dir %s\\n' \"${{d%/}}\"; "
-    'for f in "$d"*; do '
-    '[ -e "$f" ] || continue; '
+    'for f in "$d"* "$d"containers/*/*; do '
+    '[ -f "$f" ] || continue; '
     "printf 'file %s\\n' \"$f\"; "
     "done; "
     "done"
@@ -425,6 +469,25 @@ def images_shell_command() -> str:
     )
 
 
+# What the scripts back up besides the guests: the RBD images of the container
+# workloads, which `get_containers.py` recognises by the `seapath.images` key
+# `deploy_containers_cluster` records on them. A role installed before it
+# existed backs up no workload, and the answer is then rightly empty.
+GET_CONTAINERS = f"{SCRIPTS}/get_containers.py"
+
+
+def containers_shell_command() -> str:
+    """The workloads a backup would export, as one command for a member.
+
+    The scripts' own answer, asked of the script they call, rather than read
+    off the inventory: a workload removed from the inventory keeps its image
+    unless the run was told to delete it, and the backups go on exporting it.
+    """
+    return "sudo -n /bin/sh -c " + shlex.quote(
+        f"[ ! -e {GET_CONTAINERS} ] || python3 {GET_CONTAINERS}"
+    )
+
+
 def du_shell_command(images: list[str]) -> str:
     """`rbd du` of each image a backup would export, as one command.
 
@@ -455,11 +518,13 @@ def _readable(date: str) -> str:
 
 __all__ = [
     "CONFIRMATION",
+    "CONTAINER_RESTORE",
     "GENERATOR",
     "ROLE",
     "SCRIPTS",
     "BackupAction",
     "BackupTarget",
+    "containers_shell_command",
     "du_shell_command",
     "entry",
     "images_shell_command",
@@ -467,4 +532,5 @@ __all__ = [
     "listing_shell_command",
     "play",
     "record",
+    "ships_container_restore",
 ]

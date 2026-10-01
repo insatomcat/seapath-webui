@@ -5559,3 +5559,62 @@ collection predates the variable would commit, run green and restart
 nothing. A catalogue variable now names the role that reads it, and a run
 is refused unless that role declares it in its defaults; "Apply now" and
 "Save and apply" ask the same before they commit.
+
+## D71 - Settled: the state of a container workload is backed up by the same scripts, and restored by one of its own
+
+A container workload keeps what it writes on the RBD image named after it
+([D70](#d70)): the code is the delivery's and the configuration the site's,
+both in the inventory, and the state is in no inventory and was in no backup.
+`backup_full.sh` selected the images by `system_` and `data_`, so a site that
+backed up every night had nothing of its relays' operation state.
+
+### Upstream, in the scripts the guests already go through
+
+`backup_restore` gained it rather than a role of its own, because a backup is
+one act over the pool: one staging directory, one rsync, one run lock, one
+directory per full backup on the server, and one pair of filters a site
+already wrote. The two filters apply to workload names as to guest names,
+since both are Pacemaker resources and share one namespace.
+
+A workload's image is recognised by `seapath.images`, the key
+`deploy_containers_cluster` records on it, by a new `get_containers.py`. The
+images that role puts aside carry the key too and are left out by the dot in
+their name. A workload that declares no `images` has no such key and is not
+backed up; the role's README says so.
+
+Two things differ from a guest's disks, and both are about the snapshots
+`deploy_containers_cluster` takes before a new version, which are what a
+rollback to that version needs. A full backup removes only the snapshots of
+previous backups, named after a minute and nothing else, where a guest's
+images get `rbd snap purge`. And an incremental backup diffs against the
+latest of those, never against a version snapshot, which no backup holds and
+onto which a restore could not replay the diff. The image is not sparsified.
+
+The files go under `containers/<name>/` of the full backup, `<date>.qcow2`,
+`<from>_<to>.diff` and a `<date>.json` of the image metadata per date. One
+level down, because `restore_vm.sh` downloads `*_<guest>_*`, and a workload
+file at the top would match a guest whose name ends the same way.
+
+### The restore is a stop, a put aside and a start
+
+`restore_container.sh` stops the resource with `crm --wait`, refuses an image
+a node still has mapped, renames the current image to
+`<name>.<date>-restore`, which the role's own pruning of put aside images then
+covers, recreates the image with the features `seapath-rbd-mount` gives it,
+replays the diffs, restores the metadata of the date, and starts the workload
+again unless its `target-role` was `Stopped`. Nothing of the quadlets, images
+or configuration is touched: the workload runs the version the inventory
+gives it on the state the backup holds, and restoring the version too is a
+revert of the inventory, which is where versions live. A workload with no
+resource yet gets its image, which `deploy_containers_cluster` then keeps,
+so a cluster being rebuilt restores before it deploys.
+
+### Here
+
+The listing descends into `containers/`, the estimate asks the member's
+`get_containers.py` rather than reading `cluster_containers`, because a
+workload removed from the inventory keeps its image unless the run was told
+to delete it and the backups go on exporting it, and a restore is a run of
+the new script, `admin` like a guest's, checked against the listing. A
+collection whose role predates the script is refused before the run rather
+than failing on a machine.

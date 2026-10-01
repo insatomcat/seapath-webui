@@ -57,9 +57,17 @@ incremental backup taken since. Which is to say:
     202603110733/system_vm1_202603110733_202603110836.diff   an increment
     202603110733/system_vm1-202603110836.xml        and its XML
 
+and, for each container workload, the state it wrote, one level down:
+
+    202603110733/containers/relay/202603110733.qcow2          the full backup
+    202603110733/containers/relay/202603110733.json           its metadata
+    202603110733/containers/relay/202603110733_202603110836.diff
+    202603110733/containers/relay/202603110836.json           and its metadata
+
 A restore names the full backup directory, the guest and one of the dates whose
 XML is there, which is exactly what `restore_vm.sh` takes and what the menu
-asks for in three screens.
+asks for in three screens. A workload is restored the same way, to one of the
+dates whose metadata is there, by `restore_container.sh`.
 """
 
 from __future__ import annotations
@@ -121,6 +129,10 @@ GUEST = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 # after.
 DATE = re.compile(r"^[0-9]{12}$")
 
+# A container workload name, as `deploy_containers_cluster` accepts it and
+# `restore_container.sh` checks it again.
+WORKLOAD = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+
 # What a path may hold. Deliberately narrow: these become arguments of a shell
 # script that expands some of them unquoted, and a directory holding a space is
 # not worth the risk on a machine where the alternative is `rm -rf` reaching
@@ -170,9 +182,11 @@ class BackupSetting(BaseModel):
 
 
 class GuestVolume(BaseModel):
-    """What one guest would weigh in a full backup."""
+    """What one guest, or one container workload, would weigh in a full backup."""
 
     guest: str
+    container: bool = False
+    """A container workload, whose one image is the state it writes."""
     images: list[str] = Field(default_factory=list)
     used_bytes: int = 0
     provisioned_bytes: int = 0
@@ -205,9 +219,20 @@ class GuestBackup(BaseModel):
     """How many images the full backup carries for it, the system disk included."""
 
 
+class ContainerBackup(BaseModel):
+    """The state of one container workload inside one full backup."""
+
+    name: str
+    dates: list[str] = Field(default_factory=list)
+    """Every date whose metadata is there, newest last, which is what
+    `restore_container.sh` restores to. Empty when the image of the full
+    backup itself is missing, since every date replays onto it."""
+
+
 class FullBackup(BaseModel):
     date: str
     guests: list[GuestBackup] = Field(default_factory=list)
+    containers: list[ContainerBackup] = Field(default_factory=list)
     files: int = 0
 
 
@@ -507,11 +532,12 @@ class BackupService:
 
         The two filters are applied here exactly as the scripts apply them, to
         the guest name and never to the image name, so a guest excluded on this
-        page is a guest the run will skip. They are applied to what `rbd ls`
-        names before anything is measured, so only the images a backup would
-        export are walked. An additional disk is counted with the guest it
-        belongs to, which is what makes the total the size of a backup rather
-        than the size of a pool.
+        page is a guest the run will skip. A container workload is filtered by
+        its name the same way, and its image is the one it is named after.
+        They are applied to what `rbd ls` names before anything is measured,
+        so only the images a backup would export are walked. An additional
+        disk is counted with the guest it belongs to, which is what makes the
+        total the size of a backup rather than the size of a pool.
         """
         if target is None:
             target, _ = self._read(self._inventory.raw())
@@ -535,10 +561,13 @@ class BackupService:
 
         try:
             names = parse_image_list(self._ask(address, plays.images_shell_command()))
+            containers = frozenset(
+                self._ask(address, plays.containers_shell_command()).split()
+            )
             selected: list[str] = []
             excluded: set[str] = set()
             for image in names:
-                guest = _guest_of(image)
+                guest = _guest_of(image, containers)
                 if guest is None:
                     continue
                 if not include.search(guest) or (exclude and exclude.search(guest)):
@@ -560,10 +589,12 @@ class BackupService:
 
         volumes: dict[str, GuestVolume] = {}
         for image in usage:
-            guest = _guest_of(image.image)
+            guest = _guest_of(image.image, containers)
             if guest is None:
                 continue
-            volume = volumes.setdefault(guest, GuestVolume(guest=guest))
+            volume = volumes.setdefault(
+                guest, GuestVolume(guest=guest, container=guest in containers)
+            )
             volume.images.append(image.image)
             volume.used_bytes += image.used_bytes
             volume.provisioned_bytes += image.provisioned_bytes
@@ -895,6 +926,17 @@ class BackupService:
 
         if action is BackupAction.RESTORE:
             self._check_restore(guest, full_date, incremental_date)
+        if action is BackupAction.RESTORE_CONTAINER:
+            if not plays.ships_container_restore(self._collections_path()):
+                raise ApiError(
+                    "role_missing",
+                    f"The `{plays.ROLE}` role of the SEAPATH collection this "
+                    f"image ships has no `{plays.CONTAINER_RESTORE}`: it "
+                    "predates the backup of container workloads, so no "
+                    "machine has the script this restore calls.",
+                    409,
+                )
+            self._check_container_restore(guest, full_date, incremental_date)
 
         host = self.runner()
         if host is None:
@@ -903,7 +945,13 @@ class BackupService:
             plays.entry(action, guest, incremental_date or full_date, host),
             author,
             plays.play(action, target, host, guest, full_date, incremental_date),
-            guest=guest or None,
+            # What the VMs page finds a guest's runs by, and a workload is
+            # not a guest.
+            guest=(
+                (guest or None)
+                if action is not BackupAction.RESTORE_CONTAINER
+                else None
+            ),
         )
 
     # Internals
@@ -1093,6 +1141,51 @@ class BackupService:
                 {"dates": held.dates},
             )
 
+    def _check_container_restore(self, name: str, full_date: str, date: str) -> None:
+        if not WORKLOAD.match(name or ""):
+            raise ApiError(
+                "invalid_container",
+                f"{name!r} is not a container workload name this service restores.",
+                400,
+            )
+        if not DATE.match(full_date or "") or not DATE.match(date or ""):
+            raise ApiError(
+                "invalid_date",
+                "A restore names the full backup it comes from and the date "
+                "inside it to replay up to. Both are the twelve digit stamps "
+                "the backup scripts write.",
+                400,
+            )
+        backup = next(
+            (item for item in self.catalogue().backups if item.date == full_date),
+            None,
+        )
+        if backup is None:
+            raise ApiError(
+                "unknown_backup",
+                f"The last reading of the backup server found no backup taken "
+                f"at {full_date}. Read the server again: what is offered here "
+                "is what it held when it was last asked.",
+                409,
+            )
+        held = next((item for item in backup.containers if item.name == name), None)
+        if held is None:
+            raise ApiError(
+                "unknown_container",
+                f"That backup holds no container workload called {name}.",
+                409,
+            )
+        if date not in held.dates:
+            raise ApiError(
+                "unknown_date",
+                f"{name} cannot be restored to {date} out of that backup. A "
+                "restore replays the diffs up to a date whose metadata is "
+                "there, onto the image of the full backup, and that date has "
+                "no metadata or the full backup has no image.",
+                409,
+                {"dates": held.dates},
+            )
+
     def _last_listing(self) -> RunRecord | None:
         """The newest listing run that finished, whatever it found."""
         for record in self._runs.list(limit=200):
@@ -1142,12 +1235,15 @@ def _filters(target: BackupTarget) -> tuple[re.Pattern | None, re.Pattern | None
     return include, exclude
 
 
-def _guest_of(image: str) -> str | None:
-    """The guest an image belongs to, `backup_du.py`'s own mapping.
+def _guest_of(image: str, containers: frozenset[str] = frozenset()) -> str | None:
+    """The guest or workload an image belongs to, `backup_du.py`'s own mapping.
 
     `system_<guest>` is the system disk and `data_<guest>_<n>` an additional
-    one. Anything else in the pool is not a guest's disk and is not backed up.
+    one, and a container workload's image carries the workload's name. Anything
+    else in the pool is not backed up.
     """
+    if image in containers:
+        return image
     if image.startswith("system_"):
         return image[len("system_") :] or None
     if image.startswith("data_"):
@@ -1161,6 +1257,10 @@ def _guest_of(image: str) -> str | None:
 _FULL = re.compile(r"^(?P<image>.+)_(?P<date>[0-9]{12})\.qcow2$")
 _DIFF = re.compile(r"^(?P<image>.+)_(?P<from>[0-9]{12})_(?P<to>[0-9]{12})\.diff$")
 _XML = re.compile(r"^system_(?P<guest>.+)-(?P<date>[0-9]{12})\.xml$")
+_CONTAINER = re.compile(
+    r"^containers/(?P<name>[A-Za-z0-9][A-Za-z0-9_-]*)/"
+    r"(?P<date>[0-9]{12})(?:_[0-9]{12}\.diff|\.(?P<kind>qcow2|json))$"
+)
 
 
 def parse_listing(text: str) -> list[FullBackup]:
@@ -1174,6 +1274,9 @@ def parse_listing(text: str) -> list[FullBackup]:
     """
     backups: dict[str, FullBackup] = {}
     guests: dict[tuple[str, str], GuestBackup] = {}
+    # Per full backup and workload: the dates with metadata, and whether the
+    # image of the full backup is there for them to replay onto.
+    workloads: dict[tuple[str, str], tuple[list[str], list[bool]]] = {}
 
     for line in text.splitlines():
         kind, _, rest = line.strip().partition(" ")
@@ -1188,6 +1291,16 @@ def parse_listing(text: str) -> list[FullBackup]:
         backup = backups.setdefault(directory, FullBackup(date=directory))
         backup.files += 1
 
+        container = _CONTAINER.match(name)
+        if container:
+            dates, full = workloads.setdefault(
+                (directory, container.group("name")), ([], [False])
+            )
+            if container.group("kind") == "json":
+                dates.append(container.group("date"))
+            elif container.group("kind") == "qcow2":
+                full[0] = full[0] or container.group("date") == directory
+            continue
         xml = _XML.match(name)
         if xml:
             guest = _guest(guests, backups, directory, xml.group("guest"))
@@ -1201,6 +1314,10 @@ def parse_listing(text: str) -> list[FullBackup]:
             if owner:
                 _guest(guests, backups, directory, owner).disks += 1
 
+    for (directory, workload), (dates, full) in sorted(workloads.items()):
+        backups[directory].containers.append(
+            ContainerBackup(name=workload, dates=sorted(dates) if full[0] else [])
+        )
     for backup in backups.values():
         backup.guests.sort(key=lambda item: item.guest)
         for guest in backup.guests:
@@ -1420,6 +1537,7 @@ __all__ = [
     "BackupService",
     "BackupSetting",
     "BackupView",
+    "ContainerBackup",
     "Estimate",
     "FullBackup",
     "GuestBackup",

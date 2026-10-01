@@ -116,7 +116,9 @@ all:
 
 # What the backup server answers, in the shape the listing command prints. One
 # full backup holding two guests, one of which has an additional disk, and one
-# incremental backup taken an hour later.
+# incremental backup taken an hour later. It holds the state of two container
+# workloads too: `nginxquadlet` with its increment, and `relay`, whose image of
+# the full backup is missing, so no date of it can be replayed onto anything.
 LISTING = """dir 202603110733
 file 202603110733/system_vm-guest1_202603110733.qcow2
 file 202603110733/data_vm-guest1_0_202603110733.qcow2
@@ -128,6 +130,11 @@ file 202603110733/data_vm-guest1_0_202603110733_202603110836.diff
 file 202603110733/system_vm-guest1-202603110836.xml
 file 202603110733/system_vm-guest2_202603110733.qcow2
 file 202603110733/system_vm-guest2-202603110733.xml
+file 202603110733/containers/nginxquadlet/202603110733.qcow2
+file 202603110733/containers/nginxquadlet/202603110733.json
+file 202603110733/containers/nginxquadlet/202603110733_202603110836.diff
+file 202603110733/containers/nginxquadlet/202603110836.json
+file 202603110733/containers/relay/202603110836.json
 dir 202602010900
 file 202602010900/system_vm-guest3_202602010900.qcow2
 file 202602010900/system_vm-guest3-202602010900.xml
@@ -577,8 +584,8 @@ def test_only_the_images_a_backup_exports_are_measured(
 
     _estimate(signed_in)
 
-    listing, measure = remote_runner.requests
-    assert {listing.address, measure.address} == {"192.168.200.126"}
+    listing, containers, measure = remote_runner.requests
+    assert {listing.address, containers.address, measure.address} == {"192.168.200.126"}
     assert shlex.split(listing.command) == [
         "sudo",
         "-n",
@@ -588,8 +595,10 @@ def test_only_the_images_a_backup_exports_are_measured(
     ]
     script = shlex.split(measure.command)
     assert script[:4] == ["sudo", "-n", "/bin/sh", "-c"]
+    # `scratch` belongs to no guest and no workload, and is never walked.
     assert script[4] == (
-        "for image in data_vm-guest1_0 system_vm-guest1 system_vm-guest2; "
+        "for image in data_vm-guest1_0 nginxquadlet system_vm-guest1 "
+        "system_vm-guest2; "
         'do rbd -p rbd du --format json "$image" || exit 1; echo; done'
     )
     assert measure.timeout == DU_TIMEOUT
@@ -612,7 +621,7 @@ def test_every_command_sent_to_a_member_is_run_through_sh(
     signed_in.get("/api/v1/backup/catalogue")
     signed_in.get("/api/v1/backup/staging")
 
-    assert len(remote_runner.requests) == 4
+    assert len(remote_runner.requests) == 5
     for request in remote_runner.requests:
         assert request.command.startswith("sudo -n /bin/sh -c "), request.command
 
@@ -671,10 +680,57 @@ def test_the_filters_are_applied_to_guest_names_the_way_the_scripts_apply_them(
 
     estimate = _estimate(signed_in)
 
-    assert estimate["included"] == ["vm-guest1", "vm-guest2"]
+    assert estimate["included"] == ["nginxquadlet", "vm-guest1", "vm-guest2"]
     # Named rather than silently absent: a guest missing from a backup because
     # of a pattern somebody wrote months ago is what this line exists for.
     assert estimate["excluded"] == ["vm-guest3", "vm-guest4"]
+
+
+def test_the_estimate_counts_the_container_workloads_the_scripts_back_up(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """A workload's state is its RBD image, named after it.
+
+    Which images those are is the scripts' own answer, `get_containers.py`
+    on the member, rather than the inventory's: a workload removed from the
+    inventory keeps its image, and the backups go on exporting it.
+    """
+    _configured(signed_in)
+
+    estimate = _estimate(signed_in)
+
+    volumes = {guest["guest"]: guest for guest in estimate["guests"]}
+    assert volumes["nginxquadlet"]["container"] is True
+    assert volumes["nginxquadlet"]["images"] == ["nginxquadlet"]
+    assert volumes["vm-guest1"]["container"] is False
+    assert "scratch" not in volumes
+    asked = shlex.split(remote_runner.requests[1].command)
+    assert asked == [
+        "sudo",
+        "-n",
+        "/bin/sh",
+        "-c",
+        "[ ! -e /usr/local/bin/get_containers.py ] || "
+        "python3 /usr/local/bin/get_containers.py",
+    ]
+
+
+def test_a_workload_is_filtered_by_its_name_as_a_guest_is(
+    signed_in: TestClient,
+) -> None:
+    _import(
+        signed_in,
+        CLUSTER.format(
+            settings=CONFIGURED.replace(
+                "backup_restore_exclude_vm: ''", "backup_restore_exclude_vm: quadlet"
+            )
+        ),
+    )
+
+    estimate = _estimate(signed_in)
+
+    assert "nginxquadlet" in estimate["excluded"]
+    assert "nginxquadlet" not in estimate["included"]
 
 
 # Writing the settings
@@ -1047,6 +1103,15 @@ def test_what_the_server_answered_is_parsed_into_the_backups_it_holds(
     assert guests["vm-guest1"]["disks"] == 2
     assert guests["vm-guest1"]["dates"] == ["202603110733", "202603110836"]
     assert guests["vm-guest2"]["dates"] == ["202603110733"]
+    containers = {
+        container["name"]: container
+        for backup in catalogue["backups"]
+        if backup["date"] == "202603110733"
+        for container in backup["containers"]
+    }
+    assert containers["nginxquadlet"]["dates"] == ["202603110733", "202603110836"]
+    # Metadata with no image of the full backup to replay it onto.
+    assert containers["relay"]["dates"] == []
 
 
 def test_the_backups_run_where_the_server_is_read_from(
@@ -1386,6 +1451,127 @@ def test_a_restore_of_a_guest_no_backup_holds_is_refused(
     assert response.json()["error"]["code"] == "unknown_guest"
 
 
+def test_a_container_restore_names_the_workload_the_backup_and_the_date(
+    signed_in: TestClient, settings: Settings, remote_runner
+) -> None:
+    _configured(signed_in)
+    _listed(remote_runner)
+
+    response = signed_in.post(
+        "/api/v1/backup/restore/container",
+        json={
+            "name": "nginxquadlet",
+            "full_date": "202603110733",
+            "date": "202603110836",
+        },
+    )
+
+    assert response.status_code == 202, response.text
+    assert response.json()["container"] == "nginxquadlet"
+    assert response.json()["guest"] == ""
+    run_id = response.json()["run_id"]
+    play = _played(settings, run_id)
+    assert _argv(play) == [
+        "/usr/local/bin/restore_container.sh",
+        "/var/lib/seapath-restore/",
+        "ssh",
+        "backup@backup.example.org:/srv/seapath-backups/",
+        "202603110733",
+        "nginxquadlet",
+        "202603110836",
+    ]
+    # The script empties the staging directory after a `read -r` too.
+    assert play["tasks"][0]["ansible.builtin.command"]["stdin"] == "\n"
+    assert play["name"] == "Restore the state of nginxquadlet from 2026-03-11 08:36"
+    # A workload is not a guest, and the VMs page must not file it as one.
+    assert signed_in.get(f"/api/v1/runs/{run_id}").json().get("guest") is None
+
+
+@pytest.mark.parametrize(
+    "payload,code",
+    [
+        ({"name": "nginx", "date": "202603110733"}, "unknown_container"),
+        ({"name": "relay", "date": "202603110836"}, "unknown_date"),
+        ({"name": "nginxquadlet", "date": "202603110900"}, "unknown_date"),
+    ],
+)
+def test_a_container_restore_the_backup_cannot_carry_out_is_refused(
+    signed_in: TestClient, remote_runner, payload: dict, code: str
+) -> None:
+    _configured(signed_in)
+    _listed(remote_runner)
+
+    response = signed_in.post(
+        "/api/v1/backup/restore/container",
+        json={"full_date": "202603110733", **payload},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == code
+
+
+@pytest.mark.parametrize("name", ["", "a;b", "nginx.20260927T101500Z-1.0", "-x"])
+def test_a_container_name_the_scripts_would_not_take_is_refused(
+    signed_in: TestClient, remote_runner, name: str
+) -> None:
+    _configured(signed_in)
+    _listed(remote_runner)
+
+    response = signed_in.post(
+        "/api/v1/backup/restore/container",
+        json={"name": name, "full_date": "202603110733", "date": "202603110733"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_container"
+    assert remote_runner.requests == []
+
+
+def test_a_container_restore_is_refused_by_a_collection_without_its_script(
+    signed_in: TestClient, settings: Settings, remote_runner
+) -> None:
+    """The role gained `restore_container.sh` after its other scripts.
+
+    A collection older than that still has the role, and a run launched with
+    it would fail on a file the machines do not have.
+    """
+    _configured(signed_in)
+    _listed(remote_runner)
+    script = (
+        settings.collections_path
+        / "ansible_collections/seapath/ansible/roles/backup_restore/files/scripts"
+        / plays.CONTAINER_RESTORE
+    )
+    script.unlink()
+
+    response = signed_in.post(
+        "/api/v1/backup/restore/container",
+        json={
+            "name": "nginxquadlet",
+            "full_date": "202603110733",
+            "date": "202603110836",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "role_missing"
+
+
+def test_restoring_a_container_is_an_administrator_s_act(client: TestClient) -> None:
+    sign_in(client, "operator")
+
+    response = client.post(
+        "/api/v1/backup/restore/container",
+        json={
+            "name": "nginxquadlet",
+            "full_date": "202603110733",
+            "date": "202603110733",
+        },
+    )
+
+    assert response.status_code == 403
+
+
 def test_restoring_is_an_administrator_s_act(client: TestClient) -> None:
     sign_in(client, "operator")
 
@@ -1417,12 +1603,47 @@ def test_the_listing_parser_ignores_what_it_does_not_recognise() -> None:
 
     assert [backup.date for backup in backups] == ["202602010900", "202603110733"]
     recent = backups[1]
-    assert recent.files == 11
+    assert recent.files == 16
     assert [guest.guest for guest in recent.guests] == ["vm-guest1", "vm-guest2"]
 
 
 def test_an_empty_listing_is_a_server_holding_nothing() -> None:
     assert parse_listing("") == []
+
+
+def test_the_listing_reaches_the_container_workloads_one_level_down(
+    tmp_path: Path,
+) -> None:
+    """The script is run, on a tree laid out as the scripts lay it out.
+
+    `containers/` is a directory, and is not counted as a file of the backup.
+    """
+    backup = tmp_path / "srv" / "202603110733"
+    (backup / "containers" / "nginxquadlet").mkdir(parents=True)
+    (backup / "system_vm-guest1_202603110733.qcow2").touch()
+    (backup / "system_vm-guest1-202603110733.xml").touch()
+    for name in ("202603110733.qcow2", "202603110733.json"):
+        (backup / "containers" / "nginxquadlet" / name).touch()
+    target = BackupTarget(remote_serv="server", remote_dir=f"{tmp_path}/srv/")
+
+    printed = subprocess.run(
+        ["/bin/sh", "-c", plays.listing_command(target)[-1]],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+
+    assert sorted(printed.splitlines()) == [
+        "dir 202603110733",
+        "file 202603110733/containers/nginxquadlet/202603110733.json",
+        "file 202603110733/containers/nginxquadlet/202603110733.qcow2",
+        "file 202603110733/system_vm-guest1-202603110733.xml",
+        "file 202603110733/system_vm-guest1_202603110733.qcow2",
+    ]
+    (listed,) = parse_listing(printed)
+    assert listed.files == 4
+    assert [container.name for container in listed.containers] == ["nginxquadlet"]
+    assert listed.containers[0].dates == ["202603110733"]
 
 
 # The command lines, in one place
@@ -1490,6 +1711,14 @@ def test_ansible_parses_every_play_this_service_writes(
             "/api/v1/backup/restore",
             {
                 "guest": "vm-guest1",
+                "full_date": "202603110733",
+                "date": "202603110836",
+            },
+        ),
+        (
+            "/api/v1/backup/restore/container",
+            {
+                "name": "nginxquadlet",
                 "full_date": "202603110733",
                 "date": "202603110836",
             },

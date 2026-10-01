@@ -165,9 +165,10 @@ to be erased.
       </div>
     </div>
     <p class="lead">
-      What a full backup exports for every selected guest, at most. A qcow2 is
-      sparse, so this is the data Ceph holds for those disks rather than what
-      they were provisioned at.
+      What a full backup exports for every selected guest, and for the RBD
+      image of every container workload the same filters select, at most. A
+      qcow2 is sparse, so this is the data Ceph holds for those disks rather
+      than what they were provisioned at.
     </p>
     <p class="help">
       Measuring it runs <code>rbd du</code> on <span id="estimate-runner">the
@@ -188,7 +189,7 @@ to be erased.
       <table>
         <thead>
           <tr>
-            <th>Guest</th>
+            <th>Guest or workload</th>
             <th>Disks</th>
             <th>Exports at most</th>
             <th>Provisioned</th>
@@ -483,7 +484,7 @@ to be erased.
           <thead>
             <tr>
               <th>Full backup</th>
-              <th>Guest</th>
+              <th>Guest or workload</th>
               <th>Disks</th>
               <th>Restorable to</th>
               <th></th>

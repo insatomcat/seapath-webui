@@ -97,6 +97,10 @@ def write_fake_collection(
         tasks = root / "roles" / role / "tasks"
         tasks.mkdir(parents=True, exist_ok=True)
         (tasks / "main.yml").write_text(contents)
+        if role == backup.ROLE:
+            scripts = root / "roles" / role / "files" / "scripts"
+            scripts.mkdir(parents=True, exist_ok=True)
+            (scripts / backup.CONTAINER_RESTORE).write_text("#!/bin/bash\n")
         if role in declared:
             (root / "roles" / role / "defaults").mkdir(exist_ok=True)
             (root / "roles" / role / "defaults" / "main.yml").write_text(
