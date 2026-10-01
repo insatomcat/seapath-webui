@@ -181,6 +181,17 @@ class BackupSetting(BaseModel):
     """
 
 
+class ContainerPlan(BaseModel):
+    """One workload of `cluster_containers`, and whether a backup takes it."""
+
+    name: str
+    backed_up: bool = False
+    reason: str = ""
+    """Why it is not: `filters`, `no_rbd` for a workload that writes no RBD
+    image and has nothing to back up, `no_images` for one whose image carries
+    no `seapath.images`, which is how the scripts recognise a workload."""
+
+
 class GuestVolume(BaseModel):
     """What one guest, or one container workload, would weigh in a full backup."""
 
@@ -200,6 +211,9 @@ class Estimate(BaseModel):
     included: list[str] = Field(default_factory=list)
     excluded: list[str] = Field(default_factory=list)
     """The guests the two filters leave out, named so a surprise is visible."""
+    containers_tool: bool | None = None
+    """Whether the member has `get_containers.py`. Without it the role there
+    predates the backup of container workloads, and none is backed up."""
     error: str | None = None
 
 
@@ -287,6 +301,10 @@ class StagingReading(BaseModel):
     is mounted there now, then the other file systems mounted there outside
     the system's own directories."""
     read_at: str | None = None
+    containers_tool: bool | None = None
+    """Whether the member has `get_containers.py`, asked with the staging
+    because it is the same machine and the same connection. `None` where the
+    machine was not asked."""
     note: str = ""
 
 
@@ -308,6 +326,9 @@ class BackupView(BaseModel):
     in from it and one button that does it."""
     runs_on: str | None = None
     """The cluster member the backups run on, and every reading here asks."""
+    containers: list[ContainerPlan] = Field(default_factory=list)
+    """The workloads `cluster_containers` declares, and which of them a backup
+    takes, read off the inventory so the page says it before anything runs."""
     warnings: list[str] = Field(default_factory=list)
     note: str = ""
     commit: str | None = None
@@ -465,6 +486,7 @@ class BackupService:
         if not view.cluster:
             view.note = _NOT_A_CLUSTER
             return view
+        view.containers = _container_plans(document, target, self.runner())
         if not view.configured:
             view.note = _FROM_THE_FILE if view.conf_only else _NOT_CONFIGURED
         view.warnings = self._warnings(target, sources) + self._divergence(
@@ -561,8 +583,10 @@ class BackupService:
 
         try:
             names = parse_image_list(self._ask(address, plays.images_shell_command()))
+            answer = self._ask(address, plays.containers_shell_command()).split()
+            tool = plays.NO_CONTAINER_TOOL not in answer
             containers = frozenset(
-                self._ask(address, plays.containers_shell_command()).split()
+                name for name in answer if name != plays.NO_CONTAINER_TOOL
             )
             selected: list[str] = []
             excluded: set[str] = set()
@@ -607,6 +631,7 @@ class BackupService:
             used_bytes=sum(volume.used_bytes for volume in guests),
             included=[volume.guest for volume in guests],
             excluded=sorted(excluded),
+            containers_tool=tool,
         )
 
     def _ask(self, address: str, command: str, timeout: float = TIMEOUT_SECONDS) -> str:
@@ -759,6 +784,7 @@ class BackupService:
             host=name,
             directories=parse_staging(answer, directories),
             volumes=parse_places(answer, mountpoints),
+            containers_tool=f"tool {plays.GET_CONTAINERS}" in answer.splitlines(),
             read_at=datetime.now(tz=UTC).isoformat(),
         )
 
@@ -1209,6 +1235,42 @@ class BackupService:
         return None
 
 
+def _container_plans(
+    document: str, target: BackupTarget, host: str | None
+) -> list[ContainerPlan]:
+    """What a backup does with each workload `cluster_containers` declares.
+
+    Read on the member the backups run on, the way Ansible resolves it there.
+    The scripts select by what Ceph holds rather than by this, so the page
+    can be wrong about an image the inventory no longer declares; it is right
+    about every workload an operator is looking for.
+    """
+    if not document.strip() or host is None:
+        return []
+    declared = resolve(document).get(host, {}).get("cluster_containers")
+    if not isinstance(declared, dict):
+        return []
+    include, exclude = _filters(target)
+    plans = []
+    for name, spec in sorted(declared.items(), key=lambda item: str(item[0])):
+        spec = spec if isinstance(spec, dict) else {}
+        if spec.get("state") == "absent":
+            continue
+        name = str(name)
+        if not spec.get("rbd"):
+            reason = "no_rbd"
+        elif not spec.get("images"):
+            reason = "no_images"
+        elif include is None or not include.search(name):
+            reason = "filters"
+        elif exclude is not None and exclude.search(name):
+            reason = "filters"
+        else:
+            reason = ""
+        plans.append(ContainerPlan(name=name, backed_up=not reason, reason=reason))
+    return plans
+
+
 def _variable(key: str) -> str:
     return f"{PREFIX}{key}"
 
@@ -1538,6 +1600,7 @@ __all__ = [
     "BackupSetting",
     "BackupView",
     "ContainerBackup",
+    "ContainerPlan",
     "Estimate",
     "FullBackup",
     "GuestBackup",

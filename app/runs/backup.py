@@ -425,7 +425,10 @@ _STAGING_SCRIPT = (
     "findmnt -rn -b -o SOURCE,TARGET,SIZE,AVAIL -t ext4,xfs,btrfs 2>/dev/null | "
     "while read -r s t z a; do "
     'printf \'fs %s %s %s %s\\n\' "$s" "$t" "$z" "$a"; '
-    "done"
+    "done; "
+    # Whether the role installed there backs up the container workloads,
+    # asked here because it is the same machine and the same connection.
+    "if [ -e {get_containers} ]; then echo 'tool {get_containers}'; fi"
 )
 
 
@@ -449,6 +452,7 @@ def staging_shell_command(
     RBD image a guest or a quadlet mapped there.
     """
     script = _STAGING_SCRIPT.format(
+        get_containers=GET_CONTAINERS,
         directories=" ".join(shlex.quote(item) for item in directories),
         mountpoints=" ".join(shlex.quote(item) for item in mountpoints or []),
     )
@@ -476,15 +480,23 @@ def images_shell_command() -> str:
 GET_CONTAINERS = f"{SCRIPTS}/get_containers.py"
 
 
+# What the member answers in place of the workloads when it has no
+# `get_containers.py`. A dash, which no workload name starts with.
+NO_CONTAINER_TOOL = "-"
+
+
 def containers_shell_command() -> str:
     """The workloads a backup would export, as one command for a member.
 
     The scripts' own answer, asked of the script they call, rather than read
     off the inventory: a workload removed from the inventory keeps its image
     unless the run was told to delete it, and the backups go on exporting it.
+    A member without the script answers `NO_CONTAINER_TOOL`, which the page
+    turns into the run that installs it.
     """
     return "sudo -n /bin/sh -c " + shlex.quote(
-        f"[ ! -e {GET_CONTAINERS} ] || python3 {GET_CONTAINERS}"
+        f"if [ -e {GET_CONTAINERS} ]; then python3 {GET_CONTAINERS}; "
+        f"else echo {NO_CONTAINER_TOOL}; fi"
     )
 
 

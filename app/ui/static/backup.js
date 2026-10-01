@@ -117,6 +117,9 @@
       (held.exclude_vm ? ", except " + held.exclude_vm : "");
     element("target-staging").textContent =
       held.local_dir + " for a backup, " + held.local_tmp_dir + " for a restore";
+    element("target-containers").textContent = containersText(
+      payload.containers || []
+    );
     // One member runs every backup and answers every reading on this page,
     // so the staging room and the key that matter are that machine's.
     element("target-runner").textContent = payload.runs_on
@@ -125,6 +128,48 @@
     if (payload.runs_on) {
       element("estimate-runner").textContent = payload.runs_on;
     }
+  }
+
+  // What a backup does with each workload of cluster_containers: the RBD
+  // image it writes to is backed up with the guests, under the same filters.
+  const LEFT_OUT = {
+    filters: "left out by the filters",
+    no_rbd: "no RBD image, nothing to back up",
+    no_images: "declares no images, so the scripts do not recognise its RBD image",
+  };
+
+  function containersText(plans) {
+    if (!plans.length) {
+      return "none declared in cluster_containers";
+    }
+    const taken = plans.filter((plan) => plan.backed_up).map((plan) => plan.name);
+    const parts = [
+      taken.length
+        ? taken.join(", ") + ": the RBD image each writes to"
+        : "none backed up",
+    ];
+    Object.keys(LEFT_OUT).forEach((reason) => {
+      const names = plans
+        .filter((plan) => plan.reason === reason)
+        .map((plan) => plan.name);
+      if (names.length) {
+        parts.push(names.join(", ") + ": " + LEFT_OUT[reason]);
+      }
+    });
+    return parts.join("; ");
+  }
+
+  // The member's role backs up the workloads only once it has
+  // get_containers.py, which a run of seapath_setup_backup_restore installs.
+  function renderContainersTool(tool, host) {
+    const node = element("containers-tool");
+    const wanted = (view.containers || []).some((plan) => plan.backed_up);
+    node.hidden = tool !== false || !wanted;
+    node.textContent =
+      (host || "The member the backups run on") +
+      " has no /usr/local/bin/get_containers.py: its backup_restore role " +
+      "predates the backup of container workloads, so a backup taken now " +
+      "leaves them out. A run of seapath_setup_backup_restore installs it.";
   }
 
   function settingsByKey(payload) {
@@ -173,9 +218,13 @@
     });
 
     const excluded = estimate.excluded || [];
-    element("estimate-excluded").textContent = excluded.length
-      ? "Left out by the filters: " + excluded.join(", ")
-      : "";
+    element("estimate-excluded").textContent =
+      (excluded.length ? "Left out by the filters: " + excluded.join(", ") : "") +
+      (estimate.containers_tool === false
+        ? (excluded.length ? ". " : "") +
+          "No container workload counted: the backup_restore role on that " +
+          "machine predates their backup."
+        : "");
   }
 
   async function measure() {
@@ -209,6 +258,7 @@
 
   function renderStaging(reading) {
     staged = reading;
+    renderContainersTool(reading.containers_tool, reading.host);
     element("staging-host").textContent = reading.host || "the cluster";
     element("staging-when").textContent = reading.read_at
       ? "read " + whenRead(reading.read_at)
@@ -1398,11 +1448,15 @@
       return;
     }
     const settings = view.settings || [];
-    // A field the inventory is silent about starts from what this machine's
-    // own /etc/backup-restore.conf says, because a site that has been driving
-    // the whiptail menu decided that value years ago and retyping it is how it
-    // gets typed wrong. Where the inventory holds a value it wins: it is the
-    // one a run passes, and the one the role renders the file from.
+    // While the inventory says nothing about the backups, the fields start
+    // from what this machine's own /etc/backup-restore.conf says, because a
+    // site that has been driving the whiptail menu decided those values years
+    // ago and retyping them is how they get typed wrong. Once the inventory
+    // holds any of the seven it is the source of truth, a field it leaves
+    // empty is empty, and the role renders the file from it: falling back per
+    // field brought a value back after an operator had removed it, from a
+    // file the next convergence rewrites without it.
+    const adopted = settings.some((setting) => setting.value);
     const fields = clear(element("settings-fields"));
     settings.forEach((setting) => {
       const label = document.createElement("label");
@@ -1411,7 +1465,7 @@
       const input = document.createElement("input");
       input.type = "text";
       input.id = "set-" + setting.key;
-      input.value = setting.value || setting.on_machine || "";
+      input.value = setting.value || (adopted ? "" : setting.on_machine || "");
       input.placeholder = setting.placeholder || "";
       input.autocomplete = "off";
       input.spellcheck = false;
@@ -1436,9 +1490,12 @@
       ? view.conf_path +
         " on this machine holds " +
         fromFile.length +
-        " of the seven, and the fields below start from them where the " +
-        "inventory is silent. Committing puts them under the inventory, which " +
-        "is what reaches the other machines."
+        " of the seven" +
+        (adopted
+          ? ". The inventory holds the backup settings now, and the next " +
+            "convergence renders that file from them."
+          : ", and the fields below start from them. Committing puts them " +
+            "under the inventory, which is what reaches the other machines.")
       : "";
     element("settings-from-file").hidden = !view.conf_found || !fromFile.length;
     element("settings-take-row").hidden = !fromFile.some(

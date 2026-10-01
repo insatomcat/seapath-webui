@@ -47,6 +47,8 @@ to be erased.
       <dd id="target-server"></dd>
       <dt>Guests</dt>
       <dd id="target-filter"></dd>
+      <dt>Containers</dt>
+      <dd id="target-containers"></dd>
       <dt>Staging</dt>
       <dd id="target-staging"></dd>
       <dt>Runs on</dt>
@@ -62,6 +64,10 @@ to be erased.
        staging directory on the member, where every qcow2 is written first, and
        the directory on the server, where it lands beside the backups already
        kept. Drawn from the three readings below as they arrive. #}
+    {# The member's own `backup_restore` role, which backs up the container
+       workloads only once it has `get_containers.py`. Asked with the staging
+       directories, on the same connection. #}
+    <p class="warning" id="containers-tool" hidden></p>
     <p class="help" id="fit" hidden></p>
     <div class="card-actions" id="acts" hidden>
       <button type="button" id="act-full">Back up everything</button>

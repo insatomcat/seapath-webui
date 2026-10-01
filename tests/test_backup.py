@@ -704,15 +704,29 @@ def test_the_estimate_counts_the_container_workloads_the_scripts_back_up(
     assert volumes["nginxquadlet"]["images"] == ["nginxquadlet"]
     assert volumes["vm-guest1"]["container"] is False
     assert "scratch" not in volumes
+    assert estimate["containers_tool"] is True
     asked = shlex.split(remote_runner.requests[1].command)
     assert asked == [
         "sudo",
         "-n",
         "/bin/sh",
         "-c",
-        "[ ! -e /usr/local/bin/get_containers.py ] || "
-        "python3 /usr/local/bin/get_containers.py",
+        "if [ -e /usr/local/bin/get_containers.py ]; then "
+        "python3 /usr/local/bin/get_containers.py; else echo -; fi",
     ]
+
+
+def test_a_member_whose_role_predates_the_workloads_counts_none_and_says_so(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """Until `seapath_setup_backup_restore` runs again, nothing backs them up."""
+    _configured(signed_in)
+    remote_runner.answers["get_containers.py"] = "-\n"
+
+    estimate = _estimate(signed_in)
+
+    assert estimate["containers_tool"] is False
+    assert not any(guest["container"] for guest in estimate["guests"])
 
 
 def test_a_workload_is_filtered_by_its_name_as_a_guest_is(
@@ -731,6 +745,88 @@ def test_a_workload_is_filtered_by_its_name_as_a_guest_is(
 
     assert "nginxquadlet" in estimate["excluded"]
     assert "nginxquadlet" not in estimate["included"]
+
+
+# What the page says about the container workloads before anything runs
+
+WORKLOADS = """        cluster_containers:
+          nginxquadlet:
+            images:
+              - name: public.ecr.aws/nginx/nginx:1.31.5
+            quadlets: [../inventories/nginxquadlet.container.j2]
+            rbd:
+              size: 1G
+          relay:
+            images:
+              - name: localhost/relay:1.0
+            quadlets: [../inventories/relay.container]
+            rbd:
+              size: 128M
+          stateless:
+            images:
+              - name: localhost/stateless:1.0
+            quadlets: [../inventories/stateless.container]
+          bare:
+            quadlets: [../inventories/bare.container]
+            rbd:
+              size: 1G
+          gone:
+            state: absent
+            quadlets: [../inventories/gone.container]
+            rbd:
+              size: 1G
+"""
+
+
+def test_the_page_names_the_workloads_a_backup_takes_and_why_not_the_others(
+    signed_in: TestClient,
+) -> None:
+    _import(
+        signed_in,
+        CLUSTER.format(
+            settings=CONFIGURED.replace(
+                "backup_restore_exclude_vm: ''", "backup_restore_exclude_vm: relay"
+            )
+            + WORKLOADS
+        ),
+    )
+
+    plans = {plan["name"]: plan for plan in _backup(signed_in)["containers"]}
+
+    assert plans["nginxquadlet"] == {
+        "name": "nginxquadlet",
+        "backed_up": True,
+        "reason": "",
+    }
+    assert plans["relay"]["reason"] == "filters"
+    assert plans["stateless"]["reason"] == "no_rbd"
+    # Its image carries no `seapath.images`, which is what the scripts select.
+    assert plans["bare"]["reason"] == "no_images"
+    # Being removed: the next run takes it away.
+    assert "gone" not in plans
+
+
+def test_an_inventory_without_workloads_names_none(signed_in: TestClient) -> None:
+    _configured(signed_in)
+
+    assert _backup(signed_in)["containers"] == []
+
+
+def test_the_staging_reading_says_whether_the_role_backs_up_the_workloads(
+    signed_in: TestClient, remote_runner
+) -> None:
+    """Asked on the same connection, of the same machine."""
+    _configured(signed_in)
+    remote_runner.answers = {"df -B1": STAGED}
+
+    assert signed_in.get("/api/v1/backup/staging").json()["containers_tool"] is False
+    assert "tool /usr/local/bin/get_containers.py" in remote_runner.requests[0].command
+
+    remote_runner.answers = {
+        "df -B1": STAGED + "tool /usr/local/bin/get_containers.py\n"
+    }
+
+    assert signed_in.get("/api/v1/backup/staging").json()["containers_tool"] is True
 
 
 # Writing the settings
