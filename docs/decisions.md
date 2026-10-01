@@ -5651,9 +5651,11 @@ leaves with the run that applied it, so no later run reads it again.
 Once that run has ended, the listener D50 introduced for guests takes the
 entry out, with the files it named that nothing else names, the
 `inventories/<name>/` folder of a delivery included, as one commit authored by
-the operator who launched the run and naming it. The image archives then leave
-the artefacts when no workload declares them. A workload counts as removed
-when the inventory the run was given marked it absent and the entry is still
+the operator who launched the run and naming it. The image archives stay in
+the artefacts: git does not hold them, and a restore of the workload needs
+them (below). The Inventory page deletes one nobody wants back. A workload
+counts as removed when the inventory the run was given marked it absent and the
+entry is still
 the same, and the run was a full run of `deploy_containers_cluster` over the
 whole cluster that succeeded. Any other run keeps the entry, and the next one
 finishes the removal.
@@ -5679,12 +5681,29 @@ a removal is called off.
 
 ### After a removal
 
-A removal is final on this page. A **Declare again** gesture, writing the
-entry and files back from the history, was built and taken out: a workload
-that is wanted again is declared again, from its delivery or its quadlet, and
-a restore from the Backup page then brings back its state. The confirmation
-of a restore says when the workload is no longer declared, since the image
-then comes back with nothing running on it.
+A removal is final on the Containers page, and undone from the Backup page.
+Restoring the state of a workload a removal took out brings back everything
+it had before: an image alone, with nothing declared to run on it, is no
+restore an operator can use, and reverting the removal commits by hand is
+two reverts in the right order plus an archive that had left the artefacts.
+
+The restore commits the entry its removal marked absent, without `state` and
+`remove_rbd`, with the files the forgetting commit deleted, both read from
+that commit's parent. A file the folder holds again since is left as it is.
+Then one run: the restore play on the member the backups run on, with
+`any_errors_fatal`, followed by `deploy_containers_cluster` imported as it
+stands. The restore comes first because the role keeps an RBD image it finds
+(D71), so the workload starts on the restored state rather than on an empty
+image a later restore would have to stop. A restore that fails ends the run
+before the deployment plays anything; the entry stays declared, and a
+restore then a deployment finishes it. A run that cannot start reverts the
+commit.
+
+Refused before anything is written: an image archive the artefacts no longer
+hold, a guest that has the name since, and a collection without
+`deploy_containers_cluster`. A **Declare again** gesture on the Containers
+page, alone, was built and taken out: without the state, the workload comes
+back on whatever image the pool holds.
 
 ### Why it keeps the acceptance criterion
 

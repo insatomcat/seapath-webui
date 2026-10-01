@@ -635,6 +635,9 @@ def create_app(
         remote=remote,
         keys=app.state.run_service.paths,
         ansible_user=settings.ansible_user,
+        # A restore of a workload a removal took out declares it again from
+        # the history and deploys it in the same run. See D72.
+        containers=app.state.container_service,
     )
 
     # The connection from the cluster members to the backup server: read over

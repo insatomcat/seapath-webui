@@ -318,6 +318,35 @@ class InventoryRepository:
     def read_at(self, commit: str) -> str:
         return self._git("show", f"{commit}:{INVENTORY_FILENAME}")
 
+    def deleted_in(self, commit: str) -> list[str]:
+        """The files of the folder a commit deleted, against its first parent."""
+        output = self._git(
+            "diff",
+            "--name-only",
+            "--no-renames",
+            "--diff-filter=D",
+            f"{commit}^",
+            commit,
+        )
+        return [line for line in output.splitlines() if line]
+
+    def read_file_at(self, commit: str, path: str) -> bytes:
+        """One file of the folder as a commit holds it, byte for byte."""
+        self.file_path(path)
+        completed = subprocess.run(  # noqa: S603 - fixed argv, never a shell
+            ["git", "show", f"{commit}:{path}"],
+            cwd=self._path,
+            capture_output=True,
+            check=False,
+            env=self._environment(),
+        )
+        if completed.returncode != 0:
+            raise RepositoryError(
+                completed.stderr.decode(errors="replace").strip()
+                or f"{path} is not in {commit}"
+            )
+        return completed.stdout
+
     def history(self, limit: int = 50) -> list[Commit]:
         try:
             output = self._git(

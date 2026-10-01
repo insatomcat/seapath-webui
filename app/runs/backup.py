@@ -61,6 +61,7 @@ import yaml
 
 from app.cluster.rbd import POOL
 from app.runs.catalogue import (
+    COLLECTION,
     COLLECTION_PLAYBOOKS,
     PlaybookEntry,
     Precondition,
@@ -84,6 +85,12 @@ SCRIPTS = "/usr/local/bin"
 # others: a collection older than it would launch a run that fails on a file
 # the machines do not have.
 CONTAINER_RESTORE = "restore_container.sh"
+
+# What deploys a container workload restored after its removal, imported
+# after the restore in the same run, since the workload has nothing running
+# until it does.
+WORKLOAD_PLAYBOOK = "deploy_containers_cluster"
+WORKLOAD_TARGETS = "cluster_machines:&hypervisors"
 
 # What answers the `read -r` each script pauses on. A newline, which is what an
 # operator types at that prompt.
@@ -192,6 +199,21 @@ _DISRUPTIONS = {
 }
 
 
+# A workload a removal took out of the inventory: its entry and files are
+# committed back first, and the run deploys it once its state is restored.
+_REDEPLOY_TITLE = "Restore {guest} from {date} and deploy it again"
+_REDEPLOY_DISRUPTION = (
+    "{guest} was removed: its entry and the files it named are back in the "
+    "inventory, as they were before the removal. The run recreates its RBD "
+    "image from the backup up to the chosen date, then runs "
+    f"{WORKLOAD_PLAYBOOK}, which puts its images and quadlets on every "
+    "hypervisor, creates its Pacemaker resource on the restored image and "
+    "starts it. A workload already running is not restarted. The restore "
+    "staging directory on the machine is emptied first, and a restore that "
+    "fails stops the run before anything is deployed."
+)
+
+
 def ships_container_restore(collections_path: Path) -> bool:
     """Whether the installed collection's role carries `restore_container.sh`."""
     return (
@@ -212,6 +234,7 @@ def entry(
     guest: str = "",
     date: str = "",
     host: str = "",
+    deploy: bool = False,
 ) -> PlaybookEntry:
     """The catalogue shape of one backup act.
 
@@ -222,6 +245,9 @@ def entry(
     and the record, which a backup wants exactly as a convergence does.
     """
     identifier = record(action)
+    title = (_REDEPLOY_TITLE if deploy else _TITLES[action]).format(
+        guest=guest, date=_readable(date)
+    )
     requires = [
         Precondition.INVENTORY_VALID,
         Precondition.SELF_TRUST,
@@ -230,16 +256,22 @@ def entry(
         # README says cluster mode only.
         Precondition.CLUSTER,
     ]
+    if deploy:
+        # What the deployment it imports requires beside the above: every
+        # hypervisor receives the workload's files.
+        requires.append(Precondition.PEER_REACHABLE)
     return PlaybookEntry(
         id=identifier,
         playbook=f"{GENERATOR}.{identifier}",
-        title=_TITLES[action].format(guest=guest, date=_readable(date)),
-        targets=[host],
+        title=title,
+        targets=[host, WORKLOAD_TARGETS] if deploy else [host],
         # There is nothing to preview. The play runs a shell script, and what
         # it does is what the script does.
         preview=Preview.NONE,
         reboots=Reboots.NO,
-        disruption=_DISRUPTIONS[action],
+        disruption=(
+            _REDEPLOY_DISRUPTION.format(guest=guest) if deploy else _DISRUPTIONS[action]
+        ),
         requires=requires,
         reviewed=True,
     )
@@ -252,27 +284,35 @@ def play(
     guest: str = "",
     full_date: str = "",
     incremental_date: str = "",
+    deploy: bool = False,
 ) -> str:
     """The play, as YAML.
 
     Dumped rather than templated, so no value a form carried can become YAML of
     its own. Every one of them has been checked by the service before it gets
     here, and this is the second lock on the same door.
+
+    With `deploy`, the upstream deployment of the container workloads follows
+    the restore, imported as it stands. The restore plays one member, and a
+    failure there has to end the run rather than let the deployment go on
+    over the others with an image that never came back: `any_errors_fatal`.
     """
-    document = [
-        {
-            "name": entry(action, guest, incremental_date or full_date).title,
-            # The scripts read the pool from one member and answer for all of
-            # it. Which one is named rather than left to
-            # `groups['cluster_machines'][0]`, because that member is also where
-            # the staging directory has to have room and where the key to the
-            # backup server has to work, and the page says which one it is.
-            "hosts": host,
-            "gather_facts": False,
-            "become": True,
-            "tasks": _tasks(action, target, guest, full_date, incremental_date),
-        }
-    ]
+    restore = {
+        "name": entry(action, guest, incremental_date or full_date).title,
+        # The scripts read the pool from one member and answer for all of
+        # it. Which one is named rather than left to
+        # `groups['cluster_machines'][0]`, because that member is also where
+        # the staging directory has to have room and where the key to the
+        # backup server has to work, and the page says which one it is.
+        "hosts": host,
+        "gather_facts": False,
+        "become": True,
+        "tasks": _tasks(action, target, guest, full_date, incremental_date),
+    }
+    document: list[dict] = [restore]
+    if deploy:
+        restore["any_errors_fatal"] = True
+        document.append({"import_playbook": f"{COLLECTION}.{WORKLOAD_PLAYBOOK}"})
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False)
 
 

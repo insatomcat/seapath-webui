@@ -100,9 +100,14 @@ from app.inventory.resolve import groups, members, resolve
 from app.inventory.service import ImportRefused, InventoryService
 from app.runs import backup as plays
 from app.runs.backup import BackupAction, BackupTarget
-from app.runs.catalogue import role_present
+from app.runs.catalogue import missing_from, role_present
 from app.runs.models import RunRecord, RunState
 from app.runs.service import RunPaths, RunService
+from app.services.containers import (
+    ContainerService,
+    InvalidContainer,
+    UnknownContainer,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -326,6 +331,9 @@ class BackupView(BaseModel):
     in from it and one button that does it."""
     runs_on: str | None = None
     """The cluster member the backups run on, and every reading here asks."""
+    removed: list[str] = Field(default_factory=list)
+    """The workloads a removal took out of the inventory, which a restore
+    declares again as they were and deploys on the state it brings back."""
     containers: list[ContainerPlan] = Field(default_factory=list)
     """The workloads `cluster_containers` declares, and which of them a backup
     takes, read off the inventory so the page says it before anything runs."""
@@ -433,8 +441,12 @@ class BackupService:
         remote: RemoteRunner,
         keys: RunPaths,
         ansible_user: str,
+        containers: ContainerService | None = None,
     ) -> None:
         self._inventory = inventory
+        # What declares a removed workload again, from the history, when a
+        # restore brings its state back. See D72.
+        self._containers = containers
         self._runs = runs
         self._collections_path = collections_path
         self._reader = reader
@@ -487,6 +499,8 @@ class BackupService:
             view.note = _NOT_A_CLUSTER
             return view
         view.containers = _container_plans(document, target, self.runner())
+        if self._containers is not None:
+            view.removed = [item.name for item in self._containers.forgotten()]
         if not view.configured:
             view.note = _FROM_THE_FILE if view.conf_only else _NOT_CONFIGURED
         view.warnings = self._warnings(target, sources) + self._divergence(
@@ -963,22 +977,74 @@ class BackupService:
                     409,
                 )
             self._check_container_restore(guest, full_date, incremental_date)
+        deploy = action is BackupAction.RESTORE_CONTAINER and self._removed(guest)
 
         host = self.runner()
         if host is None:
             raise ApiError("not_a_cluster", _NOT_A_CLUSTER, 409)
-        return self._runs.launch_generated(
-            plays.entry(action, guest, incremental_date or full_date, host),
-            author,
-            plays.play(action, target, host, guest, full_date, incremental_date),
-            # What the VMs page finds a guest's runs by, and a workload is
-            # not a guest.
-            guest=(
-                (guest or None)
-                if action is not BackupAction.RESTORE_CONTAINER
-                else None
-            ),
+        date = incremental_date or full_date
+        redeclared = (
+            self._redeclare(guest, author, plays.entry(action, guest, date, host, True))
+            if deploy
+            else None
         )
+        try:
+            return self._runs.launch_generated(
+                plays.entry(action, guest, date, host, deploy),
+                author,
+                plays.play(
+                    action, target, host, guest, full_date, incremental_date, deploy
+                ),
+                # What the VMs page finds a guest's runs by, and a workload is
+                # not a guest.
+                guest=(
+                    (guest or None)
+                    if action is not BackupAction.RESTORE_CONTAINER
+                    else None
+                ),
+            )
+        except ApiError:
+            # Left removed rather than declared with nothing deploying it: the
+            # same restore can be asked again once the cause is gone.
+            if redeclared is not None:
+                self._inventory.revert(redeclared.hash, author)
+            raise
+
+    def _removed(self, name: str) -> bool:
+        """Whether a removal took this workload out, and a restore is to undo it.
+
+        Checked before anything is written: the image archives it loads, a
+        guest that has its name since, and the deployment playbook the run
+        imports.
+        """
+        if self._containers is None:
+            return False
+        try:
+            self._containers.check_redeclare(name)
+        except UnknownContainer:
+            return False
+        except InvalidContainer as error:
+            raise ApiError("invalid_container", str(error), 409) from error
+        if plays.WORKLOAD_PLAYBOOK in missing_from(self._collections_path()):
+            raise ApiError(
+                "role_missing",
+                f"The SEAPATH collection this image ships has no "
+                f"{plays.WORKLOAD_PLAYBOOK}, which deploys {name} again once "
+                "its state is restored.",
+                409,
+            )
+        return True
+
+    def _redeclare(self, name: str, author: str, entry) -> Commit:
+        assert self._containers is not None
+        try:
+            return self._containers.redeclare(
+                name,
+                author,
+                f"{entry.title}: the run deploys it on the state it restores.",
+            )
+        except (UnknownContainer, InvalidContainer) as error:
+            raise ApiError("invalid_container", str(error), 409) from error
 
     # Internals
 

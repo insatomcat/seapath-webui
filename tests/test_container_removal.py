@@ -246,7 +246,8 @@ def test_a_run_that_removed_a_workload_takes_its_entry_and_files_out(
         "files/settings.json",
         "inventories/protect/values.yaml",
     }
-    assert not (settings.artefacts_dir / "files/protect-1.0.tar").exists()
+    # Kept: git does not hold it, and a restore declaring protect again loads it.
+    assert (settings.artefacts_dir / "files/protect-1.0.tar").exists()
 
 
 def test_a_file_another_workload_names_stays(signed_in: TestClient) -> None:

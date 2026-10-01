@@ -338,7 +338,9 @@ on one member and starts on the other.
 A workload of `cluster_containers` also carries **Remove**: the entry is
 marked `state: absent`, `deploy_containers_cluster` takes it off every node,
 its RBD image too when the operator checks it, and once that run has
-succeeded the entry and its files leave the inventory.
+succeeded the entry and its files leave the inventory. Its image archives
+stay in the artefacts, so a restore from the Backup page can bring the whole
+workload back.
 
 ![A quadlet opened from its row: where it is uploaded, where the inventory keeps it, and the file podman reads](img/7-2-container-quadlet.png)
 
@@ -470,7 +472,10 @@ The backups take the state of the container workloads with the guests: the RBD
 image each workload writes to, filtered by name like a guest. Their rows in the
 listing restore that image alone, through `restore_container.sh`, which stops
 the workload, puts its current image aside and starts it again on the image of
-the chosen date, with the version the inventory gives it. See D71.
+the chosen date, with the version the inventory gives it. See D71. A workload
+that was removed comes back whole: its entry and files are committed back from
+the history as they were before the removal, and the same run restores the
+image and then deploys it with `deploy_containers_cluster`. See D72.
 
 ![The Updates page: one row per machine of the inventory, its kernel, what an upgrade would bring and its last update, under the date of the check](img/14-updates.png)
 
