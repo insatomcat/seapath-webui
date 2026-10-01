@@ -49,12 +49,11 @@ from app.cluster.pool import DEFAULT_PORT
 from app.core.logging import audit_event
 from app.inventory import quadlets, references
 from app.inventory.editor import Scope
-from app.inventory.files import UnsafePath
 from app.inventory.model import Mode
 from app.inventory.references import Reference, Where
-from app.inventory.repository import Commit, RepositoryError
+from app.inventory.repository import Commit
 from app.inventory.resolve import ROOT, depths, groups, resolve
-from app.inventory.service import InventoryService, RefusedFile
+from app.inventory.service import InventoryService
 from app.runs.catalogue import CATALOGUE
 from app.runs.models import RunRecord, RunState
 from app.services.cluster import ClusterService
@@ -259,32 +258,12 @@ class RemovedWorkload(BaseModel):
     aside, where otherwise it stays in the pool and in the backups."""
 
 
-class ForgottenWorkload(BaseModel):
-    """A workload a run removed, whose entry the inventory history still holds."""
-
-    name: str
-    commit: str
-    """The commit that took its entry out once the removal run succeeded. Its
-    parent holds the entry and the files, as they were."""
-    rbd: bool = False
-    """It kept its state on an RBD image named after it."""
-    remove_rbd: bool = False
-    """That image was deleted with it. A restore from a backup brings one
-    back, and `deploy_containers_cluster` keeps an image it finds."""
-    missing_archives: list[str] = Field(default_factory=list)
-    """The image archives it loads that the artefacts no longer hold: they
-    left with it, and a run would stop on each of them."""
-
-
 class ContainersView(BaseModel):
     mode: str = Mode.STANDALONE.value
     containers: list[ContainerView] = Field(default_factory=list)
     removing: list[RemovedWorkload] = Field(default_factory=list)
     """Workloads the inventory marks for removal, which the next run of
     `deploy_containers_cluster` takes off the machines."""
-    forgotten: list[ForgottenWorkload] = Field(default_factory=list)
-    """Workloads a run removed and the inventory no longer declares, which
-    can be declared again from the history."""
     undeclared: list[PacemakerResource] = Field(default_factory=list)
     """Units the cluster runs as resources and no quadlet here explains."""
     scopes: list[ScopeOption] = Field(default_factory=list)
@@ -408,8 +387,6 @@ class ContainerService:
             RemovedWorkload(name=name, remove_rbd=spec.get("remove_rbd") is True)
             for name, spec in sorted(quadlets.removed(document).items())
         ]
-
-        view.forgotten = self.forgotten()
 
         explained = {quadlet.unit for quadlet in declared}
         view.undeclared = [
@@ -829,120 +806,6 @@ class ContainerService:
             ),
         )
 
-    def forgotten(self) -> list[ForgottenWorkload]:
-        """The workloads a removal took out of the inventory, newest first.
-
-        Read from the commits `forget_removed` writes: each one's parent still
-        holds the entry, marked `state: absent`, and the files it named. A
-        name the inventory declares again, in any state, is not listed, and
-        only the newest removal of a name counts.
-        """
-        document = self._inventory.raw()
-        if not document.strip():
-            return []
-        current = {quadlet.name for quadlet in quadlets.workloads(document)}
-        current |= set(quadlets.removed(document))
-        found: list[ForgottenWorkload] = []
-        seen: set[str] = set()
-        for commit, message in self._inventory.messages(FORGET_SUBJECT):
-            subject = message.splitlines()[0][len(FORGET_SUBJECT) :]
-            names = [name.strip() for name in subject.split(",") if name.strip()]
-            fresh = [name for name in names if name not in seen | current]
-            seen.update(names)
-            if not fresh:
-                continue
-            try:
-                before = quadlets.removed(self._inventory.raw_at(f"{commit}^"))
-            except RepositoryError:
-                continue
-            for name in fresh:
-                spec = before.get(name)
-                if spec is None:
-                    continue
-                found.append(
-                    ForgottenWorkload(
-                        name=name,
-                        commit=commit,
-                        rbd=isinstance(spec.get("rbd"), dict),
-                        remove_rbd=spec.get("remove_rbd") is True,
-                        missing_archives=self._missing_archives(spec),
-                    )
-                )
-        return found
-
-    def redeclare(
-        self, name: str, author: str, expected_head: str | None = None
-    ) -> Commit:
-        """Declare again a workload a removal took out, as it was, one commit.
-
-        The entry its removal marked absent, without `state` and `remove_rbd`,
-        and the files that same removal took out of the folder, read from the
-        commit before it. A file the folder holds again since is left as it
-        is. The next run of `deploy_containers_cluster` deploys the workload,
-        and keeps the RBD image it finds in the pool, a restored one included.
-        """
-        item = next((entry for entry in self.forgotten() if entry.name == name), None)
-        if item is None:
-            raise UnknownContainer(
-                f"No workload called {name!r} was removed by a run of "
-                f"{WORKLOAD_PLAYBOOK} and left undeclared since."
-            )
-        state = self._inventory.state()
-        guests = state.inventory.guests if state.inventory else {}
-        if name in guests:
-            raise InvalidContainer(
-                f"{name} is the name of a guest now, and a workload and a guest "
-                "share the one namespace of Pacemaker resources."
-            )
-        if item.missing_archives:
-            raise InvalidContainer(
-                f"{name} loads its images from {', '.join(item.missing_archives)}, "
-                "which left the artefacts with it. Upload "
-                f"{'it' if len(item.missing_archives) == 1 else 'them'} again "
-                "under files/ on the Inventory page, or install its delivery "
-                "again."
-            )
-        parent = f"{item.commit}^"
-        spec = quadlets.removed(self._inventory.raw_at(parent))[name]
-        entry = {
-            key: value
-            for key, value in spec.items()
-            if key not in ("state", "remove_rbd")
-        }
-        named = references.workload_in_folder(entry)
-        present = {stored.path for stored in self._inventory.files()}
-        files = {
-            path: self._inventory.read_file_at(parent, path)
-            for path in self._inventory.deleted_in(item.commit)
-            if path not in present
-            and (path in named or path.startswith(f"{_FOLDER}/{name}/"))
-        }
-        return self.write_workload(
-            name,
-            entry,
-            author,
-            expected_head,
-            files=files,
-            message=(
-                f"containers: declare {name} again\n\n"
-                f"Its entry and the files commit {item.commit[:12]} took out of "
-                "the inventory are back as they were before its removal. The "
-                f"next run of {WORKLOAD_PLAYBOOK} deploys it, on the RBD image "
-                "it finds in the pool when there is one."
-            ),
-        )
-
-    def _missing_archives(self, spec: dict[str, Any]) -> list[str]:
-        missing = []
-        for archive in sorted(_archives(spec)):
-            try:
-                held = self._inventory.artefact_path(f"files/{archive}").is_file()
-            except (OSError, UnsafePath, RefusedFile):
-                held = False
-            if not held:
-                missing.append(archive)
-        return missing
-
     def _colocated_with(self, name: str) -> list[str]:
         """The workloads and guests asking to run on the same node as `name`.
 
@@ -1028,7 +891,7 @@ class ContainerService:
 
         one = len(names) == 1
         message = (
-            f"{FORGET_SUBJECT}{', '.join(names)}\n\n"
+            f"containers: forget {', '.join(names)}\n\n"
             f"Run {record.id} of {WORKLOAD_PLAYBOOK} took "
             f"{'it' if one else 'them'} off every node. "
             f"{'Its entry' if one else 'Their entries'}, marked state: absent, "
@@ -1288,11 +1151,6 @@ class ContainerService:
 # The variables a container is declared by, which are the references its file
 # is found through.
 _DECLARING = (quadlets.UPLOAD_VARIABLE, quadlets.WORKLOADS_VARIABLE)
-
-
-# The subject of the commit `forget_removed` writes, which `forgotten` reads
-# the history by.
-FORGET_SUBJECT = "containers: forget "
 
 
 # Where a delivery installs a workload's small files, `inventories/<name>/`

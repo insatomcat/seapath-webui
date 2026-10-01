@@ -1353,8 +1353,7 @@
         (declared(item.name)
           ? ""
           : " " + item.name + " is no longer declared in cluster_containers: " +
-            "only its image comes back, and nothing starts on it. Declaring " +
-            "it again, on the Containers page, runs it on that image.");
+            "only its image comes back, and nothing starts on it.");
     } else {
       element("restore-title").textContent =
         "Restore " + item.name + " from " + readable(backup.date);

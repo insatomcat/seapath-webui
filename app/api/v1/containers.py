@@ -187,15 +187,6 @@ class RemovalResponse(BaseModel):
     run_id: str
 
 
-class RedeclarationResponse(BaseModel):
-    """The commit declaring the workload again, and the run deploying it."""
-
-    name: str
-    commit: str
-    message: str
-    run_id: str
-
-
 class ActionResponse(BaseModel):
     """The run that carries out the action, watched like any other."""
 
@@ -512,63 +503,6 @@ def remove(
         request.app.state.inventory_service.revert(commit.hash, user.username)
         raise
     return RemovalResponse(
-        name=name, commit=commit.hash, message=commit.message, run_id=record.id
-    )
-
-
-@router.post("/{name}/redeclare", status_code=202)
-def redeclare(
-    request: Request,
-    name: str,
-    if_match: str | None = Header(default=None, alias="If-Match"),
-    user: User = admin,
-) -> RedeclarationResponse:
-    """Declare again a workload a removal took out of the inventory.
-
-    The entry its removal marked absent, without `state` and `remove_rbd`, and
-    the files the same removal took out of the folder, read from the history
-    as one commit, then a run of `deploy_containers_cluster`. The role keeps
-    the RBD image it finds in the pool, so a workload whose state was restored
-    from a backup first starts on that state. A run that cannot start reverts
-    the commit here and answers with the reason.
-
-    `404 unknown_container` for a name no removal took out, or one declared
-    again since. `409 invalid_container` when its image archives left the
-    artefacts with it, or a guest has the name now. `admin`, because it
-    writes the inventory.
-    """
-    try:
-        commit = _service(request).redeclare(name, user.username, if_match)
-    except UnknownContainer as error:
-        raise ApiError("unknown_container", str(error), 404) from error
-    except InvalidContainer as error:
-        raise ApiError("invalid_container", str(error), 409) from error
-    except StaleWrite as error:
-        raise ApiError("stale_write", str(error), 409) from error
-    except RefusedWrite as error:
-        raise ApiError(
-            "refused_write",
-            str(error),
-            409,
-            {"divergences": [d.model_dump() for d in error.divergences]},
-        ) from error
-    except ImportRefused as error:
-        raise ApiError(
-            "invalid_inventory",
-            str(error),
-            422,
-            {"findings": [f.model_dump() for f in error.validation.findings]},
-        ) from error
-
-    try:
-        record = _runs(request).launch(WORKLOAD_PLAYBOOK, user.username)
-    except ApiError:
-        # Left undeclared rather than declared with nothing deploying it: the
-        # page offers the same gesture again once the run holding the lock is
-        # over.
-        request.app.state.inventory_service.revert(commit.hash, user.username)
-        raise
-    return RedeclarationResponse(
         name=name, commit=commit.hash, message=commit.message, run_id=record.id
     )
 
