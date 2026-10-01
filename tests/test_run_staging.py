@@ -157,6 +157,33 @@ def test_a_name_both_stores_hold_is_merged_with_the_versioned_one_first(
     assert (merged / "guest.qcow2").exists()
 
 
+def test_a_directory_a_play_writes_into_is_real_down_to_it(
+    tmp_path: Path, inventory_dir: Path, artefacts_dir: Path, collections_path: Path
+) -> None:
+    # A restore fetches an image archive into the tree the run reads. Written
+    # through a symlink it would land in the artefacts, before the run has
+    # done anything, or in the installed collection.
+    (artefacts_dir / "inventories/relay").mkdir(parents=True)
+    (artefacts_dir / "inventories/relay/old.tar").write_bytes(b"old")
+
+    staged = staging.stage(
+        directory=tmp_path / "run",
+        inventory_dir=inventory_dir,
+        collections_path=collections_path,
+        artefacts_dir=artefacts_dir,
+        writable=("files", "inventories/relay", "inventories/new"),
+    )
+
+    for name in ("files", "inventories", "inventories/relay", "inventories/new"):
+        path = staged.site_root / name
+        assert path.is_dir() and not path.is_symlink(), name
+    # What the sources hold is still there, read through the real directories.
+    assert (staged.site_root / "files/guest.qcow2").exists()
+    assert (staged.site_root / "inventories/relay/old.tar").read_bytes() == b"old"
+    (staged.site_root / "files/relay.tar").write_bytes(b"new")
+    assert not (artefacts_dir / "files/relay.tar").exists()
+
+
 def test_the_collection_is_searched_after_the_mirror(
     tmp_path: Path, inventory_dir: Path, collections_path: Path
 ) -> None:

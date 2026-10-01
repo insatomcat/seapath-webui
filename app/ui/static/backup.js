@@ -1326,37 +1326,34 @@
     });
   }
 
-  // Whether cluster_containers declares the workload now. A restore of one a
-  // removal took out succeeds and brings back an image nothing runs on.
+  // Whether cluster_containers declares the workload now. One it does not is
+  // declared again from the definition its backup holds, and deployed.
   function declared(name) {
     return ((view && view.containers) || []).some((plan) => plan.name === name);
-  }
-
-  // Whether a removal took the workload out of the inventory, which the
-  // restore then undoes: its entry and files come back, and the run deploys it.
-  function removed(name) {
-    return ((view && view.removed) || []).includes(name);
   }
 
   // `item` is a guest or a container workload: its name, the dates it can be
   // restored to, and which of the two it is.
   function showRestore(backup, item) {
-    if (item.container && removed(item.name)) {
+    if (item.container && !declared(item.name)) {
       element("restore-title").textContent =
         "Restore " + item.name + " from " + readable(backup.date) +
         " and deploy it again";
       element("restore-disruption").textContent =
-        item.name + " was removed. Its entry in cluster_containers and the " +
-        "files it named are committed back to the inventory as they were " +
-        "before the removal. The run then recreates its RBD image from the " +
-        "backup and runs deploy_containers_cluster, which puts its images and " +
-        "quadlets on every hypervisor, creates its Pacemaker resource on the " +
-        "restored image and starts it.";
+        item.name + " is not declared in cluster_containers. Its entry and " +
+        "the files it names are read from the backup, as they were on the " +
+        "chosen date, and committed to the inventory. The run then recreates " +
+        "its RBD image from the backup, brings back the image archives the " +
+        "artefacts lack from the images the backup saved, and runs " +
+        "deploy_containers_cluster, which puts its images and quadlets on " +
+        "every hypervisor, creates its Pacemaker resource on the restored " +
+        "image and starts it.";
       element("restore-note").textContent =
-        "A restore that fails ends the run before anything is deployed, and " +
-        "the entry stays declared: restore it again, then deploy it from the " +
-        "Containers page. The restore staging directory on the machine is " +
-        "emptied first.";
+        "A backup taken before deploy_containers_cluster recorded the " +
+        "definition of its workloads holds none, and is refused: declare the " +
+        "workload first, and the restore brings back its state. A restore " +
+        "that fails ends the run before anything is deployed. The restore " +
+        "staging directory on the machine is emptied first.";
     } else if (item.container) {
       element("restore-title").textContent =
         "Restore the state of " + item.name + " from " + readable(backup.date);
@@ -1371,11 +1368,7 @@
         "on the image it restarts with. It is on the image put aside, " +
         item.name + ".<date>-restore, which a recreation or a removal of the " +
         "workload prunes. The restore staging directory on the machine is " +
-        "emptied first." +
-        (declared(item.name)
-          ? ""
-          : " " + item.name + " is no longer declared in cluster_containers: " +
-            "only its image comes back, and nothing starts on it.");
+        "emptied first.";
     } else {
       element("restore-title").textContent =
         "Restore " + item.name + " from " + readable(backup.date);

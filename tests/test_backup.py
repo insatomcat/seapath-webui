@@ -1550,7 +1550,8 @@ def test_a_restore_of_a_guest_no_backup_holds_is_refused(
 def test_a_container_restore_names_the_workload_the_backup_and_the_date(
     signed_in: TestClient, settings: Settings, remote_runner
 ) -> None:
-    _configured(signed_in)
+    # Declared, so the restore brings back its state and nothing else.
+    _import(signed_in, CLUSTER.format(settings=CONFIGURED + WORKLOADS))
     _listed(remote_runner)
 
     response = signed_in.post(
@@ -1793,10 +1794,10 @@ def test_ansible_parses_every_play_this_service_writes(
     a play Ansible refuses, and the place that would be found out is a run an
     operator launched after confirming something destructive.
     """
-    _configured(signed_in)
+    _import(signed_in, CLUSTER.format(settings=CONFIGURED + WORKLOADS))
     _listed(remote_runner)
     inventory = tmp_path / "inventory.yaml"
-    inventory.write_text(CLUSTER.format(settings=CONFIGURED))
+    inventory.write_text(CLUSTER.format(settings=CONFIGURED + WORKLOADS))
 
     # One at a time, because one run at a time per cluster is the rule these
     # obey like every other.

@@ -635,10 +635,14 @@ def create_app(
         remote=remote,
         keys=app.state.run_service.paths,
         ansible_user=settings.ansible_user,
-        # A restore of a workload a removal took out declares it again from
-        # the history and deploys it in the same run. See D72.
+        # A restore of a workload the inventory does not declare declares it
+        # from the definition its backup holds and deploys it in the same run.
+        # See D73.
         containers=app.state.container_service,
     )
+    # The image archives such a restore fetched go into the artefacts once
+    # its run has ended.
+    app.state.run_service.when_finished(app.state.backup_service.keep_fetched)
 
     # The connection from the cluster members to the backup server: read over
     # the same one SSH connection, prepared by the role, and completed by

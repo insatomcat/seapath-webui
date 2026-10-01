@@ -156,6 +156,10 @@ class RunService:
         """
         return self._paths
 
+    def run_directory(self, run_id: str) -> Path:
+        """Where a run's record, log and staged tree are kept."""
+        return self._store.directory(run_id)
+
     def when_finished(self, callback: Callable[[RunRecord], None]) -> None:
         """Call this with the record of every run once it has ended.
 
@@ -596,6 +600,7 @@ class RunService:
         play: str,
         guest: str | None = None,
         scope: RunScope | None = None,
+        writable: tuple[str, ...] = (),
     ) -> RunRecord:
         """A play this service wrote, launched as a run like any other.
 
@@ -616,6 +621,7 @@ class RunService:
             play=play,
             guest=guest,
             scope=scope,
+            writable=writable,
         )
 
     def scopes(self) -> scoping.ScopeChoices:
@@ -674,6 +680,7 @@ class RunService:
         guest: str | None = None,
         scope: RunScope | None = None,
         root_passwords: dict[str, str] | None = None,
+        writable: tuple[str, ...] = (),
     ) -> RunRecord:
         # The scope first: it decides which machines the preconditions are
         # about, and a scope naming a group the file does not declare is
@@ -795,6 +802,7 @@ class RunService:
                 inventory_dir=self._inventory.folder,
                 collections_path=self._paths.collections_path,
                 artefacts_dir=self._inventory.artefacts_root,
+                writable=writable,
             )
             record.files = staged.files
             if root_passwords:

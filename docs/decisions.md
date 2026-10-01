@@ -5561,7 +5561,7 @@ nothing. A catalogue variable now names the role that reads it, and a run
 is refused unless that role declares it in its defaults; "Apply now" and
 "Save and apply" ask the same before they commit.
 
-## D71 - Settled: the state of a container workload is backed up by the same scripts, and restored by one of its own
+## D71 - Settled in part, completed by [D73](#d73): the state of a container workload is backed up by the same scripts, and restored by one of its own
 
 A container workload keeps what it writes on the RBD image named after it
 ([D70](#d70)): the code is the delivery's and the configuration the site's,
@@ -5651,11 +5651,9 @@ leaves with the run that applied it, so no later run reads it again.
 Once that run has ended, the listener D50 introduced for guests takes the
 entry out, with the files it named that nothing else names, the
 `inventories/<name>/` folder of a delivery included, as one commit authored by
-the operator who launched the run and naming it. The image archives stay in
-the artefacts: git does not hold them, and a restore of the workload needs
-them (below). The Inventory page deletes one nobody wants back. A workload
-counts as removed when the inventory the run was given marked it absent and the
-entry is still
+the operator who launched the run and naming it. The image archives then leave
+the artefacts when no workload declares them. A workload counts as removed
+when the inventory the run was given marked it absent and the entry is still
 the same, and the run was a full run of `deploy_containers_cluster` over the
 whole cluster that succeeded. Any other run keeps the entry, and the next one
 finishes the removal.
@@ -5681,29 +5679,12 @@ a removal is called off.
 
 ### After a removal
 
-A removal is final on the Containers page, and undone from the Backup page.
-Restoring the state of a workload a removal took out brings back everything
-it had before: an image alone, with nothing declared to run on it, is no
-restore an operator can use, and reverting the removal commits by hand is
-two reverts in the right order plus an archive that had left the artefacts.
-
-The restore commits the entry its removal marked absent, without `state` and
-`remove_rbd`, with the files the forgetting commit deleted, both read from
-that commit's parent. A file the folder holds again since is left as it is.
-Then one run: the restore play on the member the backups run on, with
-`any_errors_fatal`, followed by `deploy_containers_cluster` imported as it
-stands. The restore comes first because the role keeps an RBD image it finds
-(D71), so the workload starts on the restored state rather than on an empty
-image a later restore would have to stop. A restore that fails ends the run
-before the deployment plays anything; the entry stays declared, and a
-restore then a deployment finishes it. A run that cannot start reverts the
-commit.
-
-Refused before anything is written: an image archive the artefacts no longer
-hold, a guest that has the name since, and a collection without
-`deploy_containers_cluster`. A **Declare again** gesture on the Containers
-page, alone, was built and taken out: without the state, the workload comes
-back on whatever image the pool holds.
+A removal is final on the Containers page. A **Declare again** gesture,
+writing the entry and files back from the history, was built and taken out,
+and so was a restore that did the same: the history of the inventory goes
+with the machine that holds it, and a backup is what has to survive that. A
+workload that is wanted again comes back from its backup, whole, as [D73](#d73)
+settles.
 
 ### Why it keeps the acceptance criterion
 
@@ -5711,3 +5692,71 @@ Each commit is the role's own interface. An inventory exported after the first
 one and run from a conventional control machine removes the workload the same
 way, and after the second it no longer mentions it, which is the state the
 role's README describes once a removal is done.
+
+## D73 - Settled: a backup holds everything a container workload is made of, as it does for a guest
+
+D71 backed up the state of a workload and nothing else, on the reasoning that
+its quadlets, images and configuration are in the inventory. That holds while
+the inventory and the artefacts are there. A backup is sent off site so that a
+cluster rebuilt from nothing can be put back, and on that cluster the
+inventory history and the artefacts are gone with the machine that held them.
+A workload removed by D72 showed the same gap on a cluster still standing: its
+restore brought back an RBD image with nothing declared to run on it, and its
+image archive had left the artefacts and every node.
+
+A guest never had that gap: `vm_manager` keeps its XML and its metadata on its
+disk image, the backup exports both, and `vm-mgr create` puts the guest back
+anywhere. A workload now works the same way.
+
+### Upstream, in the roles
+
+`deploy_containers_cluster` records the definition of a workload in the
+metadata of its RBD image, `seapath.definition`: a JSON object of `format`
+(1), `name`, `entry`, the entry as the inventory declares it, and `files`, the
+text of each quadlet, `config` and `rbd.files` source in base64, keyed by the
+path the entry gives. Sources rather than rendered files, since the entry is
+what a run renders them from. `seapath-rbd-meta` writes it from standard
+input, because one command-line argument holds 128 KiB and a CID does not
+always fit.
+
+`backup_full.sh` already exported every metadata key as `<date>.json`, so the
+definition travels with each date and follows a new version between a full
+and an incremental backup. It now also saves the container images of
+`seapath.images` under `containers/<name>/images/`, one `podman image save`
+per image, named after the image with `/`, `:` and `@` written `_`, once per
+full backup and again only for an image a new version brought.
+`restore_container.sh` writes the metadata back through the Ceph bindings
+(`restore_metadata.py`) and leaves the images in the staging directory.
+
+### Here
+
+A restore of a workload `cluster_containers` does not declare reads
+`<date>.json` on the backup server, over the connection the listing uses,
+before anything is written. It commits the entry and the files as one
+commit, and launches one run: the restore play on the member the backups run
+on, with `any_errors_fatal`, a `fetch` of each image archive the entry names
+and the artefacts lack, from the saved images, into the run's own tree, then
+`deploy_containers_cluster` imported as it stands. The restore comes first
+because the role keeps an RBD image it finds (D71), so the workload starts on
+the restored state. Once the run has ended, the fetched archives go into the
+artefacts. A run that cannot start reverts the commit.
+
+The directories a fetch writes into are made real in the run's tree, with
+every directory above them: the tree is otherwise symlinks into the artefacts
+and the installed collection, and a file written through one would land there
+before the run has done anything.
+
+Refused before anything is written: a backup with no definition, taken before
+the role recorded one, since the image alone would come back with nothing
+running on it; a file the folder holds with other bytes; a guest with the
+name; a collection without `deploy_containers_cluster`. A declared workload
+is restored as D71 says, its state and nothing else.
+
+### Why it keeps the acceptance criterion
+
+The commit is an entry and files as an operator would write them, and the
+run is the upstream playbook. An inventory exported after it and run from a
+conventional control machine deploys the same workload. The definition on
+the image is a copy the role writes from the inventory, never read back by a
+run: the inventory stays the desired state, and the image carries what the
+inventory was, for the day there is no inventory.

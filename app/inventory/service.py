@@ -349,12 +349,6 @@ class InventoryService:
         """The inventory file as a commit holds it, the one a run was given."""
         return self._repository.read_at(commit)
 
-    def deleted_in(self, commit: str) -> list[str]:
-        return self._repository.deleted_in(commit)
-
-    def read_file_at(self, commit: str, path: str) -> bytes:
-        return self._repository.read_file_at(commit, path)
-
     def discovery(self) -> Discovery:
         return discover(self._reader)
 

@@ -72,10 +72,13 @@ dates whose metadata is there, by `restore_container.sh`.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import re
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, Field
 
@@ -86,6 +89,7 @@ from app.cluster.rbd import (
     parse_image_list,
 )
 from app.core.errors import ApiError
+from app.core.logging import audit_event
 from app.hosts.models import BackupConf
 from app.hosts.remote import (
     TIMEOUT_SECONDS,
@@ -93,21 +97,20 @@ from app.hosts.remote import (
     RemoteRequest,
     RemoteRunner,
 )
+from app.inventory import quadlets, references
 from app.inventory.editor import Scope
+from app.inventory.files import UnsafePath
 from app.inventory.model import Mode
 from app.inventory.repository import Commit
 from app.inventory.resolve import groups, members, resolve
-from app.inventory.service import ImportRefused, InventoryService
+from app.inventory.service import ImportRefused, InventoryService, RefusedFile
 from app.runs import backup as plays
-from app.runs.backup import BackupAction, BackupTarget
+from app.runs import staging
+from app.runs.backup import BackupAction, BackupTarget, _readable
 from app.runs.catalogue import missing_from, role_present
 from app.runs.models import RunRecord, RunState
 from app.runs.service import RunPaths, RunService
-from app.services.containers import (
-    ContainerService,
-    InvalidContainer,
-    UnknownContainer,
-)
+from app.services.containers import ContainerService, InvalidContainer
 
 logger = logging.getLogger(__name__)
 
@@ -331,9 +334,6 @@ class BackupView(BaseModel):
     in from it and one button that does it."""
     runs_on: str | None = None
     """The cluster member the backups run on, and every reading here asks."""
-    removed: list[str] = Field(default_factory=list)
-    """The workloads a removal took out of the inventory, which a restore
-    declares again as they were and deploys on the state it brings back."""
     containers: list[ContainerPlan] = Field(default_factory=list)
     """The workloads `cluster_containers` declares, and which of them a backup
     takes, read off the inventory so the page says it before anything runs."""
@@ -444,9 +444,12 @@ class BackupService:
         containers: ContainerService | None = None,
     ) -> None:
         self._inventory = inventory
-        # What declares a removed workload again, from the history, when a
-        # restore brings its state back. See D72.
+        # What declares a workload again from the definition its backup
+        # holds, when the inventory has none. See D73.
         self._containers = containers
+        # The image archives a restore run fetches, by run, which its end
+        # takes into the artefacts.
+        self._fetched: dict[str, list[str]] = {}
         self._runs = runs
         self._collections_path = collections_path
         self._reader = reader
@@ -499,8 +502,6 @@ class BackupService:
             view.note = _NOT_A_CLUSTER
             return view
         view.containers = _container_plans(document, target, self.runner())
-        if self._containers is not None:
-            view.removed = [item.name for item in self._containers.forgotten()]
         if not view.configured:
             view.note = _FROM_THE_FILE if view.conf_only else _NOT_CONFIGURED
         view.warnings = self._warnings(target, sources) + self._divergence(
@@ -977,23 +978,36 @@ class BackupService:
                     409,
                 )
             self._check_container_restore(guest, full_date, incremental_date)
-        deploy = action is BackupAction.RESTORE_CONTAINER and self._removed(guest)
+        date = incremental_date or full_date
+        restored = (
+            self._restored(target, guest, full_date, date)
+            if action is BackupAction.RESTORE_CONTAINER
+            and guest not in self._declared_workloads()
+            else None
+        )
 
         host = self.runner()
         if host is None:
             raise ApiError("not_a_cluster", _NOT_A_CLUSTER, 409)
-        date = incremental_date or full_date
-        redeclared = (
-            self._redeclare(guest, author, plays.entry(action, guest, date, host, True))
-            if deploy
+        deploy = restored is not None
+        declared = (
+            self._declare(restored, author, full_date, date)
+            if restored is not None
             else None
         )
         try:
-            return self._runs.launch_generated(
+            record = self._runs.launch_generated(
                 plays.entry(action, guest, date, host, deploy),
                 author,
                 plays.play(
-                    action, target, host, guest, full_date, incremental_date, deploy
+                    action,
+                    target,
+                    host,
+                    guest,
+                    full_date,
+                    incremental_date,
+                    deploy,
+                    restored.archives if restored is not None else None,
                 ),
                 # What the VMs page finds a guest's runs by, and a workload is
                 # not a guest.
@@ -1002,48 +1016,146 @@ class BackupService:
                     if action is not BackupAction.RESTORE_CONTAINER
                     else None
                 ),
+                writable=restored.writable if restored is not None else (),
             )
         except ApiError:
-            # Left removed rather than declared with nothing deploying it: the
-            # same restore can be asked again once the cause is gone.
-            if redeclared is not None:
-                self._inventory.revert(redeclared.hash, author)
+            # Left undeclared rather than declared with nothing deploying it:
+            # the same restore can be asked again once the cause is gone.
+            if declared is not None:
+                self._inventory.revert(declared.hash, author)
             raise
+        if restored is not None and restored.archives:
+            self._fetched[record.id] = sorted(
+                references.in_folder(archive) or archive
+                for archive in restored.archives
+            )
+        return record
 
-    def _removed(self, name: str) -> bool:
-        """Whether a removal took this workload out, and a restore is to undo it.
+    def keep_fetched(self, record: RunRecord) -> None:
+        """Take into the artefacts the image archives a restore brought back.
 
-        Checked before anything is written: the image archives it loads, a
-        guest that has its name since, and the deployment playbook the run
-        imports.
+        Called when any run ends. The archives were fetched into the run's own
+        tree, where its deployment read them; the artefacts are where every
+        later run reads them. One the artefacts gained since is left as it is.
+        """
+        paths = self._fetched.pop(record.id, None)
+        if not paths:
+            return
+        root = self._runs.run_directory(record.id).joinpath(*_STAGED_ROOT)
+        for path in paths:
+            source = root / path
+            if not source.is_file():
+                continue
+            try:
+                if self._inventory.artefact_path(path).is_file():
+                    continue
+                with source.open("rb") as stream:
+                    self._inventory.store_artefact(
+                        path, iter(lambda: stream.read(1 << 20), b"")
+                    )
+            except (OSError, RefusedFile, UnsafePath) as error:
+                logger.warning(
+                    "Could not keep %s from run %s: %s", path, record.id, error
+                )
+                continue
+            audit_event("backup.archive_kept", run=record.id, path=path)
+
+    def _declared_workloads(self) -> set[str]:
+        document = self._inventory.raw()
+        if not document.strip():
+            return set()
+        return {quadlet.name for quadlet in quadlets.workloads(document)}
+
+    def _restored(
+        self, target: BackupTarget, name: str, full_date: str, date: str
+    ) -> _Restored | None:
+        """What declaring `name` again takes, read from its backup.
+
+        The metadata of that date, as `backup_full.sh` exported them, hold the
+        definition `deploy_containers_cluster` records on the RBD image: the
+        entry and the text of its files. Asked on the backup server over the
+        connection the listing uses, before anything is written.
         """
         if self._containers is None:
-            return False
-        try:
-            self._containers.check_redeclare(name)
-        except UnknownContainer:
-            return False
-        except InvalidContainer as error:
-            raise ApiError("invalid_container", str(error), 409) from error
+            return None
         if plays.WORKLOAD_PLAYBOOK in missing_from(self._collections_path()):
             raise ApiError(
                 "role_missing",
                 f"The SEAPATH collection this image ships has no "
-                f"{plays.WORKLOAD_PLAYBOOK}, which deploys {name} again once "
-                "its state is restored.",
+                f"{plays.WORKLOAD_PLAYBOOK}, which deploys {name} once its "
+                "state is restored.",
                 409,
             )
-        return True
+        member = self._member()
+        if member is None:
+            raise ApiError(
+                "not_a_cluster",
+                f"{self.runner() or 'The member the backups run on'} carries no "
+                f"`ansible_host`, so the definition of {name} cannot be read "
+                "from its backup.",
+                409,
+            )
+        _, address = member
+        try:
+            answer = self._ask(
+                address, plays.metadata_shell_command(target, full_date, name, date)
+            )
+        except RemoteRefused as error:
+            raise ApiError(
+                "backup_unreadable",
+                f"The definition of {name} could not be read from its backup: "
+                f"{error}",
+                409,
+            ) from error
+        restored = _parse_definition(name, date, answer)
+        # Fetched only where the artefacts lack it: an archive the site still
+        # has is the one it delivered, and the run reads it as it stands.
+        archives: dict[str, str] = {}
+        for archive, image in restored.archives.items():
+            path = references.in_folder(archive)
+            if path is None:
+                raise ApiError(
+                    "invalid_container",
+                    f"{name} loads {archive}, which the inventory folder "
+                    "cannot hold: it is outside the tree the runs read.",
+                    409,
+                )
+            try:
+                held = self._inventory.artefact_path(path).is_file()
+            except (OSError, RefusedFile, UnsafePath):
+                held = False
+            if not held:
+                archives[archive] = image
+        writable = tuple(
+            sorted(
+                {
+                    str(PurePosixPath(references.in_folder(archive) or "").parent)
+                    for archive in archives
+                }
+            )
+        )
+        return replace(restored, archives=archives, writable=writable)
 
-    def _redeclare(self, name: str, author: str, entry) -> Commit:
+    def _declare(
+        self, restored: _Restored, author: str, full_date: str, date: str
+    ) -> Commit:
         assert self._containers is not None
         try:
-            return self._containers.redeclare(
-                name,
+            return self._containers.declare_restored(
+                restored.name,
+                restored.entry,
+                restored.files,
                 author,
-                f"{entry.title}: the run deploys it on the state it restores.",
+                (
+                    f"containers: declare {restored.name} from its backup\n\n"
+                    f"Its entry and the files it names, as the backup of "
+                    f"{_readable(full_date)} holds them for "
+                    f"{_readable(date)} in the metadata of its RBD image. The "
+                    f"run that restores its state deploys it with "
+                    f"{plays.WORKLOAD_PLAYBOOK}."
+                ),
             )
-        except (UnknownContainer, InvalidContainer) as error:
+        except InvalidContainer as error:
             raise ApiError("invalid_container", str(error), 409) from error
 
     # Internals
@@ -1678,3 +1790,91 @@ __all__ = [
     "parse_listing",
     "parse_staging",
 ]
+
+
+# Where a run's tree is, under its directory: what a play's `{{ playbook_dir
+# }}/..` is, and where a restore fetches the image archives to.
+_STAGED_ROOT = (
+    staging.MIRROR_DIRECTORY,
+    "ansible_collections",
+    staging.NAMESPACE,
+    staging.COLLECTION,
+)
+
+# The key `deploy_containers_cluster` records the definition of a workload
+# under, on its RBD image, and the shape it gives it.
+DEFINITION_KEY = "seapath.definition"
+DEFINITION_FORMAT = 1
+
+
+@dataclass(frozen=True)
+class _Restored:
+    """A workload declared again from its backup, and what its run fetches."""
+
+    name: str
+    entry: dict
+    files: dict[str, bytes]
+    archives: dict[str, str]
+    """The `archive` the entry names that the artefacts lack, as it names it,
+    to the container image the backup saved for it."""
+    writable: tuple[str, ...]
+    """The directories of the run's tree those archives are fetched into."""
+
+
+def _parse_definition(name: str, date: str, answer: str) -> _Restored:
+    """The definition in the metadata a backup exported for one date."""
+
+    def refused(reason: str) -> ApiError:
+        return ApiError(
+            "no_definition",
+            f"{name} is not declared in cluster_containers, and {reason} "
+            f"Declare {name} from its delivery or its quadlet first: the "
+            "restore then brings back its state.",
+            409,
+        )
+
+    try:
+        metadata = json.loads(answer.strip() or "{}")
+    except ValueError as error:
+        raise refused(
+            f"the metadata its backup holds for {_readable(date)} are not JSON."
+        ) from error
+    raw = metadata.get(DEFINITION_KEY) if isinstance(metadata, dict) else None
+    if not raw:
+        raise refused(
+            f"its backup of {_readable(date)} holds no definition of it: it was "
+            "taken before deploy_containers_cluster recorded one on the image."
+        )
+    try:
+        definition = json.loads(raw)
+        entry = definition["entry"]
+        files = {
+            str(path): base64.b64decode(content, validate=True)
+            for path, content in definition.get("files", {}).items()
+        }
+    except (ValueError, KeyError, TypeError, AttributeError) as error:
+        raise refused(
+            f"the definition its backup holds for {_readable(date)} cannot be " "read."
+        ) from error
+    if definition.get("format") != DEFINITION_FORMAT or not isinstance(entry, dict):
+        raise refused(
+            f"the definition its backup holds for {_readable(date)} is in a "
+            "format this service does not read."
+        )
+    saved = set(str(metadata.get("seapath.images", "")).split())
+    archives: dict[str, str] = {}
+    images = entry.get("images")
+    for image in images if isinstance(images, list) else []:
+        if not isinstance(image, dict):
+            continue
+        archive, image_name = image.get("archive"), image.get("name")
+        if not isinstance(archive, str) or not isinstance(image_name, str):
+            continue
+        if image_name not in saved:
+            raise refused(
+                f"its backup of {_readable(date)} saved no image {image_name}."
+            )
+        archives[archive] = image_name
+    return _Restored(
+        name=name, entry=entry, files=files, archives=archives, writable=()
+    )

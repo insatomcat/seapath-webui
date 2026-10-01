@@ -52,6 +52,7 @@ back has Cancel on the run.
 
 from __future__ import annotations
 
+import re
 import shlex
 from dataclasses import dataclass
 from enum import Enum
@@ -86,9 +87,9 @@ SCRIPTS = "/usr/local/bin"
 # the machines do not have.
 CONTAINER_RESTORE = "restore_container.sh"
 
-# What deploys a container workload restored after its removal, imported
-# after the restore in the same run, since the workload has nothing running
-# until it does.
+# What deploys a container workload the inventory did not declare, imported
+# after the restore in the same run: the workload is declared again from the
+# definition its backup holds, and has nothing running until this does.
 WORKLOAD_PLAYBOOK = "deploy_containers_cluster"
 WORKLOAD_TARGETS = "cluster_machines:&hypervisors"
 
@@ -199,19 +200,27 @@ _DISRUPTIONS = {
 }
 
 
-# A workload a removal took out of the inventory: its entry and files are
-# committed back first, and the run deploys it once its state is restored.
+# A workload the inventory does not declare: its entry and files are
+# committed from the definition the backup holds, and the run deploys it once
+# its state and its images are back.
 _REDEPLOY_TITLE = "Restore {guest} from {date} and deploy it again"
 _REDEPLOY_DISRUPTION = (
-    "{guest} was removed: its entry and the files it named are back in the "
-    "inventory, as they were before the removal. The run recreates its RBD "
-    "image from the backup up to the chosen date, then runs "
-    f"{WORKLOAD_PLAYBOOK}, which puts its images and quadlets on every "
-    "hypervisor, creates its Pacemaker resource on the restored image and "
-    "starts it. A workload already running is not restarted. The restore "
-    "staging directory on the machine is emptied first, and a restore that "
-    "fails stops the run before anything is deployed."
+    "{guest} is declared again from the backup: its entry and the files it "
+    "named, as they were on the chosen date, are committed to the inventory. "
+    "The run recreates its RBD image from the backup up to that date, brings "
+    "back the image archives the artefacts lack from the images the backup "
+    f"saved, then runs {WORKLOAD_PLAYBOOK}, which puts its images and "
+    "quadlets on every hypervisor, creates its Pacemaker resource on the "
+    "restored image and starts it. A workload already running is not "
+    "restarted. The restore staging directory on the machine is emptied "
+    "first, and a restore that fails stops the run before anything is "
+    "deployed."
 )
+
+
+def image_file(image: str) -> str:
+    """The file `backup_full.sh` saves a container image to, under images/."""
+    return re.sub(r"[/:@]", "_", image) + ".tar"
 
 
 def ships_container_restore(collections_path: Path) -> bool:
@@ -285,6 +294,7 @@ def play(
     full_date: str = "",
     incremental_date: str = "",
     deploy: bool = False,
+    archives: dict[str, str] | None = None,
 ) -> str:
     """The play, as YAML.
 
@@ -296,6 +306,11 @@ def play(
     the restore, imported as it stands. The restore plays one member, and a
     failure there has to end the run rather than let the deployment go on
     over the others with an image that never came back: `any_errors_fatal`.
+
+    `archives` maps the `archive` an entry names, as it names it, to the
+    container image the backup saved for it. Each is fetched from the restore
+    staging directory into the run's own tree, where the deployment reads it
+    and where `BackupService` takes it into the artefacts afterwards.
     """
     restore = {
         "name": entry(action, guest, incremental_date or full_date).title,
@@ -309,6 +324,17 @@ def play(
         "become": True,
         "tasks": _tasks(action, target, guest, full_date, incremental_date),
     }
+    for archive, image in sorted((archives or {}).items()):
+        restore["tasks"].append(
+            {
+                "name": f"Bring back {archive} from the backup",
+                "ansible.builtin.fetch": {
+                    "src": f"{target.local_tmp_dir}images/{image_file(image)}",
+                    "dest": "{{ playbook_dir }}/" + archive,
+                    "flat": True,
+                },
+            }
+        )
     document: list[dict] = [restore]
     if deploy:
         restore["any_errors_fatal"] = True
@@ -364,6 +390,33 @@ def _tasks(
             "changed_when": True,
         }
     ]
+
+
+# What a restore reads of one date of a workload: the metadata
+# `backup_full.sh` exported, `rbd image-meta list --format json`, which holds
+# the definition `deploy_containers_cluster` records on the image.
+def metadata_command(
+    target: BackupTarget, full_date: str, name: str, date: str
+) -> list[str]:
+    """The exact command that reads it on the backup server."""
+    shell = target.shell_argv
+    path = f"{target.remote_dir}{full_date}/containers/{name}/{date}.json"
+    return [
+        shell[0],
+        *_LISTING_SSH_OPTIONS,
+        *shell[1:],
+        target.remote_serv,
+        "cat " + shlex.quote(path),
+    ]
+
+
+def metadata_shell_command(
+    target: BackupTarget, full_date: str, name: str, date: str
+) -> str:
+    """The same thing as one string, for the shell of a cluster member."""
+    return "sudo -n /bin/sh -c " + shlex.quote(
+        shlex.join(metadata_command(target, full_date, name, date))
+    )
 
 
 # What `backup-restore.sh` puts in `exclude_vm` when a site has set nothing: a
@@ -577,6 +630,8 @@ __all__ = [
     "BackupAction",
     "BackupTarget",
     "containers_shell_command",
+    "image_file",
+    "metadata_shell_command",
     "du_shell_command",
     "entry",
     "images_shell_command",

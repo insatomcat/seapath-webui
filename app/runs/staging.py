@@ -101,8 +101,16 @@ def stage(
     inventory_dir: Path,
     collections_path: Path,
     artefacts_dir: Path | None = None,
+    writable: tuple[str, ...] = (),
 ) -> Staging:
-    """Build the tree the run reads, and say what went into it."""
+    """Build the tree the run reads, and say what went into it.
+
+    `writable` names directories of the tree, `files` or `inventories/relay`,
+    that a play writes into. Each is made real, with every directory above
+    it, rather than a symlink: a file written through a symlink would land in
+    the artefacts or in the installed collection, where nothing of a run may
+    write, rather than in the run's own tree.
+    """
     site = _copy_inventory(directory, inventory_dir)
     collection = collections_path / "ansible_collections" / NAMESPACE / COLLECTION
     mirror = directory / MIRROR_DIRECTORY
@@ -115,11 +123,13 @@ def stage(
     ]
     present = [source for source in sources if source is not None and source.entries]
 
-    entries = _overlay(root, present, force_real={_PLAYBOOKS})
+    entries = _overlay(root, present, force_real={_PLAYBOOKS, *writable})
     # `playbooks/` exists even where the collection has none, so that a run
     # against a broken image fails on the missing playbook rather than on a
     # path that resolves nowhere.
     (root / _PLAYBOOKS).mkdir(parents=True, exist_ok=True)
+    for directory_name in writable:
+        (root / directory_name).mkdir(parents=True, exist_ok=True)
 
     staging = Staging(
         site_root=root,
@@ -197,7 +207,13 @@ def _overlay(
     file cannot be merged and the site's copy is the one an operator put there.
     """
     destination.mkdir(parents=True, exist_ok=True)
-    force_real = force_real or set()
+    # A path names a directory further down, real with every one above it.
+    wanted = force_real or set()
+    force_real = {path.split("/", 1)[0] for path in wanted}
+    below = {
+        name: {path.split("/", 1)[1] for path in wanted if path.startswith(name + "/")}
+        for name in force_real
+    }
     ordered: list[str] = []
     for source in sources:
         for name in source.entries:
@@ -219,7 +235,11 @@ def _overlay(
                 for path, source in zip(paths, holders, strict=True)
                 if path.is_dir()
             ]
-            _overlay(target, [source for source in nested if source is not None])
+            _overlay(
+                target,
+                [source for source in nested if source is not None],
+                force_real=below.get(name),
+            )
         else:
             target.symlink_to(paths[0])
         staged.append(
