@@ -57,12 +57,15 @@ incremental backup taken since. Which is to say:
     202603110733/system_vm1_202603110733_202603110836.diff   an increment
     202603110733/system_vm1-202603110836.xml        and its XML
 
-and, for each container workload, the state it wrote, one level down:
+and, for each container workload, one level down, the state it wrote, the
+metadata of its image, which hold its definition, and the container images it
+runs:
 
     202603110733/containers/relay/202603110733.qcow2          the full backup
     202603110733/containers/relay/202603110733.json           its metadata
     202603110733/containers/relay/202603110733_202603110836.diff
     202603110733/containers/relay/202603110836.json           and its metadata
+    202603110733/containers/relay/images/localhost_relay_1.0.tar
 
 A restore names the full backup directory, the guest and one of the dates whose
 XML is there, which is exactly what `restore_vm.sh` takes and what the menu
@@ -200,10 +203,10 @@ class ContainerPlan(BaseModel):
     no `seapath.images`, which is how the scripts recognise a workload."""
 
 
-class GuestVolume(BaseModel):
+class Volume(BaseModel):
     """What one guest, or one container workload, would weigh in a full backup."""
 
-    guest: str
+    name: str
     container: bool = False
     """A container workload, whose one image is the state it writes."""
     images: list[str] = Field(default_factory=list)
@@ -212,13 +215,14 @@ class GuestVolume(BaseModel):
 
 
 class Estimate(BaseModel):
-    """`rbd du`, summed per guest, which is the port of `backup_du.py`."""
+    """`rbd du`, summed per guest and per workload, the port of `backup_du.py`."""
 
-    guests: list[GuestVolume] = Field(default_factory=list)
+    volumes: list[Volume] = Field(default_factory=list)
     used_bytes: int = 0
     included: list[str] = Field(default_factory=list)
     excluded: list[str] = Field(default_factory=list)
-    """The guests the two filters leave out, named so a surprise is visible."""
+    """The guests and workloads the two filters leave out, named so a surprise
+    is visible."""
     containers_tool: bool | None = None
     """Whether the member has `get_containers.py`. Without it the role there
     predates the backup of container workloads, and none is backed up."""
@@ -391,19 +395,19 @@ _SETTINGS: tuple[tuple[str, str, bool, str, str], ...] = (
     ),
     (
         "include_vm",
-        "Guests to back up",
+        "Guests and containers to back up",
         False,
         ".*",
-        "An extended regular expression matched against guest names. Empty "
-        "means every guest.",
+        "An extended regular expression matched against the names of the "
+        "guests and of the container workloads. Empty means all of them.",
     ),
     (
         "exclude_vm",
-        "Guests to leave out",
+        "Guests and containers to leave out",
         False,
         "",
-        "An extended regular expression, applied after the one above. Empty "
-        "means nothing is left out.",
+        "An extended regular expression, applied after the one above to the "
+        "same names. Empty means nothing is left out.",
     ),
 )
 
@@ -561,7 +565,7 @@ class BackupService:
         ]
 
     def estimate(self, target: BackupTarget | None = None) -> Estimate:
-        """What a full backup would weigh, per guest, from `rbd du`.
+        """What a full backup would weigh, per guest and workload, from `rbd du`.
 
         Asked for, never volunteered. `rbd du` adds up the objects of an
         image, which with no fast-diff map is a walk of every one of them, and
@@ -583,7 +587,8 @@ class BackupService:
             return Estimate(
                 error=(
                     f"{target.include_vm!r} is not an extended regular "
-                    "expression, so no guest can be matched against it."
+                    "expression, so no guest or workload can be matched "
+                    "against it."
                 )
             )
         member = self._member()
@@ -606,11 +611,11 @@ class BackupService:
             selected: list[str] = []
             excluded: set[str] = set()
             for image in names:
-                guest = _guest_of(image, containers)
-                if guest is None:
+                owner = _owner_of(image, containers)
+                if owner is None:
                     continue
-                if not include.search(guest) or (exclude and exclude.search(guest)):
-                    excluded.add(guest)
+                if not include.search(owner) or (exclude and exclude.search(owner)):
+                    excluded.add(owner)
                 else:
                     selected.append(image)
             usage = (
@@ -626,25 +631,25 @@ class BackupService:
             logger.warning("The backup estimate could not read Ceph: %s", error)
             return Estimate(error=f"{name} could not measure the pool: {error}")
 
-        volumes: dict[str, GuestVolume] = {}
+        volumes: dict[str, Volume] = {}
         for image in usage:
-            guest = _guest_of(image.image, containers)
-            if guest is None:
+            owner = _owner_of(image.image, containers)
+            if owner is None:
                 continue
             volume = volumes.setdefault(
-                guest, GuestVolume(guest=guest, container=guest in containers)
+                owner, Volume(name=owner, container=owner in containers)
             )
             volume.images.append(image.image)
             volume.used_bytes += image.used_bytes
             volume.provisioned_bytes += image.provisioned_bytes
 
-        guests = sorted(volumes.values(), key=lambda item: item.guest)
-        for volume in guests:
+        measured = sorted(volumes.values(), key=lambda item: item.name)
+        for volume in measured:
             volume.images.sort()
         return Estimate(
-            guests=guests,
-            used_bytes=sum(volume.used_bytes for volume in guests),
-            included=[volume.guest for volume in guests],
+            volumes=measured,
+            used_bytes=sum(volume.used_bytes for volume in measured),
+            included=[volume.name for volume in measured],
             excluded=sorted(excluded),
             containers_tool=tool,
         )
@@ -916,7 +921,7 @@ class BackupService:
         self,
         action: BackupAction,
         author: str,
-        guest: str = "",
+        name: str = "",
         full_date: str = "",
         incremental_date: str = "",
     ) -> RunRecord:
@@ -924,8 +929,8 @@ class BackupService:
 
         Everything the run needs is checked here rather than by the play: the
         settings are complete, the collection this image ships has the role
-        whose scripts the play calls, and a restore names a guest and a date
-        that the listing actually carries. A run launched without those fails
+        whose scripts the play calls, and a restore names a guest or a workload
+        and a date that the listing actually carries. A run launched without those fails
         on its first task, minutes after an operator confirmed something
         destructive, which is a late and expensive way to learn it.
         """
@@ -966,7 +971,7 @@ class BackupService:
             )
 
         if action is BackupAction.RESTORE:
-            self._check_restore(guest, full_date, incremental_date)
+            self._check_restore(name, full_date, incremental_date)
         if action is BackupAction.RESTORE_CONTAINER:
             if not plays.ships_container_restore(self._collections_path()):
                 raise ApiError(
@@ -977,12 +982,12 @@ class BackupService:
                     "machine has the script this restore calls.",
                     409,
                 )
-            self._check_container_restore(guest, full_date, incremental_date)
+            self._check_container_restore(name, full_date, incremental_date)
         date = incremental_date or full_date
         restored = (
-            self._restored(target, guest, full_date, date)
+            self._restored(target, name, full_date, date)
             if action is BackupAction.RESTORE_CONTAINER
-            and guest not in self._declared_workloads()
+            and name not in self._declared_workloads()
             else None
         )
 
@@ -997,13 +1002,13 @@ class BackupService:
         )
         try:
             record = self._runs.launch_generated(
-                plays.entry(action, guest, date, host, deploy),
+                plays.entry(action, name, date, host, deploy),
                 author,
                 plays.play(
                     action,
                     target,
                     host,
-                    guest,
+                    name,
                     full_date,
                     incremental_date,
                     deploy,
@@ -1012,7 +1017,7 @@ class BackupService:
                 # What the VMs page finds a guest's runs by, and a workload is
                 # not a guest.
                 guest=(
-                    (guest or None)
+                    (name or None)
                     if action is not BackupAction.RESTORE_CONTAINER
                     else None
                 ),
@@ -1270,8 +1275,8 @@ class BackupService:
                 )
         if target.exclude_vm and target.include_vm == ".*":
             warnings.append(
-                "Every guest is backed up except those matching "
-                f"{target.exclude_vm!r}. A guest added later is included by "
+                "Every guest and container workload is backed up except those "
+                f"matching {target.exclude_vm!r}. One added later is included by "
                 "default, which is usually what a site wants and is worth "
                 "knowing."
             )
@@ -1475,7 +1480,7 @@ def _filters(target: BackupTarget) -> tuple[re.Pattern | None, re.Pattern | None
     return include, exclude
 
 
-def _guest_of(image: str, containers: frozenset[str] = frozenset()) -> str | None:
+def _owner_of(image: str, containers: frozenset[str] = frozenset()) -> str | None:
     """The guest or workload an image belongs to, `backup_du.py`'s own mapping.
 
     `system_<guest>` is the system disk and `data_<guest>_<n>` an additional
@@ -1550,7 +1555,7 @@ def parse_listing(text: str) -> list[FullBackup]:
             continue
         full = _FULL.match(name)
         if full:
-            owner = _guest_of(full.group("image"))
+            owner = _owner_of(full.group("image"))
             if owner:
                 _guest(guests, backups, directory, owner).disks += 1
 
@@ -1782,7 +1787,7 @@ __all__ = [
     "Estimate",
     "FullBackup",
     "GuestBackup",
-    "GuestVolume",
+    "Volume",
     "InvalidBackupSetting",
     "StagedVolume",
     "StagingDirectory",

@@ -5,14 +5,15 @@
 
 `seapath-ansible` ships a `backup_restore` role, and the prerequisites
 playbooks of Debian and Oracle Linux install it on every machine they
-configure. What it puts in `/usr/local/bin` is four programs and a menu over
-them: `backup_full.sh` exports every guest's RBD images as qcow2 and rsyncs
-them to a backup server, `backup_inc.sh` exports RBD diffs against the latest
-snapshot into the same directory, `restore_vm.sh` brings one guest back from a
-chosen date, and `backup_du.py` estimates what a full backup would weigh. The
-two backups also export the RBD image of every container workload
-`deploy_containers_cluster` deployed, and `restore_container.sh` brings one of
-those images back.
+configure. It backs up the two kinds of workload a cluster runs on Ceph: the
+guests of `vm_manager` and the container workloads of
+`deploy_containers_cluster`. What it puts in `/usr/local/bin` is five programs
+and a menu over them: `backup_full.sh` exports the RBD images of every guest
+and container workload as qcow2, with their metadata and the container images,
+and rsyncs them to a backup server, `backup_inc.sh` exports RBD diffs against
+the latest snapshot into the same directory, `restore_vm.sh` brings one guest
+back from a chosen date, `restore_container.sh` one container workload, and
+`backup_du.py` estimates what a full backup would weigh.
 `backup-restore.sh` is a whiptail menu that asks for the arguments and calls
 them.
 
@@ -43,11 +44,11 @@ to be erased. That is where this service puts ceremony everywhere else.
 
 **A backup holds the run lock for as long as it takes.** One run at a time per
 cluster is what keeps two operators from converging the same machines at once,
-and a full backup of a dozen guests is an hour of `qemu-img convert` and rsync
-under that same lock. It is not carved out. A backup reads every image of the
-pool and pushes the result off the cluster, which is exactly the kind of act
-that should not overlap a convergence, and an operator who needs the cluster
-back has Cancel on the run.
+and a full backup of a dozen guests and workloads is an hour of `qemu-img
+convert` and rsync under that same lock. It is not carved out. A backup reads
+every image of the pool and pushes the result off the cluster, which is exactly
+the kind of act that should not overlap a convergence, and an operator who
+needs the cluster back has Cancel on the run.
 """
 
 from __future__ import annotations
@@ -151,19 +152,23 @@ class BackupTarget:
 # machines restarts services under running VMs, and a restore recreates a guest
 # over the one that is there.
 _TITLES = {
-    BackupAction.FULL: "Back up every guest, in full",
+    BackupAction.FULL: "Back up every guest and container workload, in full",
     BackupAction.INCREMENTAL: "Back up what changed since the last full backup",
-    BackupAction.RESTORE: "Restore {guest} from {date}",
-    BackupAction.RESTORE_CONTAINER: "Restore the state of {guest} from {date}",
+    BackupAction.RESTORE: "Restore {name} from {date}",
+    BackupAction.RESTORE_CONTAINER: "Restore the state of {name} from {date}",
 }
 
 _DISRUPTIONS = {
     BackupAction.FULL: (
-        "Exports every guest's disks from Ceph and sends them to the backup "
-        "server. On each image it runs `rbd sparsify`, then removes every "
-        "snapshot the image carries with `rbd snap purge`, then takes the base "
-        "snapshot this backup and the incremental ones after it are made "
-        "against. The guests keep running throughout, and the deleted "
+        "Exports from Ceph the disks of every selected guest and the RBD image "
+        "of every selected container workload, with their metadata, saves the "
+        "container images the workloads run, and sends it all to the backup "
+        "server. On a guest's image it runs `rbd sparsify`, then removes every "
+        "snapshot the image carries with `rbd snap purge`; on a workload's it "
+        "removes only the snapshots of previous backups, keeping the ones "
+        "taken before a new version. It then takes the base snapshot this "
+        "backup and the incremental ones after it are made against. The "
+        "guests and the workloads keep running throughout, and the deleted "
         "snapshots do not come back: an incremental backup taken against one "
         "of them can no longer be applied. It also empties the staging "
         "directory on the machine before it starts, which is where the "
@@ -173,8 +178,10 @@ _DISRUPTIONS = {
     BackupAction.INCREMENTAL: (
         "Exports what each image changed since its latest snapshot, as an RBD "
         "diff beside the full backup it belongs to, and sends the directory to "
-        "the backup server again. The guests keep running. A disk added since "
-        "the last full backup has no snapshot to diff against: it is skipped "
+        "the backup server again, with the metadata of every guest and "
+        "workload and the container images a new version brought. The guests "
+        "and the workloads keep running. A disk or a workload added since the "
+        "last full backup has no snapshot to diff against: it is skipped "
         "with a warning in the log and stays out of every incremental backup "
         "until a new full one is made."
     ),
@@ -203,9 +210,9 @@ _DISRUPTIONS = {
 # A workload the inventory does not declare: its entry and files are
 # committed from the definition the backup holds, and the run deploys it once
 # its state and its images are back.
-_REDEPLOY_TITLE = "Restore {guest} from {date} and deploy it again"
+_REDEPLOY_TITLE = "Restore {name} from {date} and deploy it again"
 _REDEPLOY_DISRUPTION = (
-    "{guest} is declared again from the backup: its entry and the files it "
+    "{name} is declared again from the backup: its entry and the files it "
     "named, as they were on the chosen date, are committed to the inventory. "
     "The run recreates its RBD image from the backup up to that date, brings "
     "back the image archives the artefacts lack from the images the backup "
@@ -240,7 +247,7 @@ def record(action: BackupAction) -> str:
 
 def entry(
     action: BackupAction,
-    guest: str = "",
+    name: str = "",
     date: str = "",
     host: str = "",
     deploy: bool = False,
@@ -255,7 +262,7 @@ def entry(
     """
     identifier = record(action)
     title = (_REDEPLOY_TITLE if deploy else _TITLES[action]).format(
-        guest=guest, date=_readable(date)
+        name=name, date=_readable(date)
     )
     requires = [
         Precondition.INVENTORY_VALID,
@@ -279,7 +286,7 @@ def entry(
         preview=Preview.NONE,
         reboots=Reboots.NO,
         disruption=(
-            _REDEPLOY_DISRUPTION.format(guest=guest) if deploy else _DISRUPTIONS[action]
+            _REDEPLOY_DISRUPTION.format(name=name) if deploy else _DISRUPTIONS[action]
         ),
         requires=requires,
         reviewed=True,
@@ -290,7 +297,7 @@ def play(
     action: BackupAction,
     target: BackupTarget,
     host: str,
-    guest: str = "",
+    name: str = "",
     full_date: str = "",
     incremental_date: str = "",
     deploy: bool = False,
@@ -313,7 +320,7 @@ def play(
     and where `BackupService` takes it into the artefacts afterwards.
     """
     restore = {
-        "name": entry(action, guest, incremental_date or full_date).title,
+        "name": entry(action, name, incremental_date or full_date).title,
         # The scripts read the pool from one member and answer for all of
         # it. Which one is named rather than left to
         # `groups['cluster_machines'][0]`, because that member is also where
@@ -322,7 +329,7 @@ def play(
         "hosts": host,
         "gather_facts": False,
         "become": True,
-        "tasks": _tasks(action, target, guest, full_date, incremental_date),
+        "tasks": _tasks(action, target, name, full_date, incremental_date),
     }
     for archive, image in sorted((archives or {}).items()):
         restore["tasks"].append(
@@ -345,7 +352,7 @@ def play(
 def _tasks(
     action: BackupAction,
     target: BackupTarget,
-    guest: str,
+    name: str,
     full_date: str,
     incremental_date: str,
 ) -> list[dict]:
@@ -359,7 +366,7 @@ def _tasks(
             target.remote_shell,
             target.destination,
             full_date,
-            guest,
+            name,
             incremental_date,
         ]
     else:
@@ -372,12 +379,12 @@ def _tasks(
             target.include_vm,
             # The script matches it with `grep -E -v`, and an empty pattern
             # there excludes everything. The menu's own default is a name no
-            # guest has, and this keeps it rather than inventing another.
+            # guest or workload has, and this keeps it rather than inventing another.
             target.exclude_vm or _NOTHING,
         ]
     return [
         {
-            "name": entry(action, guest, incremental_date or full_date).title,
+            "name": entry(action, name, incremental_date or full_date).title,
             "ansible.builtin.command": {
                 "argv": argv,
                 # The `read -r` the script pauses on, answered here rather than
@@ -420,8 +427,8 @@ def metadata_shell_command(
 
 
 # What `backup-restore.sh` puts in `exclude_vm` when a site has set nothing: a
-# guest name nobody has, because the pattern is matched with `grep -E -v` and
-# an empty one would exclude every guest.
+# name no guest or workload has, because the pattern is matched with
+# `grep -E -v` and an empty one would exclude all of them.
 _NOTHING = "NonExistingGuestNameForDefault"
 
 # What the backup server is asked, in one POSIX shell command. The directory

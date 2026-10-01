@@ -11,9 +11,10 @@ reading of Ceph over the client D31 established.
 The roles follow the split the rest of this service uses. Changing where a
 site's backups go is desired state, so it is an administrator's. Taking a
 backup and reading the server are the operator's, the way starting a guest is.
-Restoring is an administrator's, because it destroys a running guest and
-replaces it with what a directory on another machine happens to hold, which is
-the most destructive single act this service offers.
+Restoring is an administrator's, because it destroys a running guest or the
+state of a running workload and replaces it with what a directory on another
+machine happens to hold, which is the most destructive single act this service
+offers.
 """
 
 from __future__ import annotations
@@ -133,7 +134,7 @@ def backup(request: Request) -> BackupView:
 
 @router.get("/estimate", response_model=Estimate)
 def estimate(request: Request) -> Estimate:
-    """What a full backup would weigh, per guest, from `rbd du`.
+    """What a full backup would weigh, per guest and workload, from `rbd du`.
 
     Its own endpoint because it is its own cost. With no fast-diff map
     `rbd du` walks every object of an image, so it is never on the path of
@@ -168,9 +169,9 @@ def staging(request: Request) -> StagingReading:
     """Whether the two staging directories exist, and the room they have.
 
     Asked of the member the backups run on, over one SSH connection, because
-    that is where `backup_full.sh` writes a qcow2 of every guest before it
-    sends anything. A directory that is not there yet comes with the file
-    system it would be created on.
+    that is where `backup_full.sh` writes a qcow2 of every guest and workload,
+    and the container images, before it sends anything. A directory that is
+    not there yet comes with the file system it would be created on.
     """
     return _service(request).staging()
 
@@ -274,9 +275,9 @@ def settings(
 
 @router.post("/full", status_code=202)
 def full(request: Request, user: User = operator) -> RunResponse:
-    """Take a full backup of every guest the filters select.
+    """Take a full backup of every guest and container workload the filters select.
 
-    It purges the snapshots of every image it exports before taking the base
+    It purges the snapshots of every guest image it exports before taking the base
     snapshot this backup and the increments after it are made against, so the
     increments of the previous full backup stop being applicable. The
     confirmation on the page says so.
@@ -304,7 +305,7 @@ def restore(
         request,
         BackupAction.RESTORE,
         user,
-        guest=payload.guest,
+        name=payload.guest,
         full_date=payload.full_date,
         incremental_date=payload.date,
     )
@@ -314,41 +315,44 @@ def restore(
 def restore_container(
     request: Request, payload: ContainerRestoreRequest, user: User = admin
 ) -> RunResponse:
-    """Bring the RBD image of one container workload back from a backup.
+    """Bring one container workload back from a backup.
 
-    The workload is stopped, its image put aside and recreated from the
-    backup, then started again unless it was stopped. The name and both dates
-    are checked against the listing this service last read.
+    A declared workload is stopped, its image put aside and recreated from
+    the backup, then started again unless it was stopped. One the inventory
+    does not declare is declared from the definition the backup holds and
+    deployed by the same run. The name and both dates are checked against the
+    listing this service last read.
     """
-    response = _launch(
+    return _launch(
         request,
         BackupAction.RESTORE_CONTAINER,
         user,
-        guest=payload.name,
+        name=payload.name,
         full_date=payload.full_date,
         incremental_date=payload.date,
     )
-    return response.model_copy(update={"guest": "", "container": payload.name})
 
 
 def _launch(
     request: Request,
     action: BackupAction,
     user: User,
-    guest: str = "",
+    name: str = "",
     full_date: str = "",
     incremental_date: str = "",
 ) -> RunResponse:
     record = _service(request).launch(
         action,
         user.username,
-        guest=guest,
+        name=name,
         full_date=full_date,
         incremental_date=incremental_date,
     )
+    container = action is BackupAction.RESTORE_CONTAINER
     return RunResponse(
         run_id=record.id,
         state=record.state.value,
         action=action.value,
-        guest=guest,
+        guest="" if container else name,
+        container=name if container else "",
     )

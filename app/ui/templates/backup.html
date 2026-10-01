@@ -45,7 +45,7 @@ to be erased.
     <dl id="target" hidden>
       <dt>Backup server</dt>
       <dd id="target-server"></dd>
-      <dt>Guests</dt>
+      <dt>Guests and containers</dt>
       <dd id="target-filter"></dd>
       <dt>Containers</dt>
       <dd id="target-containers"></dd>
@@ -76,14 +76,14 @@ to be erased.
     </div>
     <p class="help" id="acts-help" hidden>
       A backup holds the cluster's run lock for as long as it takes, so no
-      convergence starts while one is going. The guests keep running
-      throughout.
+      convergence starts while one is going. The guests and the container
+      workloads keep running throughout.
     </p>
   </section>
 
   {# The two staging directories, on the member the backups run on. A full
-     backup writes a qcow2 of every selected guest there before it sends
-     anything, and on a machine installed from the ISO the root file system is
+     backup writes a qcow2 of every selected guest and workload there, and the
+     container images, before it sends anything, and on a machine installed from the ISO the root file system is
      a few tens of gigabytes: this is where a first backup fails, an hour in,
      unless somebody looked first. Read over one SSH connection, like the
      listing, and read again once a run that could change it has ended. #}
@@ -153,10 +153,11 @@ to be erased.
     </p>
   </section>
 
-  {# What a full backup would weigh, per guest. `rbd du` on the member the
-     backups run on, of the images the filters select and no other. The two
-     filters are applied exactly as the scripts apply them, to the guest name,
-     so a guest missing from this table is a guest the run will skip.
+  {# What a full backup would weigh, per guest and workload. `rbd du` on the
+     member the backups run on, of the images the filters select and no other.
+     The two filters are applied exactly as the scripts apply them, to the
+     guest or workload name, so one missing from this table is one the run
+     will skip.
 
      Behind a button, and that is the whole design of this panel. With no
      fast-diff map `rbd du` walks every object of an image. Asked on every
@@ -171,24 +172,25 @@ to be erased.
       </div>
     </div>
     <p class="lead">
-      What a full backup exports for every selected guest, and for the RBD
-      image of every container workload the same filters select, at most. A
-      qcow2 is sparse, so this is the data Ceph holds for those disks rather
-      than what they were provisioned at.
+      What a full backup exports for every selected guest and container
+      workload, at most: the disks of a guest, the RBD image of a workload. A
+      qcow2 is sparse, so this is the data Ceph holds for those images rather
+      than what they were provisioned at. The container images a backup saves
+      beside them are not counted.
     </p>
     <p class="help">
       Measuring it runs <code>rbd du</code> on <span id="estimate-runner">the
-      member the backups run on</span>, for the disks of the selected guests
-      only. It walks every object of those disks, which is seconds to tens of
+      member the backups run on</span>, for the images of the selected guests
+      and workloads only. It walks every object of those images, which is seconds to tens of
       seconds, so it is asked for rather than read on every visit. Its
       figures are deltas, one per snapshot: an image counts what was written
-      since its latest snapshot, so a guest is worth its image and its
-      snapshots added up, bounded by what it provisions. A block rewritten
+      since its latest snapshot, so a guest or a workload is worth its images
+      and their snapshots added up, bounded by what it provisions. A block rewritten
       since a snapshot is counted twice there, which is why this is a ceiling
       and not a measurement.
     </p>
     <div class="loading" id="estimate-loading" hidden>
-      Adding up the objects of every selected disk
+      Adding up the objects of every selected image
     </div>
     <p class="error" id="estimate-error" hidden></p>
     <div class="table-scroll" id="estimate-table" hidden>
@@ -263,9 +265,13 @@ to be erased.
   <p class="hint" id="how">
     These are the scripts of the upstream <code>backup_restore</code> role,
     installed in <code>/usr/local/bin</code> by the prerequisites playbook of
-    the machine's distribution. A backup exports every guest's RBD images as
-    qcow2 and rsyncs them to the server; an incremental one exports RBD diffs
-    against the latest snapshot into the same directory. The values below are
+    the machine's distribution. A backup exports the RBD images of every
+    guest and container workload as qcow2, with their metadata, which hold
+    the XML of a guest and the definition of a workload, and the container
+    images the workloads run, and rsyncs them to the server; an incremental
+    one exports RBD diffs against the latest snapshot into the same
+    directory. What the server holds is enough to restore a guest or a
+    workload on a cluster that never had it. The values below are
     passed on the command line, so <code>/etc/backup-restore.conf</code> on the
     machines is untouched and the menu there keeps whatever it was given.
   </p>
@@ -466,10 +472,10 @@ to be erased.
   </div>
 </div>
 
-{# What the server holds, and the restore of one guest out of it. A restore
-   starts from a row of this list, so both are one window: choosing a row
-   turns the window into its confirmation, which names the guest that is
-   about to be replaced, and going back returns to the same list without
+{# What the server holds, and the restore of one guest or workload out of it.
+   A restore starts from a row of this list, so both are one window: choosing
+   a row turns the window into its confirmation, which names the guest or
+   workload that is about to be replaced, and going back returns to the same list without
    asking the server again. The window says when the list was read: a page
    that showed it as live would be claiming a reading this service cannot
    make. #}

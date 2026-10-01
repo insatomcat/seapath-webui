@@ -634,7 +634,7 @@ def test_a_pool_that_cannot_be_measured_says_why(
 
     estimate = _estimate(signed_in)
 
-    assert estimate["guests"] == []
+    assert estimate["volumes"] == []
     assert estimate["error"] == (
         "elabo1 could not measure the pool: Permission denied (publickey)."
     )
@@ -647,7 +647,7 @@ def test_the_estimate_sums_a_guest_and_its_additional_disks(
 
     estimate = _estimate(signed_in)
 
-    volumes = {guest["guest"]: guest for guest in estimate["guests"]}
+    volumes = {volume["name"]: volume for volume in estimate["volumes"]}
     # `vm-guest1` has a system disk and a data disk, and a backup exports both.
     assert volumes["vm-guest1"]["images"] == [
         "data_vm-guest1_0",
@@ -662,7 +662,7 @@ def test_the_estimate_sums_a_guest_and_its_additional_disks(
     # The total is what crosses the network, which is the used size and not
     # what the disks were provisioned at.
     assert estimate["used_bytes"] == sum(
-        guest["used_bytes"] for guest in estimate["guests"]
+        volume["used_bytes"] for volume in estimate["volumes"]
     )
 
 
@@ -699,7 +699,7 @@ def test_the_estimate_counts_the_container_workloads_the_scripts_back_up(
 
     estimate = _estimate(signed_in)
 
-    volumes = {guest["guest"]: guest for guest in estimate["guests"]}
+    volumes = {volume["name"]: volume for volume in estimate["volumes"]}
     assert volumes["nginxquadlet"]["container"] is True
     assert volumes["nginxquadlet"]["images"] == ["nginxquadlet"]
     assert volumes["vm-guest1"]["container"] is False
@@ -726,7 +726,7 @@ def test_a_member_whose_role_predates_the_workloads_counts_none_and_says_so(
     estimate = _estimate(signed_in)
 
     assert estimate["containers_tool"] is False
-    assert not any(guest["container"] for guest in estimate["guests"])
+    assert not any(volume["container"] for volume in estimate["volumes"])
 
 
 def test_a_workload_is_filtered_by_its_name_as_a_guest_is(

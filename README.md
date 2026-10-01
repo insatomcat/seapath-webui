@@ -418,15 +418,18 @@ the journal of a machine that is gone still sends it to a collector. See D63.
 ![The Backup page: where the backups go and whether a full one fits, the staging directories on the member that runs them, and what a full backup would weigh](img/13-backup.png)
 
 **Backup** is the `backup_restore` role of the collection, which upstream is
-four scripts and a whiptail menu on every machine. The scripts are kept, and the
-menu stays on the machines: this page holds the seven values the menu holds, as
-inventory variables, and passes them on the command line of a run. **Back up
-everything** exports the RBD images of every selected guest as qcow2 and rsyncs
-them to the backup server. **Back up the changes** exports the RBD diffs since
-the latest snapshot into the same directory. Each is a run on one named member,
-under the cluster's run lock, and its confirmation names what it erases, since
-a full backup purges the snapshots each image carries. The guests keep running
-throughout. Where the `/etc/backup-restore.conf` of a machine, which its menu
+five scripts and a whiptail menu on every machine. It backs up the two kinds of
+workload a cluster runs on Ceph, the guests and the container workloads, each
+whole. The scripts are kept, and the menu stays on the machines: this page
+holds the seven values the menu holds, as inventory variables, and passes them
+on the command line of a run. The two filters select guests and workloads
+alike, by name. **Back up everything** exports the RBD images of every selected
+guest and workload as qcow2, with their metadata and the container images the
+workloads run, and rsyncs them to the backup server. **Back up the changes**
+exports the RBD diffs since the latest snapshot into the same directory. Each
+is a run on one named member, under the cluster's run lock, and its
+confirmation names what it erases, since a full backup purges the snapshots of
+a guest's images. The guests and the workloads keep running throughout. Where the `/etc/backup-restore.conf` of a machine, which its menu
 still reads, says something else than the inventory, the page names the
 difference, and the next convergence renders the file from the inventory. See
 D53 and D55 in [docs/decisions.md](docs/decisions.md).
@@ -438,8 +441,9 @@ system each one is on and its room: on a machine installed from the ISO the
 root file system is a few tens of gigabytes, and that is where a first backup
 fails, an hour in. The local file systems the staging could move to, one click
 each, which commits the two directories under that mount point and runs the
-role that creates them. The estimated volume, `rbd du` of the selected guests'
-disks, behind a button because it walks every object of them. And, once both
+role that creates them. The estimated volume, `rbd du` of the images of the
+selected guests and workloads, behind a button because it walks every object of
+them. And, once both
 are known, whether a full backup fits, on the staging and on the server. Where
 no file system has the room, a local volume can be created, a partition in the
 free space after the last one of a disk, by a run of the upstream
@@ -456,7 +460,7 @@ the members' keys to the server's `authorized_keys` with the account's password
 typed once, neither stored nor logged. That append is the one write this
 service makes on a machine outside the inventory. See D57.
 
-![Show the backups: what the backup server holds, one row per full backup and guest, with the dates each can be restored to](img/13-1-backup-list.png)
+![Show the backups: what the backup server holds, one row per full backup and guest or workload, with the dates each can be restored to](img/13-1-backup-list.png)
 
 **Show the backups** asks the server what it holds, over one SSH connection
 through the member, and opens the listing in a window that says when it was
@@ -466,12 +470,11 @@ about to be replaced and the date its changes are replayed up to, and the
 restore is a run of `restore_vm.sh`, which recreates the guest with
 `vm-mgr create --force`. See D54.
 
-The backups take the state of the container workloads with the guests: the RBD
-image each workload writes to, filtered by name like a guest. Their rows in the
-listing restore that image alone, through `restore_container.sh`, which stops
-the workload, puts its current image aside and starts it again on the image of
-the chosen date, with the version the inventory gives it. See D71. A backup
-holds everything a workload is made of, as it does for a guest:
+A container workload's row restores it through `restore_container.sh`. A
+workload the inventory declares has its state restored: the script stops it,
+puts its current image aside and starts it again on the image of the chosen
+date, with the version the inventory gives it. See D71. A backup holds
+everything a workload is made of, as it does for a guest:
 `deploy_containers_cluster` records its entry and the text of its files in the
 metadata of its RBD image, and the backup saves its container images. A
 workload the inventory does not declare, removed or never deployed on a

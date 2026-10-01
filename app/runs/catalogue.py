@@ -606,7 +606,8 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "staging directories, readable by root only. Where the inventory "
             "names them, it also generates the key the backups are pushed "
             "with, once, and adds the backup server's host key to root's "
-            "known_hosts. No service restarts and no guest is touched."
+            "known_hosts. No service restarts, and no guest or container is "
+            "touched."
         ),
         requires=[
             Precondition.INVENTORY_VALID,

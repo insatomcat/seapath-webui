@@ -14,8 +14,8 @@
 // pauses on a `read -r` before it deletes something, and a run answers that
 // prompt on purpose so the question is asked here instead. A full backup
 // purges the snapshots of every image it exports, which retires the increments
-// of the previous backup; a restore replaces a running guest with what a
-// directory on another machine holds. Both windows say so in those words.
+// of the previous backup; a restore replaces a running guest, or the state of
+// a running workload, with what a directory on another machine holds. Both windows say so in those words.
 
 (function () {
   let canAct = false;
@@ -131,7 +131,8 @@
   }
 
   // What a backup does with each workload of cluster_containers: the RBD
-  // image it writes to is backed up with the guests, under the same filters.
+  // image it writes to is backed up with the guests, under the same filters,
+  // with its definition and the container images it runs.
   const LEFT_OUT = {
     filters: "left out by the filters",
     no_rbd: "no RBD image, nothing to back up",
@@ -185,35 +186,39 @@
   // Asked for rather than read with the page. With no fast-diff map `rbd du`
   // walks every object of the disks it measures, so a panel that fetched it on
   // every visit held the page up and then showed a timeout. It runs on the
-  // member the backups run on, for the selected guests' disks only.
+  // member the backups run on, for the selected guests' and workloads' images
+  // only.
   //
   // A ceiling, and the page says so in those words. The rows `rbd du` answers
-  // are deltas between snapshots, so a guest is worth its image and its
-  // snapshots added up, and a block rewritten since a snapshot is counted in
+  // are deltas between snapshots, so a guest or a workload is worth its images
+  // and their snapshots added up, and a block rewritten since a snapshot is counted in
   // both rows. The service bounds the sum by what the disk provisions.
 
   function renderEstimate(estimate) {
     measured = estimate.error ? null : estimate;
     renderRoom();
     renderPlaces();
-    const guests = estimate.guests || [];
+    const volumes = estimate.volumes || [];
     element("estimate-error").textContent = estimate.error || "";
     element("estimate-error").hidden = !estimate.error;
-    element("estimate-table").hidden = guests.length === 0;
-    const workloads = guests.filter((guest) => guest.container).length;
-    element("estimate-total").textContent = guests.length
+    element("estimate-table").hidden = volumes.length === 0;
+    const workloads = volumes.filter((volume) => volume.container).length;
+    const guests = volumes.length - workloads;
+    element("estimate-total").textContent = volumes.length
       ? "at most " + size(estimate.used_bytes) + " over " +
-        (guests.length - workloads) + " guests" +
-        (workloads ? " and " + workloads + " container workloads" : "")
+        [
+          guests ? guests + " guests" : "",
+          workloads ? workloads + " container workloads" : "",
+        ].filter(Boolean).join(" and ")
       : "";
 
     const body = clear(element("estimate-rows"));
-    guests.forEach((guest) => {
+    volumes.forEach((volume) => {
       row(body, [
-        cell(guest.guest + (guest.container ? " (container)" : "")),
-        cell(String(guest.images.length)),
-        cell(size(guest.used_bytes)),
-        cell(size(guest.provisioned_bytes)),
+        cell(volume.name + (volume.container ? " (container)" : "")),
+        cell(String(volume.images.length)),
+        cell(size(volume.used_bytes)),
+        cell(size(volume.provisioned_bytes)),
       ]);
     });
 
@@ -426,8 +431,8 @@
         "backup_restore_local_tmp_dir " + restore + " on cluster_machines, " +
         "then runs seapath_setup_backup_restore on every cluster member, " +
         "which creates both directories, readable by root only, and renders " +
-        "/etc/backup-restore.conf. No service restarts and no guest is " +
-        "touched.",
+        "/etc/backup-restore.conf. No service restarts, and no guest " +
+        "or container is touched.",
       note:
         place.mountpoint + " is " + staged.host + "'s, where the backups " +
         "run. On a member without it the directories are created on the " +
@@ -499,7 +504,8 @@
     const short = places.filter((place) => place.free < needed);
     return {
       text:
-        "A full backup of the selected guests writes up to " + size(needed) +
+        "A full backup of the selected guests and workloads writes up to " +
+        size(needed) +
         ". " +
         places
           .map(
@@ -538,7 +544,8 @@
         text =
           backup.path + " is on " + where + ", with " +
           size(backup.free_bytes) + " free. A full backup writes a qcow2 " +
-          "of every selected guest there before sending anything, so a " +
+          "of every selected guest and workload there, and the container " +
+          "images, before sending anything, so a " +
           "volume of its own is usually what it needs.";
       }
     }
@@ -570,7 +577,8 @@
         "Runs seapath_setup_backup_restore on every cluster member. It creates " +
         missing.join(" and ") + ", readable by root only, installs the " +
         "backup scripts and renders /etc/backup-restore.conf from the " +
-        "inventory. No service restarts and no guest is touched.",
+        "inventory. No service restarts, and no guest or container is " +
+        "touched.",
       note:
         "The directories are created on the file system that holds them " +
         "today. If that is the root file system and a full backup needs " +
@@ -1118,7 +1126,8 @@
         "member has no key at " + connection.key_path + " yet, the role " +
         "generates one; an existing key is never replaced, since the server " +
         "trusts it. It also renders /etc/backup-restore.conf and trusts the " +
-        "server's host key. No service restarts and no guest is touched.",
+        "server's host key. No service restarts, and no guest or container " +
+        "is touched.",
       label: "Generate them",
       act: async () => {
         const started = await API.post("/runs", {
@@ -1287,16 +1296,20 @@
   function confirmFull() {
     const room = fit();
     confirm({
-      title: "Back up every guest, in full",
+      title: "Back up every guest and container workload, in full",
       body:
-        "Exports every selected guest's disks from Ceph as qcow2 and sends " +
-        "them to " + view.target + ". The guests keep running throughout. " +
-        "Expect an hour or more on a cluster holding a dozen guests, and the " +
-        "cluster takes no other run until it ends." +
+        "Exports from Ceph, as qcow2, the disks of every selected guest and " +
+        "the RBD image of every selected container workload, with their " +
+        "metadata and the container images the workloads run, and sends them " +
+        "to " + view.target + ". The guests and the workloads keep running " +
+        "throughout. Expect an hour or more on a cluster holding a dozen of " +
+        "them, and the cluster takes no other run until it ends." +
         (room.text ? " " + room.text : ""),
       note:
-        "Before it exports an image it removes every snapshot that image " +
-        "carries, with `rbd snap purge`, and takes the base snapshot this " +
+        "Before it exports the image of a guest it removes every snapshot " +
+        "that image carries, with `rbd snap purge`; on the image of a " +
+        "workload, only the snapshots of previous backups, the ones taken " +
+        "before a new version staying. It then takes the base snapshot this " +
         "backup and the increments after it are made against. The increments " +
         "of the previous full backup can no longer be applied afterwards. It " +
         "also empties the staging directory on the machine, which is where " +
@@ -1314,9 +1327,12 @@
       body:
         "Exports what each image changed since its latest snapshot, as an RBD " +
         "diff beside the full backup it belongs to, and sends the directory " +
-        "to " + view.target + " again. The guests keep running.",
+        "to " + view.target + " again, with the metadata of every guest and " +
+        "workload and the container images a new version brought. The " +
+        "guests and the workloads keep running.",
       note:
-        "A disk added since the last full backup has no snapshot to diff " +
+        "A disk or a workload added since the last full backup has no " +
+        "snapshot to diff " +
         "against. It is skipped with a warning in the log and stays out of " +
         "every incremental backup until a new full one is taken.",
       label: "Back up the changes",
@@ -1670,7 +1686,7 @@
     // state, so they are the operator's, the way starting a guest is.
     canAct = me.role === "operator" || Chrome.isAdmin(me);
     // Where the backups go is a commit, and a restore destroys a running
-    // guest. Both are the administrator's.
+    // guest or the state of a running workload. Both are the administrator's.
     canWrite = Chrome.isAdmin(me);
     // Never on the timer. Reading this page again asks every cluster member
     // over SSH, for its staging directories and its connection to the backup
