@@ -315,7 +315,7 @@ def play(
     over the others with an image that never came back: `any_errors_fatal`.
 
     `archives` maps the `archive` an entry names, as it names it, to the
-    container image the backup saved for it. Each is fetched from the restore
+    container image the backup saved for it. Each is pulled from the restore
     staging directory into the run's own tree, where the deployment reads it
     and where `BackupService` takes it into the artefacts afterwards.
     """
@@ -331,14 +331,25 @@ def play(
         "become": True,
         "tasks": _tasks(action, target, name, full_date, incremental_date),
     }
+    # rsync rather than `fetch`: under `become`, `fetch` reads the file with
+    # `slurp`, the whole of it base64 in one JSON answer, which took 155 s for
+    # an archive of 134 MB. rsync compresses it on the way. The node's side
+    # reads a staging directory only root reads, through `sudo`, and the
+    # controller's side writes into the run's own tree as the service: the
+    # module would otherwise run the local rsync under `become`.
     for archive, image in sorted((archives or {}).items()):
         restore["tasks"].append(
             {
                 "name": f"Bring back {archive} from the backup",
-                "ansible.builtin.fetch": {
+                "become": False,
+                "ansible.posix.synchronize": {
+                    "mode": "pull",
                     "src": f"{target.local_tmp_dir}images/{image_file(image)}",
                     "dest": "{{ playbook_dir }}/" + archive,
-                    "flat": True,
+                    "archive": False,
+                    "compress": True,
+                    "rsync_path": "sudo -n rsync",
+                    "use_ssh_args": True,
                 },
             }
         )

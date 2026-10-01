@@ -5734,14 +5734,20 @@ A restore of a workload `cluster_containers` does not declare reads
 `<date>.json` on the backup server, over the connection the listing uses,
 before anything is written. It commits the entry and the files as one
 commit, and launches one run: the restore play on the member the backups run
-on, with `any_errors_fatal`, a `fetch` of each image archive the entry names
+on, with `any_errors_fatal`, a pull of each image archive the entry names
 and the artefacts lack, from the saved images, into the run's own tree, then
 `deploy_containers_cluster` imported as it stands. The restore comes first
 because the role keeps an RBD image it finds (D71), so the workload starts on
-the restored state. Once the run has ended, the fetched archives go into the
+the restored state. Once the run has ended, the pulled archives go into the
 artefacts. A run that cannot start reverts the commit.
 
-The directories a fetch writes into are made real in the run's tree, with
+The pull is `synchronize` in `pull` mode, rsync compressed over the run's SSH
+path with `sudo rsync` on the member, rather than `fetch`. Under `become`,
+`fetch` reads a file with `slurp`, the whole of it base64 in one answer: an
+archive of 134 MB took 155 s on ccv, where rsync carries the 40 MB it
+compresses to.
+
+The directories a pull writes into are made real in the run's tree, with
 every directory above them: the tree is otherwise symlinks into the artefacts
 and the installed collection, and a file written through one would land there
 before the run has done anything.

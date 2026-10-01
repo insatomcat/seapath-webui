@@ -167,10 +167,16 @@ def test_an_archive_the_artefacts_lack_comes_from_the_backup(
     restore, _ = _plays(settings, run_id)
     assert restore["tasks"][1] == {
         "name": "Bring back ../files/protect-1.0.tar from the backup",
-        "ansible.builtin.fetch": {
+        # rsync, compressed, rather than a `fetch` that base64s the archive.
+        "become": False,
+        "ansible.posix.synchronize": {
+            "mode": "pull",
             "src": "/var/lib/seapath-restore/images/localhost_protect_1.0.tar",
             "dest": "{{ playbook_dir }}/../files/protect-1.0.tar",
-            "flat": True,
+            "archive": False,
+            "compress": True,
+            "rsync_path": "sudo -n rsync",
+            "use_ssh_args": True,
         },
     }
     # Written into a directory of the run's own, never through a symlink
