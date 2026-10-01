@@ -345,6 +345,10 @@ class InventoryService:
     def raw(self) -> str:
         return self._repository.read()
 
+    def raw_at(self, commit: str) -> str:
+        """The inventory file as a commit holds it, the one a run was given."""
+        return self._repository.read_at(commit)
+
     def discovery(self) -> Discovery:
         return discover(self._reader)
 

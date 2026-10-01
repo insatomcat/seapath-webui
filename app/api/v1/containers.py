@@ -165,6 +165,28 @@ class DeclarationResponse(BaseModel):
     )
 
 
+class Removal(BaseModel):
+    """What removing a workload asks the operator for."""
+
+    remove_rbd: bool = Field(
+        default=False,
+        description=(
+            "Delete the workload's RBD image too, with its snapshots and the "
+            "images put aside: the state it wrote is gone. Left false, the "
+            "image stays in the pool, and the backups go on exporting it"
+        ),
+    )
+
+
+class RemovalResponse(BaseModel):
+    """The commit marking the workload absent, and the run applying it."""
+
+    name: str
+    commit: str
+    message: str
+    run_id: str
+
+
 class ActionResponse(BaseModel):
     """The run that carries out the action, watched like any other."""
 
@@ -422,6 +444,67 @@ def set_workload_values(
     if not payload.apply:
         return installed
     return _launch(request, user, installed, {RESTART_VARIABLE: name})
+
+
+@router.post("/{name}/remove", status_code=202)
+def remove(
+    request: Request,
+    name: str,
+    payload: Removal,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> RemovalResponse:
+    """Remove a workload of `cluster_containers` from the cluster.
+
+    Two acts, in the order a deletion of a guest takes them. The entry is
+    marked `state: absent` as one commit, then `deploy_containers_cluster`
+    runs: the role stops the resource and deletes it with its constraints,
+    and takes the quadlets, the configuration, the image archives and the
+    images off every node, and the RBD image with `remove_rbd`. Once that run
+    has succeeded, the entry and the files it named leave the inventory as a
+    commit of their own, by the same operator. A run that cannot start at all
+    reverts the first commit here and answers with the reason.
+
+    A container `upload_extra_files` uploads has no role to take it off the
+    machines and is refused: `404 unknown_container`. `admin`, because it
+    writes the inventory and may destroy data.
+    """
+    try:
+        commit = _service(request).remove(
+            name, payload.remove_rbd, user.username, if_match
+        )
+    except UnknownContainer as error:
+        raise ApiError("unknown_container", str(error), 404) from error
+    except InvalidContainer as error:
+        raise ApiError("invalid_container", str(error), 409) from error
+    except StaleWrite as error:
+        raise ApiError("stale_write", str(error), 409) from error
+    except RefusedWrite as error:
+        raise ApiError(
+            "refused_write",
+            str(error),
+            409,
+            {"divergences": [d.model_dump() for d in error.divergences]},
+        ) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+
+    try:
+        record = _runs(request).launch(WORKLOAD_PLAYBOOK, user.username)
+    except ApiError:
+        # Declared again rather than left marked: a workload that runs is
+        # where the operator started, and they can try once the run holding
+        # the lock is over.
+        request.app.state.inventory_service.revert(commit.hash, user.username)
+        raise
+    return RemovalResponse(
+        name=name, commit=commit.hash, message=commit.message, run_id=record.id
+    )
 
 
 @router.get("/{name}/files", response_model=QuadletFiles)

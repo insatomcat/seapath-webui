@@ -125,6 +125,9 @@ class Quadlet:
     preferred_host: str = ""
     """The member a workload's entry asks the cluster to run it on, which
     `deploy_containers_cluster` writes as a `prefer-` rule."""
+    rbd: bool = False
+    """The workload keeps its state on an RBD image named after it, which a
+    removal deletes only when it is asked to."""
 
     @property
     def actionable(self) -> bool:
@@ -189,6 +192,31 @@ def workloads(document: str | dict[str, Any]) -> list[Quadlet]:
             quadlet = _workload(host, name, spec)
             if quadlet is not None:
                 found.append(quadlet)
+    return found
+
+
+def removed(document: str | dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """The workloads `cluster_containers` marks `state: absent`, by name.
+
+    The next run of `deploy_containers_cluster` takes them off every node, and
+    until then they are the one thing about them the page still has to say.
+    """
+    table = groups(document)
+    if any(name not in table for name in WORKLOAD_GROUPS):
+        return {}
+    played = members(table, WORKLOAD_GROUPS[0]) & members(table, WORKLOAD_GROUPS[1])
+    found: dict[str, dict[str, Any]] = {}
+    for host, variables in sorted(resolve(document).items()):
+        value = variables.get(WORKLOADS_VARIABLE)
+        if host not in played or not isinstance(value, dict):
+            continue
+        for name, spec in value.items():
+            if (
+                isinstance(name, str)
+                and isinstance(spec, dict)
+                and spec.get("state", "present") == "absent"
+            ):
+                found.setdefault(name, spec)
     return found
 
 
@@ -345,6 +373,7 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
         mode="0644",
         workload=True,
         preferred_host=preferred if isinstance(preferred, str) else "",
+        rbd=isinstance(spec.get("rbd"), dict),
     )
 
 

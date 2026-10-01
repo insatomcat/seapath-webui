@@ -442,6 +442,12 @@
     if (canWrite && container.values_editable) {
       node.append(" ", action("Values", () => openValues(container)));
     }
+    // Removing is the role's own `state: absent`, which only a workload of
+    // cluster_containers has: an uploaded quadlet has no role to take it off
+    // the machines.
+    if (canWrite && container.variable === "cluster_containers") {
+      node.append(" ", action("Remove", () => confirmRemove(container)));
+    }
     return node;
   }
 
@@ -494,6 +500,25 @@
     });
   }
 
+  function renderRemoving(payload) {
+    const removing = payload.removing || [];
+    element("removing-card").hidden = removing.length === 0;
+    element("removing-run").hidden = !canWrite;
+    const list = clear(element("removing-rows"));
+    removing.forEach((workload) => {
+      const item = document.createElement("li");
+      const name = document.createElement("strong");
+      name.textContent = workload.name;
+      item.append(
+        name,
+        workload.remove_rbd
+          ? ", its RBD image deleted with it"
+          : ", its RBD image kept in the pool"
+      );
+      list.append(item);
+    });
+  }
+
   function renderUndeclared(payload) {
     const undeclared = payload.undeclared || [];
     element("undeclared-card").hidden = undeclared.length === 0;
@@ -536,7 +561,7 @@
   // `choose` is the destination a move needs. The node is part of the act, so
   // it is picked in the window that names the disruption rather than in a
   // control on the row an operator could leave set from last time.
-  function confirm({ title, body, note, label, choose, act }) {
+  function confirm({ title, body, note, label, choose, option, act }) {
     element("confirm-title").textContent = title;
     element("confirm-disruption").textContent = body;
     element("confirm-note").textContent = note || "";
@@ -556,6 +581,13 @@
       });
     }
 
+    const checked = element("confirm-checked");
+    checked.checked = false;
+    element("confirm-option").hidden = !option;
+    if (option) {
+      element("confirm-option-label").textContent = option;
+    }
+
     const go = element("confirm-go");
     go.textContent = label;
     go.disabled = false;
@@ -563,7 +595,7 @@
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        await act(choose ? picker.value : undefined);
+        await act(choose ? picker.value : undefined, option ? checked.checked : false);
         element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
@@ -705,6 +737,61 @@
           "/containers/" + encodeURIComponent(container.name) + "/restart"
         );
         RunWatch.open(started.run_id);
+      },
+    });
+  }
+
+  // Removing a workload stops what it serves for good, on whichever member
+  // runs it, so the window says so before it names what else goes. The RBD
+  // image is the workload's state: deleting it is a choice of its own,
+  // unchecked every time.
+  function confirmRemove(container) {
+    const where = container.resource && container.resource.node;
+    confirm({
+      title: "Remove " + container.name + " from the cluster",
+      body:
+        "Marks the workload state: absent in the inventory and runs " +
+        "deploy_containers_cluster on every member. The run stops it" +
+        (where ? " on " + where : "") +
+        " and deletes its Pacemaker resource with its constraints, then " +
+        "takes its quadlets, configuration, image archives and images off " +
+        "every node. Whatever it serves stops for good. Once the run has " +
+        "succeeded, the entry and its files leave the inventory.",
+      note: container.rbd
+        ? "Left unchecked, its RBD image stays in the pool and the backups " +
+          "go on exporting it."
+        : "",
+      option: container.rbd
+        ? "Also delete its RBD image, with its snapshots: the state it wrote " +
+          "is gone"
+        : "",
+      label: "Remove it",
+      act: async (_, removeRbd) => {
+        const started = await API.post(
+          "/containers/" + encodeURIComponent(container.name) + "/remove",
+          { remove_rbd: removeRbd }
+        );
+        RunWatch.open(started.run_id, () => refresh(true));
+      },
+    });
+  }
+
+  // A removal whose run failed stays marked, and the run that finishes it is
+  // the same one, with nothing to ask.
+  function confirmRemovalRun() {
+    const names = ((view && view.removing) || []).map((item) => item.name);
+    confirm({
+      title: "Run deploy_containers_cluster",
+      body:
+        "Runs deploy_containers_cluster on every member. It removes " +
+        names.join(", ") +
+        " and brings every other workload to what the inventory declares.",
+      label: "Run it",
+      act: async () => {
+        const started = await API.post("/runs", {
+          playbook: "deploy_containers_cluster",
+        });
+        RunWatch.open(started.run_id, () => refresh(true));
       },
     });
   }
@@ -1228,6 +1315,7 @@
     view = answer;
     mode = answer.mode;
     renderContainers(answer);
+    renderRemoving(answer);
     renderUndeclared(answer);
     fillScopes(answer);
   }
@@ -1252,6 +1340,7 @@
   element("add-cancel").addEventListener("click", () => showAdd(false));
   element("add-go").addEventListener("click", declare);
   element("add-pacemaker").addEventListener("change", showScope);
+  element("removing-run").addEventListener("click", confirmRemovalRun);
   element("confirm-cancel").addEventListener("click", () => {
     element("confirm").hidden = true;
   });
@@ -1283,7 +1372,7 @@
     const age = Kept.paint(KEPT, draw);
     if (age !== null) {
       Kept.rereading(["loading"], age);
-      Kept.hold(["card-containers", "undeclared-card"]);
+      Kept.hold(["card-containers", "removing-card", "undeclared-card"]);
     }
     await refresh(false, pending);
     // Declaring one is a commit, which is an administrator's act like every

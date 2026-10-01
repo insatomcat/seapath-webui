@@ -85,6 +85,25 @@ not.
      declaration would collide with. No buttons: this service knows the unit's
      name and nothing about what it is, and a stop it cannot describe before it
      runs is a stop it should not offer. #}
+  {# Workloads the inventory marks state: absent. Until a run of
+     deploy_containers_cluster has taken them off the machines they are still
+     there, and a removal whose run failed would otherwise vanish from every
+     page while its resource keeps running. #}
+  <section class="card" id="removing-card" hidden>
+    <h2>Being removed</h2>
+    <p class="lead">
+      The inventory marks these workloads <code>state: absent</code>. The next
+      run of <code>deploy_containers_cluster</code> stops them and takes them
+      off every node, and once it has succeeded their entry and their files
+      leave the inventory. Reverting the commit that marked one, on the
+      Inventory page, keeps it instead.
+    </p>
+    <ul id="removing-rows"></ul>
+    <div class="actions">
+      <button type="button" id="removing-run" class="secondary" hidden>Run deploy_containers_cluster</button>
+    </div>
+  </section>
+
   <section class="card" id="undeclared-card" hidden>
     <h2>Held by the cluster, and not declared</h2>
     <p class="lead">
@@ -321,6 +340,12 @@ not.
     <label id="confirm-choice" hidden>
       <span id="confirm-choice-label"></span>
       <select id="confirm-node"></select>
+    </label>
+    {# A part of the act that destroys more, unchecked each time the window
+       opens, so the destructive half is never carried over from last time. #}
+    <label class="switch" id="confirm-option" hidden>
+      <input type="checkbox" id="confirm-checked">
+      <span id="confirm-option-label"></span>
     </label>
     <p class="error" id="confirm-error" hidden></p>
     <div class="actions">

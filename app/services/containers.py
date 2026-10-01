@@ -29,11 +29,14 @@ This writes to the inventory and to nothing else. Deploying an uploaded
 quadlet is the prerequisites playbook, which is where `upload_extra_files`
 runs; deploying a cluster workload, its Pacemaker resource included, is
 `deploy_containers_cluster`. Both are ordinary runs, named here and launched
-through `/runs` like every other.
+through `/runs` like every other. Removing a workload is the role's own
+`state: absent`, applied by the same run; the entry and its files leave the
+inventory once that run has taken the workload off the machines. See D72.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +46,8 @@ from app.cluster import ha, systemd
 from app.cluster.exporters import MetricsClient, UrllibMetricsClient, read_all
 from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResource
 from app.cluster.pool import DEFAULT_PORT
-from app.inventory import quadlets
+from app.core.logging import audit_event
+from app.inventory import quadlets, references
 from app.inventory.editor import Scope
 from app.inventory.model import Mode
 from app.inventory.references import Reference, Where
@@ -51,6 +55,7 @@ from app.inventory.repository import Commit
 from app.inventory.resolve import ROOT, depths, groups, resolve
 from app.inventory.service import InventoryService
 from app.runs.catalogue import CATALOGUE
+from app.runs.models import RunRecord, RunState
 from app.services.cluster import ClusterService
 
 # The agent Pacemaker's systemd resource agent is named by, as
@@ -146,6 +151,9 @@ class ContainerView(BaseModel):
     values_editable: bool = False
     """A workload installed from a delivery, whose `values.yaml` in the
     inventory folder describes the site values the page may edit."""
+    rbd: bool = False
+    """A workload keeping its state on an RBD image named after it, which its
+    removal deletes only when asked to."""
     hosts: list[str] = Field(default_factory=list)
     """The machines this inventory sends it to."""
 
@@ -241,9 +249,21 @@ class ScopeOption(BaseModel):
     is not the one those machines receive."""
 
 
+class RemovedWorkload(BaseModel):
+    """A workload `cluster_containers` marks `state: absent`."""
+
+    name: str
+    remove_rbd: bool = False
+    """Its RBD image goes with it, with its snapshots and the images put
+    aside, where otherwise it stays in the pool and in the backups."""
+
+
 class ContainersView(BaseModel):
     mode: str = Mode.STANDALONE.value
     containers: list[ContainerView] = Field(default_factory=list)
+    removing: list[RemovedWorkload] = Field(default_factory=list)
+    """Workloads the inventory marks for removal, which the next run of
+    `deploy_containers_cluster` takes off the machines."""
     undeclared: list[PacemakerResource] = Field(default_factory=list)
     """Units the cluster runs as resources and no quadlet here explains."""
     scopes: list[ScopeOption] = Field(default_factory=list)
@@ -349,6 +369,7 @@ class ContainerService:
                     WORKLOAD_PLAYBOOK if first.workload else view.upload_playbook
                 ),
                 values_editable=first.workload and name in described,
+                rbd=first.rbd,
                 hosts=hosts,
                 file=files.get((first.host, first.src)),
                 managed="pacemaker" if resource else "systemd",
@@ -362,13 +383,18 @@ class ContainerService:
                 _place(entry, cluster, resource)
             view.containers.append(entry)
 
+        view.removing = [
+            RemovedWorkload(name=name, remove_rbd=spec.get("remove_rbd") is True)
+            for name, spec in sorted(quadlets.removed(document).items())
+        ]
+
         explained = {quadlet.unit for quadlet in declared}
         view.undeclared = [
             resource
             for unit, resource in sorted(resources.items())
             if unit not in explained
         ]
-        if not view.containers:
+        if not view.containers and not view.removing:
             view.note = _NO_CONTAINERS
         return view
 
@@ -722,6 +748,174 @@ class ContainerService:
         found = current.get(name) if isinstance(current, dict) else None
         return found if isinstance(found, dict) else None
 
+    def remove(
+        self,
+        name: str,
+        remove_rbd: bool,
+        author: str,
+        expected_head: str | None = None,
+    ) -> Commit:
+        """Mark a workload `state: absent`, as one commit.
+
+        The role's own way of removing one: its next run stops the resource and
+        deletes it with its constraints, and takes the quadlets, the
+        configuration, the image archives and the images off every node.
+        `remove_rbd` deletes the RBD image too, which is where the workload
+        kept its state. Every other key stays, because the role reads the
+        quadlets and the images to know what to take away. The entry and its
+        files leave the inventory once a run has done it: `forget_removed`.
+        """
+        spec = self.workload(name)
+        if spec is None:
+            raise UnknownContainer(
+                f"No workload called {name!r} is declared in cluster_containers. "
+                "A container uploaded by upload_extra_files has no role to take "
+                "it off the machines, so it is removed on the Inventory page."
+            )
+        if spec.get("state", "present") != "present":
+            raise InvalidContainer(
+                f"{name} is already marked for removal. The next run of "
+                f"{WORKLOAD_PLAYBOOK} takes it off the machines."
+            )
+        beside = self._colocated_with(name)
+        if beside:
+            raise InvalidContainer(
+                f"{', '.join(beside)} is kept beside {name} through "
+                "colocated_with or colocated_vms. Take it out of that list first."
+            )
+        marked = {**spec, "state": "absent"}
+        if remove_rbd:
+            marked["remove_rbd"] = True
+        else:
+            marked.pop("remove_rbd", None)
+        kept = (
+            "Its RBD image is deleted with it, its snapshots and the images "
+            "put aside included."
+            if remove_rbd
+            else "Its RBD image stays in the pool, and in the backups."
+        )
+        return self.write_workload(
+            name,
+            marked,
+            author,
+            expected_head,
+            message=(
+                f"containers: remove {name}\n\n"
+                f"The next run of {WORKLOAD_PLAYBOOK} stops it and takes it off "
+                f"every node. {kept}"
+            ),
+        )
+
+    def _colocated_with(self, name: str) -> list[str]:
+        """The workloads and guests asking to run on the same node as `name`.
+
+        A workload and a guest are both Pacemaker resources and share one
+        namespace, so either list may name it.
+        """
+        found = {
+            quadlet.name
+            for quadlet in quadlets.workloads(self._inventory.raw())
+            if quadlet.name != name
+            and name
+            in ((self.workload(quadlet.name) or {}).get("colocated_with") or [])
+        }
+        state = self._inventory.state()
+        for guest, entry in state.inventory.guests.items() if state.inventory else []:
+            if name in (entry.extra.get("colocated_vms") or []):
+                found.add(guest)
+        return sorted(found)
+
+    def forget_removed(self, record: RunRecord) -> Commit | None:
+        """Take out of the inventory the workloads a run has removed.
+
+        Called when any run ends. A workload counts as removed when the
+        inventory the run was given marked it `state: absent` and the run was
+        a full run of `deploy_containers_cluster`, over the whole cluster,
+        that succeeded: the role has then taken it off every node, and the
+        entry names nothing a later run needs. A run that failed keeps the
+        entry, so the next run finishes the removal.
+
+        One commit, authored by the operator who launched the run and naming
+        it, which takes out the entry and the files it named that nothing else
+        names, the folder a delivery installed included. The image archives go
+        from the artefacts after it, when no workload declares them any more.
+        """
+        if (
+            record.playbook_id != WORKLOAD_PLAYBOOK
+            or record.check
+            or record.state is not RunState.SUCCESS
+            or record.scope.narrowed
+            or not record.inventory_commit
+        ):
+            return None
+        applied = quadlets.removed(self._inventory.raw_at(record.inventory_commit))
+        document = self._inventory.raw()
+        marked = quadlets.removed(document)
+        # Still marked as the run read it: an entry put back since is the
+        # operator's, and one marked since is for the next run.
+        names = sorted(
+            name for name in applied if name in marked and marked[name] == applied[name]
+        )
+        if not names:
+            return None
+
+        writes, intended = self._workloads_writes(
+            document,
+            lambda current: {
+                key: value for key, value in current.items() if key not in names
+            },
+        )
+        edited = writes[0][1][quadlets.WORKLOADS_VARIABLE]
+        # A workload marked absent names no file (`references.in_use`), so
+        # what it named is read from the entry as if it were still deployed.
+        named = set().union(
+            *(
+                references.workload_in_folder({**marked[name], "state": "present"})
+                for name in names
+            )
+        )
+        still = references.in_use(document)
+        removed = sorted(
+            item.path
+            for item in self._inventory.files()
+            if item.path not in still
+            and (
+                item.path in named
+                or any(item.path.startswith(f"{_FOLDER}/{name}/") for name in names)
+            )
+        )
+        archives = set().union(*(_archives(marked[name]) for name in names))
+        kept = set().union(
+            *(_archives(spec) for spec in edited.values() if isinstance(spec, dict))
+        )
+
+        one = len(names) == 1
+        message = (
+            f"containers: forget {', '.join(names)}\n\n"
+            f"Run {record.id} of {WORKLOAD_PLAYBOOK} took "
+            f"{'it' if one else 'them'} off every node. "
+            f"{'Its entry' if one else 'Their entries'}, marked state: absent, "
+            f"and the files {'it' if one else 'they'} named leave the inventory."
+        )
+        commit, _ = self._inventory.declare_container(
+            ", ".join(names),
+            writes,
+            intended,
+            record.launched_by,
+            removed=removed,
+            message=message,
+        )
+        for archive in sorted(archives - kept):
+            self._inventory.remove_artefact(f"files/{archive}")
+        audit_event(
+            "containers.forgotten",
+            run=record.id,
+            workloads=",".join(names),
+            commit=commit.hash if commit else "",
+            user=record.launched_by,
+        )
+        return commit
+
     def _workload_writes(
         self, document: str, name: str, spec: dict[str, Any]
     ) -> tuple[list[tuple[Scope, dict[str, Any]]], dict[str, dict[str, Any]]]:
@@ -732,6 +926,14 @@ class ContainerService:
         the mapping is written where the cluster members already read it, on
         `cluster_machines` when nothing holds it yet.
         """
+        return self._workloads_writes(document, lambda current: {**current, name: spec})
+
+    def _workloads_writes(
+        self,
+        document: str,
+        change: Callable[[dict[str, Any]], dict[str, Any]],
+    ) -> tuple[list[tuple[Scope, dict[str, Any]]], dict[str, dict[str, Any]]]:
+        """`cluster_containers` as `change` makes it, written where it is read."""
         table = groups(document)
         if any(group not in table for group in quadlets.WORKLOAD_GROUPS):
             raise InvalidContainer(
@@ -754,7 +956,7 @@ class ContainerService:
                 "this inventory, and adding a workload to it would rewrite "
                 "what is there."
             )
-        variables = {quadlets.WORKLOADS_VARIABLE: {**current, name: spec}}
+        variables = {quadlets.WORKLOADS_VARIABLE: change(current)}
         intended = {host: dict(variables) for host in _affected(table, scope)}
         return [(scope, variables)], intended
 
@@ -949,6 +1151,21 @@ class ContainerService:
 # The variables a container is declared by, which are the references its file
 # is found through.
 _DECLARING = (quadlets.UPLOAD_VARIABLE, quadlets.WORKLOADS_VARIABLE)
+
+
+# Where a delivery installs a workload's small files, `inventories/<name>/`
+# (`delivery.folder`), which goes whole with the workload.
+_FOLDER = "inventories"
+
+
+def _archives(spec: dict[str, Any]) -> set[str]:
+    """The archive file names a workload's images are loaded from."""
+    images = spec.get("images")
+    found: set[str] = set()
+    for image in images if isinstance(images, list) else []:
+        if isinstance(image, dict) and isinstance(image.get("archive"), str):
+            found.add(Path(image["archive"]).name)
+    return found
 
 
 def _variable(quadlet: quadlets.Quadlet) -> str:

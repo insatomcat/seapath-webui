@@ -1882,7 +1882,7 @@ copy held by a machine the inventory declares, at the path
 configuration file, no unit restarted, no command beyond what `git push` runs
 on the far side. A machine still changes only when a playbook converges it.
 
-## D33 - Superseded in part by [D68](#d68): a container is a quadlet, and the page reads the three variables that already deploy one
+## D33 - Superseded in part by [D68](#d68) and [D72](#d72): a container is a quadlet, and the page reads the three variables that already deploy one
 
 Containers were the one thing running on a SEAPATH machine that this service
 could not see. They appeared in the Cluster page's resource table, as rows
@@ -2036,7 +2036,8 @@ edit, and the file it names stays in git either way; what removes the unit from
 a machine is a convergence that no longer uploads it plus a `daemon-reload`,
 which is a sequence with no button behind it. The Inventory page edits the
 variable, which is where a deletion belongs until the roles offer something
-better.
+better. A workload of `cluster_containers` has that role since D68, and
+[D72](#d72) puts its removal on the row.
 
 **A `clone` for a container that should run everywhere.** A quadlet uploaded to
 every member and started by systemd on each of them already does that, and it
@@ -5380,7 +5381,7 @@ the way it takes that one.
   the shape a declared quadlet has, so the rest of the page joins it to its
   unit and its resource unchanged. A container says which variable declares it
   and which run deploys it. A workload marked `state: absent` is no longer a
-  container.
+  container; [D72](#d72) lists it apart until a run has removed it.
 - **Acting.** A workload is started and stopped through its resource whatever
   the kind of the quadlet its unit comes from, a pod included: the resource is
   the workload.
@@ -5618,3 +5619,67 @@ to delete it and the backups go on exporting it, and a restore is a run of
 the new script, `admin` like a guest's, checked against the listing. A
 collection whose role predates the script is refused before the run rather
 than failing on a machine.
+
+## D72 - Settled: a workload is removed by its role's `state: absent`, and its entry leaves after the run
+
+D33 refused a removal button: deleting an entry of `upload_extra_files` leaves
+the quadlet on every machine, and nothing upstream takes it away. A workload
+of `cluster_containers` is the other case. `deploy_containers_cluster` reads
+`state: absent` and, on its next run, stops the resource and deletes it with
+its constraints, takes the quadlets, the configuration, the image archives and
+the images no other workload uses off every node, and with `remove_rbd: true`
+deletes the RBD image, its snapshots and the images put aside. Its README ends
+on "the entry can then be deleted from the inventory". The Containers page
+offered none of it, so a site removing a workload edited the entry by hand,
+ran the playbook, and edited it again.
+
+### One gesture, two commits and a run
+
+**Remove** on the row of a workload, `admin`, confirmed in front of what it
+stops. It commits the entry with `state: absent`, every other key kept since
+the role reads the quadlets and the images to know what to take away, and
+launches `deploy_containers_cluster`, which the window follows. A run that
+cannot start reverts the commit, the order D30 settled for deleting a guest.
+
+The RBD image is a checkbox, unchecked every time the window opens. It holds
+the state the workload wrote, and keeping it is the default that costs
+nothing: the image stays in the pool, `get_containers.py` still finds it by
+its key, and the backups go on exporting it (D71). Checked, `remove_rbd: true`
+is written in the entry, because that is where the role reads it; the entry
+leaves with the run that applied it, so no later run reads it again.
+
+Once that run has ended, the listener D50 introduced for guests takes the
+entry out, with the files it named that nothing else names, the
+`inventories/<name>/` folder of a delivery included, as one commit authored by
+the operator who launched the run and naming it. The image archives then leave
+the artefacts when no workload declares them. A workload counts as removed
+when the inventory the run was given marked it absent and the entry is still
+the same, and the run was a full run of `deploy_containers_cluster` over the
+whole cluster that succeeded. Any other run keeps the entry, and the next one
+finishes the removal.
+
+### What the page shows meanwhile
+
+A workload marked absent left the table in D68, which was right for a
+removal about to happen and wrong for one whose run failed: its resource could
+still be running and no page said so. Such a workload is now listed in a card
+of its own, with whether its RBD image goes, and a button running
+`deploy_containers_cluster` again. Reverting the commit that marked it is how
+a removal is called off.
+
+### What is refused
+
+- **A container of `upload_extra_files`.** Still D33's reasoning: no role
+  takes its file off the machines. The Inventory page edits the variable.
+- **A workload another one names in `colocated_with`, or a guest in
+  `colocated_vms`.** Both are Pacemaker resources in one namespace, and the
+  colocation would name a resource that no longer exists. The same refusal a
+  guest's deletion makes.
+- **A workload already marked.** The run is what it waits for.
+
+### Why it keeps the acceptance criterion
+
+Each commit is the role's own interface. An inventory exported after the first
+one and run from a conventional control machine removes the workload the same
+way, and after the second it no longer mentions it, which is the state the
+role's README describes once a removal is done.

@@ -597,6 +597,10 @@ def create_app(
         port=settings.node_exporter_port,
         distribution=lambda: reader.node_identity().seapath_distro,
     )
+    # A run of deploy_containers_cluster that removed a workload takes its
+    # entry and its files out of the inventory, as one commit by the operator
+    # who launched it. See D72.
+    app.state.run_service.when_finished(app.state.container_service.forget_removed)
     app.state.delivery_service = DeliveryService(
         inventory=app.state.inventory_service,
         containers=app.state.container_service,
