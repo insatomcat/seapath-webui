@@ -319,8 +319,11 @@ def _replace(lines: list[str], mapping: Any, variable: str, value: Any) -> _Spli
         end = _block_end(lines, key_line + 1, key_column)
         return _Splice(key_line, end, _emit(variable, value, key_column))
 
+    # A mapping or a list replacing a value written on the key's line, such
+    # as `cluster_containers: {}` once its last workload has gone, is written
+    # as a block in its place: put after the key, it would not be YAML.
     if (
-        isinstance(value, list)
+        isinstance(value, list | dict)
         or _multiline(value)
         or _is_block(lines, line + 1, key_column)
     ):

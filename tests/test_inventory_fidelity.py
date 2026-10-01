@@ -747,3 +747,30 @@ def test_a_host_declared_by_its_name_alone_gets_its_first_variables() -> None:
         )
         == []
     )
+
+
+def test_a_mapping_replaces_an_empty_one_written_on_the_key_line() -> None:
+    # What a cluster_containers whose last workload left looks like, and what
+    # the next workload declared there is written into.
+    document = (
+        "all:\n"
+        "  children:\n"
+        "    cluster_machines:\n"
+        "      hosts:\n"
+        "        node1:\n"
+        "      vars:\n"
+        "        cluster_containers: {}\n"
+        "        admin_user: admin\n"
+    )
+
+    edited = set_variables(
+        document,
+        Scope("group", "cluster_machines"),
+        {"cluster_containers": {"relay": {"quadlets": ["../files/relay.container"]}}},
+    )
+
+    assert resolve(edited)["node1"]["cluster_containers"] == {
+        "relay": {"quadlets": ["../files/relay.container"]}
+    }
+    assert resolve(edited)["node1"]["admin_user"] == "admin"
+    assert "        cluster_containers:\n          relay:\n" in edited
