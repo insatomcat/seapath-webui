@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.202 - 2026-10-01
+
+- fix: name the container workloads on the Backup page, keep a cleared setting
+
 ## 0.3.201 - 2026-10-01
 
 - feat: back up and restore the state of the container workloads
