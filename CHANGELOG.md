@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.211 - 2026-10-02
+
+- collection: seapathalloc bdafd6e6, seapath_update_debian tells a cluster member by its corosync authkey, so a standalone machine is no longer put in standby
+
 ## 0.3.210 - 2026-10-01
 
 - fix: pull a restored image archive with rsync rather than fetch
