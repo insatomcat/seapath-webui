@@ -304,6 +304,12 @@ def install(app: FastAPI) -> None:
     def runs(request: Request):
         return _page(request, "runs.html", "runs")
 
+    @app.get("/bookmarks", response_class=HTMLResponse, include_in_schema=False)
+    def bookmarks(request: Request):
+        # Served to anyone signed in, whether or not the tab is shown: what
+        # reveals it is a setting of the browser, and the list lives there too.
+        return _page(request, "bookmarks.html", "bookmarks")
+
     @app.get("/login", response_class=HTMLResponse, include_in_schema=False)
     def login(request: Request):
         if current_session(request) is not None:

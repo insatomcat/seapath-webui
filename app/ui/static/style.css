@@ -1056,6 +1056,12 @@ td button {
   color: var(--accent);
 }
 
+/* Revealed by the Konami code, a setting of this browser the head resolves
+   before the first paint. */
+:root:not([data-bookmarks="on"]) .nav a.nav-bookmarks:not(.current) {
+  display: none;
+}
+
 .page.single {
   grid-template-columns: minmax(0, 62rem);
   justify-content: center;
@@ -4082,5 +4088,29 @@ td.log-line .tag {
 }
 
 #ptp-ports input[type="text"] {
+  margin-top: 0;
+}
+
+/* The Bookmarks page */
+
+.bookmark-url {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.bookmark-acts {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.bookmark-acts button + button {
+  margin-left: 0.5rem;
+}
+
+.bookmark-form {
+  margin-top: 1.5rem;
+}
+
+.bookmark-form .card-actions {
   margin-top: 0;
 }

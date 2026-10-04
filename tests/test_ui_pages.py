@@ -32,6 +32,7 @@ from app.ui.routes import stamp
         "/realtime",
         "/usage",
         "/runs",
+        "/bookmarks",
     ],
 )
 def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
@@ -55,6 +56,7 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
         ("/realtime", "realtime.js"),
         ("/usage", "usage.js"),
         ("/runs", "runs.js"),
+        ("/bookmarks", "bookmarks.js"),
     ],
 )
 def test_each_page_loads_its_own_script_and_the_shared_chrome(
@@ -2944,3 +2946,42 @@ def _as_cluster(client: TestClient) -> None:
         },
     )
     assert response.status_code == 200, response.text
+
+
+def test_the_bookmarks_tab_is_hidden_until_the_konami_code_reveals_it(
+    signed_in: TestClient,
+) -> None:
+    """The tab is in the bar of every page, and drawn only once revealed.
+
+    Whether it is shown is a setting of the browser, resolved by the head
+    before the first paint so the tab does not blink in on every navigation,
+    and the code that reveals it is listened for on every page.
+    """
+    body = signed_in.get("/runs").text
+    css = signed_in.get("/static/style.css").text
+    script = signed_in.get("/static/konami.js").text
+
+    assert '<a href="bookmarks" class="nav-bookmarks ">Bookmarks</a>' in body
+    assert 'stored("seapath-bookmarks-tab") === "on"' in body
+    assert "konami.js" in body
+    assert (
+        ':root:not([data-bookmarks="on"]) .nav a.nav-bookmarks:not(.current) {'
+        "\n  display: none;"
+    ) in css
+    assert '"seapath-bookmarks-tab"' in script
+    assert '"b", "a",' in script
+    # Its own page always shows it, as the current one.
+    assert 'class="nav-bookmarks current"' in signed_in.get("/bookmarks").text
+
+
+def test_the_bookmarks_live_in_the_browser_and_open_only_web_links(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/bookmarks.js").text
+
+    assert "localStorage" in script
+    assert "fetch(" not in script
+    # A `javascript:` link in an anchor would run in this page, signed in.
+    assert 'parsed.protocol === "http:" || parsed.protocol === "https:"' in script
+    assert 'anchor.target = "_blank";' in script
+    assert 'anchor.rel = "noopener noreferrer";' in script

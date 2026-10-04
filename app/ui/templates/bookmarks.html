@@ -1,0 +1,66 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+Links an operator keeps at hand, in this browser and nowhere else. The tab is
+revealed by the Konami code, typed on any page, and the list lives in the
+browser's local storage: nothing here reaches the service or a machine.
+#}
+{% extends "base.html" %}
+{% block page_title %}Bookmarks{% endblock %}
+
+{% block body %}
+<main class="page single bookmarks">
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="card" id="card-bookmarks">
+    <div class="card-head">
+      <h2>Bookmarks</h2>
+      <div class="card-acts">
+        <button type="button" id="bookmark-hide" class="secondary"
+                title="Remove this tab from the bar until the code is typed again">Hide the tab</button>
+      </div>
+    </div>
+    <p class="lead">
+      Kept in this browser only. Each link opens in a new browser tab.
+    </p>
+
+    <p class="help" id="bookmark-empty" hidden>No bookmark yet.</p>
+    <div class="table-scroll" id="bookmark-table" hidden>
+      <table>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Link</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="bookmark-rows"></tbody>
+      </table>
+    </div>
+
+    <form id="bookmark-form" class="bookmark-form" autocomplete="off">
+      <h3 id="bookmark-form-title">Add a bookmark</h3>
+      <div class="grid-2">
+        <label class="field">
+          <span>Name</span>
+          <input type="text" id="bookmark-name" required spellcheck="false">
+        </label>
+        <label class="field">
+          <span>Link</span>
+          <input type="url" id="bookmark-url" required spellcheck="false"
+                 placeholder="https://">
+        </label>
+      </div>
+      <div class="card-actions">
+        <button type="submit" id="bookmark-save">Add</button>
+        <button type="button" id="bookmark-cancel" class="secondary" hidden>Cancel</button>
+      </div>
+    </form>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+{{ script("bookmarks.js") }}
+{% endblock %}

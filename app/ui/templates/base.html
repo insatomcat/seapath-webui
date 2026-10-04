@@ -34,7 +34,9 @@ SPDX-License-Identifier: Apache-2.0
        both attributes true as an operator changes them.
 
        The stored palette is `light`, `dark`, or absent, and absent means
-       follow the system. The automatic reading is `on`, or absent for off. #}
+       follow the system. The automatic reading is `on`, or absent for off.
+       The Bookmarks tab, revealed by `static/konami.js`, is the same: `on`, or
+       absent for hidden. #}
     <script nonce="{{ csp_nonce }}">
       (function () {
         var root = document.documentElement;
@@ -62,6 +64,8 @@ SPDX-License-Identifier: Apache-2.0
         root.dataset.theme = theme;
         root.dataset.autorefresh =
           stored("seapath-autorefresh") === "on" ? "on" : "off";
+        root.dataset.bookmarks =
+          stored("seapath-bookmarks-tab") === "on" ? "on" : "off";
       })();
     </script>
     {# The tab's mark. Shipped because a browser asks for /favicon.ico on every
@@ -176,6 +180,9 @@ SPDX-License-Identifier: Apache-2.0
           <a href="updates" class="{{ 'current' if page == 'updates' }}">Updates</a>
           <a href="realtime" class="{{ 'current' if page == 'realtime' }}">Real time</a>
           <a href="runs" class="{{ 'current' if page == 'runs' }}">Runs</a>
+          {# Hidden by the stylesheet until the Konami code reveals it in this
+             browser, and always shown on its own page. #}
+          <a href="bookmarks" class="nav-bookmarks {{ 'current' if page == 'bookmarks' }}">Bookmarks</a>
         </nav>
       </div>
       <div class="topbar-right">
@@ -340,6 +347,7 @@ SPDX-License-Identifier: Apache-2.0
     {{ script("api.js") }}
     {{ script("chrome.js") }}
     {{ script("kept.js") }}
+    {{ script("konami.js") }}
     {{ script("narrow.js") }}
     {{ script("reread.js") }}
     {{ script("runstream.js") }}
