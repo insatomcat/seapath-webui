@@ -614,6 +614,8 @@ def test_restarting_a_container_the_cluster_holds_restarts_its_resource(
         ("ipv4_network", "192.0.2.0/24", "192.0.2.1/24"),
         ("mac", "02:00:00:00:00:01", "02:00:00:00:01"),
         ("vlan_list", "100,300", "100,5000"),
+        ("vlan_list", "304", "304,304"),
+        ("vlan_list", "100, 300", "100,300, 100"),
         ("name", "processbus", "a-name-longer-than-15"),
     ],
 )
@@ -624,6 +626,12 @@ def test_each_format_accepts_its_values_and_refuses_the_others(
 
     assert delivery.check(value, good) == ""
     assert delivery.check(value, bad) != ""
+
+
+def test_a_vlan_named_twice_is_refused_by_its_number() -> None:
+    value = delivery.Value(key="k", description="d", format="vlan_list", example="1")
+
+    assert delivery.check(value, "304,304") == "304,304 names VLAN 304 twice."
 
 
 # Configuration files

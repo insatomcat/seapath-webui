@@ -469,9 +469,15 @@ def check(value: Value, given: Any) -> str:
         if not _MAC.match(text):
             return f"{text} is not a MAC address such as 02:00:00:00:00:01."
     elif fmt == "vlan_list":
-        parts = text.split(",")
-        if not all(part.strip().isdigit() and 0 <= int(part) <= 4094 for part in parts):
+        parts = [part.strip() for part in text.split(",")]
+        if not all(part.isdigit() and 0 <= int(part) <= 4094 for part in parts):
             return f"{text} is not a list of VLANs such as 100,300."
+        # Open vSwitch refuses a trunk list that names a VLAN twice, and the
+        # workload then fails to start on every node, long after the form.
+        vlans = [int(part) for part in parts]
+        twice = sorted({vlan for vlan in vlans if vlans.count(vlan) > 1})
+        if twice:
+            return f"{text} names VLAN {', '.join(map(str, twice))} twice."
     elif fmt == "name":
         if not _NAME.match(text):
             return (
