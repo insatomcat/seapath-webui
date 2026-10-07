@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.213 - 2026-10-07
+
+- containers: a delivery that declares `update_steps` can be applied without interruption: the fourth choice of its installation launches `deploy_containers_cluster` with `deploy_containers_cluster_update`, and the steps go from `inventory-example.yaml` to the entry, checked with the delivery
+- containers: a VLAN list that names a VLAN twice is refused in the site values, where Open vSwitch refused the trunk once the workload started
+- collection: seapathalloc 0368cbb0, deploy_containers_cluster updates a running workload: a stand-in keeps a container handed over in service while its workload is updated
+
 ## 0.3.212 - 2026-10-04
 
 - ui: the Konami code reveals a Bookmarks tab, a list of links kept in the browser's local storage
