@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.214 - 2026-10-07
+
+- containers: the settle time of an update step can name a site value, which the form of the delivery then asks for and a new version no longer writes back; `values.yaml` may describe the keys the update steps name
+- collection: seapathalloc a2075a58, deploy_containers_cluster takes a step's settle as seconds or as the site value that holds them, and its README says the first update of a workload is also under a stand-in
+
 ## 0.3.213 - 2026-10-07
 
 - containers: a delivery that declares `update_steps` can be applied without interruption: the fourth choice of its installation launches `deploy_containers_cluster` with `deploy_containers_cluster_update`, and the steps go from `inventory-example.yaml` to the entry, checked with the delivery
