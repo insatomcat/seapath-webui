@@ -59,6 +59,8 @@ RESTART_VARIABLE = "deploy_containers_cluster_restart"
 # And as the workloads it updates while they run, as their `update_steps` say:
 # the containers handed over are never silent.
 UPDATE_VARIABLE = "deploy_containers_cluster_update"
+# And as the workloads a run is limited to, the others being left as they are.
+ONLY_VARIABLE = "deploy_containers_cluster_only"
 # The role that reads them.
 WORKLOAD_ROLE = "deploy_containers_cluster"
 
@@ -186,6 +188,8 @@ class VariableType(str, Enum):
     """
     WORKLOAD = "workload"
     """A workload `cluster_containers` declares present, which the API checks.
+    The one a run is limited to may also be marked `state: absent`, since the
+    run removing a workload is limited to it.
 
     Offered on the Containers page, where a delivery is installed, rather
     than on the Deployment page: it deletes what the workload wrote.
@@ -979,7 +983,9 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "when the delivery changed its pod or a network, and Pacemaker "
             "leaves the resource alone meanwhile. A workload named "
             f"in {RECREATE_VARIABLE} is stopped, its RBD image put aside, and "
-            "deployed again with an empty one."
+            "deployed again with an empty one. A run given "
+            f"{ONLY_VARIABLE} does all of this for the workload it names and "
+            "leaves every other one as it is."
         ),
         requires=[
             Precondition.INVENTORY_VALID,
@@ -989,6 +995,16 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             Precondition.PLAYBOOK_PRESENT,
         ],
         variables=[
+            VariableSpec(
+                name=ONLY_VARIABLE,
+                type=VariableType.WORKLOAD,
+                description=(
+                    "The workload the run is limited to, deployed or, when it "
+                    "is marked `state: absent`, removed: every other one is "
+                    "left as it is, and the run is as long as that one takes"
+                ),
+                role=WORKLOAD_ROLE,
+            ),
             VariableSpec(
                 name=RECREATE_VARIABLE,
                 type=VariableType.WORKLOAD,

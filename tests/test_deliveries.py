@@ -519,7 +519,10 @@ def test_recreating_launches_the_run_with_the_workload_named(
     assert body["commit"]
     run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
     assert run["playbook_id"] == "deploy_containers_cluster"
-    assert run["variables"] == {"deploy_containers_cluster_recreate": "vied"}
+    assert run["variables"] == {
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_recreate": "vied",
+    }
 
 
 def test_a_workload_to_recreate_is_one_the_inventory_declares(
@@ -941,7 +944,10 @@ def test_applying_an_update_launches_the_run_that_restarts_the_workload(
     assert body["commit"]
     run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
     assert run["playbook_id"] == "deploy_containers_cluster"
-    assert run["variables"] == {"deploy_containers_cluster_restart": "vied"}
+    assert run["variables"] == {
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_restart": "vied",
+    }
 
 
 def test_resetting_wins_over_applying(
@@ -959,7 +965,10 @@ def test_resetting_wins_over_applying(
     ).json()
 
     run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
-    assert run["variables"] == {"deploy_containers_cluster_recreate": "vied"}
+    assert run["variables"] == {
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_recreate": "vied",
+    }
 
 
 def test_site_values_saved_and_applied_launch_the_restarting_run(
@@ -978,7 +987,10 @@ def test_site_values_saved_and_applied_launch_the_restarting_run(
     body = response.json()
     assert body["commit"]
     run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
-    assert run["variables"] == {"deploy_containers_cluster_restart": "vied"}
+    assert run["variables"] == {
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_restart": "vied",
+    }
 
 
 def test_a_workload_to_restart_is_one_the_inventory_declares(
@@ -1007,6 +1019,40 @@ def _without_restart(collections_path: Path) -> None:
         / "defaults/main.yml"
     )
     defaults.write_text("deploy_containers_cluster_recreate: []\n")
+
+
+def _without_only(collections_path: Path) -> None:
+    """The role as a collection built before a run could be limited."""
+    defaults = (
+        collections_path
+        / "ansible_collections/seapath/ansible/roles/deploy_containers_cluster"
+        / "defaults/main.yml"
+    )
+    defaults.write_text(
+        "deploy_containers_cluster_recreate: []\n"
+        "deploy_containers_cluster_restart: []\n"
+        "deploy_containers_cluster_update: []\n"
+    )
+
+
+def test_a_role_that_cannot_limit_a_run_gets_the_full_one(
+    signed_in: TestClient, tmp_path: Path, settings: Settings, collections_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+    _without_only(collections_path)
+
+    response = _install(
+        signed_in,
+        _stage(signed_in, _build(tmp_path / "two", version="vied-2")),
+        apply=True,
+    )
+
+    # Slower and otherwise the same for that workload: nothing to refuse.
+    assert response.status_code == 201, response.text
+    run = signed_in.get(f"/api/v1/runs/{response.json()['run_id']}").json()
+    assert run["variables"] == {"deploy_containers_cluster_restart": "vied"}
 
 
 def _head(settings: Settings) -> str:
@@ -1293,7 +1339,10 @@ def test_updating_launches_the_run_with_the_workload_named(
     assert body["commit"]
     run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
     assert run["playbook_id"] == "deploy_containers_cluster"
-    assert run["variables"] == {"deploy_containers_cluster_update": "vied"}
+    assert run["variables"] == {
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_update": "vied",
+    }
 
 
 def test_updating_wins_over_applying_and_resetting_over_updating(
@@ -1311,10 +1360,12 @@ def test_updating_wins_over_applying_and_resetting_over_updating(
         return signed_in.get(f"/api/v1/runs/{body['run_id']}").json()["variables"]
 
     assert variables("vied-2", apply=True, update=True) == {
-        "deploy_containers_cluster_update": "vied"
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_update": "vied",
     }
     assert variables("vied-3", update=True, recreate=True) == {
-        "deploy_containers_cluster_recreate": "vied"
+        "deploy_containers_cluster_only": "vied",
+        "deploy_containers_cluster_recreate": "vied",
     }
 
 

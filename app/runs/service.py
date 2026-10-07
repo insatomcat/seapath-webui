@@ -1019,8 +1019,15 @@ class RunService:
         The role refuses any other name too, but only once the run has started,
         and this one deletes data: it is refused before anything is launched.
         """
+        document = self._inventory.raw()
         declared = sorted(
-            {item.name for item in quadlets.workloads(self._inventory.raw())}
+            {item.name for item in quadlets.workloads(document)}
+            # The run that removes a workload is limited to it.
+            | (
+                set(quadlets.removed(document))
+                if name == catalogue.ONLY_VARIABLE
+                else set()
+            )
         )
         if not isinstance(value, str) or value not in declared:
             raise ApiError(

@@ -31,7 +31,12 @@ from app.inventory.editor import Scope
 from app.inventory.repository import StaleWrite
 from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
-from app.runs.catalogue import RECREATE_VARIABLE, RESTART_VARIABLE, UPDATE_VARIABLE
+from app.runs.catalogue import (
+    ONLY_VARIABLE,
+    RECREATE_VARIABLE,
+    RESTART_VARIABLE,
+    UPDATE_VARIABLE,
+)
 from app.runs.service import RunService
 from app.services.containers import (
     WORKLOAD_PLAYBOOK,
@@ -329,7 +334,7 @@ def install_delivery(
     names the run that puts it on the machines, `deploy_containers_cluster`,
     and carries it when `apply`, `update` or `recreate` asked for it to be
     launched. The one that costs the most wins: a reset over an update, an
-    update over a restart.
+    update over a restart. That run is limited to the workload installed.
     """
     variable = (
         RECREATE_VARIABLE
@@ -420,6 +425,19 @@ def _refuse_ignored(request: Request, variable: str) -> None:
     raise ApiError("precondition_failed", refused, 409, {"unmet": [refused]})
 
 
+def _only(request: Request, name: str) -> dict[str, str]:
+    """What limits a run to the workload a gesture is about.
+
+    A gesture of this page is about one workload, and a run of the role goes
+    through every one the inventory declares unless told otherwise. A
+    collection whose role predates the variable gets the full run, which does
+    the same to that workload and takes longer: nothing to refuse.
+    """
+    if _runs(request).undeclared(WORKLOAD_PLAYBOOK, [ONLY_VARIABLE]):
+        return {}
+    return {ONLY_VARIABLE: name}
+
+
 def _launch(
     request: Request, user: User, installed: Installed, variables: dict[str, str]
 ) -> Installed:
@@ -427,7 +445,9 @@ def _launch(
     way, so a run the service refuses says so beside the commit it follows."""
     try:
         record = _runs(request).launch(
-            WORKLOAD_PLAYBOOK, user.username, variables=variables
+            WORKLOAD_PLAYBOOK,
+            user.username,
+            variables={**_only(request, installed.name), **variables},
         )
     except ApiError as error:
         raise ApiError(
@@ -501,12 +521,13 @@ def remove(
 
     Two acts, in the order a deletion of a guest takes them. The entry is
     marked `state: absent` as one commit, then `deploy_containers_cluster`
-    runs: the role stops the resource and deletes it with its constraints,
-    and takes the quadlets, the configuration, the image archives and the
-    images off every node, and the RBD image with `remove_rbd`. Once that run
-    has succeeded, the entry and the files it named leave the inventory as a
-    commit of their own, by the same operator. A run that cannot start at all
-    reverts the first commit here and answers with the reason.
+    runs, limited to that workload: the role stops the resource and deletes
+    it with its constraints, and takes the quadlets, the configuration, the
+    image archives and the images off every node, and the RBD image with
+    `remove_rbd`. Once that run has succeeded, the entry and the files it
+    named leave the inventory as a commit of their own, by the same operator.
+    A run that cannot start at all reverts the first commit here and answers
+    with the reason.
 
     A container `upload_extra_files` uploads has no role to take it off the
     machines and is refused: `404 unknown_container`. `admin`, because it
@@ -538,7 +559,9 @@ def remove(
         ) from error
 
     try:
-        record = _runs(request).launch(WORKLOAD_PLAYBOOK, user.username)
+        record = _runs(request).launch(
+            WORKLOAD_PLAYBOOK, user.username, variables=_only(request, name)
+        )
     except ApiError:
         # Declared again rather than left marked: a workload that runs is
         # where the operator started, and they can try once the run holding

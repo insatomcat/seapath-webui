@@ -54,7 +54,7 @@ from app.inventory.references import Reference, Where
 from app.inventory.repository import Commit
 from app.inventory.resolve import ROOT, depths, groups, resolve
 from app.inventory.service import InventoryService
-from app.runs.catalogue import CATALOGUE
+from app.runs.catalogue import CATALOGUE, ONLY_VARIABLE
 from app.runs.models import RunRecord, RunState
 from app.services.cluster import ClusterService
 
@@ -830,10 +830,11 @@ class ContainerService:
 
         Called when any run ends. A workload counts as removed when the
         inventory the run was given marked it `state: absent` and the run was
-        a full run of `deploy_containers_cluster`, over the whole cluster,
-        that succeeded: the role has then taken it off every node, and the
-        entry names nothing a later run needs. A run that failed keeps the
-        entry, so the next run finishes the removal.
+        a run of `deploy_containers_cluster`, over the whole cluster, that
+        succeeded: the role has then taken it off every node, and the entry
+        names nothing a later run needs. A run limited to some workloads
+        removed those and no other. A run that failed keeps the entry, so the
+        next run finishes the removal.
 
         One commit, authored by the operator who launched the run and naming
         it, which takes out the entry and the files it named that nothing else
@@ -853,8 +854,14 @@ class ContainerService:
         marked = quadlets.removed(document)
         # Still marked as the run read it: an entry put back since is the
         # operator's, and one marked since is for the next run.
+        only = record.variables.get(ONLY_VARIABLE) or []
+        reached = {only} if isinstance(only, str) else set(only)
         names = sorted(
-            name for name in applied if name in marked and marked[name] == applied[name]
+            name
+            for name in applied
+            if name in marked
+            and marked[name] == applied[name]
+            and (not reached or name in reached)
         )
         if not names:
             return None

@@ -751,7 +751,8 @@
       title: "Remove " + container.name + " from the cluster",
       body:
         "Marks the workload state: absent in the inventory and runs " +
-        "deploy_containers_cluster on every member. The run stops it" +
+        "deploy_containers_cluster on every member, for this workload " +
+        "alone. The run stops it" +
         (where ? " on " + where : "") +
         " and deletes its Pacemaker resource with its constraints, then " +
         "takes its quadlets, configuration, image archives and images off " +
@@ -1067,8 +1068,9 @@
         "operation: settings changed by MMS, an HMI's state. The configuration " +
         "of the site is kept, and the image put aside can be brought back.",
       note:
-        "The run also deploys the other workloads of cluster_containers, as " +
-        "any run of that playbook does.",
+        "The run is limited to " +
+        staged.name +
+        ": the other workloads of cluster_containers are left as they are.",
       label: "Install and reset",
       act: async () => {
         element("confirm").hidden = true;

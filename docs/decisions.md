@@ -5685,9 +5685,10 @@ entry out, with the files it named that nothing else names, the
 the operator who launched the run and naming it. The image archives then leave
 the artefacts when no workload declares them. A workload counts as removed
 when the inventory the run was given marked it absent and the entry is still
-the same, and the run was a full run of `deploy_containers_cluster` over the
+the same, and the run was a run of `deploy_containers_cluster` over the
 whole cluster that succeeded. Any other run keeps the entry, and the next one
-finishes the removal.
+finishes the removal. Since [D74](#d74) the run a removal launches is limited
+to its workload, and forgets that one alone.
 
 ### What the page shows meanwhile
 
@@ -5797,3 +5798,57 @@ conventional control machine deploys the same workload. The definition on
 the image is a copy the role writes from the inventory, never read back by a
 run: the inventory stays the desired state, and the image carries what the
 inventory was, for the day there is no inventory.
+
+## D74 - Settled: a gesture about one workload is a run limited to that workload
+
+Every gesture of the Containers page is about one workload: installing a
+delivery, applying a new version, saving site values, removing. Each launched
+`deploy_containers_cluster` as it stands, and the role goes through every
+workload of `cluster_containers`: for each one, on each member, it compares
+the images and their archives, writes the quadlets and the configuration,
+then reads the RBD image, its metadata and the Pacemaker resource. On a
+cluster holding many workloads, a site that installs, updates and removes
+them often waited for all of them at each gesture.
+
+### A value given to one run, read by the role
+
+The role reads `deploy_containers_cluster_only`, a name or a list, and deploys
+or removes the workloads it names and no other. It is the fourth value of its
+kind beside `deploy_containers_cluster_restart`, `_update` and `_recreate`:
+given to one run, recorded with it, never committed, since an inventory
+carrying it would keep every run from the other workloads. What a node keeps,
+the images and the image archives in use, is still read from every workload
+declared, so a limited run takes nothing from the others.
+
+The page gives it with each of its runs, naming the workload the gesture is
+about. The run a removal launches carries it too, and the listener of D72
+then forgets the workloads the run was limited to and leaves any other entry
+marked `state: absent` for a run of its own, which the card of the workloads
+being removed still offers as a full run.
+
+Two shorter ways were open and refused. `--limit` narrows machines, and every
+member needs the quadlets of a workload Pacemaker may start there. Overriding
+`cluster_containers` with one entry for the run would have needed no change
+upstream, and the role would then have read the images and archives of every
+other workload as no longer declared, and removed them.
+
+### What changes for an operator
+
+A workload committed without applying is no longer brought to the machines by
+a gesture made on another one. It waits for its own "Apply", or for a run of
+`deploy_containers_cluster` from the Deployment page, which goes through
+every workload as before.
+
+### An image whose collection predates the variable
+
+Ansible takes an `-e` no task reads without a word. For the restart that is a
+run that does nothing it was launched for, and it is refused before the
+commit. Here the run without the variable does the same to the workload and
+only takes longer, so the page launches it as a full run and refuses nothing.
+
+### Why it keeps the acceptance criterion
+
+Nothing is committed that was not before. An inventory exported after any of
+these gestures and run from a conventional control machine, without the
+variable, goes through every workload and changes nothing on the one the
+limited run reached.

@@ -1043,13 +1043,16 @@
       if (spec.type === "machine") {
         container.append(machineField(spec, values, onChange));
       } else if (spec.type === "workload") {
-        // It deletes what a workload wrote, so it is asked where that
-        // workload is installed, beside its delivery, and not here.
+        // It names one workload, and may delete what it wrote, so it is
+        // asked where that workload is installed, beside its delivery, and
+        // not here. Said once, however many of them the entry declares.
+        if (container.querySelector(".workload-variables")) return;
         const line = document.createElement("p");
-        line.className = "help";
+        line.className = "help workload-variables";
         line.textContent =
-          "Starting a workload again from nothing is offered on the " +
-          "Containers page, when its delivery is installed.";
+          "A run from this page goes through every workload. Applying to one " +
+          "workload alone, restarting it, updating it while it runs or " +
+          "starting it again from nothing is offered on the Containers page.";
         container.append(line);
       } else {
         // An entry declaring a kind of variable this page has no field for.

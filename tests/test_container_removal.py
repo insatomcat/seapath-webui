@@ -111,7 +111,8 @@ def test_removing_marks_the_workload_absent_and_launches_the_run(
     ]
     run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
     assert run["playbook_id"] == "deploy_containers_cluster"
-    assert run["variables"] == {}
+    # The run is limited to the workload being removed.
+    assert run["variables"] == {"deploy_containers_cluster_only": "protect"}
 
 
 def test_the_rbd_image_is_kept_unless_asked(
@@ -141,9 +142,11 @@ def test_the_run_that_removed_it_takes_the_entry_out(
     run_id = _remove(signed_in, "protect").json()["run_id"]
     _settle(signed_in, run_id)
 
-    assert sorted(_workloads(signed_in)) == ["nginxquadlet"]
+    # `retired` was marked before and the run, limited to protect, left it
+    # where it was: its own run is still owed.
+    assert sorted(_workloads(signed_in)) == ["nginxquadlet", "retired"]
     history = signed_in.get("/api/v1/inventory/history").json()
-    assert history[0]["message"] == "containers: forget protect, retired"
+    assert history[0]["message"] == "containers: forget protect"
     assert history[0]["author"] == "admin"
 
 
@@ -290,6 +293,57 @@ def test_a_preview_a_narrowed_run_or_another_playbook_keeps_the_entry(
         assert _forget(signed_in, record) is None
 
     assert "retired" in _workloads(signed_in)
+
+
+def test_a_run_limited_to_a_workload_forgets_that_one_alone(
+    signed_in: TestClient,
+) -> None:
+    _import(
+        signed_in,
+        WORKLOADS.replace(
+            "protect:\n            unit",
+            "protect:\n            state: absent\n            unit",
+        ),
+    )
+
+    for variables in (
+        # Limited to a workload that stays: nothing was removed.
+        {"deploy_containers_cluster_only": "nginxquadlet"},
+        {"deploy_containers_cluster_only": ["nginxquadlet"]},
+    ):
+        assert _forget(signed_in, _record(signed_in, variables=variables)) is None
+    commit = _forget(
+        signed_in,
+        _record(signed_in, variables={"deploy_containers_cluster_only": "protect"}),
+    )
+
+    assert commit is not None
+    assert commit.message == "containers: forget protect"
+    assert sorted(_workloads(signed_in)) == ["nginxquadlet", "retired"]
+
+
+def test_a_run_may_be_limited_to_a_workload_being_removed_and_to_no_unknown_one(
+    signed_in: TestClient, settings: Settings, tmp_path: Path
+) -> None:
+    _import(signed_in, WORKLOADS)
+    _reach_the_members(signed_in, settings, tmp_path)
+
+    def launch(name: str, variable: str = "deploy_containers_cluster_only"):
+        return signed_in.post(
+            "/api/v1/runs",
+            json={
+                "playbook": "deploy_containers_cluster",
+                "variables": {variable: name},
+            },
+        )
+
+    refused = launch("nothere")
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["error"]["code"] == "invalid_variable"
+    # Restarting what is being removed stays refused: only the limit names it.
+    assert launch("retired", "deploy_containers_cluster_restart").status_code == 400
+    accepted = launch("retired")
+    assert accepted.status_code in (201, 202), accepted.text
 
 
 def test_a_workload_marked_after_the_run_read_the_inventory_is_kept(
