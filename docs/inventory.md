@@ -590,7 +590,9 @@ A workload installed from a supplier's delivery archive keeps its files under
 `inventories/<name>/` (its quadlets, the seed files of its RBD image, its
 `values.yaml` and README) and its image archives in the artefacts under
 `files/`. Its site values are keys of its entry, editable on the Containers
-page against its `values.yaml`. See [D69](decisions.md#d69).
+page against its `values.yaml`. The `update_steps` its delivery declares, how
+it is updated while it runs, are its entry's as they stand. See
+[D69](decisions.md#d69) and [D70](decisions.md#d70).
 
 ### The three variables a guest's network is
 

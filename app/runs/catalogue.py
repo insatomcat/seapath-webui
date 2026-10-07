@@ -56,7 +56,10 @@ COLLECTION = "seapath.ansible"
 RECREATE_VARIABLE = "deploy_containers_cluster_recreate"
 # And as the workloads it restarts once deployed, so that a change applies now.
 RESTART_VARIABLE = "deploy_containers_cluster_restart"
-# The role that reads both.
+# And as the workloads it updates while they run, as their `update_steps` say:
+# the containers handed over are never silent.
+UPDATE_VARIABLE = "deploy_containers_cluster_update"
+# The role that reads them.
 WORKLOAD_ROLE = "deploy_containers_cluster"
 
 
@@ -970,6 +973,11 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
             "when it says `remove_rbd`. A workload named in "
             f"{RESTART_VARIABLE} is restarted once deployed, so that its new "
             "version, configuration and site values apply now. A workload named "
+            f"in {UPDATE_VARIABLE} is updated while it runs, as its "
+            "update_steps say: a stand-in keeps the service of each container "
+            "handed over, the others are restarted alone, or the whole workload "
+            "when the delivery changed its pod or a network, and Pacemaker "
+            "leaves the resource alone meanwhile. A workload named "
             f"in {RECREATE_VARIABLE} is stopped, its RBD image put aside, and "
             "deployed again with an empty one."
         ),
@@ -997,6 +1005,16 @@ CATALOGUE: tuple[PlaybookEntry, ...] = (
                 description=(
                     "A workload to restart once deployed, so that its new "
                     "version, configuration and site values apply now"
+                ),
+                role=WORKLOAD_ROLE,
+            ),
+            VariableSpec(
+                name=UPDATE_VARIABLE,
+                type=VariableType.WORKLOAD,
+                description=(
+                    "A workload to update while it runs, as its update_steps "
+                    "say, so that its new version applies now without its "
+                    "containers handed over ever being silent"
                 ),
                 role=WORKLOAD_ROLE,
             ),

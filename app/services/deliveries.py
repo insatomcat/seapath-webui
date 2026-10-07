@@ -110,6 +110,9 @@ class StagedDelivery(BaseModel):
     site: list[SiteFile] = Field(default_factory=list)
     """The configuration files, and which of them the site lacks."""
     checks: int = 0
+    update_steps: int = 0
+    """The steps the delivery declares to update the workload while it runs.
+    None: a new version is applied by a restart."""
     readme: str = ""
     values: list[ValueField] = Field(default_factory=list)
     nodes: list[str] = Field(default_factory=list)
@@ -210,6 +213,7 @@ class DeliveryService:
         staged.files = list(found.examples)
         staged.site = self._site(found, current)
         staged.checks = len(found.checks)
+        staged.update_steps = len(found.update_steps)
         staged.readme = found.readme
         staged.values = _fields(found.values, current)
         staged.nodes = self._containers.workload_hosts()

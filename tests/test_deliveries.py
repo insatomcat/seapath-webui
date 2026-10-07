@@ -1073,3 +1073,258 @@ def test_a_run_is_refused_a_variable_its_role_would_ignore(
 
     assert response.status_code == 409, response.text
     assert response.json()["error"]["code"] == "precondition_failed"
+
+
+# Updating a workload while it runs
+
+STEPS = [
+    {
+        "handover": "vied-rt.container",
+        "network": "vied-pb.network",
+        "bridge": "pb_bridge",
+        "port": "pb_port",
+        "settle": 60,
+    },
+    {"restart": "vied-app.service"},
+]
+
+RT = """[Container]
+Pod=vied.pod
+Image={{ container.images[0].name }}
+"""
+
+PB = """[Network]
+NetworkName=vied-pb
+Driver=macvlan
+Options=parent={{ container.pb_port }}
+
+[Service]
+ExecStartPre=ovs-vsctl add-port {{ container.pb_bridge }} {{ container.pb_port }}
+"""
+
+
+def _with_steps(steps: list | dict = STEPS) -> Callable[[Path], None]:
+    """A delivery whose real-time container is handed over, with the two
+    site values its steps name."""
+
+    def change(root: Path) -> None:
+        (root / "quadlets/vied-rt.container.j2").write_text(RT)
+        (root / "quadlets/vied-pb.network.j2").write_text(PB)
+        values = dict(VALUES)
+        for key, example in (("pb_bridge", "processbus"), ("pb_port", "viedpb")):
+            values[key] = {
+                "description": "Where the process bus port is made.",
+                "format": "name",
+                "default": example,
+                "example": example,
+            }
+        (root / "values.yaml").write_text(yaml.safe_dump(values))
+        path = root / "inventory-example.yaml"
+        example = yaml.safe_load(path.read_text())
+        entry = example["cluster_containers"]["vied"]
+        entry["quadlets"] += [
+            "quadlets/vied-rt.container.j2",
+            "quadlets/vied-pb.network.j2",
+        ]
+        entry["update_steps"] = steps
+        path.write_text(yaml.safe_dump(example))
+
+    return change
+
+
+def test_the_steps_of_a_delivery_are_the_steps_of_its_entry(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+
+    staged = _stage(signed_in, _build(tmp_path, change=_with_steps()))
+
+    assert staged["findings"] == []
+    assert staged["update_steps"] == 2
+    assert _install(signed_in, staged).status_code == 201
+    assert _entry(signed_in)["update_steps"] == STEPS
+
+
+def test_a_delivery_without_steps_has_none(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+
+    staged = _stage(signed_in, _build(tmp_path))
+
+    assert staged["update_steps"] == 0
+    assert _install(signed_in, staged).status_code == 201
+    assert "update_steps" not in _entry(signed_in)
+
+
+@pytest.mark.parametrize(
+    ("steps", "finding"),
+    [
+        ({"restart": "vied-app.service"}, "update_steps is not a list."),
+        (["vied-app.service"], "update step 1 is either a handover or a restart."),
+        (
+            [{**STEPS[0], "restart": "vied-app.service"}],
+            "update step 1 is either a handover or a restart.",
+        ),
+        ([{"restart": ""}], "update step 1: restart names a unit."),
+        (
+            [{**STEPS[0], "handover": "vied-rt.service"}],
+            "update step 1: handover names a .container quadlet.",
+        ),
+        (
+            [{**STEPS[0], "network": "vied-other.network"}],
+            "update step 1: vied-other.network is not a quadlet of the workload.",
+        ),
+        (
+            [STEPS[1], {**STEPS[0], "bridge": "processbus"}],
+            "update step 2: bridge names the site value of values.yaml that "
+            "holds it, and 'processbus' is not one.",
+        ),
+        (
+            [{key: value for key, value in STEPS[0].items() if key != "port"}],
+            "update step 1: port names the site value of values.yaml that "
+            "holds it, and None is not one.",
+        ),
+        (
+            [{**STEPS[0], "settle": "long"}],
+            "update step 1: settle is a number of seconds.",
+        ),
+        (
+            [{**STEPS[0], "settle": True}],
+            "update step 1: settle is a number of seconds.",
+        ),
+    ],
+)
+def test_a_wrong_step_is_refused_when_the_delivery_is_checked(
+    signed_in: TestClient, tmp_path: Path, steps: list | dict, finding: str
+) -> None:
+    _import(signed_in, CLUSTER)
+
+    staged = _stage(signed_in, _build(tmp_path, change=_with_steps(steps)))
+
+    assert staged["findings"] == [f"inventory-example.yaml: {finding}"]
+
+
+def test_updating_launches_the_run_with_the_workload_named(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(
+        signed_in, _stage(signed_in, _build(tmp_path / "one", change=_with_steps()))
+    )
+
+    response = _install(
+        signed_in,
+        _stage(
+            signed_in, _build(tmp_path / "two", version="vied-2", change=_with_steps())
+        ),
+        update=True,
+    )
+
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["commit"]
+    run = signed_in.get(f"/api/v1/runs/{body['run_id']}").json()
+    assert run["playbook_id"] == "deploy_containers_cluster"
+    assert run["variables"] == {"deploy_containers_cluster_update": "vied"}
+
+
+def test_updating_wins_over_applying_and_resetting_over_updating(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(
+        signed_in, _stage(signed_in, _build(tmp_path / "one", change=_with_steps()))
+    )
+
+    def variables(version: str, **modes: bool) -> dict:
+        archive = _build(tmp_path / version, version=version, change=_with_steps())
+        body = _install(signed_in, _stage(signed_in, archive), **modes).json()
+        return signed_in.get(f"/api/v1/runs/{body['run_id']}").json()["variables"]
+
+    assert variables("vied-2", apply=True, update=True) == {
+        "deploy_containers_cluster_update": "vied"
+    }
+    assert variables("vied-3", update=True, recreate=True) == {
+        "deploy_containers_cluster_recreate": "vied"
+    }
+
+
+def test_updating_is_refused_before_the_commit_for_a_workload_not_installed(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    before = _head(settings)
+
+    staged = _stage(signed_in, _build(tmp_path, change=_with_steps()))
+    response = _install(signed_in, staged, update=True)
+
+    assert response.status_code == 409, response.text
+    assert "is not installed yet" in response.json()["error"]["message"]
+    assert _head(settings) == before
+    assert _install(signed_in, staged, apply=True).status_code == 201
+
+
+def test_updating_is_refused_before_the_commit_for_a_delivery_without_steps(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+    before = _head(settings)
+
+    staged = _stage(signed_in, _build(tmp_path / "two", version="vied-2"))
+    response = _install(signed_in, staged, update=True)
+
+    assert response.status_code == 409, response.text
+    assert "declares no update_steps" in response.json()["error"]["message"]
+    assert _head(settings) == before
+
+
+def test_updating_an_unknown_delivery_is_not_found(signed_in: TestClient) -> None:
+    _import(signed_in, CLUSTER)
+
+    response = signed_in.post(
+        "/api/v1/containers/deliveries/nothere/install",
+        json={"values": SITE, "update": True},
+    )
+
+    assert response.status_code == 404, response.text
+
+
+def test_updating_is_refused_before_the_commit_when_the_role_ignores_it(
+    signed_in: TestClient, tmp_path: Path, settings: Settings, collections_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _reach_the_members(signed_in, settings, tmp_path)
+    _install(
+        signed_in, _stage(signed_in, _build(tmp_path / "one", change=_with_steps()))
+    )
+    _without_restart(collections_path)
+    before = _head(settings)
+
+    staged = _stage(
+        signed_in, _build(tmp_path / "two", version="vied-2", change=_with_steps())
+    )
+    response = _install(signed_in, staged, update=True)
+
+    assert response.status_code == 409, response.text
+    message = response.json()["error"]["message"]
+    assert "deploy_containers_cluster_update" in message
+    assert message.endswith("Until then, apply it with a restart.")
+    assert _head(settings) == before
+
+
+def test_the_page_offers_the_update_for_a_delivery_that_declares_its_steps(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/containers").text
+    script = signed_in.get("/static/containers.js").text
+
+    assert '<div id="delivery-update-box" hidden>' in body
+    assert '<input type="radio" name="delivery-mode" value="update">' in body
+    assert "!(staged.update && staged.update_steps);" in script
+    assert 'update: mode === "update",' in script

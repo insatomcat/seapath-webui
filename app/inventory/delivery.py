@@ -116,6 +116,10 @@ class Delivery:
     """Only for a delivery with `files/`: each example to the `dest` it has on
     the RBD image."""
     checks: list[dict[str, Any]] = field(default_factory=list)
+    update_steps: list[dict[str, Any]] = field(default_factory=list)
+    """How the workload is updated while it runs, as the role reads it. A
+    step names quadlets and site values, never a value of the site, so the
+    delivery's own steps are the entry's."""
     readme: str = ""
 
     @property
@@ -197,6 +201,7 @@ def read(root: Path) -> Delivery:
         ]
         _keys_match(templates, values, findings)
     checks = _checks(root, values or [], examples, findings)
+    steps = _update_steps(example, names, values or [], findings)
     if findings:
         raise InvalidDelivery(findings)
     readme = root / README_FILE
@@ -210,6 +215,7 @@ def read(root: Path) -> Delivery:
         examples=examples,
         files=files,
         checks=checks,
+        update_steps=steps,
         readme=readme.read_text(errors="replace") if readme.is_file() else "",
     )
 
@@ -273,6 +279,56 @@ def _checks(
             findings.append(f"{where}: namespaces maps each prefix to its URI.")
         found.append(check)
     return found
+
+
+def _update_steps(
+    example: dict[str, Any],
+    quadlets: list[str],
+    values: list[Value],
+    findings: list[str],
+) -> list[dict[str, Any]]:
+    """The `update_steps` of the example, checked as the role checks them.
+
+    The role refuses a wrong step when the run starts, after the commit: here
+    it is refused before anything is written.
+    """
+    steps = example.get("update_steps")
+    if steps is None:
+        return []
+    if not isinstance(steps, list):
+        findings.append(f"{EXAMPLE_FILE}: update_steps is not a list.")
+        return []
+    written = {name.removesuffix(".j2") for name in quadlets}
+    keys = {value.key for value in values}
+    for number, step in enumerate(steps, start=1):
+        where = f"{EXAMPLE_FILE}: update step {number}"
+        if not isinstance(step, dict) or ("handover" in step) == ("restart" in step):
+            findings.append(f"{where} is either a handover or a restart.")
+            continue
+        if "restart" in step:
+            if not isinstance(step["restart"], str) or not step["restart"].strip():
+                findings.append(f"{where}: restart names a unit.")
+            continue
+        for key, suffix in (("handover", ".container"), ("network", ".network")):
+            named = step.get(key)
+            if not isinstance(named, str) or not named.endswith(suffix):
+                findings.append(f"{where}: {key} names a {suffix} quadlet.")
+            elif named not in written:
+                findings.append(f"{where}: {named} is not a quadlet of the workload.")
+        for key in ("bridge", "port"):
+            if step.get(key) not in keys:
+                findings.append(
+                    f"{where}: {key} names the site value of {VALUES_FILE} that "
+                    f"holds it, and {step.get(key)!r} is not one."
+                )
+        settle = step.get("settle", 0)
+        if (
+            isinstance(settle, bool)
+            or not isinstance(settle, int | float)
+            or settle < 0
+        ):
+            findings.append(f"{where}: settle is a number of seconds.")
+    return steps
 
 
 def _example(root: Path, findings: list[str]) -> tuple[str, dict[str, Any]]:
@@ -565,6 +621,8 @@ def entry(
         spec["config"] = sources
     if delivery.checks:
         spec["checks"] = delivery.checks
+    if delivery.update_steps:
+        spec["update_steps"] = delivery.update_steps
     rbd = delivery.example.get("rbd")
     if isinstance(rbd, dict) and rbd.get("size"):
         spec["rbd"] = {"size": rbd["size"]}

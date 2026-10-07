@@ -31,7 +31,7 @@ from app.inventory.editor import Scope
 from app.inventory.repository import StaleWrite
 from app.inventory.service import ImportRefused, RefusedWrite
 from app.runs.actions import Action
-from app.runs.catalogue import RECREATE_VARIABLE, RESTART_VARIABLE
+from app.runs.catalogue import RECREATE_VARIABLE, RESTART_VARIABLE, UPDATE_VARIABLE
 from app.runs.service import RunService
 from app.services.containers import (
     WORKLOAD_PLAYBOOK,
@@ -104,6 +104,16 @@ class DeliveryInstallation(SiteValues):
             "The examples to copy where the site has no configuration file of "
             "its own. Omitted, every one is copied; one left out stays missing, "
             "and the run stops until the site adds its file"
+        ),
+    )
+    update: bool = Field(
+        default=False,
+        description=(
+            "Launch the run that updates the workload while it runs, as the "
+            "update_steps of the delivery say: a stand-in keeps the service of "
+            "each container handed over while the others, or the whole "
+            "workload, are restarted. Refused for a delivery without "
+            "update_steps, and for a workload not installed yet"
         ),
     )
     recreate: bool = Field(
@@ -317,13 +327,21 @@ def install_delivery(
     configuration files to its `site/` when it has none yet, the image archives
     to the artefacts, and the workload to `cluster_containers`. The answer
     names the run that puts it on the machines, `deploy_containers_cluster`,
-    and carries it when `apply` or `recreate` asked for it to be launched.
+    and carries it when `apply`, `update` or `recreate` asked for it to be
+    launched. The one that costs the most wins: a reset over an update, an
+    update over a restart.
     """
     variable = (
         RECREATE_VARIABLE
         if payload.recreate
-        else RESTART_VARIABLE if payload.apply else None
+        else (
+            UPDATE_VARIABLE
+            if payload.update
+            else RESTART_VARIABLE if payload.apply else None
+        )
     )
+    if variable == UPDATE_VARIABLE:
+        _refuse_no_steps(request, staged)
     if variable:
         _refuse_ignored(request, variable)
     try:
@@ -363,6 +381,29 @@ def install_delivery(
     return _launch(request, user, installed, {variable: installed.name})
 
 
+def _refuse_no_steps(request: Request, staged: str) -> None:
+    """Before the commit: the role refuses to update a workload whose entry
+    says nothing of how, and one that does not run yet has nothing to keep
+    in service."""
+    try:
+        found = _deliveries(request).staged(staged)
+    except UnknownDelivery as error:
+        raise ApiError("unknown_delivery", str(error), 404) from error
+    if found.update and found.update_steps:
+        return
+    reason = (
+        f"{found.name} is not installed yet: there is nothing to keep in service."
+        if not found.update
+        else f"The delivery of {found.name} declares no update_steps."
+    )
+    raise ApiError(
+        "precondition_failed",
+        f"{reason} Apply it with a restart instead.",
+        409,
+        {"unmet": [reason]},
+    )
+
+
 def _refuse_ignored(request: Request, variable: str) -> None:
     """Before the commit: a collection whose role would ignore the variable
     would turn "apply now" into a commit and a run that applies nothing."""
@@ -374,6 +415,8 @@ def _refuse_ignored(request: Request, variable: str) -> None:
             " Until then, commit without applying, run "
             f"{WORKLOAD_PLAYBOOK} and restart the workload on this page."
         )
+    if variable == UPDATE_VARIABLE:
+        refused += " Until then, apply it with a restart."
     raise ApiError("precondition_failed", refused, 409, {"unmet": [refused]})
 
 

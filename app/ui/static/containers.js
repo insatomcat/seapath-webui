@@ -987,6 +987,9 @@
     placementForm(staged.nodes || [], staged.placement || {});
     document.querySelector('input[name="delivery-mode"][value="apply"]').checked = true;
     element("delivery-recreate-box").hidden = !staged.update;
+    // A workload not installed yet has nothing to keep in service, and a
+    // delivery without steps is applied by a restart.
+    element("delivery-update-box").hidden = !(staged.update && staged.update_steps);
     element("delivery-go").hidden = false;
   }
 
@@ -1088,6 +1091,7 @@
           placement: formPlacement(),
           examples: siteExamples(),
           apply: mode === "apply",
+          update: mode === "update",
           recreate: mode === "reset",
         }
       );

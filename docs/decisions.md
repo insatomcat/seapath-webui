@@ -5561,6 +5561,31 @@ nothing. A catalogue variable now names the role that reads it, and a run
 is refused unless that role declares it in its defaults; "Apply now" and
 "Save and apply" ask the same before they commit.
 
+### Amended: an update can leave the workload in service
+
+"Apply now" restarts the workload, which for a protection relay is several
+seconds without protection. `deploy_containers_cluster` now updates a
+workload while it runs when its entry has `update_steps`: a stand-in keeps
+the service of each container handed over while the others are restarted
+alone, or the whole workload when the delivery changes its pod or a
+network, and the resource is in Pacemaker's maintenance meanwhile.
+
+The steps are the supplier's: they name quadlets of the delivery and the
+site values that hold a bridge and a port, never a value of the site. So
+`update_steps` of `inventory-example.yaml` goes to the entry as it stands,
+like `checks`, and is checked with the delivery, before anything is
+written, as the role would check it once the run has started.
+
+The installation gets a fourth choice, "Apply without interruption", shown
+for a delivery that declares steps and a workload already installed: it
+commits, launches the run with `deploy_containers_cluster_update` naming the
+workload, and follows it. A workload not installed yet has nothing to keep
+in service, and the first installation of a version stays "Apply now". The
+choice is not the default: it lasts minutes where a restart lasts seconds,
+needs a free isolated core for a pinned container, and Pacemaker does not
+fail the workload over while it runs, which the page says. Asked for with
+the other two, a reset wins over it and it wins over a restart.
+
 ## D71 - Settled in part, completed by [D73](#d73): the state of a container workload is backed up by the same scripts, and restored by one of its own
 
 A container workload keeps what it writes on the RBD image named after it
