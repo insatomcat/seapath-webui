@@ -199,7 +199,7 @@ def read(root: Path) -> Delivery:
             root / (LEGACY_DIR if files else EXAMPLES_DIR) / example
             for example in examples
         ]
-        _keys_match(templates, values, findings)
+        _keys_match(templates, values, findings, _named_by_steps(example))
     checks = _checks(root, values or [], examples, findings)
     steps = _update_steps(example, names, values or [], findings)
     if findings:
@@ -322,12 +322,22 @@ def _update_steps(
                     f"holds it, and {step.get(key)!r} is not one."
                 )
         settle = step.get("settle", 0)
-        if (
+        if isinstance(settle, str):
+            if settle not in keys:
+                findings.append(
+                    f"{where}: settle is a number of seconds or names the site "
+                    f"value of {VALUES_FILE} that holds them, and {settle!r} is "
+                    "not one."
+                )
+        elif (
             isinstance(settle, bool)
             or not isinstance(settle, int | float)
             or settle < 0
         ):
-            findings.append(f"{where}: settle is a number of seconds.")
+            findings.append(
+                f"{where}: settle is a number of seconds or names the site "
+                f"value of {VALUES_FILE} that holds them."
+            )
     return steps
 
 
@@ -472,24 +482,45 @@ def _files(root: Path, example: dict[str, Any], findings: list[str]) -> dict[str
     return found
 
 
+def _named_by_steps(example: dict[str, Any]) -> set[str]:
+    """The site values the update steps name: a bridge, a port, a settle
+    time. A step reads them as a template does."""
+    steps = example.get("update_steps")
+    return {
+        step[key]
+        for step in (steps if isinstance(steps, list) else [])
+        if isinstance(step, dict) and "handover" in step
+        for key in ("bridge", "port", "settle")
+        if isinstance(step.get(key), str)
+    }
+
+
 def _keys_match(
-    templates: list[Path], values: list[Value], findings: list[str]
+    templates: list[Path],
+    values: list[Value],
+    findings: list[str],
+    named: set[str] | None = None,
 ) -> None:
     """The keys of `values.yaml` are those the templates, quadlets and example
-    configuration files, read."""
+    configuration files, read, and those the update steps name."""
     read_keys: set[str] = set()
     for path in templates:
         if path.is_file() and path.name.endswith(".j2"):
             read_keys.update(_READ.findall(path.read_text(errors="replace")))
     read_keys.discard("images")
     described = {value.key for value in values}
+    # A name a step gives that is no site value is the step's own finding.
+    read_keys |= described & (named or set())
     for key in sorted(read_keys - described):
         findings.append(
             f"The templates read container.{key}, which {VALUES_FILE} "
             "does not describe."
         )
     for key in sorted(described - read_keys):
-        findings.append(f"{VALUES_FILE} describes {key}, which no template reads.")
+        findings.append(
+            f"{VALUES_FILE} describes {key}, which no template reads and no "
+            "update step names."
+        )
 
 
 # Values

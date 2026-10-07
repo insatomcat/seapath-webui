@@ -5576,6 +5576,12 @@ site values that hold a bridge and a port, never a value of the site. So
 like `checks`, and is checked with the delivery, before anything is
 written, as the role would check it once the run has started.
 
+A settle time is the exception that made the rule: written as a number in a
+step it is the supplier's, and each new delivery would write it back over
+what the site had set. A step may name the site value that holds it, and
+`values.yaml` then describes a key no template reads: the keys the steps
+name count as read, and the form asks for them like any other.
+
 The installation gets a fourth choice, "Apply without interruption", shown
 for a delivery that declares steps and a workload already installed: it
 commits, launches the run with `deploy_containers_cluster_update` naming the

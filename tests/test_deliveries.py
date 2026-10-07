@@ -1083,7 +1083,7 @@ STEPS = [
         "network": "vied-pb.network",
         "bridge": "pb_bridge",
         "port": "pb_port",
-        "settle": 60,
+        "settle": "update_settle",
     },
     {"restart": "vied-app.service"},
 ]
@@ -1118,6 +1118,18 @@ def _with_steps(steps: list | dict = STEPS) -> Callable[[Path], None]:
                 "default": example,
                 "example": example,
             }
+        values["update_settle"] = {
+            "description": "Seconds a process runs before it is heard.",
+            "format": "integer",
+            "min": 0,
+            "default": 60,
+            "example": 60,
+        }
+        if not any(
+            isinstance(step, dict) and step.get("settle") == "update_settle"
+            for step in steps
+        ):
+            del values["update_settle"]
         (root / "values.yaml").write_text(yaml.safe_dump(values))
         path = root / "inventory-example.yaml"
         example = yaml.safe_load(path.read_text())
@@ -1143,6 +1155,58 @@ def test_the_steps_of_a_delivery_are_the_steps_of_its_entry(
     assert staged["update_steps"] == 2
     assert _install(signed_in, staged).status_code == 201
     assert _entry(signed_in)["update_steps"] == STEPS
+
+
+def test_a_settle_time_is_a_site_value_the_form_asks_for(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+
+    staged = _stage(signed_in, _build(tmp_path, change=_with_steps()))
+
+    asked = {field["key"]: field for field in staged["values"]}
+    assert asked["update_settle"]["default"] == 60
+    assert (
+        _install(signed_in, staged, values={**SITE, "update_settle": 90}).status_code
+        == 201
+    )
+    entry = _entry(signed_in)
+    assert entry["update_settle"] == 90
+    assert entry["update_steps"][0]["settle"] == "update_settle"
+
+
+def test_a_settle_time_can_be_the_delivery_s_own_number(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    steps = [{**STEPS[0], "settle": 5}, STEPS[1]]
+
+    staged = _stage(signed_in, _build(tmp_path, change=_with_steps(steps)))
+
+    assert staged["findings"] == []
+    assert "update_settle" not in {field["key"] for field in staged["values"]}
+
+
+def test_a_site_value_only_a_step_names_is_one_the_delivery_reads(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    """`update_settle` is read by no template: the step that names it is what
+    keeps `values.yaml` from describing a key nothing uses."""
+    _import(signed_in, CLUSTER)
+
+    def unnamed(root: Path) -> None:
+        _with_steps()(root)
+        path = root / "inventory-example.yaml"
+        example = yaml.safe_load(path.read_text())
+        example["cluster_containers"]["vied"]["update_steps"][0]["settle"] = 60
+        path.write_text(yaml.safe_dump(example))
+
+    staged = _stage(signed_in, _build(tmp_path, change=unnamed))
+
+    assert staged["findings"] == [
+        "values.yaml describes update_settle, which no template reads and no "
+        "update step names."
+    ]
 
 
 def test_a_delivery_without_steps_has_none(
@@ -1187,11 +1251,13 @@ def test_a_delivery_without_steps_has_none(
         ),
         (
             [{**STEPS[0], "settle": "long"}],
-            "update step 1: settle is a number of seconds.",
+            "update step 1: settle is a number of seconds or names the site "
+            "value of values.yaml that holds them, and 'long' is not one.",
         ),
         (
             [{**STEPS[0], "settle": True}],
-            "update step 1: settle is a number of seconds.",
+            "update step 1: settle is a number of seconds or names the site "
+            "value of values.yaml that holds them.",
         ),
     ],
 )
