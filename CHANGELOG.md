@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.215 - 2026-10-07
+
+- containers: installing a delivery, applying it, saving site values and removing a workload launch `deploy_containers_cluster` limited to that workload with `deploy_containers_cluster_only`, where each run went through every workload of `cluster_containers`; a workload committed without applying now waits for its own "Apply" or for a run from the Deployment page
+- containers: the run of a removal takes out of the inventory the entry of the workload it removed, and leaves any other entry marked `state: absent` for a run of its own
+- collection: seapathalloc ef5b0f79, deploy_containers_cluster limits a run to the workloads `deploy_containers_cluster_only` names and leaves the others as they are
+
 ## 0.3.214 - 2026-10-07
 
 - containers: the settle time of an update step can name a site value, which the form of the delivery then asks for and a new version no longer writes back; `values.yaml` may describe the keys the update steps name
