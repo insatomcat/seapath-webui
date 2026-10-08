@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.216 - 2026-10-08
+
+- containers: a delivery is installed under the name the form gives it, the one it proposes by default, so that one application runs twice; under another name its quadlets, unit and update steps are renamed after it, and a delivery whose quadlets still write the proposed name where `container.name` belongs is refused before anything is written
+- containers: the form of a delivery offers the workloads running one of its images, and follows the name typed, a new copy or the update of the one of that name
+- collection: seapathalloc 053e358a, the templates of a workload read its name as `container.name`, two workloads writing the same quadlet are refused, and DELIVERY.md has a delivery name what it makes on a node after its entry
+
 ## 0.3.215 - 2026-10-07
 
 - containers: installing a delivery, applying it, saving site values and removing a workload launch `deploy_containers_cluster` limited to that workload with `deploy_containers_cluster_only`, where each run went through every workload of `cluster_containers`; a workload committed without applying now waits for its own "Apply" or for a run from the Deployment page
