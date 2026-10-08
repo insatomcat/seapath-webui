@@ -34,6 +34,8 @@ const RunWatch = (function () {
     stop();
     state.runId = runId;
     state.done = onDone || null;
+    // The bar says so too, and keeps saying it once this window is closed.
+    RunGoing.saw(runId);
 
     element("run-watch-stream").replaceChildren();
     element("run-watch-play").textContent = "";

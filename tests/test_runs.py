@@ -858,6 +858,34 @@ def test_a_restart_clears_listeners_that_died_with_the_process(store) -> None:
     assert record.followups is False
 
 
+def test_the_run_that_is_going_is_the_newest_one_and_only_while_it_goes(
+    store, inventory, trust, tmp_path
+) -> None:
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+
+    def record(run_id: str, state: RunState) -> RunRecord:
+        return RunRecord(
+            id=run_id,
+            playbook="seapath.ansible.deploy_vms_cluster",
+            playbook_id="deploy_vms_cluster",
+            state=state,
+            launched_by="alice",
+        )
+
+    # A node that never ran anything.
+    assert service.going() is None
+
+    store.create(record("20260914T090000", RunState.SUCCESS))
+    assert service.going() is None
+
+    store.create(record("20260914T100000", RunState.RUNNING))
+    assert service.going().id == "20260914T100000"
+
+    # Ended, however it ended.
+    store.save(record("20260914T100000", RunState.INTERRUPTED))
+    assert service.going() is None
+
+
 def test_a_second_acquire_is_refused(store) -> None:
     store.acquire("one")
 

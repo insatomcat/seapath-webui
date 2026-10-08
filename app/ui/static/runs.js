@@ -396,6 +396,7 @@
           scope,
         });
         modal.hidden = true;
+        RunGoing.saw(started.run_id);
         await show(started.run_id);
       } catch (failure) {
         const error = element("confirm-error");

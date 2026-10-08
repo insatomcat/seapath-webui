@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 import app.ui.routes
 from app import __version__
 from app.hosts.fake import FakeHostReader
+from app.runs.models import RunRecord, RunState
 from app.ui.routes import stamp
 
 
@@ -275,6 +276,54 @@ def test_the_header_arrives_with_the_document_that_carries_it(
     # And the requests are gone rather than merely covered up.
     assert 'API.get("/auth/me")' not in script
     assert 'API.get("/node")' not in script
+
+
+def test_the_bar_is_quiet_while_no_run_is_going(signed_in: TestClient) -> None:
+    body = signed_in.get("/inventory").text
+
+    mark = re.search(r'<a id="run-going"[^>]*>', body).group(0)
+    assert 'href="runs"' in mark
+    assert 'data-run=""' in mark
+    assert mark.rstrip(">").split()[-1] == "hidden"
+
+
+def test_the_bar_says_a_run_is_going_and_leads_to_it(
+    signed_in: TestClient,
+) -> None:
+    # A run belongs to the service, so every page says it, including one that
+    # another operator opens in the middle of it.
+    store = signed_in.app.state.run_service._store
+    store.create(
+        RunRecord(
+            id="20260101T000000-abcdef",
+            playbook="playbooks/seapath_setup_main.yaml",
+            playbook_id="seapath_setup_main",
+            state=RunState.RUNNING,
+            launched_by="someone-else",
+        )
+    )
+
+    for path in ("/", "/vms", "/runs"):
+        body = signed_in.get(path).text
+        mark = re.search(r'<a id="run-going"[^>]*>', body).group(0)
+        assert 'href="runs?run=20260101T000000-abcdef"' in mark
+        assert 'data-run="20260101T000000-abcdef"' in mark
+        assert "A run is going: seapath_setup_main. Open it." in mark
+        assert "hidden" not in mark
+
+
+def test_the_bar_keeps_the_mark_true_under_an_open_page(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/inventory").text
+    # Ahead of the window that lights it at a launch.
+    assert body.index("rungoing.js") < body.index("runwatch.js")
+    going = signed_in.get("/static/rungoing.js").text
+    # The newest run alone, as a summary: the list is what stays small.
+    assert 'API.get("/runs?limit=1")' in going
+    # Lit by the launch, from the window every page opens and from a relaunch.
+    assert "RunGoing.saw(runId)" in signed_in.get("/static/runwatch.js").text
+    assert "RunGoing.saw(started.run_id)" in signed_in.get("/static/runs.js").text
 
 
 def test_the_tab_title_names_the_machine_and_the_page(

@@ -514,6 +514,48 @@ select[aria-invalid="true"] {
   outline-offset: 1px;
 }
 
+/* A run is going. The size and the ring of the switches it sits beside, and
+   drawn in the "on" paint from the start: it is only ever shown while there is
+   something to say. A link, since what it does is lead to the run. */
+.run-going {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 1.7rem;
+  height: 1.7rem;
+  background: var(--accent-wash);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+}
+
+.run-going:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.run-going svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  animation: reread-turn 1.1s linear infinite;
+}
+
+/* The whole turn, faint, under the quarter that travels round it. */
+.run-going circle {
+  opacity: 0.3;
+}
+
+/* Its presence in the bar is the message, and that survives without motion. */
+@media (prefers-reduced-motion: reduce) {
+  .run-going svg {
+    animation: none;
+  }
+}
+
 /* The version button, sized to the bar rather than to a form. */
 .version-button {
   padding: 0.25rem 0.6rem;

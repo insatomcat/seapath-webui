@@ -186,6 +186,25 @@ SPDX-License-Identifier: Apache-2.0
         </nav>
       </div>
       <div class="topbar-right">
+        {# A run is going, on this node, whoever launched it and from whichever
+           page. A link to that run on the Runs page, where its stream and its
+           hosts are. Rendered hidden when nothing is going, so the document
+           says what the service knew when it served the page, and
+           `rungoing.js` shows and hides it from there.
+
+           First of the group, so the switches and the way out keep their
+           place when it comes and goes. #}
+        <a id="run-going" class="run-going"
+           href="runs{% if going_run %}?run={{ going_run | urlencode }}{% endif %}"
+           data-run="{{ going_run }}" data-playbook="{{ going_playbook }}"
+           aria-label="A run is going. Open it."
+           title="A run is going{% if going_playbook %}: {{ going_playbook }}{% endif %}. Open it."
+           {% if not going_run %}hidden{% endif %}>
+          <svg viewBox="0 0 16 16" aria-hidden="true">
+            <circle cx="8" cy="8" r="5.6"></circle>
+            <path d="M8 2.4a5.6 5.6 0 0 1 5.6 5.6"></path>
+          </svg>
+        </a>
         {# A radio group and not three buttons: the three are one setting with
            one value, which is what a screen reader has to be told. The labels
            are on the group and on each glyph, because the glyphs are the whole
@@ -351,6 +370,7 @@ SPDX-License-Identifier: Apache-2.0
     {{ script("narrow.js") }}
     {{ script("reread.js") }}
     {{ script("runstream.js") }}
+    {{ script("rungoing.js") }}
     {{ script("runwatch.js") }}
     {{ script("version.js") }}{% endif %}
     {% block scripts %}{% endblock %}

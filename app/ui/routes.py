@@ -191,6 +191,10 @@ def _topbar(request: Request, session: Session) -> dict[str, str]:
     there is no file yet, or one that does not parse. It is also what decides
     which pages the bar offers: a file describing no cluster has no Pacemaker
     for the Cluster page to show and no RBD pool for the Backup page to export.
+
+    The run that is going is said here too, so a page opened in the middle of
+    one shows its mark in the first paint. It is the one string of the bar that
+    changes under an open page, and `rungoing.js` keeps it true from there.
     """
     who = {
         "username": session.username,
@@ -203,6 +207,13 @@ def _topbar(request: Request, session: Session) -> dict[str, str]:
         logger.warning("The top bar could not read the inventory: %s", error)
         mode = None
     who["inventory_mode"] = mode.value if mode is not None else ""
+    try:
+        going = request.app.state.run_service.going()
+    except Exception as error:
+        logger.warning("The top bar could not read the runs: %s", error)
+        going = None
+    who["going_run"] = going.id if going is not None else ""
+    who["going_playbook"] = going.playbook_id if going is not None else ""
     try:
         node = request.app.state.node_service.summary()
     except Exception as error:

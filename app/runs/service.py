@@ -489,6 +489,20 @@ class RunService:
     def get(self, run_id: str) -> RunRecord | None:
         return self._store.load(run_id)
 
+    def going(self) -> RunRecord | None:
+        """The run that is going at this moment, if there is one.
+
+        The newest record and no other: a run takes the one lock before its
+        directory is created, so nothing newer can appear while it goes, and a
+        record left unfinished by a service that died is closed at the next
+        start. One small file read, which is what lets the top bar ask on
+        every page.
+        """
+        newest = self._store.list(1)
+        if newest and not newest[0].finished:
+            return newest[0]
+        return None
+
     def events(self, run_id: str, offset: int = 0):
         return self._store.events(run_id, offset)
 

@@ -617,7 +617,9 @@ each other say whether it is a cluster member and what the inventory
 describes, since one machine can hold and apply the inventory of a cluster it
 is not part of. An inventory that describes no cluster drops Cluster and Backup
 from the menu. The version button described under Deployment sits on its
-right. When the window narrows, the menu wraps onto a second line and the
+right. While a run is going on the node, whoever launched it, a turning ring
+appears at the head of that right side on every page, and a click on it opens
+the run on the Runs page. When the window narrows, the menu wraps onto a second line and the
 switches, the account and the way out keep their place.
 
 Every page is drawn in the palette the operator's system asks for, and the
