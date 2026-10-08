@@ -5483,6 +5483,34 @@ launches that run and follows it, as D66 does for a guest's domain: one
 gesture, one run. The Deployment page names the variable and sends the
 operator here, since it deletes what the workload wrote.
 
+### Amended: the name is the site's, so one delivery runs twice
+
+The workload name was the key of `inventory-example.yaml`, so a second
+open61850-protect replaced the first. The coupling was in the contract: the
+quadlets wrote that name in their file names, the pod, the containers, the
+networks and `/mnt/rbd/<name>`, while the role named the resource, the RBD
+image and its mount after the entry. A second entry over the same files would
+have mounted one image where the containers read the other, and written its
+quadlets over the first copy's on every node.
+
+`DELIVERY.md` now has the name be the site's. The role gives the templates the
+workload name as `container.name`, and refuses two workloads writing the same
+quadlet. A delivery names the pod, the containers, the networks and the host
+directories with it, and what it makes on the host besides, such as an Open
+vSwitch port, is a site value. Inside a container, paths stay the
+application's.
+
+The installation asks the name, the proposed one by default. Under another,
+the quadlets are renamed after it, the proposed name replaced at the start of
+each, and so are the `unit` and the `update_steps`, which name them. Their
+content is the delivery's, unchanged: it is rendered with the new name and
+refused before anything is written when it still calls a pod, a container, a
+network or an RBD image by the proposed name, so a delivery written before
+`container.name` installs under its own name only. The copies share their
+image archives, as the role already shares them across workloads. A new
+version updates the copy named in the form, which offers the workloads
+running an image of the delivery.
+
 ### What this does not write
 
 Secrets. The contract has the application read them from files on its RBD

@@ -219,7 +219,8 @@ not.
       with the inventory, the image archives go to the artefacts, and the
       workload is declared in <code>cluster_containers</code>. A delivery of a
       workload already installed replaces it, the form starting from its site
-      values and its placement. The site's configuration files, in
+      values and its placement. Under another name, it installs the
+      application once more beside it. The site's configuration files, in
       <code>site/</code>, are never replaced.
     </p>
     <div id="delivery-pick">
@@ -235,76 +236,84 @@ not.
     <div class="loading" id="delivery-loading" hidden>Checking the delivery</div>
     <ul class="error" id="delivery-findings" hidden></ul>
     <div id="delivery-summary" hidden>
-      <p id="delivery-what"></p>
-      <details id="delivery-readme-box">
-        <summary>README</summary>
-        <pre id="delivery-readme"></pre>
-      </details>
-      <h3>Site values</h3>
-      <div id="delivery-values"></div>
-      <div id="delivery-site-box" hidden>
-        <h3>Configuration of the site</h3>
-        <div id="delivery-site"></div>
-        <p class="help" id="delivery-site-help"></p>
-      </div>
-      <h3>Placement</h3>
-      <label for="delivery-placement">Where it runs</label>
-      <select id="delivery-placement">
-        <option value="">The cluster chooses</option>
-        <option value="preferred_host">Preferably on</option>
-        <option value="pinned_host">Only on</option>
-      </select>
-      <label for="delivery-node" id="delivery-node-label">Member</label>
-      <select id="delivery-node"></select>
-      <p class="help" id="delivery-placement-help"></p>
-      <h3>Once committed</h3>
-      <div class="choices" id="delivery-mode">
-        <label>
-          <input type="radio" name="delivery-mode" value="apply" checked>
-          Apply now
-        </label>
-        <p class="help">
-          Launches <code>deploy_containers_cluster</code>, which puts the new
-          version and configuration on every node, then restarts the workload
-          so that they apply. What it wrote in operation is kept, and its RBD
-          image is snapshotted first.
-        </p>
-        <div id="delivery-update-box" hidden>
+      <label for="delivery-name">Workload name</label>
+      <input type="text" id="delivery-name" list="delivery-instances"
+             autocomplete="off" spellcheck="false">
+      <datalist id="delivery-instances"></datalist>
+      <p class="help" id="delivery-name-help"></p>
+      <ul class="error" id="delivery-name-findings" hidden></ul>
+      <div id="delivery-form">
+        <p id="delivery-what"></p>
+        <details id="delivery-readme-box">
+          <summary>README</summary>
+          <pre id="delivery-readme"></pre>
+        </details>
+        <h3>Site values</h3>
+        <div id="delivery-values"></div>
+        <div id="delivery-site-box" hidden>
+          <h3>Configuration of the site</h3>
+          <div id="delivery-site"></div>
+          <p class="help" id="delivery-site-help"></p>
+        </div>
+        <h3>Placement</h3>
+        <label for="delivery-placement">Where it runs</label>
+        <select id="delivery-placement">
+          <option value="">The cluster chooses</option>
+          <option value="preferred_host">Preferably on</option>
+          <option value="pinned_host">Only on</option>
+        </select>
+        <label for="delivery-node" id="delivery-node-label">Member</label>
+        <select id="delivery-node"></select>
+        <p class="help" id="delivery-placement-help"></p>
+        <h3>Once committed</h3>
+        <div class="choices" id="delivery-mode">
           <label>
-            <input type="radio" name="delivery-mode" value="update">
-            Apply without interruption
+            <input type="radio" name="delivery-mode" value="apply" checked>
+            Apply now
           </label>
           <p class="help">
             Launches <code>deploy_containers_cluster</code>, which puts the new
-            version on every node, then updates the workload while it runs, as
-            the delivery says: a stand-in keeps the service of each container
-            handed over, and the others are restarted alone, or the whole
-            workload when this version changes its pod or a network. Pacemaker
-            leaves the resource alone meanwhile, and does not start it on
-            another member if this one fails.
+            version and configuration on every node, then restarts the workload
+            so that they apply. What it wrote in operation is kept, and its RBD
+            image is snapshotted first.
           </p>
-        </div>
-        <label>
-          <input type="radio" name="delivery-mode" value="commit">
-          Commit only
-        </label>
-        <p class="help">
-          Nothing reaches the machines until <code>deploy_containers_cluster</code>
-          runs from the Deployment page, and the running workload keeps its
-          version until it is restarted.
-        </p>
-        <div id="delivery-recreate-box" hidden>
+          <div id="delivery-update-box" hidden>
+            <label>
+              <input type="radio" name="delivery-mode" value="update">
+              Apply without interruption
+            </label>
+            <p class="help">
+              Launches <code>deploy_containers_cluster</code>, which puts the new
+              version on every node, then updates the workload while it runs, as
+              the delivery says: a stand-in keeps the service of each container
+              handed over, and the others are restarted alone, or the whole
+              workload when this version changes its pod or a network. Pacemaker
+              leaves the resource alone meanwhile, and does not start it on
+              another member if this one fails.
+            </p>
+          </div>
           <label>
-            <input type="radio" name="delivery-mode" value="reset">
-            Apply and reset the operation state
+            <input type="radio" name="delivery-mode" value="commit">
+            Commit only
           </label>
           <p class="help">
-            The run stops the workload, deletes its Pacemaker resource, puts
-            its RBD image aside, then deploys it with an empty one. The
-            workload starts from the configuration of the site alone: what it
-            wrote in operation (settings changed by MMS) is on the image put
-            aside.
+            Nothing reaches the machines until <code>deploy_containers_cluster</code>
+            runs from the Deployment page, and the running workload keeps its
+            version until it is restarted.
           </p>
+          <div id="delivery-recreate-box" hidden>
+            <label>
+              <input type="radio" name="delivery-mode" value="reset">
+              Apply and reset the operation state
+            </label>
+            <p class="help">
+              The run stops the workload, deletes its Pacemaker resource, puts
+              its RBD image aside, then deploys it with an empty one. The
+              workload starts from the configuration of the site alone: what it
+              wrote in operation (settings changed by MMS) is on the image put
+              aside.
+            </p>
+          </div>
         </div>
       </div>
     </div>

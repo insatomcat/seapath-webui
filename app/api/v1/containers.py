@@ -96,6 +96,14 @@ class SiteValues(BaseModel):
 class DeliveryInstallation(SiteValues):
     """What installing a delivery asks the operator for."""
 
+    name: str | None = Field(
+        default=None,
+        description=(
+            "The workload's name: its entry, its Pacemaker resource and its RBD "
+            "image. Omitted, the name the delivery proposes; another installs "
+            "the application once more, or updates the copy of that name"
+        ),
+    )
     placement: Placement | None = Field(
         default=None,
         description=(
@@ -302,9 +310,14 @@ async def stage_delivery(request: Request, user: User = admin) -> StagedDelivery
 
 
 @router.get("/deliveries/{staged}", response_model=StagedDelivery)
-def staged_delivery(request: Request, staged: str) -> StagedDelivery:
+def staged_delivery(
+    request: Request, staged: str, name: str | None = None
+) -> StagedDelivery:
+    """A staged delivery, as it would be installed under `name`: the
+    workload it updates, if any, the values it has, and why it cannot be.
+    The name the delivery proposes when omitted."""
     try:
-        return _deliveries(request).staged(staged)
+        return _deliveries(request).staged(staged, name)
     except UnknownDelivery as error:
         raise ApiError("unknown_delivery", str(error), 404) from error
 
@@ -346,7 +359,7 @@ def install_delivery(
         )
     )
     if variable == UPDATE_VARIABLE:
-        _refuse_no_steps(request, staged)
+        _refuse_no_steps(request, staged, payload.name)
     if variable:
         _refuse_ignored(request, variable)
     try:
@@ -357,6 +370,7 @@ def install_delivery(
             if_match,
             payload.placement,
             payload.examples,
+            payload.name,
         )
     except UnknownDelivery as error:
         raise ApiError("unknown_delivery", str(error), 404) from error
@@ -386,12 +400,12 @@ def install_delivery(
     return _launch(request, user, installed, {variable: installed.name})
 
 
-def _refuse_no_steps(request: Request, staged: str) -> None:
+def _refuse_no_steps(request: Request, staged: str, name: str | None) -> None:
     """Before the commit: the role refuses to update a workload whose entry
     says nothing of how, and one that does not run yet has nothing to keep
     in service."""
     try:
-        found = _deliveries(request).staged(staged)
+        found = _deliveries(request).staged(staged, name)
     except UnknownDelivery as error:
         raise ApiError("unknown_delivery", str(error), 404) from error
     if found.update and found.update_steps:

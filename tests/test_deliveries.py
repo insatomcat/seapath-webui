@@ -1445,3 +1445,211 @@ def test_the_page_offers_the_update_for_a_delivery_that_declares_its_steps(
     assert '<input type="radio" name="delivery-mode" value="update">' in body
     assert "!(staged.update && staged.update_steps);" in script
     assert 'update: mode === "update",' in script
+
+
+# A second copy: the same delivery installed under another name
+
+NAMED_POD = POD.replace("PodName=vied", "PodName={{ container.name }}").replace(
+    "Network=vied-sbus", "Network={{ container.name }}-sbus"
+)
+
+NAMED_APP = """[Unit]
+Description=vied app
+
+[Container]
+Pod={{ container.name }}.pod
+ContainerName={{ container.name }}-app
+Image={{ container.images[0].name }}
+Environment=CLOCK={{ container.clock }}
+Volume=/mnt/rbd/{{ container.name }}/instance:/etc/vied:ro
+"""
+
+
+def _named(root: Path) -> None:
+    """A delivery that names the workload after its entry, as DELIVERY.md
+    asks, so that it runs twice."""
+    (root / "quadlets/vied.pod.j2").write_text(NAMED_POD)
+    (root / "quadlets/vied-app.container.j2").write_text(NAMED_APP)
+
+
+def test_a_delivery_is_installed_a_second_time_under_another_name(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one", change=_named)))
+    staged = _stage(signed_in, _build(tmp_path / "two", change=_named))
+
+    again = signed_in.get(
+        f"/api/v1/containers/deliveries/{staged['id']}", params={"name": "vied-b"}
+    ).json()
+    response = _install(signed_in, staged, name="vied-b")
+
+    assert again["findings"] == []
+    assert again["proposed"] == "vied"
+    assert again["name"] == "vied-b"
+    assert again["update"] is False
+    assert again["instances"] == ["vied"]
+    assert response.status_code == 201, response.text
+    assert response.json()["message"] == "containers: install vied-b from vied-1"
+    entry = _entry(signed_in, "vied-b")
+    assert entry["unit"] == "vied-b-pod.service"
+    assert entry["quadlets"] == [
+        "../inventories/vied-b/quadlets/vied-b.pod.j2",
+        "../inventories/vied-b/quadlets/vied-b-app.container.j2",
+    ]
+    # One archive for both: the same image, on every node once.
+    assert entry["images"] == _entry(signed_in, "vied")["images"]
+    folder = settings.inventory_dir / "inventories/vied-b"
+    assert (folder / "quadlets/vied-b.pod.j2").read_text() == NAMED_POD
+    assert _entry(signed_in, "vied")["unit"] == "vied-pod.service"
+    assert (settings.inventory_dir / "inventories/vied/quadlets/vied.pod.j2").is_file()
+
+
+def test_a_new_version_offers_every_copy_and_updates_the_one_named(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    for name, where in (("vied", "one"), ("vied-b", "two")):
+        staged = _stage(signed_in, _build(tmp_path / where, change=_named))
+        assert _install(signed_in, staged, name=name).status_code == 201
+    staged = _stage(signed_in, _build(tmp_path / "new", "vied-2", change=_named))
+
+    described = signed_in.get(
+        f"/api/v1/containers/deliveries/{staged['id']}", params={"name": "vied-b"}
+    ).json()
+    response = _install(signed_in, staged, name="vied-b")
+
+    assert staged["instances"] == ["vied", "vied-b"]
+    assert described["update"] is True
+    assert response.status_code == 201, response.text
+    assert response.json()["message"] == "containers: update vied-b from vied-2"
+    assert _entry(signed_in, "vied-b")["images"][0]["name"] == "localhost/vied:2"
+    assert _entry(signed_in, "vied")["images"][0]["name"] == "localhost/vied:1"
+
+
+def test_a_delivery_writing_its_name_installs_under_that_name_only(
+    signed_in: TestClient, tmp_path: Path, settings: Settings
+) -> None:
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build(tmp_path))
+    before = _head(settings)
+
+    described = signed_in.get(
+        f"/api/v1/containers/deliveries/{staged['id']}", params={"name": "vied-b"}
+    ).json()
+    response = _install(signed_in, staged, name="vied-b")
+
+    findings = " ".join(described["findings"])
+    assert "quadlets/vied-b.pod.j2 names vied, " in findings
+    assert "quadlets/vied-b.pod.j2 names vied-sbus.network" in findings
+    assert "quadlets/vied-b-app.container.j2 names vied.pod" in findings
+    assert "{{ container.name }}" in findings
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_delivery"
+    assert _head(settings) == before
+    assert staged["findings"] == []
+
+
+def test_a_container_called_by_its_proposed_name_is_refused_under_another(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    def inspected(root: Path) -> None:
+        _named(root)
+        (root / "quadlets/vied-app.container.j2").write_text(
+            NAMED_APP + "\n[Service]\nExecStartPost=podman inspect vied-app\n"
+        )
+
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build(tmp_path, change=inspected))
+
+    described = signed_in.get(
+        f"/api/v1/containers/deliveries/{staged['id']}", params={"name": "relay"}
+    ).json()
+
+    assert described["findings"] == [
+        "quadlets/relay-app.container.j2 calls vied-app by the name the "
+        "delivery proposes: installed as relay, it is relay-app."
+    ]
+
+
+def test_a_name_extending_the_proposed_one_still_finds_it_written(
+    tmp_path: Path,
+) -> None:
+    # Installed as vied-x, the vied.pod written in the delivery starts like
+    # the copy's names and is still the proposed workload's.
+    archive = _build(tmp_path)
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(tmp_path / "out", filter="data")
+    found = delivery.named(delivery.read(tmp_path / "out/vied-1"), "vied-x")
+
+    findings = delivery.named_apart(found)
+
+    assert any("names vied.pod" in finding for finding in findings)
+    assert not delivery.named_apart(
+        delivery.named(delivery.read(tmp_path / "out/vied-1"), "vied")
+    )
+
+
+def test_the_update_steps_and_the_unit_follow_the_name(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    def stepped(root: Path) -> None:
+        _with_steps()(root)
+        _named(root)
+        (root / "quadlets/vied-rt.container.j2").write_text(
+            RT.replace("Pod=vied.pod", "Pod={{ container.name }}.pod")
+        )
+        (root / "quadlets/vied-pb.network.j2").write_text(
+            PB.replace("NetworkName=vied-pb", "NetworkName={{ container.name }}-pb")
+        )
+
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build(tmp_path, change=stepped))
+
+    response = _install(signed_in, staged, name="bay2")
+
+    assert response.status_code == 201, response.text
+    assert _entry(signed_in, "bay2")["update_steps"] == [
+        {**STEPS[0], "handover": "bay2-rt.container", "network": "bay2-pb.network"},
+        {"restart": "bay2-app.service"},
+    ]
+
+
+def test_a_quadlet_not_named_after_the_workload_cannot_be_renamed(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    def stray(root: Path) -> None:
+        _named(root)
+        (root / "quadlets/shared.network").write_text("[Network]\n")
+        path = root / "inventory-example.yaml"
+        example = yaml.safe_load(path.read_text())
+        example["cluster_containers"]["vied"]["quadlets"].append(
+            "quadlets/shared.network"
+        )
+        path.write_text(yaml.safe_dump(example))
+
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build(tmp_path, change=stray))
+
+    described = signed_in.get(
+        f"/api/v1/containers/deliveries/{staged['id']}", params={"name": "bay2"}
+    ).json()
+
+    assert staged["findings"] == []
+    assert described["findings"] == [
+        "The quadlet shared.network does not start with vied, so it cannot be "
+        "named after bay2: the delivery installs under its own name only."
+    ]
+
+
+def test_name_is_the_workload_s_own_and_no_site_value() -> None:
+    findings: list[str] = []
+
+    delivery.parse_values(
+        {"name": {"description": "x", "format": "string", "example": "a"}}, findings
+    )
+
+    assert findings == [
+        "values.yaml: name is not a site value: the templates read "
+        "container.name as the workload's own."
+    ]

@@ -955,19 +955,81 @@
       check.disabled = false;
       element("delivery-loading").hidden = true;
     }
-    const findings = clear(element("delivery-findings"));
-    (staged.findings || []).forEach((finding) => {
-      const item = document.createElement("li");
-      item.textContent = finding;
-      findings.append(item);
-    });
-    findings.hidden = findings.children.length === 0;
+    // A delivery that cannot be read has no name to choose: its findings are
+    // the whole answer. One that can is refused under a name only, and
+    // another may do.
+    const findings = listFindings(
+      element("delivery-findings"),
+      staged.proposed ? [] : staged.findings
+    );
     if (!findings.hidden) {
       return;
     }
     element("delivery-pick").hidden = true;
     element("delivery-check").hidden = true;
     element("delivery-summary").hidden = false;
+    element("delivery-name").value = staged.name;
+    describeDelivery();
+  }
+
+  function listFindings(holder, found) {
+    clear(holder);
+    (found || []).forEach((finding) => {
+      const item = document.createElement("li");
+      item.textContent = finding;
+      holder.append(item);
+    });
+    holder.hidden = holder.children.length === 0;
+    return holder;
+  }
+
+  // The name the workload is installed under. The delivery proposes one;
+  // another installs the application once more beside it, or updates the
+  // copy of that name, and the form follows whichever it is.
+  async function renameDelivery() {
+    const name = element("delivery-name").value.trim();
+    if (!staged || !name || name === staged.name) {
+      return;
+    }
+    const error = element("delivery-error");
+    error.hidden = true;
+    try {
+      staged = await API.get(
+        "/containers/deliveries/" + staged.id + "?name=" + encodeURIComponent(name)
+      );
+    } catch (failure) {
+      error.textContent = failure.message;
+      error.hidden = false;
+      return;
+    }
+    describeDelivery();
+  }
+
+  function describeDelivery() {
+    const instances = staged.instances || [];
+    const list = clear(element("delivery-instances"));
+    [staged.proposed]
+      .concat(instances)
+      .filter((name, index, all) => all.indexOf(name) === index)
+      .forEach((name) => list.append(new Option(name, name)));
+    element("delivery-name-help").textContent =
+      (staged.update
+        ? "Updates the workload " + staged.name + "."
+        : staged.name === staged.proposed
+          ? "The name the delivery proposes."
+          : "Installs the application once more, as " + staged.name + ".") +
+      (instances.length
+        ? " Installed from this delivery: " + instances.join(", ") + "."
+        : "") +
+      " The name is the Pacemaker resource, the RBD image and the folder of " +
+      "the inventory.";
+    const findings = element("delivery-name-findings");
+    const refused = !listFindings(findings, staged.findings).hidden;
+    element("delivery-form").hidden = refused;
+    element("delivery-go").hidden = refused;
+    if (refused) {
+      return;
+    }
     element("delivery-what").textContent =
       (staged.update ? "Updates " : "Installs ") +
       staged.name +
@@ -991,7 +1053,6 @@
     // A workload not installed yet has nothing to keep in service, and a
     // delivery without steps is applied by a restart.
     element("delivery-update-box").hidden = !(staged.update && staged.update_steps);
-    element("delivery-go").hidden = false;
   }
 
   // The site's configuration files. An import never writes one the site has;
@@ -1089,6 +1150,7 @@
       const installed = await API.post(
         "/containers/deliveries/" + staged.id + "/install",
         {
+          name: staged.name,
           values: formValues(holder),
           placement: formPlacement(),
           examples: siteExamples(),
@@ -1336,6 +1398,7 @@
   element("delivery-cancel").addEventListener("click", () => showDelivery(false));
   element("delivery-check").addEventListener("click", checkDelivery);
   element("delivery-go").addEventListener("click", installDelivery);
+  element("delivery-name").addEventListener("change", renameDelivery);
   element("delivery-placement").addEventListener("change", showPlacement);
   element("values-cancel").addEventListener("click", () => {
     element("values").hidden = true;

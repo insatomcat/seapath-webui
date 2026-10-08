@@ -24,6 +24,10 @@ editing the inventory by hand would.
 All of the inventory side is one commit. Nothing reaches a machine: that is
 the run of `deploy_containers_cluster`, named at the end.
 
+The workload is installed under the name the delivery proposes, or under
+another the site gives it, so that one application runs twice: the quadlets
+are then renamed after it, and must name the workload with `container.name`.
+
 A new version of a workload already installed is the same path. Its entry is
 replaced by the delivery's, with the site values and the placement the form
 answers, prefilled with what it had. The files the old entry named and nothing
@@ -99,6 +103,12 @@ class SiteFile(BaseModel):
 class StagedDelivery(BaseModel):
     id: str
     name: str = ""
+    """The name it is installed under: the proposed one, or the site's."""
+    proposed: str = ""
+    """The name the delivery gives the workload."""
+    instances: list[str] = Field(default_factory=list)
+    """The installed workloads running an image of this delivery, which a new
+    version of it updates."""
     version: str = ""
     """The delivery's directory name, which the contract makes
     `<application>-<version>`."""
@@ -191,22 +201,30 @@ class DeliveryService:
             archive.unlink(missing_ok=True)
         return self._describe(staged.id, root)
 
-    def staged(self, staged_id: str) -> StagedDelivery:
+    def staged(self, staged_id: str, name: str | None = None) -> StagedDelivery:
+        """The staged delivery, as it would be installed under `name`, the
+        name it proposes when None."""
         root = self._tree(staged_id)
-        return self._describe(staged_id, root)
+        return self._describe(staged_id, root, name)
 
     def discard(self, staged_id: str) -> None:
         shutil.rmtree(self._home(staged_id), ignore_errors=True)
 
-    def _describe(self, staged_id: str, root: Path) -> StagedDelivery:
+    def _describe(
+        self, staged_id: str, root: Path, name: str | None = None
+    ) -> StagedDelivery:
         staged = StagedDelivery(id=staged_id, version=root.name)
         try:
-            found = delivery.read(root)
+            proposed = delivery.read(root)
+            staged.proposed = proposed.name
+            staged.name = name or proposed.name
+            staged.instances = self._instances(proposed)
+            found = delivery.named(proposed, staged.name)
         except delivery.InvalidDelivery as error:
             staged.findings = error.findings
             return staged
+        staged.findings = delivery.named_apart(found)
         current = self._containers.workload(found.name) or {}
-        staged.name = found.name
         staged.update = bool(current)
         staged.images = [image.name for image in found.images]
         staged.quadlets = found.quadlets
@@ -239,16 +257,19 @@ class DeliveryService:
         expected_head: str | None = None,
         placement: Placement | None = None,
         examples: list[str] | None = None,
+        name: str | None = None,
     ) -> Installed:
         """Write the staged delivery into the inventory, as one commit.
 
         The entry is the delivery's, the site values and the placement. Keys
         the old entry had beyond those are dropped with it. `placement` None
         keeps the one the workload has. `examples` names the examples to copy
-        where the site has no file; None copies every one.
+        where the site has no file; None copies every one. `name` is the
+        workload's, the delivery's own when None.
         """
         root = self._tree(staged_id)
-        found = delivery.read(root)
+        proposed = delivery.read(root)
+        found = delivery.named(proposed, name or proposed.name)
         values, refused = delivery.site_values(found.values, given)
         if refused:
             raise RefusedValues(refused)
@@ -399,6 +420,24 @@ class DeliveryService:
     def _move_back(self, moved: list[Path], root: Path) -> None:
         for target in moved:
             shutil.move(target, root / "images" / target.name)
+
+    def _instances(self, found: delivery.Delivery) -> list[str]:
+        """The installed workloads that run an image of the delivery, by the
+        image's name without its version."""
+        repositories = {image.name.rsplit(":", 1)[0] for image in found.images}
+        named: list[str] = []
+        for quadlet in quadlets.workloads(self._inventory.raw()):
+            spec = self._containers.workload(quadlet.name) or {}
+            images = spec.get("images")
+            for image in images if isinstance(images, list) else []:
+                if (
+                    isinstance(image, dict)
+                    and isinstance(image.get("name"), str)
+                    and image["name"].rsplit(":", 1)[0] in repositories
+                ):
+                    named.append(quadlet.name)
+                    break
+        return sorted(set(named))
 
     def _archives_in_use(self) -> set[str]:
         document = self._inventory.raw()

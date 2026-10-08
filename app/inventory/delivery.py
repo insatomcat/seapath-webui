@@ -24,6 +24,7 @@ artefacts.
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import ipaddress
 import json
@@ -61,9 +62,20 @@ FORMATS = (
     "name",
 )
 
-# What a template reads of the workload. `container.images` is the one key the
-# delivery does not ask the site for: it is the list of its own images.
+# What a template reads of the workload. `container.images` and
+# `container.name` are the keys the delivery does not ask the site for: the
+# list of its own images, and the name the site installs it under.
 _READ = re.compile(r"container\.([A-Za-z_][A-Za-z0-9_]*)")
+_OWN_KEYS = ("images", "name")
+# What a quadlet names on a node, which two copies of a workload cannot
+# share: the value of each directive, up to its options.
+_NAMING = re.compile(
+    r"^(PodName|ContainerName|NetworkName|Pod|Network)=([^:\s]+)", re.MULTILINE
+)
+# A host directory the role makes for the workload, named after it.
+_HOST_DIRS = re.compile(
+    r"^Volume=/(?:mnt/rbd|etc/seapath-containers)/([^/:\s]+)", re.MULTILINE
+)
 _UNDER_FILES = re.compile(r"(?:^|/)files/(.+)$")
 _MAC = re.compile(r"^[0-9a-fA-F]{2}(:[0-9a-fA-F]{2}){5}$")
 # An interface, bridge or port name: what the kernel accepts, IFNAMSIZ less one.
@@ -103,7 +115,8 @@ class Image:
 class Delivery:
     root: Path
     name: str
-    """The workload name, the key of `inventory-example.yaml`."""
+    """The workload name: the key of `inventory-example.yaml`, or the one the
+    site installs it under (`named`)."""
     example: dict[str, Any]
     values: list[Value]
     images: list[Image]
@@ -121,6 +134,12 @@ class Delivery:
     step names quadlets and site values, never a value of the site, so the
     delivery's own steps are the entry's."""
     readme: str = ""
+    proposed: str = ""
+    """The name the delivery gives the workload, the key of
+    `inventory-example.yaml`."""
+    sources: dict[str, str] = field(default_factory=dict)
+    """Each quadlet renamed after the site's name, to its file in the
+    delivery."""
 
     @property
     def legacy(self) -> bool:
@@ -131,6 +150,10 @@ class Delivery:
     @property
     def examples_dir(self) -> str:
         return LEGACY_DIR if self.legacy else EXAMPLES_DIR
+
+    def quadlet_path(self, name: str) -> Path:
+        """The delivery's file of a quadlet, by the name it is installed under."""
+        return self.root / "quadlets" / self.sources.get(name, name)
 
 
 # Unpacking
@@ -217,7 +240,70 @@ def read(root: Path) -> Delivery:
         checks=checks,
         update_steps=steps,
         readme=readme.read_text(errors="replace") if readme.is_file() else "",
+        proposed=name,
     )
+
+
+def named(found: Delivery, name: str) -> Delivery:
+    """The delivery installed as `name`, which may differ from the one it
+    proposes: a site running the application twice installs it twice.
+
+    Everything the workload makes on a node is named after its entry, so the
+    quadlets are renamed, the proposed name replaced by the site's at the
+    start of each, and with them the unit and the update steps naming them.
+    Their content names the workload with `container.name`, which `render`
+    checks.
+    """
+    if name == found.proposed:
+        return found
+    findings: list[str] = []
+    if not quadlets.NAME.match(name):
+        findings.append(
+            f"{name!r} cannot be a workload name: it becomes the Pacemaker "
+            "resource and the RBD image, so letters, digits, dots, dashes and "
+            "underscores."
+        )
+
+    def renamed(file: str, what: str) -> str:
+        if _belongs(file, found.proposed):
+            return name + file[len(found.proposed) :]
+        findings.append(
+            f"{what} {file} does not start with {found.proposed}, so it cannot "
+            f"be named after {name}: the delivery installs under its own name "
+            "only."
+        )
+        return file
+
+    names = [renamed(file, "The quadlet") for file in found.quadlets]
+    example = dict(found.example)
+    if isinstance(example.get("unit"), str):
+        example["unit"] = renamed(example["unit"], "The unit")
+    steps = [
+        {
+            key: (
+                renamed(value, "The update step naming")
+                if key in ("handover", "network", "restart")
+                else value
+            )
+            for key, value in step.items()
+        }
+        for step in found.update_steps
+    ]
+    if findings:
+        raise InvalidDelivery(findings)
+    return dataclasses.replace(
+        found,
+        name=name,
+        example=example,
+        quadlets=names,
+        update_steps=steps,
+        sources=dict(zip(names, found.quadlets, strict=True)),
+    )
+
+
+def _belongs(named: str, name: str) -> bool:
+    """`named` is the workload's own: `name`, `name-...` or `name.pod`."""
+    return named == name or named.startswith((f"{name}-", f"{name}."))
 
 
 def config_name(path: str) -> str:
@@ -382,6 +468,12 @@ def parse_values(loaded: Any, findings: list[str]) -> list[Value] | None:
         if not isinstance(spec, dict):
             findings.append(f"{VALUES_FILE}: {key} is not described.")
             continue
+        if key in _OWN_KEYS:
+            findings.append(
+                f"{VALUES_FILE}: {key} is not a site value: the templates read "
+                f"container.{key} as the workload's own."
+            )
+            continue
         value = Value(
             key=str(key),
             description=str(spec.get("description") or ""),
@@ -507,7 +599,7 @@ def _keys_match(
     for path in templates:
         if path.is_file() and path.name.endswith(".j2"):
             read_keys.update(_READ.findall(path.read_text(errors="replace")))
-    read_keys.discard("images")
+    read_keys.difference_update(_OWN_KEYS)
     described = {value.key for value in values}
     # A name a step gives that is no site value is the step's own finding.
     read_keys |= described & (named or set())
@@ -677,7 +769,7 @@ def inventory_files(delivery: Delivery) -> dict[str, bytes]:
     them, beyond a first copy of an example."""
     home = folder(delivery.name)
     found = {
-        f"{home}/quadlets/{name}": (delivery.root / "quadlets" / name).read_bytes()
+        f"{home}/quadlets/{name}": delivery.quadlet_path(name).read_bytes()
         for name in delivery.quadlets
     }
     for relative in delivery.examples:
@@ -703,14 +795,37 @@ def render(delivery: Delivery, spec: dict[str, Any]) -> list[str]:
     A filter only Ansible has cannot be judged here, so a template using one is
     left to the run rather than refused.
     """
+    texts, findings = _render(delivery, spec)
+    if delivery.name != delivery.proposed:
+        findings += _named_literally(delivery, texts)
+    return findings
+
+
+def named_apart(delivery: Delivery) -> list[str]:
+    """Why the delivery cannot run under the name it is installed as, beside
+    a copy under the proposed one, rendered with its example values."""
+    if delivery.name == delivery.proposed:
+        return []
+    values = {value.key: value.example for value in delivery.values}
+    texts, _ = _render(delivery, entry(delivery, values))
+    return _named_literally(delivery, texts)
+
+
+def _render(
+    delivery: Delivery, spec: dict[str, Any]
+) -> tuple[dict[str, str], list[str]]:
+    """Every quadlet as a node receives it, by its name there, and what fails."""
     environment = jinja2.sandbox.SandboxedEnvironment(undefined=jinja2.StrictUndefined)
     findings: list[str] = []
+    workload = {**spec, "name": delivery.name}
+    texts: dict[str, str] = {}
     for name in delivery.quadlets:
+        text = delivery.quadlet_path(name).read_text(errors="replace")
         if not name.endswith(".j2"):
+            texts[name] = text
             continue
-        text = (delivery.root / "quadlets" / name).read_text(errors="replace")
         try:
-            rendered = environment.from_string(text).render(container=spec)
+            rendered = environment.from_string(text).render(container=workload)
         except jinja2.TemplateAssertionError as error:
             if "No filter named" in str(error) or "No test named" in str(error):
                 continue
@@ -724,6 +839,52 @@ def render(delivery: Delivery, spec: dict[str, Any]) -> list[str]:
             continue
         if quadlets.starts_itself(rendered):
             findings.append(f"quadlets/{name} renders an [Install] section.")
+        texts[name] = rendered
+    return texts, findings
+
+
+def _named_literally(delivery: Delivery, texts: dict[str, str]) -> list[str]:
+    """What the quadlets of a delivery installed under another name still
+    call by the proposed one: a second copy would share it with the first, a
+    pod, a container, a network or the RBD image under it."""
+    name, proposed = delivery.name, delivery.proposed
+
+    def literal(named: str) -> bool:
+        # One name may start the other. Installed as relay-b, `relay-b-app`
+        # is its own; installed as relay, a delivery proposing relay-b that
+        # writes `relay-b-app` still names the proposed workload.
+        return _belongs(named, proposed) and not (
+            _belongs(named, name) and len(name) > len(proposed)
+        )
+
+    findings: list[str] = []
+    own: set[str] = set()
+    for file, text in texts.items():
+        named = [match.group(2) for match in _NAMING.finditer(text)]
+        named += _HOST_DIRS.findall(text)
+        for value in named:
+            if literal(value):
+                findings.append(
+                    f"quadlets/{file} names {value}, the workload's name as the "
+                    f"delivery proposes it: installed as {name}, it would be "
+                    f"shared with {proposed}. The delivery names it with "
+                    "{{ container.name }}, or installs under its own name only."
+                )
+            elif _belongs(value, name) and value != name:
+                own.add(value[len(name) :])
+    # A container named after the entry but called by its proposed name
+    # elsewhere, as `podman inspect` would.
+    for suffix in sorted(own):
+        pattern = re.compile(
+            r"(?<![\w.-])" + re.escape(proposed + suffix) + r"(?![\w-])"
+        )
+        for file, text in texts.items():
+            if pattern.search(text):
+                findings.append(
+                    f"quadlets/{file} calls {proposed + suffix} by the name the "
+                    f"delivery proposes: installed as {name}, it is "
+                    f"{name + suffix}."
+                )
     return findings
 
 
