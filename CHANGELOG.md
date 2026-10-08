@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.217 - 2026-10-08
+
+- runs: while a run is going on the node, whoever launched it, the top bar of every page shows a turning ring that opens the run on the Runs page; it arrives with the document, is lit by a launch, and is kept true by reading the newest run of the history, every three seconds while one is going and every fifteen otherwise
+
 ## 0.3.216 - 2026-10-08
 
 - containers: a delivery is installed under the name the form gives it, the one it proposes by default, so that one application runs twice; under another name its quadlets, unit and update steps are renamed after it, and a delivery whose quadlets still write the proposed name where `container.name` belongs is refused before anything is written
