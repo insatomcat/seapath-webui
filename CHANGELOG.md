@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.218 - 2026-10-10
+
+- collection: seapathalloc 86df9c4a, deploy_prometheus_exporters deploys the smartctl exporter on the physical machines and deploy_metrics_proxy serves it as `/metrics/smartctl`, network_systemdnetworkd can put the administration IP on a macvlan of br0 with `network_systemdnetworkd_br0_macvlan`, and the name check of a delivery spares the paths of its application
+
 ## 0.3.217 - 2026-10-08
 
 - runs: while a run is going on the node, whoever launched it, the top bar of every page shows a turning ring that opens the run on the Runs page; it arrives with the document, is lit by a launch, and is kept true by reading the newest run of the history, every three seconds while one is going and every fifteen otherwise
