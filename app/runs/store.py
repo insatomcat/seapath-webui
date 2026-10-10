@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
@@ -86,8 +87,10 @@ def _interrupted_message(record: RunRecord) -> str:
 
 
 class RunStore:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, kept: int = 0) -> None:
         self._root = Path(root)
+        # How many runs the node keeps, the newest. 0 keeps every one. See D75.
+        self._kept = kept
 
     @property
     def root(self) -> Path:
@@ -110,6 +113,7 @@ class RunStore:
         (directory / _LOG).touch()
         (directory / _RESULTS).mkdir(exist_ok=True)
         self.save(record)
+        self.prune()
         return directory
 
     def results_dir(self, run_id: str) -> Path:
@@ -294,4 +298,54 @@ class RunStore:
         # every run until someone deletes a file, which is a worse failure
         # than the concurrency it guards against.
         (self._root / _LOCK).unlink(missing_ok=True)
+        # A node upgraded to an image that keeps fewer runs than it holds gives
+        # them back at once rather than one per run launched.
+        self.prune()
         return recovered
+
+    # Retention
+
+    def prune(self) -> list[str]:
+        """Delete the runs older than the `kept` newest, and say which.
+
+        Called when a run is created and at every start, so the history never
+        holds more than `kept` runs plus the one being created. A run holds
+        the event stream, the frozen inventory and ansible-runner's own
+        artifacts, about three megabytes, and a mirror whose files overlay
+        held a large archive holds that archive too: on a bench launching
+        thirty runs a day the history was most of what filled `/`.
+
+        The run holding the lock and a run still going are never deleted,
+        whatever their age: their directory is what the process is writing.
+        """
+        if self._kept <= 0 or not self._root.is_dir():
+            return []
+        newest = sorted(
+            (entry.name for entry in self._root.iterdir() if entry.is_dir()),
+            reverse=True,
+        )
+        holder = self._lock_holder()
+        removed = []
+        for name in newest[self._kept :]:
+            if name == holder:
+                continue
+            record = self.load(name)
+            if record is not None and record.state in (
+                RunState.PENDING,
+                RunState.RUNNING,
+            ):
+                continue
+            try:
+                shutil.rmtree(self.directory(name))
+            except OSError as error:
+                logger.warning("Run %s could not be deleted: %s", name, error)
+                continue
+            removed.append(name)
+        if removed:
+            logger.info(
+                "Deleted %d runs beyond the %d kept, the newest of them %s",
+                len(removed),
+                self._kept,
+                removed[0],
+            )
+        return removed

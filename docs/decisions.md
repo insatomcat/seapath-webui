@@ -5880,3 +5880,26 @@ Nothing is committed that was not before. An inventory exported after any of
 these gestures and run from a conventional control machine, without the
 variable, goes through every workload and changes nothing on the one the
 limited run reached.
+
+## D75 - Settled: a node keeps its three hundred newest runs
+
+A run is a directory, and nothing ever deleted one. On ccv1, a bench
+launching ten to forty runs a day, `runs/` held 675 runs and 1.9 GB on
+2026-10-10, most of what kept `/` growing. A run weighs about three
+megabytes: ansible-runner's own `artifacts/`, one file per event, is two
+of them. A few weigh 150 MB, when the files overlay of their mirror
+held an image archive.
+
+`RunStore` now deletes the runs older than the `runs_kept` newest
+(`SEAPATH_WEBUI_RUNS_KEPT`, 300 by default, 0 keeps every one), when a
+run is created and at every start. The run holding the lock and a run
+still going are never deleted, whatever their age.
+
+Three hundred is the deepest history a page reads: the Software page
+looks that far back for each machine's last update, the Real time page
+and the backup listing two hundred. Keeping that many changes nothing
+any page shows, and bounds the history near one gigabyte.
+
+A bound by age or by size was refused: a node nobody touches for a year
+would lose the trace of its commissioning to the first, and the second
+would let one heavy run push out a hundred ordinary ones.

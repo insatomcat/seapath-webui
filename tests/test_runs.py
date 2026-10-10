@@ -893,6 +893,72 @@ def test_a_second_acquire_is_refused(store) -> None:
         store.acquire("two")
 
 
+# Retention
+
+
+def _ended(run_id: str, state: RunState = RunState.SUCCESS) -> RunRecord:
+    return RunRecord(
+        id=run_id,
+        playbook="seapath.ansible.deploy_vms_cluster",
+        playbook_id="deploy_vms_cluster",
+        state=state,
+        launched_by="alice",
+    )
+
+
+def test_a_new_run_deletes_the_oldest_beyond_those_kept(tmp_path) -> None:
+    store = RunStore(tmp_path / "runs", kept=3)
+    for hour in range(5):
+        store.create(_ended(f"20261010T0{hour}0000"))
+
+    assert [record.id for record in store.list()] == [
+        "20261010T040000",
+        "20261010T030000",
+        "20261010T020000",
+    ]
+    assert not store.directory("20261010T000000").exists()
+
+
+def test_every_run_is_kept_when_nothing_bounds_them(store) -> None:
+    for hour in range(5):
+        store.create(_ended(f"20261010T0{hour}0000"))
+
+    assert store.prune() == []
+    assert len(store.list()) == 5
+
+
+def test_a_run_still_going_or_holding_the_lock_is_never_deleted(tmp_path) -> None:
+    store = RunStore(tmp_path / "runs")
+    store.create(_ended("20261010T000000", RunState.RUNNING))
+    store.create(_ended("20261010T010000"))
+    store.create(_ended("20261010T020000"))
+    store.acquire("20261010T010000")
+    store.create(_ended("20261010T030000"))
+
+    removed = RunStore(tmp_path / "runs", kept=1).prune()
+
+    assert removed == ["20261010T020000"]
+    assert [record.id for record in store.list()] == [
+        "20261010T030000",
+        "20261010T010000",
+        "20261010T000000",
+    ]
+
+
+def test_a_start_gives_back_what_a_lower_bound_no_longer_keeps(tmp_path) -> None:
+    for hour in range(4):
+        RunStore(tmp_path / "runs").create(_ended(f"20261010T0{hour}0000"))
+    (tmp_path / "runs" / ".lock").write_text("gone\n")
+
+    store = RunStore(tmp_path / "runs", kept=2)
+    store.reconcile()
+
+    assert [record.id for record in store.list()] == [
+        "20261010T030000",
+        "20261010T020000",
+    ]
+
+
 # Preconditions and variables
 
 

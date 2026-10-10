@@ -371,7 +371,7 @@ def create_app(
 
     # One store, because the installer and the runs share its lock: a
     # collection is never swapped under a convergence that is already going.
-    run_store = RunStore(settings.runs_dir)
+    run_store = RunStore(settings.runs_dir, kept=settings.runs_kept)
     app.state.collection_installer = CollectionInstaller(
         site_dir=settings.site_collections_dir,
         image_dir=settings.collections_path,

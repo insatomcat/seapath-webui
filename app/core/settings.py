@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     max_inventory_file_bytes: int = 4 * 1024 * 1024
     # Run artefacts, written as a run progresses.
     runs_dir: Path = Path("/var/lib/seapath-webui/runs")
+    # How many runs the node keeps, the newest; older ones are deleted when a
+    # run is created and at every start. 0 keeps every one. Three hundred is
+    # the history the Software page reads to find each machine's last update,
+    # so fewer would empty columns of that page sooner. See D75.
+    runs_kept: int = 300
     # Container deliveries between their upload and their installation. On the
     # filesystem of the artefacts, so an image archive moves there by a rename.
     imports_dir: Path = Path("/var/lib/seapath-webui/imports")
