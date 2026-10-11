@@ -21,7 +21,12 @@ def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
         record = client.get(f"/api/v1/runs/{run_id}").json()
-        if record["state"] not in ("pending", "running"):
+        # Ended, and its lock released: the record says a run ended before
+        # the lock goes, and a run launched in between is refused. `followups`
+        # falls once the listeners are done, which is after the release.
+        if record["state"] not in ("pending", "running") and not record.get(
+            "followups"
+        ):
             return record
         time.sleep(0.02)
     raise AssertionError(f"Run {run_id} did not finish")
