@@ -16,6 +16,7 @@ of this service: there is no database anywhere.
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 import os
@@ -40,6 +41,12 @@ _LOCK = ".lock"
 # `env` and `inventory` are laid out there and a fetch landing among them is a
 # file nobody can tell from runner's.
 _RESULTS = "results"
+# ansible-runner writes one JSON file per event under
+# `artifacts/<ident>/job_events`, the only place a run keeps the full result
+# of each task. Folded into one compressed file once the run has ended. See D75.
+_ARTIFACTS = "artifacts"
+_JOB_EVENTS = "job_events"
+_JOB_EVENTS_ARCHIVE = "job_events.jsonl.gz"
 
 
 class RunLocked(Exception):
@@ -301,9 +308,50 @@ class RunStore:
         # A node upgraded to an image that keeps fewer runs than it holds gives
         # them back at once rather than one per run launched.
         self.prune()
+        # Every run has ended by now, the ones a reboot cut short included,
+        # which never reached the end of their own run to be compacted.
+        if self._root.is_dir():
+            for entry in self._root.iterdir():
+                if entry.is_dir():
+                    self.compact(entry.name)
         return recovered
 
     # Retention
+
+    def compact(self, run_id: str) -> None:
+        """Fold ansible-runner's event files into one compressed file.
+
+        Five hundred files of a few hundred bytes each take two megabytes on
+        disk, since each one fills a block of its own, and the same events
+        compress to some sixty kilobytes as one stream. Ordered by runner's
+        counter, one event per line, beside the directory it replaces. A file
+        that is not JSON, half written when the machine went down, is left out.
+        Called once a run has ended: runner writes there while it goes.
+        """
+        artifacts = self.directory(run_id) / _ARTIFACTS
+        if not artifacts.is_dir():
+            return
+        for job_events in artifacts.glob(f"*/{_JOB_EVENTS}"):
+            events = []
+            for path in job_events.glob("*.json"):
+                try:
+                    events.append(json.loads(path.read_text()))
+                except (OSError, ValueError):
+                    continue
+            events.sort(key=lambda event: event.get("counter", 0))
+            archive = job_events.parent / _JOB_EVENTS_ARCHIVE
+            temporary = archive.with_suffix(".tmp")
+            try:
+                with gzip.open(temporary, "wt") as handle:
+                    for event in events:
+                        handle.write(json.dumps(event) + "\n")
+                os.replace(temporary, archive)
+                shutil.rmtree(job_events)
+            except OSError as error:
+                logger.warning(
+                    "The events of run %s could not be compacted: %s", run_id, error
+                )
+                temporary.unlink(missing_ok=True)
 
     def prune(self) -> list[str]:
         """Delete the runs older than the `kept` newest, and say which.

@@ -11,6 +11,8 @@ exceptional one.
 from __future__ import annotations
 
 import configparser
+import gzip
+import json
 import os
 import sys
 import threading
@@ -1428,3 +1430,73 @@ def test_a_run_whose_record_cannot_be_read_costs_nobody_a_row(
     (store.directory("20260101T050000.000000") / "run.json").write_text("{oops")
 
     assert len(store.list(limit=5)) == 5
+
+
+def _runner_events(store: RunStore, run_id: str, counters: list[int]) -> Path:
+    job_events = store.directory(run_id) / "artifacts" / "ident" / "job_events"
+    job_events.mkdir(parents=True)
+    for counter in counters:
+        (job_events / f"{counter}-uuid.json").write_text(
+            json.dumps({"counter": counter, "event": "runner_on_ok"})
+        )
+    return job_events
+
+
+def _archived(job_events: Path) -> list[dict]:
+    with gzip.open(job_events.parent / "job_events.jsonl.gz", "rt") as handle:
+        return [json.loads(line) for line in handle]
+
+
+def test_the_events_of_runner_are_folded_into_one_file_in_order(store) -> None:
+    store.create(_ended("20261010T000000"))
+    job_events = _runner_events(store, "20261010T000000", [10, 2, 1])
+    (job_events / "11-uuid.json").write_text('{"counter": 11, "ev')
+
+    store.compact("20261010T000000")
+
+    assert not job_events.exists()
+    assert [event["counter"] for event in _archived(job_events)] == [1, 2, 10]
+    # Again, as at a start: nothing is left to fold and nothing breaks.
+    store.compact("20261010T000000")
+    assert len(_archived(job_events)) == 3
+
+
+def test_events_that_cannot_be_archived_stay_where_runner_left_them(
+    store, monkeypatch
+) -> None:
+    store.create(_ended("20261010T000000"))
+    job_events = _runner_events(store, "20261010T000000", [1])
+
+    def full(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(gzip, "open", full)
+    store.compact("20261010T000000")
+
+    assert (job_events / "1-uuid.json").exists()
+    assert not (job_events.parent / "job_events.jsonl.tmp").exists()
+
+
+def test_a_start_compacts_the_runs_a_reboot_cut_short(store) -> None:
+    store.create(_ended("20261010T000000", RunState.RUNNING))
+    job_events = _runner_events(store, "20261010T000000", [1, 2])
+
+    store.reconcile()
+
+    assert not job_events.exists()
+    assert len(_archived(job_events)) == 2
+
+
+def test_a_run_that_ended_has_its_events_compacted(
+    store, inventory, trust, tmp_path, monkeypatch
+) -> None:
+    compacted = []
+    monkeypatch.setattr(store, "compact", compacted.append)
+    service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
+
+    run_id = service.launch("seapath_setup_main", "alice").id
+    # Compacted inside the `finally` that ends the run, so done once the
+    # listeners that come after it are.
+    wait_for_listeners(service, run_id)
+
+    assert compacted == [run_id]

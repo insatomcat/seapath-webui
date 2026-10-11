@@ -1160,6 +1160,7 @@ class RunService:
             self._store.save(record)
             self._store.release(record.id)
             self._cancelled.discard(record.id)
+            self._store.compact(record.id)
             audit_event("run.finished", run=record.id, state=record.state.value)
         for callback in self._finished:
             try:

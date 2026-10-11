@@ -5903,3 +5903,22 @@ any page shows, and bounds the history near one gigabyte.
 A bound by age or by size was refused: a node nobody touches for a year
 would lose the trace of its commissioning to the first, and the second
 would let one heavy run push out a hundred ordinary ones.
+
+### Runner's events, folded into one file
+
+`artifacts/<ident>/job_events` is the only place a run keeps the full
+result of each task: the output of a command, a diff, what a module
+returned. `events.jsonl` keeps the reduction the pages read, and
+`stdout.log` says nothing of a task that succeeded. Nothing here reads
+runner's files, and they are what someone opens on the disk to find out
+what went wrong after the fact, so they are kept, but in another shape.
+Five hundred files of a few hundred bytes take 2.2 MB, each filling a
+block of its own; the same events as one gzip stream take 63 KB.
+
+Once a run has ended, `RunStore.compact` writes them, ordered by
+runner's counter, one per line, to `artifacts/<ident>/job_events.jsonl.gz`
+and removes the directory. A start does the same for every run, which
+catches the runs a reboot cut short and the history of a node upgraded
+in place. `zcat job_events.jsonl.gz | jq` reads them back.
+
+With both, three hundred runs take some 250 MB.
