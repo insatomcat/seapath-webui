@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.219 - 2026-10-11
+
+- runs: a node keeps its 300 newest runs (`SEAPATH_WEBUI_RUNS_KEPT`, 0 keeps every one) and deletes the older ones when a run is created and at every start, sparing the run holding the lock and any run still going
+- runs: once a run has ended, ansible-runner's per event files under `artifacts/<ident>/job_events` are folded into `job_events.jsonl.gz` beside them, about 60 KB instead of 2 MB; a start does the same for every run already on the node
+
 ## 0.3.218 - 2026-10-10
 
 - collection: seapathalloc 86df9c4a, deploy_prometheus_exporters deploys the smartctl exporter on the physical machines and deploy_metrics_proxy serves it as `/metrics/smartctl`, network_systemdnetworkd can put the administration IP on a macvlan of br0 with `network_systemdnetworkd_br0_macvlan`, and the name check of a delivery spares the paths of its application
