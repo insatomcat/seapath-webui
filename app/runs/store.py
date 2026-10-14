@@ -291,6 +291,21 @@ class RunStore:
                 # they are done if this does not.
                 record.followups = False
                 self.save(record)
+            if record.state is RunState.QUEUED:
+                # The queue lives in memory and died with the process. Closed
+                # as never started rather than started at boot, with nobody
+                # watching a run somebody confirmed before the restart.
+                record.state = RunState.CANCELLED
+                record.finished_at = datetime.now(tz=UTC)
+                record.message = (
+                    "The service restarted while this run was waiting in the "
+                    "queue, and a queue does not survive a restart. It reached "
+                    "no machine. Launch it again if it is still wanted."
+                )
+                self.save(record)
+                recovered.append(record)
+                logger.warning("Dropped queued run %s after a restart", record.id)
+                continue
             if record.state not in (RunState.PENDING, RunState.RUNNING):
                 continue
             record.state = RunState.INTERRUPTED

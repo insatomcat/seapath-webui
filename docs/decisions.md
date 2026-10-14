@@ -5922,3 +5922,49 @@ catches the runs a reboot cut short and the history of a node upgraded
 in place. `zcat job_events.jsonl.gz | jq` reads them back.
 
 With both, three hundred runs take some 250 MB.
+
+## D76 - Settled: a run launched while another is going waits in a queue
+
+One run at a time stays the rule, since two convergences of the same
+machines at once is what the lock is for. Launching three playbooks in a
+row meant waiting for each to end before launching the next, at the desk,
+with the page open. `POST /runs` now takes `queue: true`, and the
+launch panels send it: a run accepted while another is going is recorded
+`queued`, and starts on its own when every run queued before it has
+ended.
+
+**Checked and staged when it is queued.** A queued run goes through every
+refusal a launch goes through, the preconditions, the scope, the
+variables, so a run that would be refused is refused to the operator who
+asked for it. Its inventory folder is copied into its run directory at the
+same moment, and that copy is what it plays: what an operator confirms is
+the inventory as it is then, and a commit landing during the wait leaves
+the run they confirmed as it was. The collection is read when it starts,
+since an installation can only happen between two runs and the mirror
+links to the one installed. A root password for a guest's seed is hashed
+on the request, held in memory with the run, and written into its copy
+only when it starts, so a run waiting leaves no hash on disk.
+
+**A failure does not stop the queue.** Each queued run was confirmed on
+its own, with its own disruption sentence and its own machines. Holding
+the runs behind a failure until someone resumes them was weighed, and
+refused for that reason: the queue is a way of leaving the desk, and a
+queue that stops on the first failure needs someone at the desk.
+
+**The queue does not survive a restart.** It lives in the service's
+memory. A restart closes the runs still waiting as cancelled, saying why,
+and starts none of them: a machine that has just rebooted, often because
+a run asked it to, does not then apply what somebody queued before the
+reboot with nobody watching. This is also why the password can stay in
+memory.
+
+A queued run is taken out with `POST /runs/{id}/cancel`, which removes it
+before it starts and leaves its record, cancelled, in the history. A launch
+that does not ask to wait is refused while runs are queued, so that it
+cannot go ahead of them. A collection installation still takes the same
+lock and is still refused while a run is going; the queue waits for an
+installation that holds the lock and starts when it lets go.
+
+The gestures of the other pages, a guest's start or a backup, are still
+refused while a run is going. They are acts an operator makes looking at
+the state the page shows, and that state is the one they act on.

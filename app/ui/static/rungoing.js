@@ -10,11 +10,9 @@
 //
 // The document arrives with the mark already drawn or already hidden, from
 // what the service knew when it served the page. From there this file asks for
-// the newest run of the history, which is the one going if any is: a run takes
-// the one lock before it is recorded, so nothing newer can appear while it
-// goes. That is one small file read on this node and reaches no other machine,
-// which is why it runs on its own timer while the automatic reading of the
-// panels waits to be switched on.
+// the run that is going and the ones queued behind it. That is a few small file
+// reads on this node and reaches no other machine, which is why it runs on its
+// own timer while the automatic reading of the panels waits to be switched on.
 
 const RunGoing = (function () {
   const link = document.getElementById("run-going");
@@ -28,7 +26,14 @@ const RunGoing = (function () {
   // launch cannot hide the mark the launch just lit.
   let drawn = 0;
 
-  function draw(run) {
+  function draw(run, queued) {
+    queued = queued || [];
+    if (!run && queued.length) {
+      // The queue is waiting on a collection installation, which holds the
+      // same lock and has no record to lead to.
+      run = queued[0];
+      queued = queued.slice(1);
+    }
     if (!run) {
       link.hidden = true;
       link.dataset.run = "";
@@ -38,7 +43,14 @@ const RunGoing = (function () {
       ? ": " + run.playbook_id + (run.check ? " (preview)" : "")
       : "";
     link.href = "runs?run=" + encodeURIComponent(run.id);
-    link.title = "A run is going" + what + ". Open it.";
+    const behind = queued.length
+      ? ", and " + queued.length + " queued behind it"
+      : "";
+    link.title =
+      (run.state === "queued" ? "A run is queued" : "A run is going") +
+      what +
+      behind +
+      ". Open it.";
     link.dataset.run = run.id;
     link.hidden = false;
   }
@@ -49,9 +61,9 @@ const RunGoing = (function () {
 
   async function read() {
     const asked = drawn;
-    let newest = null;
+    let queue = null;
     try {
-      newest = (await API.get("/runs?limit=1"))[0] || null;
+      queue = await API.get("/runs/queue");
     } catch (failure) {
       // The mark keeps what it last knew. A node that does not answer says so
       // on the page under it, and a session that ended is sent to sign in by
@@ -61,9 +73,7 @@ const RunGoing = (function () {
     if (asked !== drawn) {
       return;
     }
-    const unfinished =
-      newest && ["pending", "running"].includes(newest.state) ? newest : null;
-    draw(unfinished);
+    draw(queue.going, queue.queued);
   }
 
   function schedule() {
@@ -100,5 +110,5 @@ const RunGoing = (function () {
     schedule();
   }
 
-  return { saw };
+  return { saw, going };
 })();

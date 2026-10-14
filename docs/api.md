@@ -238,7 +238,8 @@ starts. `409 no_replicas` where the inventory declares no other machine, and
 |---|---|---|
 | GET | `/playbooks` | Every playbook the installed collection carries: targets, preview quality, reboot behaviour, disruption, preconditions. Each entry carries `unmet` sentences and the `unmet_codes` behind them, so a page can say once what blocks all of them. `reviewed` says whether a human wrote the entry or this service read it off the collection, `derivation` carries what the reading counted (plays, tasks, command driven tasks, roles, imports), and `distribution` names the one SEAPATH distribution an entry configures, set on the five prerequisites entries and on nothing else. `machines` resolves the entry's targets against the current inventory, `excluded` names the guests the default scope leaves out. `?id=` narrows the answer to the entries named, repeated once per entry: a page drawing one launch panel asks for one entry rather than the forty it ignores |
 | GET | `/playbooks/scopes` | What a run may be narrowed to: every group of the inventory with its hosts, every host, which of them are guests, and `unreachable`, the machines this node holds no way of reaching. That last list is the one precondition a narrowing lifts, so the chooser can say which boxes will get the run refused. `addressable_guests` is the subset of the guests whose entry declares an `ansible_host`, which is what a run reaching *into* a guest may be aimed at |
-| POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode, and the scope |
+| POST | `/runs` | Launch: playbook from the catalogue, its declared variables, check mode, and the scope. `queue: true` waits for the run going instead of a `409 run_in_progress`, answered `queued` with its `position`. See [D76](decisions.md#d76) |
+| GET | `/runs/queue` | The run that is going, as a `RunSummary` or `null`, and `queued`, the runs waiting their turn, the next one first |
 | GET | `/runs` | History, most recent first, as a `RunSummary` per run: what it was, when, who launched it, the inventory commit and collection it ran with, and how it ended. What a run **did** is on the run's own record, because a record carries a duration per task and fifty of them in a list was six hundred kilobytes. See [D47](decisions.md#d47) |
 | GET | `/runs/{id}` | Status, inventory commit, the variables it was launched with, per host result, command line used, and `followups`, true while what listens for the end of the run is still acting on it (a deployment run forgetting how it created its guests, see [D50](decisions.md#d50)) |
 | GET | `/runs/{id}/events` | Server sent events, one per Ansible task event, each host result carrying the seconds it took |
@@ -253,6 +254,15 @@ no collection from a service that could not answer.
 
 `POST /runs` takes a playbook from the catalogue and, optionally, `check: true`
 for a preview. It refuses a tag list, and it refuses a host pattern as text.
+
+With `queue: true`, a launch made while a run is going is checked and staged
+at once and recorded `queued`, then started when the runs queued before it
+have ended, whether they succeeded or failed. It plays the inventory as it was
+when it was queued. Without it, the launch is refused with `409
+run_in_progress`, and refused as well while runs are queued, so that it cannot
+go ahead of them. `POST /runs/{id}/cancel` takes a queued run out of the
+queue. A restart of the service closes every queued run as `cancelled` and
+starts none of them. See [D76](decisions.md#d76).
 
 What it does take is a `scope`: `{"groups": ["hypervisors"], "hosts": ["node2",
 "guest3"]}`. Every name is checked against the groups and hosts the inventory

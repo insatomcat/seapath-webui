@@ -319,8 +319,9 @@ def test_the_bar_keeps_the_mark_true_under_an_open_page(
     # Ahead of the window that lights it at a launch.
     assert body.index("rungoing.js") < body.index("runwatch.js")
     going = signed_in.get("/static/rungoing.js").text
-    # The newest run alone, as a summary: the list is what stays small.
-    assert 'API.get("/runs?limit=1")' in going
+    # The run going and the queue behind it, as summaries: the history is
+    # what stays out of it.
+    assert 'API.get("/runs/queue")' in going
     # Lit by the launch, from the window every page opens and from a relaunch.
     assert "RunGoing.saw(runId)" in signed_in.get("/static/runwatch.js").text
     assert "RunGoing.saw(started.run_id)" in signed_in.get("/static/runs.js").text

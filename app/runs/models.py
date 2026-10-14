@@ -15,6 +15,12 @@ from app.runs.scope import RunScope
 
 
 class RunState(str, Enum):
+    QUEUED = "queued"
+    """Accepted, staged, and waiting for the run ahead of it to end.
+
+    Its inventory was frozen when it was queued, which is what the operator
+    confirmed. It holds no lock and has reached no machine. See D76.
+    """
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"

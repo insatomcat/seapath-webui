@@ -22,7 +22,7 @@ def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
         record = client.get(f"/api/v1/runs/{run_id}").json()
-        if record["state"] not in ("pending", "running"):
+        if record["state"] not in ("queued", "pending", "running"):
             return record
         time.sleep(0.02)
     raise AssertionError(f"Run {run_id} did not finish")
@@ -614,3 +614,52 @@ def test_an_entry_this_collection_does_not_hold_narrows_to_nothing(
     assert (
         signed_in.get("/api/v1/playbooks", params={"id": "no_such_entry"}).json() == []
     )
+
+
+def test_a_run_asked_to_wait_is_queued_behind_the_one_going(
+    signed_in: TestClient, settings
+) -> None:
+    from app.runs.store import RunStore
+
+    store = RunStore(settings.runs_dir)
+    store.acquire("an-earlier-run")
+
+    response = signed_in.post(
+        "/api/v1/runs", json={"playbook": "seapath_setup_main", "queue": True}
+    )
+
+    assert response.status_code == 202
+    assert response.json()["state"] == "queued"
+    assert response.json()["position"] == 1
+    run_id = response.json()["run_id"]
+    queue = signed_in.get("/api/v1/runs/queue").json()
+    assert [run["id"] for run in queue["queued"]] == [run_id]
+
+    # Its turn comes when the lock is let go.
+    store.release("an-earlier-run")
+    record = wait_for(signed_in, run_id)
+
+    assert record["state"] == "success"
+    assert signed_in.get("/api/v1/runs/queue").json() == {
+        "going": None,
+        "queued": [],
+    }
+
+
+def test_a_queued_run_is_taken_out_by_cancelling_it(
+    signed_in: TestClient, settings
+) -> None:
+    from app.runs.store import RunStore
+
+    store = RunStore(settings.runs_dir)
+    store.acquire("an-earlier-run")
+    run_id = signed_in.post(
+        "/api/v1/runs", json={"playbook": "seapath_setup_main", "queue": True}
+    ).json()["run_id"]
+
+    cancelled = signed_in.post(f"/api/v1/runs/{run_id}/cancel").json()
+    store.release("an-earlier-run")
+
+    assert cancelled["state"] == "cancelled"
+    assert signed_in.get("/api/v1/runs/queue").json()["queued"] == []
+    assert signed_in.get(f"/api/v1/runs/{run_id}").json()["state"] == "cancelled"

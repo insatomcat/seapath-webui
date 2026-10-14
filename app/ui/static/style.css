@@ -1705,7 +1705,8 @@ button.secondary {
 }
 
 .state-running,
-.state-pending {
+.state-pending,
+.state-queued {
   color: var(--accent);
 }
 

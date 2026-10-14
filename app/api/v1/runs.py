@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from app.core.auth import Role, User
 from app.core.errors import ApiError
 from app.core.security import require_role
-from app.runs.models import RunRecord
+from app.runs.models import RunRecord, RunState
 from app.runs.scope import RunScope, ScopeChoices
 from app.runs.service import PlaybookAvailability, RunService
 from app.services.vms import DEPLOY_PLAYBOOK
@@ -67,11 +67,25 @@ class LaunchRequest(BaseModel):
             "the run's own record"
         ),
     )
+    queue: bool = Field(
+        default=False,
+        description=(
+            "Wait for the run that is going, rather than be refused with "
+            "run_in_progress. The run is checked and its inventory staged "
+            "now, so what it plays is what was confirmed, and it starts when "
+            "every run queued before it has ended, whatever they ended with. "
+            "The queue does not survive a restart of the service"
+        ),
+    )
 
 
 class LaunchResponse(BaseModel):
     run_id: str
-    state: str
+    state: str = Field(description="running, or queued when it waits its turn")
+    position: int | None = Field(
+        default=None,
+        description="Its place in the queue, 1 for the next to start",
+    )
     preview: str = Field(
         description="The check mode quality of this playbook: full, partial or none"
     )
@@ -129,12 +143,20 @@ def launch(
         check=payload.check,
         scope=payload.scope,
         root_passwords=payload.root_passwords,
+        queue=payload.queue,
     )
     entry = next(item for item in service.entries() if item.id == payload.playbook)
     # Carried back so the UI can refuse to present a partial check as a
     # guarantee.
+    position = None
+    if record.state is RunState.QUEUED:
+        waiting = [item.id for item in service.queued()]
+        position = waiting.index(record.id) + 1 if record.id in waiting else None
     return LaunchResponse(
-        run_id=record.id, state=record.state.value, preview=entry.preview.value
+        run_id=record.id,
+        state=record.state.value,
+        position=position,
+        preview=entry.preview.value,
     )
 
 
@@ -174,6 +196,33 @@ def runs(
         RunSummary.model_validate(record.model_dump())
         for record in _service(request).list(limit)
     ]
+
+
+class RunQueue(BaseModel):
+    going: RunSummary | None = Field(
+        description="The run holding the lock, absent when none is going"
+    )
+    queued: list[RunSummary] = Field(
+        description="The runs waiting their turn, the next one first"
+    )
+
+
+@router.get("/runs/queue")
+def queue(request: Request, user: User = viewer) -> RunQueue:
+    """The run that is going and the ones waiting behind it.
+
+    What the top bar asks on every page, and a small answer: the history is
+    `GET /runs`. A queued run is taken out with `POST /runs/{id}/cancel`.
+    """
+    service = _service(request)
+    going = service.going()
+    return RunQueue(
+        going=RunSummary.model_validate(going.model_dump()) if going else None,
+        queued=[
+            RunSummary.model_validate(record.model_dump())
+            for record in service.queued()
+        ],
+    )
 
 
 @router.get("/runs/{run_id}")

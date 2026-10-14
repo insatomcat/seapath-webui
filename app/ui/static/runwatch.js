@@ -104,6 +104,8 @@ const RunWatch = (function () {
     const me = Chrome.current();
     const cancel = element("run-watch-cancel");
     cancel.hidden = finished || !(me && Chrome.isAdmin(me));
+    cancel.textContent =
+      record.state === "queued" ? "Take out of the queue" : "Cancel the run";
     cancel.onclick = async () => {
       cancel.disabled = true;
       try {

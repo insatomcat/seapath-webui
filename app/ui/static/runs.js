@@ -289,6 +289,8 @@
       record.state !== "success"
     );
     element("cancel").hidden = finished || !Chrome.isAdmin(state.me);
+    element("cancel").textContent =
+      record.state === "queued" ? "Take out of the queue" : "Cancel";
     element("download-log").href = "api/v1/runs/" + record.id + "/log";
     return record;
   }
@@ -358,15 +360,6 @@
     const modal = element("confirm");
     const go = element("confirm-go");
 
-    element("confirm-title").textContent = "Relaunch " + record.playbook_id;
-    element("confirm-disruption").textContent =
-      "Relaunching is safe: the playbooks are idempotent, so converging again " +
-      "is the recovery. It will run against this machine from the current " +
-      "inventory, which may have changed since the run that failed." +
-      (chosen(scope).length
-        ? " Narrowed to " + chosen(scope).join(", ") + ", as the original run was."
-        : "");
-
     // A relaunch repeats the run it relaunches, variables and scope included.
     // Dropping the variables silently would reboot a machine whose run was
     // launched with skip_reboot_setup, and would send cluster_remove_machine
@@ -374,6 +367,20 @@
     // that was narrowed to one machine on purpose.
     const variables = record.variables || {};
     const scope = record.scope || { groups: [], hosts: [] };
+
+    element("confirm-title").textContent = "Relaunch " + record.playbook_id;
+    element("confirm-disruption").textContent =
+      "Relaunching is safe: the playbooks are idempotent, so converging again " +
+      "is the recovery. It will run against this machine from the current " +
+      "inventory, which may have changed since the run that failed." +
+      (chosen(scope).length
+        ? " Narrowed to " + chosen(scope).join(", ") + ", as the original run was."
+        : "") +
+      (RunGoing.going()
+        ? " A run is going: this one waits for it and for any queued before it."
+        : "");
+    go.textContent = RunGoing.going() ? "Queue" : "Relaunch";
+
     const named = Object.keys(variables);
     const line = element("confirm-variables");
     line.textContent = named.length
@@ -394,6 +401,7 @@
           check: record.check,
           variables,
           scope,
+          queue: true,
         });
         modal.hidden = true;
         RunGoing.saw(started.run_id);

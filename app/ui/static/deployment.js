@@ -1374,9 +1374,18 @@
             : "Part of this playbook is command driven, and check mode skips " +
               "those tasks. Read the result as an indication, not as a " +
               "guarantee.")
-        : entry.disruption) + scopeSentence(item, selection);
+        : entry.disruption) +
+      scopeSentence(item, selection) +
+      (RunGoing.going()
+        ? " A run is going: this one waits for it and for any queued before " +
+          "it, then plays the inventory as it is now."
+        : "");
     element("confirm-error").hidden = true;
-    go.textContent = check ? "Preview" : "Apply";
+    if (RunGoing.going()) {
+      go.textContent = check ? "Queue the preview" : "Queue";
+    } else {
+      go.textContent = check ? "Preview" : "Apply";
+    }
 
     // A required variable with nothing chosen keeps the button down. The
     // alternative is an Apply that travels to the API to be told what the
@@ -1442,6 +1451,9 @@
           check,
           variables,
           scope: selection,
+          // Waits when a run is going, which the button said before it was
+          // pressed.
+          queue: true,
         });
         // Shut here rather than by a navigation to the Runs page: the run is
         // followed in a window over this one, and this one has been answered.

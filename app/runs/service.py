@@ -9,7 +9,9 @@ import logging
 import re
 import shutil
 import threading
+from collections import deque
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,10 @@ logger = logging.getLogger(__name__)
 # message rendered as text is noise an operator has to read around.
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
+# How often the queue looks at the lock when no run ending has woken it, which
+# is the case of a collection installation letting go.
+_QUEUE_POLL_SECONDS = 2.0
+
 
 class PlaybookAvailability(BaseModel):
     """A catalogue entry, and whether this node can run it right now."""
@@ -93,6 +99,24 @@ class RunPaths(BaseModel):
     def collections_path(self) -> Path:
         root = self.collections_root
         return root() if callable(root) else root
+
+
+@dataclass
+class _Prepared:
+    """A run accepted and staged, with what it needs to start.
+
+    `seeded` is the staged inventory carrying the root password hashes, held
+    in memory while the run waits and written to its copy when it starts.
+    """
+
+    record: RunRecord
+    entry: PlaybookEntry
+    extra_vars: dict[str, Any]
+    limit: str | None
+    directory: Path | None = None
+    staged: staging.Staging | None = None
+    playbook: str | None = None
+    seeded: str | None = None
 
 
 class RunService:
@@ -144,6 +168,17 @@ class RunService:
         # record, which is a file this service writes and a document the API
         # answers with. See `app.runs.seed`.
         self._seeded: set[str] = set()
+        # The runs accepted while another was going, the next one first. In
+        # memory and nowhere else: a restart drops them, so that nothing is
+        # applied at boot with nobody watching. See D76.
+        self._queue: deque[_Prepared] = deque()
+        self._queue_lock = threading.Lock()
+        self._dispatcher: threading.Thread | None = None
+        # Set when a run lets the lock go, which is the queue's turn.
+        self._turn = threading.Event()
+        # The run this process is playing, so the one going is found among
+        # the newer records of the runs queued behind it.
+        self._current: str | None = None
 
     @property
     def paths(self) -> RunPaths:
@@ -492,15 +527,23 @@ class RunService:
     def going(self) -> RunRecord | None:
         """The run that is going at this moment, if there is one.
 
-        The newest record and no other: a run takes the one lock before its
-        directory is created, so nothing newer can appear while it goes, and a
-        record left unfinished by a service that died is closed at the next
-        start. One small file read, which is what lets the top bar ask on
-        every page.
+        The one this process started, when it did. Otherwise the newest record
+        that is not waiting in the queue: a run takes the one lock before its
+        directory is created, so only queued runs can be newer while it goes,
+        and a record left unfinished by a service that died is closed at the
+        next start. A few small file reads, which is what lets the top bar ask
+        on every page.
         """
-        newest = self._store.list(1)
-        if newest and not newest[0].finished:
-            return newest[0]
+        current = self._current
+        if current is not None:
+            record = self._store.load(current)
+            if record is not None and not record.finished:
+                return record
+        waiting = {record.id for record in self.queued()}
+        for record in self._store.list(len(waiting) + 1):
+            if record.id in waiting or record.state is RunState.QUEUED:
+                continue
+            return None if record.finished else record
         return None
 
     def events(self, run_id: str, offset: int = 0):
@@ -544,7 +587,14 @@ class RunService:
         check: bool = False,
         scope: RunScope | None = None,
         root_passwords: dict[str, str] | None = None,
+        queue: bool = False,
     ) -> RunRecord:
+        """Launch a catalogue entry, or queue it when a run is going.
+
+        `queue` asks for the wait rather than the refusal. The run is checked
+        and staged now either way, so a run that would be refused is refused
+        to the operator who asked for it, and not found failed later.
+        """
         entries = {item.id: item for item in self.entries()}
         entry = entries.get(catalogue.current_id(playbook_id))
         if entry is None:
@@ -561,6 +611,7 @@ class RunService:
             check,
             scope=scope,
             root_passwords=root_passwords,
+            queue=queue,
         )
 
     def launch_action(
@@ -695,6 +746,7 @@ class RunService:
         scope: RunScope | None = None,
         root_passwords: dict[str, str] | None = None,
         writable: tuple[str, ...] = (),
+        queue: bool = False,
     ) -> RunRecord:
         # The scope first: it decides which machines the preconditions are
         # about, and a scope naming a group the file does not declare is
@@ -794,97 +846,275 @@ class RunService:
             ends_with_reboot=ends_with_reboot,
         )
 
-        # The lock before the directory: two operators must not converge the
-        # same machines concurrently, and the loser must be told which run is
-        # already going.
+        prepared = _Prepared(
+            record=record,
+            entry=entry,
+            extra_vars=extra_vars,
+            limit=plan.limit,
+        )
+        if queue:
+            with self._queue_lock:
+                # Behind every run already waiting, so the order is the order
+                # they were asked for, and straight away when nothing is.
+                now = not self._queue and self._try_acquire(run_id)
+            if not now:
+                return self._enqueue(prepared, play, writable, root_passwords)
+        else:
+            with self._queue_lock:
+                waiting = len(self._queue)
+            if waiting:
+                raise ApiError(
+                    "run_in_progress",
+                    (
+                        f"{waiting} run{'s are' if waiting > 1 else ' is'} "
+                        "queued, and this one would go ahead of them. Queue "
+                        "it behind them instead."
+                    ),
+                    409,
+                    {"queued": waiting},
+                )
+            # The lock before the directory: two operators must not converge
+            # the same machines concurrently, and the loser must be told which
+            # run is already going.
+            try:
+                self._store.acquire(run_id)
+            except RunLocked as error:
+                raise ApiError("run_in_progress", str(error), 409) from error
+
+        try:
+            self._stage(prepared, play, writable, root_passwords)
+        except Exception:
+            self._store.release(run_id)
+            raise
+        request = self._begin(prepared)
+        self._spawn(record, request)
+        return record
+
+    def _try_acquire(self, run_id: str) -> bool:
         try:
             self._store.acquire(run_id)
-        except RunLocked as error:
-            raise ApiError("run_in_progress", str(error), 409) from error
+        except RunLocked:
+            return False
+        return True
 
+    def _stage(
+        self,
+        prepared: _Prepared,
+        play: str | None,
+        writable: tuple[str, ...],
+        root_passwords: dict[str, str] | None,
+    ) -> None:
+        """The run directory, the staged tree and the play, frozen now.
+
+        Done when the run is accepted rather than when it starts, so a run
+        that waits in the queue plays the inventory the operator confirmed and
+        not whatever the repository holds by its turn. Done before any thread
+        starts either way, so a failure to stage is reported to the operator
+        who launched the run rather than found in a log afterwards.
+        """
+        record = prepared.record
+        prepared.directory = self._store.create(record)
+        # The inventory folder, its companion files and the artefacts, laid
+        # out where Ansible looks for them.
+        prepared.staged = staging.stage(
+            directory=prepared.directory,
+            inventory_dir=self._inventory.folder,
+            collections_path=self._paths.collections_path,
+            artefacts_dir=self._inventory.artefacts_root,
+            writable=writable,
+        )
+        record.files = prepared.staged.files
+        if root_passwords:
+            # Hashed now and held in memory until the run starts, where it is
+            # written into this run's own copy of the inventory, which is what
+            # Ansible reads, and never into the repository: a hash the form
+            # asked for is a hash git would keep for good. A run waiting in
+            # the queue leaves no hash on disk for its wait. Wiped out of the
+            # copy when the run ends. See `app.runs.seed`.
+            try:
+                prepared.seeded = seed.carrying_passwords(
+                    prepared.staged.inventory_file.read_text(), root_passwords
+                )
+            except seed.SeedRefused as error:
+                raise ApiError("invalid_seed", str(error), 400) from error
+        if play is not None:
+            # Into the mirror's own `playbooks/`, which is a real directory,
+            # so the generated play sits where every other playbook of this
+            # run sits and is part of the trace afterwards.
+            target = (
+                prepared.staged.site_root / "playbooks" / f"{prepared.entry.id}.yaml"
+            )
+            target.write_text(play)
+            prepared.playbook = str(target)
+        self._store.save(record)
+
+    def _begin(self, prepared: _Prepared) -> RunRequest:
+        """Start a staged run, holding the lock already."""
+        record = prepared.record
+        staged = prepared.staged
         try:
             # Under the lock, so the files it may rewrite are never moved
             # under a run that is reading them.
             self._before_launch()
-            directory = self._store.create(record)
-            # The inventory folder, its companion files and the artefacts, laid
-            # out where Ansible looks for them. Done before the thread starts,
-            # so a failure to stage is reported to the operator who launched
-            # the run rather than found in a log afterwards.
-            staged = staging.stage(
-                directory=directory,
-                inventory_dir=self._inventory.folder,
-                collections_path=self._paths.collections_path,
-                artefacts_dir=self._inventory.artefacts_root,
-                writable=writable,
-            )
-            record.files = staged.files
-            if root_passwords:
-                # Into this run's own copy of the inventory, which is what
-                # Ansible reads, and never into the repository: a hash the
-                # form asked for is a hash git would keep for good. Wiped out
-                # of the copy when the run ends. See `app.runs.seed`.
-                try:
-                    staged.inventory_file.write_text(
-                        seed.carrying_passwords(
-                            staged.inventory_file.read_text(), root_passwords
-                        )
-                    )
-                except seed.SeedRefused as error:
-                    raise ApiError("invalid_seed", str(error), 400) from error
-                self._seeded.add(run_id)
-            playbook = entry.playbook
-            if play is not None:
-                # Into the mirror's own `playbooks/`, which is a real
-                # directory, so the generated play sits where every other
-                # playbook of this run sits and is part of the trace
-                # afterwards.
-                target = staged.site_root / "playbooks" / f"{entry.id}.yaml"
-                target.write_text(play)
-                playbook = str(target)
+            if prepared.seeded is not None:
+                staged.inventory_file.write_text(prepared.seeded)
+                self._seeded.add(record.id)
         except Exception:
             # A run that never started leaves a staged copy nothing will read
             # and nothing will wipe at the end, so it is wiped here.
-            if run_id in self._seeded:
+            if record.id in self._seeded:
                 seed.wipe(staged.inventory_file)
-                self._seeded.discard(run_id)
-            self._store.release(run_id)
+                self._seeded.discard(record.id)
+            self._store.release(record.id)
             raise
 
         request = self._request(
-            record, entry, directory, staged, extra_vars, playbook, plan.limit
+            record,
+            prepared.entry,
+            prepared.directory,
+            staged,
+            prepared.extra_vars,
+            prepared.playbook,
+            prepared.limit,
         )
         record.state = RunState.RUNNING
         record.started_at = datetime.now(tz=UTC)
+        # Read again at the start: a run that waited may start on a collection
+        # installed while it waited, and the mirror links to whichever is
+        # installed when it plays.
+        record.collection_version = self.collection_version()
         # Recorded before the thread starts, so the run view shows the exact
         # invocation while it is going, and still shows it on a run that ends
         # without ever coming back here.
         record.command = build_command(request)
+        self._current = record.id
         self._store.save(record)
         audit_event(
             "run.launched",
-            run=run_id,
-            playbook=entry.id,
-            user=launched_by,
-            check=check,
-            commit=state.commit,
+            run=record.id,
+            playbook=prepared.entry.id,
+            user=record.launched_by,
+            check=record.check,
+            commit=record.inventory_commit,
             # The audit trail says what was played, not only what was asked
             # for: a convergence of one machine and a convergence of five are
             # different acts under the same playbook name.
-            limit=plan.limit or "",
-            machines=",".join(plan.hosts or []),
+            limit=prepared.limit or "",
+            machines=",".join(record.machines or []),
         )
+        return request
 
+    def _spawn(self, record: RunRecord, request: RunRequest) -> None:
         thread = threading.Thread(
             target=self._execute,
             args=(record, request),
-            name=f"run-{run_id}",
+            name=f"run-{record.id}",
             daemon=True,
         )
         thread.start()
+
+    # The queue
+
+    def _enqueue(
+        self,
+        prepared: _Prepared,
+        play: str | None,
+        writable: tuple[str, ...],
+        root_passwords: dict[str, str] | None,
+    ) -> RunRecord:
+        record = prepared.record
+        record.state = RunState.QUEUED
+        try:
+            self._stage(prepared, play, writable, root_passwords)
+        except Exception as error:
+            # The directory says queued by now, and nothing would ever take
+            # the run out of the queue it is not in.
+            record.state = RunState.FAILED
+            record.finished_at = datetime.now(tz=UTC)
+            record.message = f"This run could not be queued: {error}"
+            self._store.save(record)
+            raise
+        with self._queue_lock:
+            self._queue.append(prepared)
+            position = len(self._queue)
+            if self._dispatcher is None:
+                self._dispatcher = threading.Thread(
+                    target=self._dispatch, name="run-queue", daemon=True
+                )
+                self._dispatcher.start()
+        audit_event(
+            "run.queued",
+            run=record.id,
+            playbook=prepared.entry.id,
+            user=record.launched_by,
+            check=record.check,
+            commit=record.inventory_commit,
+            position=position,
+            machines=",".join(record.machines or []),
+        )
         return record
 
+    def _dispatch(self) -> None:
+        """Start the queued runs one after the other, until none is left.
+
+        The head of the queue starts the moment it can take the lock. It is
+        woken by the end of a run, and polls besides, since a collection
+        installation takes the same lock and says nothing when it lets go.
+        A run that fails does not stop the ones behind it: each was confirmed
+        on its own, against its own frozen inventory.
+        """
+        while True:
+            with self._queue_lock:
+                if not self._queue:
+                    self._dispatcher = None
+                    return
+                head = self._queue[0]
+                if self._try_acquire(head.record.id):
+                    self._queue.popleft()
+                    self._turn.clear()
+                else:
+                    head = None
+            if head is None:
+                self._turn.wait(_QUEUE_POLL_SECONDS)
+                self._turn.clear()
+                continue
+            try:
+                request = self._begin(head)
+            except Exception as error:
+                logger.exception("Queued run %s could not start", head.record.id)
+                record = head.record
+                record.state = RunState.FAILED
+                record.finished_at = datetime.now(tz=UTC)
+                record.message = f"This run could not start when its turn came: {error}"
+                self._store.save(record)
+                audit_event("run.finished", run=record.id, state=record.state.value)
+                continue
+            self._spawn(head.record, request)
+
+    def queued(self) -> list[RunRecord]:
+        """The runs waiting for their turn, the next one first."""
+        with self._queue_lock:
+            return [item.record for item in self._queue]
+
     def cancel(self, run_id: str) -> RunRecord:
+        with self._queue_lock:
+            waiting = next(
+                (item for item in self._queue if item.record.id == run_id), None
+            )
+            if waiting is not None:
+                # Taken out under the queue's lock, so it cannot start between
+                # the answer and the removal.
+                self._queue.remove(waiting)
+                record = waiting.record
+                record.state = RunState.CANCELLED
+                record.finished_at = datetime.now(tz=UTC)
+                record.message = (
+                    "Taken out of the queue before its turn came. It reached "
+                    "no machine."
+                )
+                self._store.save(record)
+                audit_event("run.dequeued", run=run_id)
+                return record
         record = self._store.load(run_id)
         if record is None:
             raise ApiError("unknown_run", f"There is no run {run_id}.", 404)
@@ -1159,6 +1389,9 @@ class RunService:
             record.followups = bool(self._finished)
             self._store.save(record)
             self._store.release(record.id)
+            if self._current == record.id:
+                self._current = None
+            self._turn.set()
             self._cancelled.discard(record.id)
             self._store.compact(record.id)
             audit_event("run.finished", run=record.id, state=record.state.value)
