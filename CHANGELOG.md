@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.221 - 2026-10-14
+
+- runs: a run launched while another is going waits in a queue and starts on its own when the runs before it have ended, on the inventory as it was when it was queued; a queued run can be taken out, and a restart drops the queue without starting any of it
+- runs: the relaunch confirmation opens again
+
 ## 0.3.220 - 2026-10-14
 
 - containers: installing a delivery chooses between updating each installed copy and a new workload from a list, and a new one can start from the site values and placement of an installed copy
