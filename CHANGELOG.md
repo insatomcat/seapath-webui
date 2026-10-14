@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.223 - 2026-10-14
+
+- updates: the machine serving the page can be ticked with the others and is updated last, in the same run, its reboot scheduled at the end; a box in the table header ticks every machine
+
 ## 0.3.222 - 2026-10-14
 
 - runs: the runs of every page wait in the queue as well, a check for updates, a guest's start, a backup, a measurement; deleting a guest, removing a container workload and a restore that declares its workload are still refused while a run is going, since each commits to the inventory first
