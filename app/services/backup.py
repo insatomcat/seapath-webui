@@ -1022,6 +1022,10 @@ class BackupService:
                     else None
                 ),
                 writable=restored.writable if restored is not None else (),
+                # A restore declares its workload first, and a queued run may
+                # never start, so it is refused while a run is going rather
+                # than queued. The other backup acts wait. See D76.
+                queue=declared is None,
             )
         except ApiError:
             # Left undeclared rather than declared with nothing deploying it:

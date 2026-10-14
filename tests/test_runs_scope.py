@@ -251,7 +251,7 @@ def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
         record = client.get(f"/api/v1/runs/{run_id}").json()
-        if record["state"] not in ("pending", "running"):
+        if record["state"] not in ("queued", "pending", "running"):
             return record
         time.sleep(0.02)
     raise AssertionError(f"Run {run_id} did not finish")

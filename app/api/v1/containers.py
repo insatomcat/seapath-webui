@@ -573,8 +573,14 @@ def remove(
         ) from error
 
     try:
+        # Refused rather than queued while a run is going, for the same reason
+        # as a guest's deletion: the commit is made, and a queued run may never
+        # start. See D76.
         record = _runs(request).launch(
-            WORKLOAD_PLAYBOOK, user.username, variables=_only(request, name)
+            WORKLOAD_PLAYBOOK,
+            user.username,
+            variables=_only(request, name),
+            queue=False,
         )
     except ApiError:
         # Declared again rather than left marked: a workload that runs is

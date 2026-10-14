@@ -217,7 +217,7 @@ def test_a_launch_that_does_not_ask_to_wait_is_refused_ahead_of_the_queue(
     queued = service.launch("seapath_setup_main", "alice", queue=True)
 
     with pytest.raises(ApiError) as refused:
-        service.launch("seapath_setup_main", "bob")
+        service.launch("seapath_setup_main", "bob", queue=False)
 
     assert refused.value.code == "run_in_progress"
     assert refused.value.status_code == 409

@@ -262,7 +262,11 @@ when it was queued. Without it, the launch is refused with `409
 run_in_progress`, and refused as well while runs are queued, so that it cannot
 go ahead of them. `POST /runs/{id}/cancel` takes a queued run out of the
 queue. A restart of the service closes every queued run as `cancelled` and
-starts none of them. See [D76](decisions.md#d76).
+starts none of them. The endpoints of the other pages that launch a run wait
+the same way and answer `queued`, except deleting a guest, removing a
+container workload and a restore that declares its workload, which commit to
+the inventory first and are refused with `409 run_in_progress`. See
+[D76](decisions.md#d76).
 
 What it does take is a `scope`: `{"groups": ["hypervisors"], "hosts": ["node2",
 "guest3"]}`. Every name is checked against the groups and hosts the inventory

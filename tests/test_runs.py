@@ -802,7 +802,7 @@ def test_the_lock_serialises_two_operators(store, inventory, trust, tmp_path) ->
     service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
 
     with pytest.raises(ApiError) as failure:
-        service.launch("seapath_setup_main", "bob")
+        service.launch("seapath_setup_main", "bob", queue=False)
 
     assert failure.value.code == "run_in_progress"
     assert "an-earlier-run" in failure.value.message

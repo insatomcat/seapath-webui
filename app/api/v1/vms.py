@@ -491,8 +491,11 @@ def delete(
         ) from error
 
     try:
+        # Refused rather than queued while a run is going: the entry is
+        # already out, and a run taken out of the queue or dropped by a restart
+        # would leave it out with the disk still there. See D76.
         record = _runs(request).launch_action(
-            Action.DELETE, name, user.username, Mode.CLUSTER
+            Action.DELETE, name, user.username, Mode.CLUSTER, queue=False
         )
     except ApiError:
         # Declared again rather than left half deleted: an entry with its disk

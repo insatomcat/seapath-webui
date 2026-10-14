@@ -24,7 +24,7 @@ def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
         # Ended, and its lock released: the record says a run ended before
         # the lock goes, and a run launched in between is refused. `followups`
         # falls once the listeners are done, which is after the release.
-        if record["state"] not in ("pending", "running") and not record.get(
+        if record["state"] not in ("queued", "pending", "running") and not record.get(
             "followups"
         ):
             return record

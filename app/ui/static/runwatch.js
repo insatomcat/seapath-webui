@@ -51,6 +51,13 @@ const RunWatch = (function () {
 
     state.source = RunStream.follow(runId, {
       onEvent: (payload) => {
+        // A queued run's first event is its start.
+        const badge = element("run-watch-state");
+        if (badge.textContent === "queued") {
+          badge.className = RunStream.stateClass("running");
+          badge.textContent = "running";
+          element("run-watch-message").hidden = true;
+        }
         RunStream.append(element("run-watch-stream"), payload);
         if (payload.kind === "play") {
           element("run-watch-play").textContent = payload.play;
@@ -91,11 +98,19 @@ const RunWatch = (function () {
     }
     element("run-watch-title").textContent =
       record.playbook_id + (record.check ? " (preview)" : "");
+    // Read before the run left the queue, answered after its first event.
+    const started = element("run-watch-stream").childElementCount > 0;
+    const shown = record.state === "queued" && started ? "running" : record.state;
     const badge = element("run-watch-state");
-    badge.className = RunStream.stateClass(record.state);
-    badge.textContent = record.state;
+    badge.className = RunStream.stateClass(shown);
+    badge.textContent = shown;
     if (record.message) {
       say(record.message);
+    } else if (shown === "queued") {
+      say(
+        "Queued behind the run that is going. It starts on its own when the " +
+          "runs before it have ended, and this window can be closed meanwhile."
+      );
     }
 
     const finished = ["success", "failed", "cancelled", "interrupted"].includes(

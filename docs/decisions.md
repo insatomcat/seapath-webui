@@ -5965,6 +5965,12 @@ cannot go ahead of them. A collection installation still takes the same
 lock and is still refused while a run is going; the queue waits for an
 installation that holds the lock and starts when it lets go.
 
-The gestures of the other pages, a guest's start or a backup, are still
-refused while a run is going. They are acts an operator makes looking at
-the state the page shows, and that state is the one they act on.
+Every page's gesture waits the same way, a guest's start, a check for
+updates, a backup, a measurement: they all go through the same launch,
+and a refusal naming a run id was the answer to all of them. Three are
+refused instead, because each commits to the inventory before its run
+and reverts that commit when the run cannot start: deleting a guest,
+removing a container workload, and restoring a backup that declares its
+workload. Queued, the commit would stand while its run waits, and a run
+taken out of the queue or dropped by a restart would leave the inventory
+saying a thing no run did.

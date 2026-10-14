@@ -159,7 +159,7 @@ def _wait(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
         record = client.get(f"/api/v1/runs/{run_id}").json()
-        if record["state"] not in ("pending", "running"):
+        if record["state"] not in ("queued", "pending", "running"):
             return record
         time.sleep(0.02)
     raise AssertionError(f"Run {run_id} did not finish")
@@ -434,6 +434,25 @@ def test_the_check_refreshes_simulates_and_writes_nothing_on_a_machine(
     assert request.extra_vars[software.RESULTS_VARIABLE] == str(
         settings.runs_dir / run_id / "results"
     )
+
+
+def test_a_check_asked_while_a_run_is_going_waits_for_it(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    # Checking for updates while a convergence goes is the ordinary case, and
+    # was refused with the convergence's id. See D76.
+    from app.runs.store import RunStore
+
+    _cluster(signed_in, settings, key_pair)
+    store = RunStore(settings.runs_dir)
+    store.acquire("an-earlier-run")
+
+    response = signed_in.post("/api/v1/software/check")
+
+    assert response.status_code == 202, response.text
+    assert response.json()["state"] == "queued"
+    store.release("an-earlier-run")
+    assert _wait(signed_in, response.json()["run_id"])["state"] == "success"
 
 
 def test_checking_is_an_operator_s_act(client: TestClient) -> None:

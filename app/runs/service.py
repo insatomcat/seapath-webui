@@ -587,13 +587,15 @@ class RunService:
         check: bool = False,
         scope: RunScope | None = None,
         root_passwords: dict[str, str] | None = None,
-        queue: bool = False,
+        queue: bool = True,
     ) -> RunRecord:
         """Launch a catalogue entry, or queue it when a run is going.
 
-        `queue` asks for the wait rather than the refusal. The run is checked
-        and staged now either way, so a run that would be refused is refused
-        to the operator who asked for it, and not found failed later.
+        `queue` asks for the wait rather than the refusal, and every page's
+        gesture waits. `POST /runs` alone lets its caller choose the refusal.
+        The run is checked and staged now either way, so a run that would be
+        refused is refused to the operator who asked for it, and not found
+        failed later.
         """
         entries = {item.id: item for item in self.entries()}
         entry = entries.get(catalogue.current_id(playbook_id))
@@ -624,6 +626,7 @@ class RunService:
         node: str = "",
         ban: str = "",
         ban_first: bool = False,
+        queue: bool = True,
     ) -> RunRecord:
         """Start or stop one guest, as a run like any other.
 
@@ -656,6 +659,7 @@ class RunService:
             check=False,
             play=actions.play(action, guest, mode, host, node, ban, ban_first),
             guest=guest,
+            queue=queue,
         )
 
     def launch_generated(
@@ -666,6 +670,7 @@ class RunService:
         guest: str | None = None,
         scope: RunScope | None = None,
         writable: tuple[str, ...] = (),
+        queue: bool = True,
     ) -> RunRecord:
         """A play this service wrote, launched as a run like any other.
 
@@ -687,6 +692,7 @@ class RunService:
             guest=guest,
             scope=scope,
             writable=writable,
+            queue=queue,
         )
 
     def scopes(self) -> scoping.ScopeChoices:

@@ -50,7 +50,7 @@ def wait_for(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
     deadline = time.time() + timeout
     while time.time() < deadline:
         record = client.get(f"/api/v1/runs/{run_id}").json()
-        if record["state"] not in ("pending", "running"):
+        if record["state"] not in ("queued", "pending", "running"):
             return record
         time.sleep(0.02)
     raise AssertionError(f"Run {run_id} did not finish")
@@ -476,20 +476,24 @@ def test_a_guest_the_cluster_runs_and_the_inventory_ignores_can_be_stopped(
     assert signed_in.post("/api/v1/vms/vm-guest2/stop").status_code == 202
 
 
-def test_an_action_takes_the_same_lock_a_convergence_does(
+def test_an_action_waits_for_the_convergence_going(
     signed_in: TestClient, settings: Settings
 ) -> None:
     # Two operators must not converge and restart the same machines at once,
     # and a start slipping in under a convergence is the same hazard. One lock
-    # for both is what makes that true, so the action is refused by a
-    # convergence exactly as a second convergence would be.
+    # for both is what makes that true, so the action waits behind a
+    # convergence exactly as a second convergence would. See D76.
     _declare(signed_in)
-    RunStore(settings.runs_dir).acquire("an-earlier-run")
+    store = RunStore(settings.runs_dir)
+    store.acquire("an-earlier-run")
 
     response = signed_in.post("/api/v1/vms/vm-guest1/start")
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "run_in_progress"
+    assert response.status_code == 202
+    assert response.json()["state"] == "queued"
+    run_id = response.json()["run_id"]
+    store.release("an-earlier-run")
+    assert wait_for(signed_in, run_id)["state"] == "success"
 
 
 def test_an_operator_may_act_on_a_guest_and_a_viewer_may_not(
