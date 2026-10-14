@@ -179,6 +179,11 @@ class DeliveryService:
         self._inventory = inventory
         self._containers = containers
         self._imports = imports_dir
+        # A staged tree is checked once. Reading it again hashes every image
+        # archive, hundreds of megabytes, and a name chosen in the form is
+        # answered while the operator waits on it. Only this service writes
+        # the tree, and the install reads it afresh before writing anything.
+        self._read: dict[str, delivery.Delivery | delivery.InvalidDelivery] = {}
 
     # Staging
 
@@ -209,13 +214,25 @@ class DeliveryService:
 
     def discard(self, staged_id: str) -> None:
         shutil.rmtree(self._home(staged_id), ignore_errors=True)
+        self._read.pop(staged_id, None)
+
+    def _reading(self, staged_id: str, root: Path) -> delivery.Delivery:
+        if staged_id not in self._read:
+            try:
+                self._read[staged_id] = delivery.read(root)
+            except delivery.InvalidDelivery as error:
+                self._read[staged_id] = error
+        found = self._read[staged_id]
+        if isinstance(found, delivery.InvalidDelivery):
+            raise found
+        return found
 
     def _describe(
         self, staged_id: str, root: Path, name: str | None = None
     ) -> StagedDelivery:
         staged = StagedDelivery(id=staged_id, version=root.name)
         try:
-            proposed = delivery.read(root)
+            proposed = self._reading(staged_id, root)
             staged.proposed = proposed.name
             staged.name = name or proposed.name
             staged.instances = self._instances(proposed)
@@ -515,6 +532,7 @@ class DeliveryService:
         for home in self._imports.iterdir():
             if home.is_dir() and home.stat().st_mtime < limit:
                 shutil.rmtree(home, ignore_errors=True)
+                self._read.pop(home.name, None)
 
 
 def _fields(

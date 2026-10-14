@@ -870,6 +870,15 @@
   // Installing a delivery
 
   let staged = null;
+  // The staged delivery as it would be installed under each name the form
+  // has asked about, kept so that choosing one again is immediate. `wanted`
+  // is the name the form shows or waits for: the install is offered only
+  // once the answer for it is the one drawn.
+  let described = new Map();
+  let wanted = "";
+  let typing = null;
+  // The value of the target meaning a workload not installed yet.
+  const NEW_WORKLOAD = "";
 
   // Where the workload runs is the site's choice, among members no supplier
   // knows, so the form asks it. It starts from the placement the installed
@@ -923,6 +932,9 @@
       return;
     }
     staged = null;
+    described = new Map();
+    wanted = "";
+    clearTimeout(typing);
     element("delivery-file").value = "";
     element("delivery-pick").hidden = false;
     element("delivery-summary").hidden = true;
@@ -968,7 +980,12 @@
     element("delivery-pick").hidden = true;
     element("delivery-check").hidden = true;
     element("delivery-summary").hidden = false;
-    element("delivery-name").value = staged.name;
+    described = new Map([[staged.name, Promise.resolve(staged)]]);
+    wanted = staged.name;
+    // Every workload the delivery updates is asked about now, so that
+    // choosing one, or copying its values, waits on nothing.
+    updated().forEach(describeAs);
+    targetForm();
     describeDelivery();
   }
 
@@ -983,46 +1000,186 @@
     return holder;
   }
 
-  // The name the workload is installed under. The delivery proposes one;
-  // another installs the application once more beside it, or updates the
-  // copy of that name, and the form follows whichever it is.
-  async function renameDelivery() {
-    const name = element("delivery-name").value.trim();
-    if (!staged || !name || name === staged.name) {
-      return;
+  // The installed workloads this delivery would update.
+  function updated() {
+    const names = (staged.instances || []).slice();
+    if (staged.update && !names.includes(staged.name)) {
+      names.push(staged.name);
     }
-    const error = element("delivery-error");
-    error.hidden = true;
-    try {
-      staged = await API.get(
+    return names.sort();
+  }
+
+  function describeAs(name) {
+    if (!described.has(name)) {
+      const pending = API.get(
         "/containers/deliveries/" + staged.id + "?name=" + encodeURIComponent(name)
       );
+      // A failure is asked again the next time rather than kept.
+      pending.catch(() => described.delete(name));
+      described.set(name, pending);
+    }
+    return described.get(name);
+  }
+
+  // The name a new copy starts with: the proposed one when it is free, or
+  // the first `-2`, `-3` after it that is.
+  function freeName() {
+    const taken = updated();
+    let name = staged.proposed;
+    for (let count = 2; taken.includes(name); count += 1) {
+      name = staged.proposed + "-" + count;
+    }
+    return name;
+  }
+
+  function targetForm() {
+    const names = updated();
+    const target = clear(element("delivery-target"));
+    names.forEach((name) => target.append(new Option("Update " + name, name)));
+    target.append(new Option("A new workload", NEW_WORKLOAD));
+    target.value = names.includes(staged.name) ? staged.name : NEW_WORKLOAD;
+    const copy = clear(element("delivery-copy"));
+    names.forEach((name) => copy.append(new Option(name, name)));
+    element("delivery-copy-box").hidden = names.length === 0;
+    element("delivery-name").value =
+      target.value === NEW_WORKLOAD ? staged.name : freeName();
+    element("delivery-new").hidden = target.value !== NEW_WORKLOAD;
+  }
+
+  function chooseTarget() {
+    const target = element("delivery-target").value;
+    element("delivery-new").hidden = target !== NEW_WORKLOAD;
+    if (target !== NEW_WORKLOAD) {
+      showName(target);
+      return;
+    }
+    const input = element("delivery-name");
+    if (!input.value.trim() || updated().includes(input.value.trim())) {
+      input.value = freeName();
+    }
+    showName(input.value.trim());
+  }
+
+  // A name being typed is asked about once the typing pauses, and the install
+  // waits for the answer.
+  function typeName() {
+    clearTimeout(typing);
+    const name = element("delivery-name").value.trim();
+    if (name === staged.name) {
+      showName(name);
+      return;
+    }
+    wanted = name;
+    waiting(true);
+    typing = setTimeout(() => showName(name), 300);
+  }
+
+  function waiting(on) {
+    element("delivery-go").disabled = on;
+    element("delivery-copy-go").disabled = on;
+    if (on) {
+      element("delivery-name-help").textContent = "Checking the name.";
+    }
+  }
+
+  async function showName(name) {
+    clearTimeout(typing);
+    wanted = name;
+    const error = element("delivery-error");
+    error.hidden = true;
+    if (!name) {
+      waiting(true);
+      element("delivery-name-help").textContent = "The new workload needs a name.";
+      return;
+    }
+    if (name === staged.name && described.has(name)) {
+      waiting(false);
+      describeName();
+      return;
+    }
+    waiting(true);
+    let answer;
+    try {
+      answer = await describeAs(name);
+    } catch (failure) {
+      if (wanted === name) {
+        error.textContent = failure.message;
+        error.hidden = false;
+        element("delivery-name-help").textContent = "";
+      }
+      return;
+    }
+    if (wanted !== name) {
+      return;
+    }
+    // A new workload renamed keeps what the operator typed, copied values
+    // included. An update starts from the values of the workload it updates.
+    const carried =
+      !staged.update && !answer.update && !element("delivery-form").hidden
+        ? {
+            values: formValues(element("delivery-values")),
+            placement: formPlacement(),
+          }
+        : null;
+    staged = answer;
+    if (staged.update && updated().includes(name)) {
+      element("delivery-target").value = name;
+      element("delivery-new").hidden = true;
+    }
+    describeDelivery();
+    if (carried) {
+      fillForm(carried.values, carried.placement);
+    }
+    waiting(false);
+  }
+
+  function fillForm(values, placement) {
+    element("delivery-values")
+      .querySelectorAll("[data-key]")
+      .forEach((input) => {
+        const value = values[input.dataset.key];
+        if (value !== null && value !== undefined) {
+          input.value = String(value);
+        }
+      });
+    placementForm(staged.nodes || [], placement);
+  }
+
+  async function copyValues() {
+    const source = element("delivery-copy").value;
+    const button = element("delivery-copy-go");
+    const error = element("delivery-error");
+    error.hidden = true;
+    button.disabled = true;
+    try {
+      const answer = await describeAs(source);
+      const values = {};
+      (answer.values || []).forEach((field) => {
+        values[field.key] = field.current;
+      });
+      fillForm(values, answer.placement || {});
     } catch (failure) {
       error.textContent = failure.message;
       error.hidden = false;
-      return;
+    } finally {
+      button.disabled = false;
     }
-    describeDelivery();
+  }
+
+  function describeName() {
+    element("delivery-name-help").textContent =
+      (staged.update
+        ? "Updates the workload " + staged.name + ", from its site values and " +
+          "its placement."
+        : staged.name === staged.proposed
+          ? "Installs the application under the name the delivery proposes."
+          : "Installs the application once more, as " + staged.name + ".") +
+      " The name is the Pacemaker resource, the RBD image and the folder of " +
+      "the inventory.";
   }
 
   function describeDelivery() {
-    const instances = staged.instances || [];
-    const list = clear(element("delivery-instances"));
-    [staged.proposed]
-      .concat(instances)
-      .filter((name, index, all) => all.indexOf(name) === index)
-      .forEach((name) => list.append(new Option(name, name)));
-    element("delivery-name-help").textContent =
-      (staged.update
-        ? "Updates the workload " + staged.name + "."
-        : staged.name === staged.proposed
-          ? "The name the delivery proposes."
-          : "Installs the application once more, as " + staged.name + ".") +
-      (instances.length
-        ? " Installed from this delivery: " + instances.join(", ") + "."
-        : "") +
-      " The name is the Pacemaker resource, the RBD image and the folder of " +
-      "the inventory.";
+    describeName();
     const findings = element("delivery-name-findings");
     const refused = !listFindings(findings, staged.findings).hidden;
     element("delivery-form").hidden = refused;
@@ -1112,6 +1269,11 @@
   }
 
   function installDelivery() {
+    // The button is disabled meanwhile; a click already on its way is not
+    // sent with a form drawn for another name.
+    if (wanted !== staged.name) {
+      return;
+    }
     const mode = deliveryMode();
     if (!(staged.update && mode === "reset")) {
       submitDelivery(mode);
@@ -1398,7 +1560,12 @@
   element("delivery-cancel").addEventListener("click", () => showDelivery(false));
   element("delivery-check").addEventListener("click", checkDelivery);
   element("delivery-go").addEventListener("click", installDelivery);
-  element("delivery-name").addEventListener("change", renameDelivery);
+  element("delivery-target").addEventListener("change", chooseTarget);
+  element("delivery-name").addEventListener("input", typeName);
+  element("delivery-name").addEventListener("change", () => {
+    showName(element("delivery-name").value.trim());
+  });
+  element("delivery-copy-go").addEventListener("click", copyValues);
   element("delivery-placement").addEventListener("change", showPlacement);
   element("values-cancel").addEventListener("click", () => {
     element("values").hidden = true;

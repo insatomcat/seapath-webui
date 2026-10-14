@@ -1505,6 +1505,33 @@ def test_a_delivery_is_installed_a_second_time_under_another_name(
     assert (settings.inventory_dir / "inventories/vied/quadlets/vied.pod.j2").is_file()
 
 
+def test_a_name_chosen_in_the_form_does_not_hash_the_images_again(
+    signed_in: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _import(signed_in, CLUSTER)
+    staged = _stage(signed_in, _build(tmp_path / "one", change=_named))
+    hashed: list[Path] = []
+    real = delivery._sha256
+
+    def counting(path: Path) -> str:
+        hashed.append(path)
+        return real(path)
+
+    monkeypatch.setattr(delivery, "_sha256", counting)
+
+    for name in ("vied-b", "vied-c", "vied"):
+        answer = signed_in.get(
+            f"/api/v1/containers/deliveries/{staged['id']}", params={"name": name}
+        ).json()
+        assert answer["name"] == name
+        assert answer["findings"] == []
+    response = _install(signed_in, staged, name="vied-b")
+
+    assert response.status_code == 201, response.text
+    # The install alone checks the archive again, before it writes.
+    assert len(hashed) == 1
+
+
 def test_a_new_version_offers_every_copy_and_updates_the_one_named(
     signed_in: TestClient, tmp_path: Path
 ) -> None:

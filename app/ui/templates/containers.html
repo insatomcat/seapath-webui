@@ -236,10 +236,29 @@ not.
     <div class="loading" id="delivery-loading" hidden>Checking the delivery</div>
     <ul class="error" id="delivery-findings" hidden></ul>
     <div id="delivery-summary" hidden>
-      <label for="delivery-name">Workload name</label>
-      <input type="text" id="delivery-name" list="delivery-instances"
-             autocomplete="off" spellcheck="false">
-      <datalist id="delivery-instances"></datalist>
+      {# A choice between the workloads this delivery updates and a new one,
+         rather than a field with suggestions: a browser draws those as its
+         own autofill, and the operator could not tell they were the list. #}
+      <label for="delivery-target">Install as</label>
+      <select id="delivery-target"></select>
+      <div id="delivery-new" hidden>
+        <label for="delivery-name">Name of the new workload</label>
+        <input type="text" id="delivery-name" autocomplete="off"
+               spellcheck="false">
+        <div id="delivery-copy-box" hidden>
+          <label for="delivery-copy">Start from an installed workload</label>
+          <div class="with-button">
+            <select id="delivery-copy"></select>
+            <button type="button" class="secondary" id="delivery-copy-go">
+              Copy its values
+            </button>
+          </div>
+          <p class="help">
+            Fills the site values and the placement below with that
+            workload's, to be changed where the new one differs.
+          </p>
+        </div>
+      </div>
       <p class="help" id="delivery-name-help"></p>
       <ul class="error" id="delivery-name-findings" hidden></ul>
       <div id="delivery-form">
