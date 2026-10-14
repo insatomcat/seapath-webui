@@ -767,6 +767,63 @@ def test_this_machine_beside_others_is_refused_and_the_others_named_first(
     assert run_adapter.requests == []
 
 
+def test_this_machine_beside_others_is_updated_last_and_its_reboot_deferred(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    """Two imports: the others first, then this machine alone."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, DEFERRING)
+
+    response = signed_in.post(
+        "/api/v1/software/update",
+        json={"hosts": ["seapath-machine", "elabo1", "elabo2"]},
+    )
+
+    assert response.status_code == 202, response.text
+    run_id = response.json()["run_id"]
+    others, itself, check, reboot = _update_plays(settings, run_id)
+    upstream = "seapath.ansible.seapath_update_debian"
+    assert others == {
+        "import_playbook": upstream,
+        "vars": {"software_controller": "seapath-machine"},
+        "when": "inventory_hostname != software_controller",
+    }
+    assert itself == {
+        "import_playbook": upstream,
+        "vars": {"defer_reboot": True, "software_controller": "seapath-machine"},
+        "when": "inventory_hostname == software_controller",
+    }
+    # The others rebooted within the run: only this machine awaits one.
+    assert check["vars"] == {
+        "software_controller": "seapath-machine",
+        "defer_reboot": "{{ inventory_hostname == software_controller }}",
+    }
+    assert reboot["hosts"] == "seapath-machine"
+    assert sorted(run_adapter.requests[-1].limit.split(":")) == [
+        "elabo1",
+        "elabo2",
+        "seapath-machine",
+    ]
+    record = _wait(signed_in, run_id)
+    assert record["ends_with_reboot"] == "seapath-machine"
+
+
+def test_the_deployment_page_cannot_send_a_deferring_update_to_every_machine(
+    signed_in: TestClient, settings: Settings, key_pair: Path, run_adapter
+) -> None:
+    """The catalogue entry plays the inventory's order, this machine first."""
+    _cluster(signed_in, settings, key_pair)
+    _install_playbook(settings, DEFERRING)
+
+    response = signed_in.post(
+        "/api/v1/runs", json={"playbook": "seapath_update_debian"}
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "controller_not_alone"
+    assert run_adapter.requests == []
+
+
 def test_the_others_without_this_machine_are_not_said_to_end_with_a_reboot(
     signed_in: TestClient, settings: Settings, key_pair: Path
 ) -> None:

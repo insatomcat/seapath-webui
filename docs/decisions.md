@@ -4616,7 +4616,7 @@ The page draws the last check and says when it was taken. A machine updated
 after that check is marked as such rather than listed with the packages it has
 already installed.
 
-## D60 - Settled: a machine updates itself alone, and finishes its update at boot
+## D60 - Superseded in part by [D77](#d77): a machine updates itself alone, and finishes its update at boot
 
 [D59](#d59) kept the machine driving the run out of it, because the playbook
 finished its work after the reboot and the controller was that machine. A
@@ -5974,3 +5974,39 @@ removing a container workload, and restoring a backup that declares its
 workload. Queued, the commit would stand while its run waits, and a run
 taken out of the queue or dropped by a restart would leave the inventory
 saying a thing no run did.
+
+## D77 - Settled: the machine driving an update is updated after the others, in the same run
+
+Under [D60](#d60) the machine serving the Updates page was updated alone, in a
+run of its own after the others, because one at a time, in the inventory's
+order, a machine after it would never be reached once it rebooted. Every
+update of a cluster then took two runs, and the machines were ticked one by
+one, since ticking this machine cleared the others.
+
+**The order is the generated play's, and the reboot is the end of the run.**
+Since [D61](#d61), the playbook stops short of the reboot of the machine
+driving the run and leaves its decision as a fact, and the run schedules that
+reboot once it has checked the machines. What was left was the order. The
+play generated for the Updates page imports `seapath_update_debian` twice:
+the first import carries `when: inventory_hostname != software_controller`
+and the second the opposite, with `defer_reboot`. A `when` on an import is
+given to every task of the plays it imports, so the first updates the others
+one at a time, each rebooting within the run as before, and the second
+updates this machine alone, last. A machine that fails ends the run, so this
+machine is never touched after a failure. The check gives `defer_reboot` to
+this machine only, since the others rebooted within the run and await
+nothing.
+
+Putting this machine in standby beside the others was weighed and set aside.
+Updated in the inventory's order with its reboot deferred, it would stay in
+standby, with `noout` set, while the members after it were put in standby
+and rebooted in turn, and the first of them to finish its boot would clear
+`noout` with this machine's reboot still to come.
+
+**The rule stays on the catalogue entry.** The Deployment page launches the
+playbook as it is, in the inventory's order, and refuses this machine beside
+others as before. The entry of the generated play carries `controller_last`,
+which the run service accepts beside others only when the installed playbook
+can defer the reboot; with an older one this machine is still updated alone.
+
+The page has a box ticking every machine a run can take at once.

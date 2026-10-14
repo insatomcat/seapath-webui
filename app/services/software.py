@@ -12,12 +12,15 @@ trace.
 
 Two rules are held here rather than left to the page.
 
-**This machine is updated alone.** The playbook reboots each machine, and the
-controller is this service, so a run holding this machine ends with its
-reboot, and a machine after it would never be reached. The machine finishes
-its own update once its new system is up. `RunService` refuses this machine
-beside others whatever launched the run, and refuses it outright when the
-installed playbook still finishes on the controller.
+**This machine is updated last.** The controller is this service, so a run
+holding this machine may end with its reboot, and a machine after it would
+never be reached. The play generated here updates it after every other and
+defers its reboot to the end of the run; the machine finishes its own update
+once its new system is up. `RunService` refuses this machine beside others
+for any other play, such as the catalogue entry, which follows the
+inventory's order, and for a playbook that cannot defer the reboot. It
+refuses it outright when the installed playbook still finishes on the
+controller.
 
 **A reading older than an update says so.** A check that ran before a machine
 was updated describes a machine that is not there any more, and a page that
@@ -234,8 +237,9 @@ class SoftwareService:
 
         The names are checked against the machines the inventory declares, so
         a run narrowed to a guest or a typo is refused here with a sentence
-        rather than by Ansible with an empty play. This machine beside others
-        is refused by the run service itself, for every caller.
+        rather than by Ansible with an empty play. This machine is updated
+        after the others, and the run service refuses it beside them when the
+        installed playbook cannot defer its reboot.
         """
         chosen = sorted(set(hosts))
         if not chosen:
@@ -278,10 +282,11 @@ class SoftwareService:
                 },
             )
         this_host = self._inventory.state().this_host
+        itself = this_host if this_host in chosen else None
         return self._runs.launch_generated(
             plays.update_entry(),
             author,
-            plays.update_play(this_host if this_host in chosen else None),
+            plays.update_play(itself, others=itself is not None and len(chosen) > 1),
             scope=RunScope(hosts=chosen),
         )
 

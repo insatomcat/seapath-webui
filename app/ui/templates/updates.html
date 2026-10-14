@@ -9,9 +9,9 @@ upstream `seapath_update_debian` playbook, sent to the machines ticked in the
 table, which it upgrades one at a time, rebooting a machine only for a new
 kernel, and followed by the check in the same run.
 
-The machine serving this page is updated alone: when it reboots, the run checks
-it, schedules the reboot and ends first, and the machine finishes its update at
-boot.
+The machine serving this page is updated last, after the others ticked: when it
+reboots, the run checks it, schedules the reboot and ends first, and the machine
+finishes its update at boot.
 #}
 {% extends "base.html" %}
 {% from "_controls.html" import reread %}
@@ -38,7 +38,7 @@ boot.
       <table>
         <thead>
           <tr>
-            <th></th>
+            <th><input type="checkbox" id="select-all" aria-label="Select every machine" title="Every machine a run can take"></th>
             <th>Machine</th>
             <th>Kernel</th>
             <th>Pending</th>

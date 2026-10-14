@@ -1216,15 +1216,17 @@ class RunService:
         return dict(supplied)
 
     def _check_controller(self, entry: PlaybookEntry, plan: Scope) -> str | None:
-        """Accept the machine driving the run only alone, and only if it can be.
+        """Accept the machine driving the run last or alone, and only if it can be.
 
         Answers that machine when the run holds it, since the run may then end
         by rebooting it, scheduled so the run ends first. One at a time, a
-        machine after it in the play would never be reached, and the play's
-        order is the inventory's, so the others are named to be updated first.
-        A playbook that does not leave the machine to finish at boot refuses it
-        outright: the controller would go down with the reboot and leave the
-        rest of the update undone.
+        machine after it in the play would never be reached, and the
+        playbook's order is the inventory's, so the others are named to be
+        updated first. A play that updates it after the others, with a
+        playbook that defers its reboot to the end of the run, accepts it
+        beside them. A playbook that does not leave the machine to finish at
+        boot refuses it outright: the controller would go down with the reboot
+        and leave the rest of the update undone.
         """
         this_host = self._inventory.state().this_host
         if this_host is None or plan.hosts is None or this_host not in plan.hosts:
@@ -1249,7 +1251,10 @@ class RunService:
                 409,
                 {"this_host": this_host, "others": others},
             )
-        if others:
+        if others and not (
+            entry.controller_last
+            and software.reboots_for_kernel(self._paths.collections_path)
+        ):
             raise ApiError(
                 "controller_not_alone",
                 (

@@ -95,6 +95,12 @@ whether the machine has to reboot, and the play that follows it here checks
 the machines and schedules that reboot, a few seconds after the run ends.
 """
 
+CONTROLLER = "software_controller"
+"""The machine driving an update run that holds others, for the plays to compare.
+
+Given as a variable rather than spliced into an expression, so a host name is
+never read as Jinja."""
+
 UPDATE_AND_CHECK = "software_update"
 """What an update launched from the Updates page is filed under.
 
@@ -351,24 +357,32 @@ def update_entry() -> PlaybookEntry:
             "id": UPDATE_AND_CHECK,
             "playbook": f"{GENERATOR}.{UPDATE_AND_CHECK}",
             "results_variable": RESULTS_VARIABLE,
+            "controller_last": True,
         }
     )
 
 
-def update_play(this_host: str | None) -> str:
+def update_play(this_host: str | None, others: bool = False) -> str:
     """The upstream update, then the check, as YAML.
 
-    With `this_host`, the machine driving the run and then the only one in it,
-    the update stops short of the reboot it decides, since the run could not
-    outlive it. The check reads the machine before that reboot, and the last
-    play schedules it, so the run ends first and with its status. The decision
-    to reboot stays the playbook's: the play only reads `update_debian_reboot`.
+    With `this_host`, the machine driving the run, the update stops short of
+    the reboot it decides on that machine, since the run could not outlive
+    it. The check reads the machine before that reboot, and the last play
+    schedules it, so the run ends first and with its status. The decision to
+    reboot stays the playbook's: the play only reads `update_debian_reboot`.
+
+    With `others` beside it, the playbook is imported twice: the first import
+    skips the machine driving the run and the second plays it alone, so it is
+    reached after every other whatever the inventory's order. One at a time, a
+    machine that fails ends the run there, and the machine driving it is never
+    touched after a failure. The others reboot within the run as usual.
 
     The check plays the machines the run was narrowed to, and a machine the
     update never reached is not checked, since a failure stops the run.
     """
     upgrade: dict = {"import_playbook": f"{COLLECTION}.{UPDATE}"}
     check = _check("Check the machines the update left")
+    document: list[dict] = []
     if this_host is not None:
         upgrade["vars"] = {DEFER_REBOOT: True}
         # The vars of an `import_playbook` end with the plays it imports, and
@@ -376,7 +390,24 @@ def update_play(this_host: str | None) -> str:
         # an update left unfinished. `update_debian_reboot` is a fact and
         # carries over by itself.
         check["vars"] = {DEFER_REBOOT: True}
-    document = [upgrade, check]
+    if this_host is not None and others:
+        # A `when` on an import is given to every task of the plays it
+        # imports, and skipped tasks leave a machine as it was.
+        document.append(
+            {
+                "import_playbook": f"{COLLECTION}.{UPDATE}",
+                "vars": {CONTROLLER: this_host},
+                "when": f"inventory_hostname != {CONTROLLER}",
+            }
+        )
+        upgrade["vars"][CONTROLLER] = this_host
+        upgrade["when"] = f"inventory_hostname == {CONTROLLER}"
+        # Only the machine driving the run awaits a reboot once the run ends.
+        check["vars"] = {
+            CONTROLLER: this_host,
+            DEFER_REBOOT: "{{ inventory_hostname == " + CONTROLLER + " }}",
+        }
+    document += [upgrade, check]
     if this_host is not None:
         document.append(
             {

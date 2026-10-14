@@ -68,8 +68,8 @@ def update(request: Request, payload: UpdateRequest, user: User = admin) -> RunR
 
     Each machine is upgraded, and rebooted when it gets a new kernel; a cluster
     member that reboots is put in standby first. The check follows in the same run. The
-    machine serving this API is accepted alone: it is checked before its
-    reboot, which is scheduled, and the run ends first.
+    machine serving this API is updated after the others and checked before
+    its reboot, which is scheduled, and the run ends first.
     """
     record = _service(request).update(payload.hosts, user.username)
     return RunResponse(run_id=record.id, state=record.state.value)

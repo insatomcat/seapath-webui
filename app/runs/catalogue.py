@@ -279,6 +279,14 @@ class PlaybookEntry(BaseModel):
     the rest on the controller once the machine is back, and would leave it in
     standby with its snapshot in place. See `RunService._check_controller`.
     """
+    controller_last: bool = False
+    """The play this entry launches updates the machine driving the run last.
+
+    The Updates page's generated play imports the upstream playbook twice, the
+    machine driving the run in the second import only, so it is reached after
+    every other whatever the inventory's order. With a playbook that stops
+    short of that machine's reboot, it is then accepted beside the others.
+    """
     results_variable: str | None = None
     """The variable naming where this playbook fetches what it measured.
 

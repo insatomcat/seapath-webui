@@ -12,11 +12,12 @@
 // An update is the upstream playbook followed by the check, in one run, so
 // each machine is drawn as the update left it.
 //
-// The machine serving the page is updated alone, since a machine after it
-// would never be reached. Its run cannot outlive its reboot: the playbook
-// stops short of it, the check reads the machine, and the run schedules the
-// reboot and ends. The machine finishes its update at boot. With a playbook
-// that still finishes on the controller, it is not offered at all.
+// The machine serving the page is updated last, after every other machine
+// ticked, since the run cannot outlive its reboot: the playbook stops short of
+// it, the check reads the machine, and the run schedules the reboot and ends.
+// The machine finishes its update at boot. With a playbook that cannot stop
+// short of the reboot, it is updated alone, and with one that still finishes
+// on the controller, it is not offered at all.
 
 (function () {
   let canCheck = false;
@@ -236,39 +237,65 @@
     return cell(box);
   }
 
+  // This machine drives the run. A playbook that finishes on the controller
+  // cannot update it, and one that cannot stop short of its reboot updates it
+  // only alone, since the run ends with that reboot.
+  function refused(machine) {
+    return machine.this_node && !view.updates_itself;
+  }
+
+  function alone(machine) {
+    return !view.one_at_a_time || (machine.this_node && !view.reboots_for_kernel);
+  }
+
+  // What ticking every machine selects: the machines a single run can take.
+  function together() {
+    return view.machines.filter(
+      (machine) => !refused(machine) && !(machine.this_node && alone(machine))
+    );
+  }
+
   function selectCell(machine) {
     const box = document.createElement("input");
     box.type = "checkbox";
     box.checked = selected.has(machine.host);
-    // This machine drives the run, and may reboot at its end.
-    const refused = machine.this_node && !view.updates_itself;
-    box.disabled = !canUpdate || refused || !updateAvailable();
-    if (refused) {
+    box.disabled = !canUpdate || refused(machine) || !updateAvailable();
+    if (refused(machine)) {
       box.title = "Updated from another member: this machine drives the run.";
+    } else if (machine.this_node && alone(machine)) {
+      box.title = "Updated on its own: the run ends with its reboot.";
     } else if (machine.this_node) {
-      box.title = view.reboots_for_kernel
-        ? "Updated on its own, since it drives the run."
-        : "Updated on its own: the run ends with its reboot.";
+      box.title = "Updated after the others, since it drives the run.";
     }
     box.addEventListener("change", () => {
-      if (box.checked && (!view.one_at_a_time || machine.this_node)) {
-        // An older playbook reboots every machine it is sent to at once, and
+      if (box.checked && alone(machine)) {
+        // An older playbook reboots every machine it is sent to at once, or
         // this machine's run ends with its reboot.
         selected.clear();
         selected.add(machine.host);
-        renderRows();
       } else if (box.checked) {
-        const local = view.machines.find((other) => other.this_node);
-        if (local && selected.delete(local.host)) {
-          renderRows();
-        }
+        view.machines
+          .filter((other) => alone(other))
+          .forEach((other) => selected.delete(other.host));
         selected.add(machine.host);
       } else {
         selected.delete(machine.host);
       }
+      renderRows();
       renderActs();
     });
     return cell(box);
+  }
+
+  // Ticks every machine a run can take at once, or none once they all are.
+  function renderSelectAll() {
+    const box = element("select-all");
+    const candidates = together();
+    const ticked = candidates.filter((machine) => selected.has(machine.host));
+    box.hidden = !view.one_at_a_time;
+    box.disabled = !canUpdate || !updateAvailable() || candidates.length === 0;
+    box.checked = candidates.length > 0 && ticked.length === candidates.length;
+    box.indeterminate = ticked.length > 0 && ticked.length < candidates.length;
   }
 
   function renderRows() {
@@ -291,6 +318,7 @@
       );
       rows.append(line);
     });
+    renderSelectAll();
   }
 
   // The reasons that stop an update of the machines ticked. An unreachable
@@ -334,10 +362,10 @@
         "the run and the playbook this image ships finishes after the reboot.";
     } else if (view.this_host && others.length && view.reboots_for_kernel) {
       note.textContent =
-        view.this_host + " is updated on its own, after the others, since " +
-        "it drives the run. When it gets a new kernel, the run checks it, " +
-        "schedules its reboot and ends, and it finishes its update itself " +
-        "once its new system is up.";
+        view.this_host + " is updated after the others, since it drives " +
+        "the run. When it gets a new kernel, the run checks it, schedules " +
+        "its reboot and ends, and it finishes its update itself once its " +
+        "new system is up.";
     } else if (view.this_host && others.length) {
       note.textContent =
         view.this_host + " is updated on its own, after the others: the run " +
@@ -475,8 +503,11 @@
           !machine.reading.snapshot.enough && !machine.stale
       )
       .map((machine) => machine.host);
-    // Only ever alone: the server refuses this machine beside others.
+    // Last, after the others: the server plays it in a second import.
     const itself = hosts.includes(view.this_host);
+    if (itself && hosts.length > 1) {
+      hosts.push(hosts.splice(hosts.indexOf(view.this_host), 1)[0]);
+    }
     const chosen = view.machines.filter((machine) => selected.has(machine.host));
     const rebooting = chosen.filter(reboots).map((machine) => machine.host);
     const unknown = chosen
@@ -500,6 +531,9 @@
               ? "No current check says whether " + unknown.join(", ") +
                 (unknown.length === 1 ? " reboots. " : " reboot. ")
               : "")
+          : "") +
+        (itself && hosts.length > 1
+          ? view.this_host + " is updated last, once the others are. "
           : "") +
         (itself && view.reboots_for_kernel
           ? "Should " + view.this_host + " reboot, the run checks it, " +
@@ -534,6 +568,15 @@
 
   element("check").addEventListener("click", confirmCheck);
   element("update").addEventListener("click", confirmUpdate);
+  element("select-all").addEventListener("change", (event) => {
+    const all = event.target.checked;
+    selected.clear();
+    if (all) {
+      together().forEach((machine) => selected.add(machine.host));
+    }
+    renderRows();
+    renderActs();
+  });
   element("packages-close").addEventListener("click", () => {
     element("packages-card").hidden = true;
   });
