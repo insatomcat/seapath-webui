@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.220 - 2026-10-14
+
+- containers: installing a delivery chooses between updating each installed copy and a new workload from a list, and a new one can start from the site values and placement of an installed copy
+- containers: choosing a name for a delivery is answered at once: the staged archive is checked once rather than hashed again for every name, and the install waits for the form to match the name shown
+
 ## 0.3.219 - 2026-10-11
 
 - runs: a node keeps its 300 newest runs (`SEAPATH_WEBUI_RUNS_KEPT`, 0 keeps every one) and deletes the older ones when a run is created and at every start, sparing the run holding the lock and any run still going
