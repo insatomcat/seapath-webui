@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.224 - 2026-10-21
+
+- collection: seapathalloc d8ba9845, the same branch rebased on the upstream main of 2026-10-16: cluster_remove_machine refuses to drop a machine still in Corosync or still serving OSDs, timemaster has chrony trust the PTP source, seapath_setup_prerequisitesyocto applies syslog_ng_client, whose service template instance can be set, and the example inventories describe `isolcpus` anew
+
 ## 0.3.223 - 2026-10-14
 
 - updates: the machine serving the page can be ticked with the others and is updated last, in the same run, its reboot scheduled at the end; a box in the table header ticks every machine
