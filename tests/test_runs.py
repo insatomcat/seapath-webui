@@ -1491,12 +1491,18 @@ def test_a_run_that_ended_has_its_events_compacted(
     store, inventory, trust, tmp_path, monkeypatch
 ) -> None:
     compacted = []
-    monkeypatch.setattr(store, "compact", compacted.append)
+    done = threading.Event()
+
+    def compact(run_id: str) -> None:
+        compacted.append(run_id)
+        done.set()
+
+    monkeypatch.setattr(store, "compact", compact)
     service = build(store, inventory, trust, fake.FakeRunAdapter(), tmp_path)
 
     run_id = service.launch("seapath_setup_main", "alice").id
-    # Compacted inside the `finally` that ends the run, so done once the
-    # listeners that come after it are.
-    wait_for_listeners(service, run_id)
+    # Waited on directly: with no listener registered, the save that ends the
+    # run already says its listeners are done, and the compaction comes after.
+    assert done.wait(5.0)
 
     assert compacted == [run_id]
