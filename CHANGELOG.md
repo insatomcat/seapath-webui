@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.226 - 2026-10-24
+
+- runs: the history redraws when a run ends while another one is open, or when a run is launched from another desk
+
 ## 0.3.225 - 2026-10-21
 
 - tests: the compaction test waits on the compaction itself, which could run after the test read its result
