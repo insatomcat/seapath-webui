@@ -25,6 +25,19 @@ const RunGoing = (function () {
   // Counts what was drawn from a launch, so an answer asked for before the
   // launch cannot hide the mark the launch just lit.
   let drawn = 0;
+  // The runs the mark last stood for, so a page holding a list of runs learns
+  // when one of them ended or a new one began, without a timer of its own.
+  let standing = "";
+
+  function announce(run, queued) {
+    const ids = (run ? [run.id] : []).concat(queued.map((entry) => entry.id));
+    const key = ids.join(" ");
+    if (key === standing) {
+      return;
+    }
+    standing = key;
+    document.dispatchEvent(new CustomEvent("runs-moved", { detail: { ids } }));
+  }
 
   function draw(run, queued) {
     queued = queued || [];
@@ -34,6 +47,7 @@ const RunGoing = (function () {
       run = queued[0];
       queued = queued.slice(1);
     }
+    announce(run, queued);
     if (!run) {
       link.hidden = true;
       link.dataset.run = "";

@@ -418,6 +418,22 @@
     modal.hidden = false;
   }
 
+  // The list says what each run was when it was read. A run that ends while
+  // another one is open, or one launched from another desk, would keep its
+  // badge until the page was reloaded, so the list is read again whenever the
+  // mark in the top bar stops or starts standing for a run.
+  document.addEventListener("runs-moved", (moved) => {
+    const going = new Set(moved.detail.ids);
+    const listed = new Set(state.runs.map((record) => record.id));
+    const stale =
+      state.runs.some(
+        (record) => !FINISHED.includes(record.state) && !going.has(record.id),
+      ) || moved.detail.ids.some((id) => !listed.has(id));
+    if (stale) {
+      loadList().catch(() => {});
+    }
+  });
+
   element("timing-open").addEventListener("click", () => {
     element("timing-modal").hidden = false;
   });
