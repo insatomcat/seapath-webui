@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.227 - 2026-10-27
+
+- collection: seapathalloc 644a6b1d, the same base as 0.3.224 with twelve commits on top: deploy_containers_cluster deploys the container workloads (what a supplier delivers, the site's configuration kept apart, restarts on request, updates without silence, a non-root image), backup_restore backs them up and restores them, seapath_alloc lets a pinned application set its own policy, deploy_prometheus_exporters reports the health of the physical disks, configure_nic_irq_affinity sets the NICs' receive coalescing, and network_systemdnetworkd lets the administration IP sit on a macvlan
+
 ## 0.3.226 - 2026-10-24
 
 - runs: the history redraws when a run ends while another one is open, or when a run is launched from another desk
