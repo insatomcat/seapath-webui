@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.228 - 2026-10-29
+
+- overview: the home page is an overview of the whole site, counts that link to their page and a card per machine with its usage, workloads, clock and ports; the Node page moves to /node
+- containers: Grow gives a workload's RBD image a larger rbd.size and runs deploy_containers_cluster for it, which resizes the image and grows its filesystem online; the page shows how full each image is
+- collection: seapathalloc 7a232356, deploy_containers_cluster grows an RBD image with its entry and seapath-rbd-mount grows the filesystem at mount
+
 ## 0.3.227 - 2026-10-27
 
 - collection: seapathalloc 644a6b1d, the same base as 0.3.224 with twelve commits on top: deploy_containers_cluster deploys the container workloads (what a supplier delivers, the site's configuration kept apart, restarts on request, updates without silence, a non-root image), backup_restore backs them up and restores them, seapath_alloc lets a pinned application set its own policy, deploy_prometheus_exporters reports the health of the physical disks, configure_nic_irq_affinity sets the NICs' receive coalescing, and network_systemdnetworkd lets the administration IP sit on a macvlan
