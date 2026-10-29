@@ -19,6 +19,12 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.230 - 2026-10-29
+
+- overview: a machine's card opens Usage on that machine, and Usage keeps the machine chosen in its address
+- ui: a followed link keeps the accent colour
+- containers: an update keeps an RBD image grown past its delivery's size, which deploy_containers_cluster would refuse as a shrink
+
 ## 0.3.229 - 2026-10-29
 
 - overview: a pod is one tile with its RBD image's fullness, opened in place to show its volume, its node, its Pacemaker resource and each container's state; the card is denser so four machines fit one screen; a tuning finding ignored on the Real time page is no longer counted
