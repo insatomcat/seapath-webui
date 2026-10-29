@@ -4275,7 +4275,7 @@ td.log-line .tag {
 .overview-machine {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.45rem;
 }
 
 .overview-machine.overview-silent {
@@ -4338,16 +4338,28 @@ td.log-line .tag {
 .overview-bars {
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: 0.2rem;
 }
 
 .overview-bar,
 .overview-volumes {
   display: grid;
-  grid-template-columns: 8.5rem 1fr auto;
+  grid-template-columns: 8.5rem 1fr 3.5rem auto;
   align-items: center;
   gap: 0.6rem;
   font-size: 0.82rem;
+}
+
+.overview-bar svg {
+  display: block;
+  width: 100%;
+  height: 0.9rem;
+}
+
+.overview-bar path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.2;
 }
 
 .overview-volumes {
@@ -4430,7 +4442,7 @@ td.log-line .tag {
 .overview-spark svg {
   display: block;
   width: 100%;
-  height: 1.6rem;
+  height: 1.1rem;
 }
 
 .overview-spark path {
@@ -4467,7 +4479,8 @@ td.log-line .tag {
 .overview-workload {
   display: flex;
   flex-direction: column;
-  gap: 0.15rem;
+  gap: 0.2rem;
+  cursor: pointer;
   padding: 0.4rem 0.55rem;
   border: 1px solid var(--line);
   border-left: 3px solid var(--line);
@@ -4486,8 +4499,54 @@ td.log-line .tag {
   border-left-color: var(--bad);
 }
 
-.overview-workload:hover {
+.overview-workload:hover,
+.overview-workload:focus-visible {
   border-color: var(--accent);
+}
+
+.overview-workload.workload-open {
+  grid-column: 1 / -1;
+  border-color: var(--accent);
+  cursor: default;
+}
+
+.overview-workload-kind {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.overview-workload-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.overview-workload-detail p {
+  margin: 0;
+}
+
+.overview-members {
+  margin: 0.15rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.overview-members li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--text);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.overview-members li:last-child {
+  border-bottom: 0;
 }
 
 .overview-workload-head {
@@ -4497,10 +4556,12 @@ td.log-line .tag {
   min-width: 0;
 }
 
+.overview-workload-head {
+  flex-wrap: wrap;
+}
+
 .overview-workload-head strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   font-size: 0.85rem;
 }
 
@@ -4511,25 +4572,25 @@ td.log-line .tag {
 }
 
 .overview-ports {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  font-size: 0.82rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  gap: 0.1rem 1rem;
+  font-size: 0.78rem;
 }
 
 .overview-port {
   display: grid;
-  grid-template-columns: auto 8rem 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
+  min-width: 0;
 }
 
 .overview-port-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-.overview-port-state {
-  color: var(--muted);
 }
 
 .overview-port-rates {

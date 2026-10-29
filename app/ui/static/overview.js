@@ -36,6 +36,30 @@
   let pool = null;
   let timer = null;
   let inFlight = false;
+  // The workload tiles an operator opened, by machine and name, so the
+  // redraw every reading makes leaves them open.
+  const opened = new Set();
+
+  // The tuning findings an operator chose to live with on the Real time page,
+  // kept in this browser under its key. A finding ignored there is not
+  // counted here either, or the two pages would disagree on the same machine.
+  const IGNORED_KEY = "seapath-webui.realtime.ignored";
+
+  function ignoredChecks() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(IGNORED_KEY) || "[]");
+      return new Set(Array.isArray(stored) ? stored : []);
+    } catch (unreadable) {
+      return new Set();
+    }
+  }
+
+  function warnings(node) {
+    const ignored = ignoredChecks();
+    return ((node && node.checks) || []).filter(
+      (check) => check.status === "warning" && !ignored.has(node.host + ":" + check.id)
+    );
+  }
 
   function element(id) {
     return document.getElementById(id);
@@ -215,8 +239,21 @@
     return name.replace(/^systemd-/, "");
   }
 
-  // What runs on a machine: its guests and the site's containers, each with
-  // its share of the last interval, and the system containers in one sum.
+  function volumeOf(machine, name) {
+    return filesystems(machine).find(
+      (filesystem) => filesystem.mountpoint === RBD_MOUNTS + name
+    );
+  }
+
+  function sum(values) {
+    const known = values.filter((value) => value !== null && value !== undefined);
+    return known.length ? known.reduce((a, b) => a + b, 0) : null;
+  }
+
+  // What runs on a machine: its guests, and the site's containers gathered
+  // by pod, since a pod is the workload an operator deploys and the
+  // containers in it are its parts. Each with its share of the last
+  // interval, and the system containers in one sum.
   function workloads(machine) {
     const latest = machine.latest || {};
     const rates = new Map((machine.workloads || []).map((item) => [item.key, item]));
@@ -225,31 +262,70 @@
     (latest.guests || [])
       .filter((guest) => guest.running !== false)
       .forEach((guest) => {
+        const own = rates.get("vm:" + guest.name) || {};
+        const resource = resourceFor(guest.name);
         site.push({
           kind: "vm",
           name: guest.name,
-          rates: rates.get("vm:" + guest.name) || {},
-          resource: resourceFor(guest.name),
+          cpu: own.cpu,
+          memory: own.memory,
+          vcpus: guest.vcpus,
+          members: [],
+          resources: resource ? [resource] : [],
         });
       });
-    (latest.containers || [])
-      .filter((container) => container.running)
-      .forEach((container) => {
-        const own = rates.get("container:" + container.name) || {};
-        if (SYSTEM.test(container.name)) {
+    const pods = new Map();
+    (latest.containers || []).forEach((container) => {
+      const own = rates.get("container:" + container.name) || {};
+      if (!container.pod && SYSTEM.test(container.name)) {
+        if (container.running) {
           system.count += 1;
           system.cpu += own.cpu || 0;
           system.memory += own.memory || 0;
-          return;
         }
-        const name = containerName(container.name);
-        site.push({
-          kind: "container",
+        return;
+      }
+      const name = containerName(container.pod || container.name);
+      const key = (container.pod ? "pod:" : "container:") + name;
+      if (!pods.has(key)) {
+        pods.set(key, {
+          kind: container.pod ? "pod" : "container",
           name,
-          rates: own,
-          resource: resourceFor(name),
+          parts: [],
         });
+      }
+      pods.get(key).parts.push({ container, own });
+    });
+    pods.forEach((item) => {
+      const running = item.parts.filter((part) => part.container.running);
+      if (!running.length) {
+        return;
+      }
+      const names = item.parts.map((part) => containerName(part.container.name));
+      const candidates = item.kind === "pod" ? names.concat(item.name, item.name + "-pod") : names;
+      const resources = [];
+      candidates.forEach((candidate) => {
+        const resource = resourceFor(candidate);
+        if (resource && !resources.includes(resource)) {
+          resources.push(resource);
+        }
       });
+      site.push({
+        kind: item.kind,
+        name: item.name,
+        cpu: sum(running.map((part) => part.own.cpu)),
+        memory: sum(running.map((part) => part.own.memory)),
+        members: item.parts
+          .map((part) => ({
+            name: containerName(part.container.name),
+            state: part.container.state,
+            running: part.container.running,
+          }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+        resources,
+        volume: volumeOf(machine, item.name),
+      });
+    });
     site.sort((a, b) => a.name.localeCompare(b.name));
     return { site, system };
   }
@@ -339,9 +415,7 @@
             .join(", ")
         )
       );
-      const warned = tuned.filter((node) =>
-        (node.checks || []).some((check) => check.status === "warning")
-      );
+      const warned = tuned.filter((node) => warnings(node).length);
       found.push(
         tile(
           String(warned.length),
@@ -390,26 +464,37 @@
     all.forEach((machine) =>
       workloads(machine).site.forEach((item) => {
         guests += item.kind === "vm" ? 1 : 0;
-        containers += item.kind === "container" ? 1 : 0;
+        containers += item.kind === "vm" ? 0 : 1;
       })
     );
     found.push(tile(String(guests), "guests running", "vms"));
-    found.push(tile(String(containers), "containers running", "containers"));
+    found.push(tile(String(containers), "pods and containers running", "containers"));
 
     box.replaceChildren(...found);
   }
 
   // A machine
 
-  function bar(label, share, figures, status) {
-    const row = make("div", "overview-bar");
-    const name = make("span", "overview-bar-name", label);
-    name.title = label;
+  function track(share, status) {
     const track = make("span", "bar");
     const fill = make("span", "fill" + (status ? " " + status : ""));
     fill.style.width = Math.min(100, Math.max(0, Math.round((share || 0) * 100))) + "%";
     track.append(fill);
-    row.append(name, track, make("span", "overview-bar-figures", figures));
+    return track;
+  }
+
+  // A row: its name, how full, the last five minutes when there are some,
+  // and the figures.
+  function bar(label, share, figures, status, history) {
+    const row = make("div", "overview-bar");
+    const name = make("span", "overview-bar-name", label);
+    name.title = label;
+    row.append(
+      name,
+      track(share, status),
+      history ? line(history, 1) : make("span"),
+      make("span", "overview-bar-figures", figures)
+    );
     return row;
   }
 
@@ -419,6 +504,11 @@
     const box = make("div", "overview-spark");
     const head = make("div", "overview-spark-head");
     head.append(make("span", "", label), make("strong", "", figure));
+    box.append(head, line(values, ceiling));
+    return box;
+  }
+
+  function line(values, ceiling) {
     const svg = document.createElementNS(SVG, "svg");
     svg.setAttribute("viewBox", "0 0 100 24");
     svg.setAttribute("preserveAspectRatio", "none");
@@ -436,12 +526,11 @@
       path += (drawing ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
       drawing = true;
     });
-    const line = document.createElementNS(SVG, "path");
-    line.setAttribute("d", path);
-    line.setAttribute("vector-effect", "non-scaling-stroke");
-    svg.append(line);
-    box.append(head, svg);
-    return box;
+    const stroke = document.createElementNS(SVG, "path");
+    stroke.setAttribute("d", path);
+    stroke.setAttribute("vector-effect", "non-scaling-stroke");
+    svg.append(stroke);
+    return svg;
   }
 
   function chip(text, status, title) {
@@ -493,31 +582,34 @@
     if (tuning && tuning.preemption) {
       box.append(chip(tuning.preemption, tuning.preemption === "PREEMPT_RT" ? "" : "warn"));
     }
-    const warnings = ((tuning && tuning.checks) || []).filter(
-      (check) => check.status === "warning"
-    );
-    if (warnings.length) {
+    const warned = tuning ? warnings(tuning) : [];
+    if (warned.length) {
       box.append(
         chip(
-          warnings.length + (warnings.length === 1 ? " tuning warning" : " tuning warnings"),
+          warned.length + (warned.length === 1 ? " tuning warning" : " tuning warnings"),
           "warn",
-          warnings.map((check) => check.title).join("\n")
+          warned.map((check) => check.title).join("\n")
         )
       );
     }
     return box;
   }
 
-  function usageBars(machine) {
+  function usageBars(machine, claimed) {
     const box = make("div", "overview-bars");
-    const last = (points.get(machine.host) || []).filter((point) => point.cpu).slice(-1)[0];
+    const kept = points.get(machine.host) || [];
+    const last = kept.filter((point) => point.cpu).slice(-1)[0];
     if (last) {
       box.append(
         bar(
           "CPU housekeeping",
           last.cpu.housekeeping / (last.cpu.housekeeping_cpus || 1),
           percent(last.cpu.housekeeping / (last.cpu.housekeeping_cpus || 1)) +
-            " of " + last.cpu.housekeeping_cpus
+            " of " + last.cpu.housekeeping_cpus,
+          "",
+          kept.map((point) =>
+            point.cpu ? point.cpu.housekeeping / (point.cpu.housekeeping_cpus || 1) : null
+          )
         )
       );
       if (last.cpu.isolated_cpus) {
@@ -526,18 +618,26 @@
             "CPU isolated",
             last.cpu.isolated / last.cpu.isolated_cpus,
             percent(last.cpu.isolated / last.cpu.isolated_cpus) +
-              " of " + last.cpu.isolated_cpus
+              " of " + last.cpu.isolated_cpus,
+            "",
+            kept.map((point) =>
+              point.cpu && point.cpu.isolated_cpus
+                ? point.cpu.isolated / point.cpu.isolated_cpus
+                : null
+            )
           )
         );
       }
     }
-    const memory = (points.get(machine.host) || []).filter((point) => point.memory).slice(-1)[0];
+    const memory = kept.filter((point) => point.memory).slice(-1)[0];
     if (memory) {
       box.append(
         bar(
           "Memory",
           memory.memory.used / memory.memory.total,
-          bytes(memory.memory.used) + " of " + bytes(memory.memory.total)
+          bytes(memory.memory.used) + " of " + bytes(memory.memory.total),
+          "",
+          kept.map((point) => (point.memory ? point.memory.used / point.memory.total : null))
         )
       );
     }
@@ -554,7 +654,12 @@
           )
         )
       );
-    const volumes = all.filter((filesystem) => filesystem.mountpoint.startsWith(RBD_MOUNTS));
+    // A volume a workload tile carries is drawn there; one no running
+    // workload claims stays here.
+    const volumes = all.filter(
+      (filesystem) =>
+        filesystem.mountpoint.startsWith(RBD_MOUNTS) && !claimed.has(filesystem.mountpoint)
+    );
     if (volumes.length) {
       const row = make("div", "overview-volumes");
       row.append(make("span", "overview-bar-name", "RBD volumes"));
@@ -564,11 +669,10 @@
         item.title =
           volume.mountpoint + ": " + bytes(volume.used) + " of " +
           bytes(volume.size_bytes) + " (" + percent(volume.share) + ")";
-        const track = make("span", "bar");
-        const fill = make("span", "fill " + fullness(volume.share));
-        fill.style.width = Math.round(volume.share * 100) + "%";
-        track.append(fill);
-        item.append(make("span", "", volume.mountpoint.slice(RBD_MOUNTS.length)), track);
+        item.append(
+          make("span", "", volume.mountpoint.slice(RBD_MOUNTS.length)),
+          track(volume.share, fullness(volume.share))
+        );
         list.append(item);
       });
       row.append(list);
@@ -577,21 +681,15 @@
     return box;
   }
 
+  // The CPU and the memory carry their line on their bar; the traffic has
+  // no ceiling to fill and is drawn on its own.
   function sparks(machine) {
     const kept = points.get(machine.host) || [];
     const box = make("div", "overview-sparks");
-    const busy = kept.map((point) =>
-      point.cpu ? point.cpu.housekeeping / (point.cpu.housekeeping_cpus || 1) : null
-    );
-    const memory = kept.map((point) =>
-      point.memory ? point.memory.used / point.memory.total : null
-    );
     const inbound = kept.map((point) => point.network_in);
     const outbound = kept.map((point) => point.network_out);
     const last = (values) => values.filter((value) => value !== null).slice(-1)[0];
     box.append(
-      spark("housekeeping busy", busy, 1, percent(last(busy))),
-      spark("memory used", memory, 1, percent(last(memory))),
       spark("network in", inbound, 0, rate(last(inbound))),
       spark("network out", outbound, 0, rate(last(outbound)))
     );
@@ -615,54 +713,133 @@
     }
     const box = make("div", "overview-facts");
     parts.forEach((part) => box.append(make("span", "", part)));
-    (machine.disks || []).forEach((disk) => {
-      box.append(
-        make(
-          "span",
-          "",
-          disk.device + " busy " + percent(disk.busy) + " · ↓" + rate(disk.read) +
-            " ↑" + rate(disk.write)
-        )
-      );
-    });
+    // The RBD devices are the workloads' volumes, whose fullness their tiles
+    // carry; their traffic is in the workload's own.
+    (machine.disks || [])
+      .filter((disk) => !disk.device.startsWith("rbd"))
+      .forEach((disk) => {
+        box.append(
+          make(
+            "span",
+            "",
+            disk.device + " busy " + percent(disk.busy) + " · ↓" + rate(disk.read) +
+              " ↑" + rate(disk.write)
+          )
+        );
+      });
     return box;
   }
 
-  function workloadTiles(machine) {
-    const { site, system } = workloads(machine);
-    const box = make("div", "overview-workloads");
-    site.forEach((item) => {
-      const resource = item.resource;
-      const failed = resource && resource.failed;
-      const card = make(
-        "a",
-        "overview-workload" + (failed ? " workload-failed" : resource ? " workload-held" : "")
-      );
-      card.href = item.kind === "vm" ? "vms" : "containers";
-      const head = make("div", "overview-workload-head");
-      head.append(make("strong", "", item.name));
-      if (item.kind === "vm") {
-        head.append(chip("VM"));
-      }
-      card.append(head);
-      card.append(
+  const KIND = { vm: "VM", pod: "pod", container: "container" };
+
+  function figuresOf(item) {
+    return (
+      (item.cpu === null || item.cpu === undefined ? "–" : item.cpu.toFixed(2)) +
+      " CPU · " +
+      bytes(item.memory)
+    );
+  }
+
+  // What a tile shows once opened: the volume in words, where it runs, what
+  // Pacemaker holds of it, and each container of a pod with its state.
+  function workloadDetail(machine, item) {
+    const box = make("div", "overview-workload-detail");
+    if (item.volume) {
+      box.append(
         make(
-          "span",
-          "overview-workload-figures",
-          (item.rates.cpu === null || item.rates.cpu === undefined
-            ? "–"
-            : item.rates.cpu.toFixed(2)) +
-            " CPU · " +
-            bytes(item.rates.memory)
+          "p",
+          "",
+          "volume " + percent(item.volume.share) + " full, " +
+            bytes(item.volume.available_bytes) + " left of " +
+            bytes(item.volume.size_bytes)
         )
       );
-      if (resource) {
-        card.title =
-          "Pacemaker resource " + resource.id + ", " + resource.role +
-          (resource.fail_count ? ", " + resource.fail_count + " failures" : "");
+    }
+    box.append(
+      make(
+        "p",
+        "",
+        "running on " + machine.host +
+          (item.vcpus ? " with " + item.vcpus + " vCPUs" : "")
+      )
+    );
+    item.resources.forEach((resource) =>
+      box.append(
+        make(
+          "p",
+          "",
+          "Pacemaker resource " + resource.id + ", " + (resource.failed ? "failed" : resource.role) +
+            (resource.fail_count ? ", " + resource.fail_count + " failures" : "")
+        )
+      )
+    );
+    if (item.kind === "pod") {
+      const list = make("ul", "overview-members");
+      item.members.forEach((member) => {
+        const row = make("li");
+        row.append(
+          make("span", "", member.name),
+          chip(member.state, member.running ? "ok" : "warn")
+        );
+        list.append(row);
+      });
+      box.append(list);
+    }
+    const open = make("a", "", item.kind === "vm" ? "Open the VMs page" : "Open the Containers page");
+    open.href = item.kind === "vm" ? "vms" : "containers";
+    box.append(open);
+    return box;
+  }
+
+  function workloadTile(machine, item) {
+    const key = machine.host + ":" + item.kind + ":" + item.name;
+    const failed = item.resources.some((resource) => resource.failed);
+    const isOpen = opened.has(key);
+    const card = make(
+      "div",
+      "overview-workload" +
+        (failed ? " workload-failed" : item.resources.length ? " workload-held" : "") +
+        (isOpen ? " workload-open" : "")
+    );
+    card.tabIndex = 0;
+    card.setAttribute("role", "button");
+    card.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    const head = make("div", "overview-workload-head");
+    head.append(make("strong", "", item.name), make("span", "overview-workload-kind", KIND[item.kind]));
+    card.append(head, make("span", "overview-workload-figures", figuresOf(item)));
+    if (item.volume) {
+      const gauge = track(item.volume.share, fullness(item.volume.share));
+      gauge.title = "volume " + percent(item.volume.share) + " full";
+      card.append(gauge);
+    }
+    if (isOpen) {
+      card.append(workloadDetail(machine, item));
+    }
+    const toggle = (event) => {
+      if (event.target.closest("a")) {
+        return;
       }
-      box.append(card);
+      if (opened.has(key)) {
+        opened.delete(key);
+      } else {
+        opened.add(key);
+      }
+      draw();
+    };
+    card.addEventListener("click", toggle);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggle(event);
+      }
     });
+    return card;
+  }
+
+  function workloadTiles(machine, found) {
+    const { site, system } = found;
+    const box = make("div", "overview-workloads");
+    site.forEach((item) => box.append(workloadTile(machine, item)));
     if (!site.length) {
       box.append(make("p", "overview-quiet", "No guest and no site container runs here."));
     }
@@ -687,11 +864,10 @@
       row.append(
         make("span", "dot " + (up ? "status-ok" : "status-unknown")),
         make("span", "overview-port-name", port.device),
-        make("span", "overview-port-state", up ? "" : port.operstate),
         make(
           "span",
           "overview-port-rates",
-          up ? "↓" + rate(port.rates.receive) + " ↑" + rate(port.rates.transmit) : ""
+          up ? "↓" + rate(port.rates.receive) + " ↑" + rate(port.rates.transmit) : port.operstate
         )
       );
       box.append(row);
@@ -719,8 +895,12 @@
       );
       return card;
     }
-    card.append(usageBars(machine), sparks(machine), facts(machine));
-    card.append(workloadTiles(machine), portRows(machine));
+    const found = workloads(machine);
+    const claimed = new Set(
+      found.site.filter((item) => item.volume).map((item) => item.volume.mountpoint)
+    );
+    card.append(usageBars(machine, claimed), sparks(machine), facts(machine));
+    card.append(workloadTiles(machine, found), portRows(machine));
     const node = machine.latest.node;
     if (node && node.read_at && usage) {
       card.append(
@@ -787,6 +967,14 @@
     },
     (failure) => showBanner(failure.message)
   );
+
+  // Ignoring a finding on the Real time page in another tab is seen here at
+  // once.
+  window.addEventListener("storage", (event) => {
+    if (event.key === IGNORED_KEY) {
+      draw();
+    }
+  });
 
   start();
   readCluster(false).catch((failure) => showBanner(failure.message));

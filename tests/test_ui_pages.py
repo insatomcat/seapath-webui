@@ -3062,3 +3062,21 @@ def test_the_overview_is_the_home_page_and_reads_what_the_others_read(
     assert "API.post" not in script
     assert "API.put" not in script
     assert "API.del" not in script
+
+
+def test_the_overview_counts_a_pod_once_and_leaves_ignored_findings_out(
+    signed_in: TestClient,
+) -> None:
+    script = signed_in.get("/static/overview.js").text
+    realtime = signed_in.get("/static/realtime.js").text
+
+    # A pod is one tile, its containers gathered by the exporter's pod name.
+    assert "container.pod" in script
+    assert 'kind: container.pod ? "pod" : "container"' in script
+    # The Real time page's ignored findings, under the same key, so the two
+    # pages agree on a machine's warnings.
+    key = 'const IGNORED_KEY = "seapath-webui.realtime.ignored";'
+    assert key in script
+    assert key in realtime
+    assert 'node.host + ":" + check.id' in script
+    assert 'return host + ":" + id;' in realtime

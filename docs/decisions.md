@@ -6066,20 +6066,32 @@ second place where a count could disagree with the page that explains it.
 answering, the members online and the quorum, the resources failed or
 started, Ceph's health, the clocks synchronised, the machines with a tuning
 warning, the filesystems past 85 % (95 % in red, Ceph's own thresholds), the
-physical ports up, and the guests and containers running. Each is a link to
-the page that has the detail and the acts. A cluster count is left out on a
-standalone machine rather than shown at zero.
+physical ports up, and the guests and the pods and containers running. Each
+is a link to the page that has the detail and the acts. A cluster count is left
+out on a standalone machine rather than shown at zero. A tuning finding an
+operator ignored on the Real time page, in this browser, is not counted here
+either: the two pages read the same key, or they would disagree on the same
+machine.
 
 **A card per machine, the same stack on each.** Its Pacemaker state, its clock
 and PTP level, its kernel's preemption and its tuning warnings as chips; bars
-for the housekeeping and isolated CPUs, the memory and each filesystem, the
-RBD images of the container workloads mounted there in one row; the last five
-minutes of housekeeping CPU, memory and traffic; its load, uptime and disks;
-its guests and the site's containers, each with its CPU and memory and a
-border saying whether Pacemaker holds it and whether it failed; and its
-physical ports with their traffic. The containers every SEAPATH machine runs
-for itself (Ceph's daemons, the exporters, this service and its proxy) are
-one line under the site's, so a card shows first what the substation runs.
+for the housekeeping and isolated CPUs and the memory, each with its last five
+minutes beside it, and for each filesystem; the traffic over the same window;
+its load, uptime and physical disks; its guests and the site's workloads; and
+its physical ports with their traffic, two to a row.
+
+**A workload is a tile, and a pod is one workload.** The containers of a pod
+are its parts, gathered by the `pod_name` prometheus-podman-exporter
+publishes, and the tile sums their CPU and memory. A tile carries the fullness
+of the RBD image mounted for it as a bar, which is why the images are no
+longer a row of the machine's own, and a border saying whether Pacemaker holds
+it and whether it failed. Opened, it spans the card and says the volume in
+words, where it runs, what Pacemaker holds of it and each container of the pod
+with its state. The containers every SEAPATH machine runs for itself (Ceph's
+daemons, the exporters, this service and its proxy) are one line under the
+site's, so a card shows first what the substation runs. The whole site then
+fits one screen, as the SCADA's machine view does, rather than a card per
+container scrolling past it.
 
 The page acts on nothing. Every act stays on its own page, behind its own
 confirmation naming the machines it touches.

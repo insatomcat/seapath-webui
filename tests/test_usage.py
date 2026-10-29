@@ -335,6 +335,21 @@ def test_a_container_that_has_exited_uses_nothing() -> None:
     assert container.memory_bytes is None
 
 
+def test_a_container_carries_the_pod_it_runs_in() -> None:
+    text = (
+        'podman_container_info{id="a",image="i",name="systemd-scada-app",'
+        'pod_id="p",pod_name="systemd-scada"} 1\n'
+        'podman_container_info{id="b",image="i",name="alone",'
+        'pod_id="",pod_name=""} 1\n'
+    )
+    pods = {
+        container.name: container.pod
+        for container in usage.containers(Exposition("h", "a", metrics.parse(text)))
+    }
+
+    assert pods == {"systemd-scada-app": "systemd-scada", "alone": ""}
+
+
 # The service
 
 

@@ -195,6 +195,9 @@ class ContainerUsage(BaseModel):
     name: str
     id: str
     image: str = ""
+    pod: str = ""
+    """The pod it runs in, as podman names it: `systemd-<quadlet>` for a pod a
+    `.pod` quadlet made, and empty for a container of its own."""
     state: str = "unknown"
     running: bool = False
     cpu_seconds: float | None = None
@@ -315,6 +318,7 @@ def containers(exposition: Exposition) -> list[ContainerUsage]:
                 name=labels.get("name") or ident,
                 id=ident,
                 image=labels.get("image", ""),
+                pod=labels.get("pod_name", ""),
                 state=_CONTAINER_STATES.get(code, "unknown"),
                 running=running,
                 cpu_seconds=cpu.get(ident) if running else None,
