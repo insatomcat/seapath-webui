@@ -1,0 +1,42 @@
+{#
+Copyright (C) 2026, RTE (http://www.rte-france.com)
+SPDX-License-Identifier: CC-BY-4.0
+
+The whole site on one screen: a row of counts an operator reads in a glance,
+then one card per machine with what it consumes, what runs on it and how its
+ports and clock are doing. Every figure is one the other pages already read
+(Usage, Cluster, Real time), put side by side; this page adds no reading of
+its own and changes nothing. Each count links to the page that explains it.
+
+The usage of each machine comes from the window the service keeps while
+somebody uses it (D67), asked every five seconds like the Usage page does. The
+cluster, Ceph and the tuning are asked once, then again by the control in the
+lead line or the switch in the bar. See D79.
+#}
+{% extends "base.html" %}
+{% block page_title %}Overview{% endblock %}
+
+{% from "_controls.html" import reread %}
+
+{% block body %}
+<main class="overview">
+  <p class="banner" id="banner" hidden></p>
+
+  <div class="overview-head">
+    <p class="overview-lead" id="lead">Asking each machine's exporters.</p>
+    <span class="usage-clock" id="clock"></span>
+    {{ reread("reread", "the cluster, Ceph and the tuning") }}
+  </div>
+
+  <section class="overview-tiles" id="tiles" aria-label="The site at a glance"></section>
+
+  <p class="loading" id="loading">Reading the machines…</p>
+  <p class="warning" id="blocked" hidden></p>
+
+  <section class="overview-machines" id="machines" aria-label="Machines"></section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+{{ script("overview.js") }}
+{% endblock %}

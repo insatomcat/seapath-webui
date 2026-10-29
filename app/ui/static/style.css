@@ -4192,3 +4192,348 @@ td.log-line .tag {
 .volume .fill.bad {
   background: var(--bad);
 }
+
+/* The Overview: a row of counts, then a card per machine side by side, as
+   many as fit, so a three node cluster reads across one screen. Each card is
+   the same stack in the same order, so the eye goes down one and across to
+   the same line of the next. */
+.overview {
+  padding: 1.25rem;
+}
+
+.overview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.overview-lead {
+  flex: 1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.overview-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.overview-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.overview-tile:hover {
+  border-color: var(--accent);
+}
+
+.overview-tile strong {
+  font-size: 1.35rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-tile span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.overview-tile.tile-ok strong {
+  color: var(--ok);
+}
+
+.overview-tile.tile-warn strong {
+  color: var(--warn);
+}
+
+.overview-tile.tile-bad {
+  border-color: var(--bad);
+}
+
+.overview-tile.tile-bad strong {
+  color: var(--bad);
+}
+
+.overview-machines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.overview-machine {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.overview-machine.overview-silent {
+  border-color: var(--bad);
+}
+
+.overview-machine-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.overview-machine-name {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.overview-address,
+.overview-observed,
+.overview-quiet {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.overview-observed,
+.overview-quiet {
+  margin: 0;
+}
+
+.overview-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.overview-chip {
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.overview-chip.chip-ok {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.overview-chip.chip-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.overview-chip.chip-bad {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.overview-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.overview-bar,
+.overview-volumes {
+  display: grid;
+  grid-template-columns: 8.5rem 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.82rem;
+}
+
+.overview-volumes {
+  grid-template-columns: 8.5rem 1fr;
+}
+
+.overview-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+}
+
+.overview-bar-figures {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.overview .bar {
+  display: block;
+  height: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.overview .fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.overview .fill.warn {
+  background: var(--warn);
+}
+
+.overview .fill.bad {
+  background: var(--bad);
+}
+
+.overview-volume-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+}
+
+.overview-volume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+}
+
+.overview-volume .bar {
+  width: 3rem;
+}
+
+.overview-sparks {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem 1rem;
+}
+
+.overview-spark-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.overview-spark-head strong {
+  color: var(--text);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-spark svg {
+  display: block;
+  width: 100%;
+  height: 1.6rem;
+}
+
+.overview-spark path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.4;
+}
+
+.overview-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.overview-facts span {
+  padding: 0.05rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-workloads {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 0.4rem;
+}
+
+.overview-workloads > p {
+  grid-column: 1 / -1;
+}
+
+.overview-workload {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  text-decoration: none;
+  min-width: 0;
+}
+
+.overview-workload.workload-held {
+  border-left-color: var(--ok);
+}
+
+.overview-workload.workload-failed {
+  border-left-color: var(--bad);
+}
+
+.overview-workload:hover {
+  border-color: var(--accent);
+}
+
+.overview-workload-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.overview-workload-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+}
+
+.overview-workload-figures {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.overview-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.82rem;
+}
+
+.overview-port {
+  display: grid;
+  grid-template-columns: auto 8rem 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.overview-port-name {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.overview-port-state {
+  color: var(--muted);
+}
+
+.overview-port-rates {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}

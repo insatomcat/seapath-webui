@@ -44,6 +44,15 @@ the UI runs is what the CI tests.
 
 ## The pages
 
+**Overview** is the page a sign-in lands on: the whole site on one screen. A
+row of counts says how many machines answer, whether the cluster has quorum
+and its resources run, Ceph's health, whether the clocks are synchronised,
+which machines carry a tuning warning, which volumes are nearly full, and how
+many ports are up and workloads running, each a link to the page with the
+detail. Below, one card per machine: CPU, memory and filesystems, the last
+five minutes, the guests and containers it runs, its clock and its ports. It
+reads what the other pages read, and acts on nothing.
+
 ![The Node page: machine, CPU and isolation, disks, network](img/1-node.png)
 
 **Node** describes what the machine is. The hostname and the distribution, the

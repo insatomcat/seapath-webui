@@ -256,6 +256,10 @@ def install(app: FastAPI) -> None:
 
     @app.get("/", response_class=HTMLResponse, include_in_schema=False)
     def index(request: Request):
+        return _page(request, "overview.html", "overview")
+
+    @app.get("/node", response_class=HTMLResponse, include_in_schema=False)
+    def node(request: Request):
         return _page(request, "node.html", "node")
 
     @app.get("/inventory", response_class=HTMLResponse, include_in_schema=False)

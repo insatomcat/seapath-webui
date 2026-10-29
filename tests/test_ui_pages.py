@@ -23,6 +23,7 @@ from app.ui.routes import stamp
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -46,7 +47,8 @@ def test_every_page_needs_a_session(client: TestClient, path: str) -> None:
 @pytest.mark.parametrize(
     ("path", "script"),
     [
-        ("/", "node.js"),
+        ("/", "overview.js"),
+        ("/node", "node.js"),
         ("/inventory", "inventory.js"),
         ("/deployment", "deployment.js"),
         ("/vms", "vms.js"),
@@ -76,6 +78,7 @@ def test_each_page_loads_its_own_script_and_the_shared_chrome(
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -119,6 +122,7 @@ def test_every_script_a_page_loads_names_the_version_that_served_it(
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -631,7 +635,7 @@ def test_the_catalogue_says_it_is_being_read_before_it_is(
 def test_the_disks_sit_beside_the_cpu_rather_than_below_the_fold(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/").text
+    body = signed_in.get("/node").text
     css = signed_in.get("/static/style.css").text
 
     # Three cards of machine facts across, one wide table below. Left to the
@@ -949,7 +953,7 @@ def test_the_console_keeps_its_own_ground_in_both_palettes(
 def test_a_table_scrolls_inside_its_card_rather_than_over_the_next_one(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/").text
+    body = signed_in.get("/node").text
     css = signed_in.get("/static/style.css").text
 
     # A `by-path` name is longer than half a page, and the cards sit in
@@ -1077,7 +1081,7 @@ def test_a_file_edited_under_a_running_service_is_a_different_url(
 def test_the_node_page_carries_the_terminal_and_says_what_it_is(
     signed_in: TestClient,
 ) -> None:
-    body = signed_in.get("/").text
+    body = signed_in.get("/node").text
 
     # The emulator and its stylesheet are served from this node, because a
     # substation hypervisor has no route to a CDN. Both are stamped with the
@@ -1236,6 +1240,7 @@ _ROOT_ANCHORED = re.compile(
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -1508,6 +1513,7 @@ def test_the_add_form_allows_a_live_migration_unless_it_is_unchecked(
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -2119,7 +2125,7 @@ def test_the_node_page_reads_again_when_an_operator_asks(
     operator reaches it through. D37 settled that an automatic reading is the
     switch in the bar and a control on the panel; this page predates it.
     """
-    body = signed_in.get("/").text
+    body = signed_in.get("/node").text
     page = signed_in.get("/static/node.js").text
 
     assert 'aria-label="Read this machine again"' in body
@@ -2137,7 +2143,7 @@ def test_the_node_page_says_the_age_of_what_it_shows_and_holds_nothing(
     depend on a row of a reading, so there is nothing to hold. The line that says
     what is on screen and how old it is still has to be there.
     """
-    body = signed_in.get("/").text
+    body = signed_in.get("/node").text
     page = signed_in.get("/static/node.js").text
 
     assert '<p class="loading" id="reading" hidden></p>' in body
@@ -2670,6 +2676,7 @@ def test_the_completion_is_the_assistant_switch_too(signed_in: TestClient) -> No
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -2801,6 +2808,7 @@ def test_a_run_that_ends_under_the_window_leaves_the_page_up_to_date(
     "path",
     [
         "/",
+        "/node",
         "/inventory",
         "/deployment",
         "/vms",
@@ -3035,3 +3043,22 @@ def test_the_bookmarks_live_in_the_browser_and_open_only_web_links(
     assert 'parsed.protocol === "http:" || parsed.protocol === "https:"' in script
     assert 'anchor.target = "_blank";' in script
     assert 'anchor.rel = "noopener noreferrer";' in script
+
+
+def test_the_overview_is_the_home_page_and_reads_what_the_others_read(
+    signed_in: TestClient,
+) -> None:
+    body = signed_in.get("/").text
+    script = signed_in.get("/static/overview.js").text
+
+    assert 'href="./" class="current">Overview</a>' in body
+    assert 'href="node" class="">Node</a>' in body
+    for anchor in ('id="tiles"', 'id="machines"', 'id="reread"'):
+        assert anchor in body
+    # Built from the readings the Usage, Cluster and Real time pages make,
+    # with no endpoint of its own, and acting on nothing.
+    for path in ('"/usage"', '"/cluster"', '"/storage"', '"/realtime/pool"'):
+        assert path in script
+    assert "API.post" not in script
+    assert "API.put" not in script
+    assert "API.del" not in script

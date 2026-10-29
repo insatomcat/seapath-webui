@@ -6043,3 +6043,44 @@ role would refuse as a shrink; and a collection whose role predates the
 growth, recognised by `rbd resize` missing from its tasks since the change
 carries no variable, which would turn the gesture into a green run that did
 nothing.
+
+## D79 - Settled: the home page is an overview made of the other pages' readings
+
+The first page after signing in was this machine's facts, and a cluster's
+state was four pages away: Usage for what the machines consume, Cluster for
+the members, the resources and Ceph, Real time for the clocks and the tuning.
+An operator arriving at a substation asks whether everything is fine before
+asking anything else, and answered it by opening each of them.
+
+**Composed in the browser, from what is already read.** `/` is now the
+Overview, and the machine's facts moved to `/node`. The page asks `/usage`,
+the window the recorder keeps ([D67](#d67)), every five seconds for what it
+read since, as the Usage page does, so the two pages share one recorder. It
+asks `/cluster`, `/storage` and `/realtime/pool` once, then on the control in
+its lead line and on the switch in the bar ([D37](#d37)), with `fresh` as
+every other control ([D45](#d45)). No endpoint was added: an aggregate on the
+server would be a fourth fan out answering what three already answer, and a
+second place where a count could disagree with the page that explains it.
+
+**Counts that link to their page.** The row at the top counts the machines
+answering, the members online and the quorum, the resources failed or
+started, Ceph's health, the clocks synchronised, the machines with a tuning
+warning, the filesystems past 85 % (95 % in red, Ceph's own thresholds), the
+physical ports up, and the guests and containers running. Each is a link to
+the page that has the detail and the acts. A cluster count is left out on a
+standalone machine rather than shown at zero.
+
+**A card per machine, the same stack on each.** Its Pacemaker state, its clock
+and PTP level, its kernel's preemption and its tuning warnings as chips; bars
+for the housekeeping and isolated CPUs, the memory and each filesystem, the
+RBD images of the container workloads mounted there in one row; the last five
+minutes of housekeeping CPU, memory and traffic; its load, uptime and disks;
+its guests and the site's containers, each with its CPU and memory and a
+border saying whether Pacemaker holds it and whether it failed; and its
+physical ports with their traffic. The containers every SEAPATH machine runs
+for itself (Ceph's daemons, the exporters, this service and its proxy) are
+one line under the site's, so a card shows first what the substation runs.
+
+The page acts on nothing. Every act stays on its own page, behind its own
+confirmation naming the machines it touches.
+

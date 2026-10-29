@@ -25,8 +25,15 @@ def test_the_login_page_explains_where_the_roles_come_from(
     assert "seapath-admin" in body
 
 
-def test_a_signed_in_operator_gets_the_node_view(signed_in: TestClient) -> None:
+def test_a_signed_in_operator_gets_the_overview(signed_in: TestClient) -> None:
     response = signed_in.get("/")
+
+    assert response.status_code == 200
+    assert "overview.js" in response.text
+
+
+def test_the_node_view_is_one_page_further(signed_in: TestClient) -> None:
+    response = signed_in.get("/node")
 
     assert response.status_code == 200
     assert "node.js" in response.text

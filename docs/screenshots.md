@@ -122,7 +122,7 @@ The other pages are the document layout, so they are captured full-page and do
 not need the per-view clip. Clip them to the bottom of `footer.footer` plus
 12 px, so the empty ground a tall viewport leaves under a short page is not in
 the image. Select it by its class: the Node page has a `<footer>` of its own
-inside a card. The Node page is served at the root, `BASE + '/'`.
+inside a card. The Node page is served at `BASE + '/node'`; the root is the Overview.
 
 `14-updates.png` is the Updates page as the last check left it; no check is
 launched for it. `14-1-updates-packages.png` has `node1`'s count clicked open,
