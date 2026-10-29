@@ -59,6 +59,7 @@ logger = logging.getLogger(__name__)
 # form answers the first two; the colocations are kept as the entry has them.
 _PLACEMENT = ("preferred_host", "pinned_host", "colocated_with", "strong_colocation")
 
+
 # A staged delivery nobody installed is removed after this long.
 _STALE_SECONDS = 24 * 3600
 
@@ -295,6 +296,7 @@ class DeliveryService:
         site = self._site(found, current)
         spec = delivery.entry(found, values, {item.example: item.path for item in site})
         spec.update({key: current[key] for key in _PLACEMENT if key in current})
+        _keep_grown_rbd(spec, current)
         if placement is not None:
             spec.pop("preferred_host", None)
             spec.pop("pinned_host", None)
@@ -589,3 +591,18 @@ def _archives(spec: dict[str, Any]) -> set[str]:
         if isinstance(image, dict) and isinstance(image.get("archive"), str):
             found.add(Path(image["archive"]).name)
     return found
+
+
+def _keep_grown_rbd(spec: dict[str, Any], current: dict[str, Any]) -> None:
+    """Keep the entry's `rbd.size` when it is larger than the delivery's.
+
+    The size a delivery gives is the one its image is created with. A grow
+    raised the entry's since, and the role refuses to shrink an image, so the
+    delivery's would stop every later run of the workload.
+    """
+    wanted, held = spec.get("rbd"), current.get("rbd")
+    if not (isinstance(wanted, dict) and isinstance(held, dict)):
+        return
+    given, grown = str(wanted.get("size", "")), str(held.get("size", ""))
+    if (quadlets.rbd_bytes(grown) or 0) > (quadlets.rbd_bytes(given) or 0):
+        wanted["size"] = held["size"]

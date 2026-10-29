@@ -450,6 +450,31 @@ def test_a_new_version_takes_the_placement_answered_and_drops_other_keys(
     assert "pinned_host" not in _entry(signed_in)
 
 
+def test_a_new_version_keeps_an_rbd_size_grown_past_its_own(
+    signed_in: TestClient, tmp_path: Path
+) -> None:
+    _import(signed_in, CLUSTER)
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "one")))
+    document = yaml.safe_load(signed_in.get("/api/v1/inventory/raw").text)
+    document["all"]["children"]["cluster_machines"]["vars"]["cluster_containers"][
+        "vied"
+    ]["rbd"]["size"] = "1200"
+    _import(signed_in, yaml.safe_dump(document, sort_keys=False))
+
+    # The delivery's 64M would be a shrink the role refuses.
+    _install(signed_in, _stage(signed_in, _build(tmp_path / "two", version="vied-2")))
+    assert _entry(signed_in)["rbd"]["size"] == "1200"
+
+    def larger(root: Path) -> None:
+        example = yaml.safe_load((root / "inventory-example.yaml").read_text())
+        example["cluster_containers"]["vied"]["rbd"]["size"] = "2G"
+        (root / "inventory-example.yaml").write_text(yaml.safe_dump(example))
+
+    third = _build(tmp_path / "three", version="vied-3", change=larger)
+    _install(signed_in, _stage(signed_in, third))
+    assert _entry(signed_in)["rbd"]["size"] == "2G"
+
+
 def test_the_files_a_workload_declared_by_hand_named_go_unless_still_named(
     signed_in: TestClient, tmp_path: Path, settings: Settings
 ) -> None:
