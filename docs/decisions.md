@@ -6010,3 +6010,36 @@ which the run service accepts beside others only when the installed playbook
 can defer the reboot; with an older one this machine is still updated alone.
 
 The page has a box ticking every machine a run can take at once.
+
+## D78 - Settled: an RBD image is grown by its entry's size, and the role does it
+
+A workload filling its RBD image was grown by hand: `rbd resize` on a member,
+`resize2fs` on the node holding it. The inventory then said a size the image
+no longer had, and a workload started again from nothing, or a cluster
+rebuilt, came back with the old one.
+
+**The size is desired state.** `rbd.size` was already in the entry, read by
+`deploy_containers_cluster` when it created the image and never after.
+`seapath-ansible` now grows an existing image to it: `rbd resize` on the
+first host, then `resize2fs` online on the node `findmnt` finds it mounted
+on, the workload running, every run, which finishes a growth a failed run
+left half done. `seapath-rbd-mount` grows the filesystem as it mounts the
+image, for a workload stopped during the run. A smaller size stops the run
+for that workload: ext4 does not shrink mounted, and the end of the image
+holds what the workload wrote.
+
+**Here it is an entry edit and a run.** The Containers page shows under a
+workload the size its entry gives and how full the filesystem is, read from
+the `node_exporter` of the node that has `/mnt/rbd/<name>` mounted, in the GET
+the unit states come from. Grow writes the larger `rbd.size` as one commit and
+launches the role limited to the workload ([D74](#d74)). Nothing reaches
+Ceph from this service, and an exported inventory run from another machine
+grows the image the same way.
+
+Refused before the commit: a size rbd would not read, or with a fraction,
+which rbd refuses; one no larger than the entry's; one no larger than the
+filesystem the node reports, an image grown behind the inventory, which the
+role would refuse as a shrink; and a collection whose role predates the
+growth, recognised by `rbd resize` missing from its tasks since the change
+carries no variable, which would turn the gesture into a green run that did
+nothing.

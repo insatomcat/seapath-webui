@@ -128,6 +128,9 @@ class Quadlet:
     rbd: bool = False
     """The workload keeps its state on an RBD image named after it, which a
     removal deletes only when it is asked to."""
+    rbd_size: str = ""
+    """The size the entry gives that image, as written: what the role creates
+    it with, and grows it to when it is larger than the image."""
 
     @property
     def actionable(self) -> bool:
@@ -374,7 +377,30 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
         workload=True,
         preferred_host=preferred if isinstance(preferred, str) else "",
         rbd=isinstance(spec.get("rbd"), dict),
+        rbd_size=_size_of(spec.get("rbd")),
     )
+
+
+def _size_of(rbd: Any) -> str:
+    size = rbd.get("size") if isinstance(rbd, dict) else None
+    return str(size).strip() if isinstance(size, str | int) else ""
+
+
+# What `rbd create --size` and `rbd resize --size` take: a number, and a
+# suffix read as a power of 1024 whose first letter is all rbd looks at. With
+# no suffix the number is MiB. `deploy_containers_cluster` compares an entry
+# with its image the same way.
+_RBD_SIZE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([KMGTP](?:i?B)?)?\s*$", re.I)
+_POWERS = {"K": 1, "M": 2, "G": 3, "T": 4, "P": 5}
+
+
+def rbd_bytes(size: str) -> int | None:
+    """The bytes an RBD size stands for, None when rbd would not read it."""
+    found = _RBD_SIZE.match(size)
+    if found is None:
+        return None
+    unit = (found.group(2) or "M")[0].upper()
+    return int(float(found.group(1)) * 1024 ** _POWERS[unit])
 
 
 def on_machine(source: str) -> str:

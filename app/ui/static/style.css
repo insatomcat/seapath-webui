@@ -4158,3 +4158,37 @@ td.log-line .tag {
 .bookmark-form .card-actions {
   margin-top: 0;
 }
+
+/* The RBD image of a container workload, under its name: a short bar and the
+   numbers, so the one nearly full is found by looking down the column. */
+.volume {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.volume .bar {
+  flex: 0 0 4rem;
+  height: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.volume .fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.volume .fill.warn {
+  background: var(--warn);
+}
+
+.volume .fill.bad {
+  background: var(--bad);
+}

@@ -823,3 +823,24 @@ metrics proxy by the recorder in the service's container. See [D67](decisions.md
 ### Result
 
 Pending an image carrying this version.
+
+## Growing the RBD image of a container workload
+
+The service writes `rbd.size` and launches `deploy_containers_cluster` limited
+to the workload; the tests hold the commit, the run and every refusal against
+the fakes. What they cannot show is the role doing it on Ceph, with the
+workload running. See [D78](decisions.md#d78).
+
+### Checklist
+
+| # | Check | Why it cannot be tested against a fake | Result |
+|---|---|---|---|
+| 1 | The Containers page shows under a running workload its entry's size and how full `/mnt/rbd/<name>` is, matching `df -B1` on the node running it | node_exporter's reading of a real RBD mount | Pending |
+| 2 | Grow from 1G to 2G, the workload running: `rbd info` says 2 GiB, `df` on its node about 2 GiB, the workload never restarted (`crm_mon` fail count and `systemctl show -p ActiveEnterTimestamp` unchanged) | `rbd resize` and an online `resize2fs` under a running container | Pending |
+| 3 | Grow a stopped workload, then start it: the run says it found no mount, and the filesystem is 2 GiB once it starts on any member | `seapath-rbd-mount` growing the filesystem at mount | Pending |
+| 4 | An entry made smaller by hand stops the run for that workload with the role's message, the image untouched | The role's refusal, before anything changes | Pending |
+| 5 | The inventory exported after the growth, run from a conventional control machine, changes nothing | The acceptance criterion of AGENTS.md | Pending |
+
+### Result
+
+Pending an image carrying this version, and a collection carrying the growth.

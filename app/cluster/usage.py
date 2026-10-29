@@ -220,7 +220,7 @@ def node(exposition: Exposition) -> NodeUsage | None:
         load5=value(series, "node_load5"),
         load15=value(series, "node_load15"),
         memory=_memory(series),
-        filesystems=_filesystems(series),
+        filesystems=filesystems(series),
         disks=_disks(series),
         interfaces=_interfaces(series),
     )
@@ -375,7 +375,7 @@ def _memory(series: dict[str, list[metrics.Sample]]) -> MemoryReading:
     )
 
 
-def _filesystems(series: dict[str, list[metrics.Sample]]) -> list[Filesystem]:
+def filesystems(series: dict[str, list[metrics.Sample]]) -> list[Filesystem]:
     available = {
         sample.labels.get("mountpoint", ""): sample.value
         for sample in series.get("node_filesystem_avail_bytes", [])

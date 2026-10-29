@@ -30,6 +30,7 @@ from app.inventory import delivery
 from app.inventory.editor import Scope
 from app.inventory.repository import StaleWrite
 from app.inventory.service import ImportRefused, RefusedWrite
+from app.runs import catalogue
 from app.runs.actions import Action
 from app.runs.catalogue import (
     ONLY_VARIABLE,
@@ -208,6 +209,28 @@ class RemovalResponse(BaseModel):
     commit: str
     message: str
     run_id: str
+
+
+class Growth(BaseModel):
+    """What growing a workload's RBD image asks the operator for."""
+
+    size: str = Field(
+        description=(
+            "The new rbd.size, larger than the one the entry has: a whole "
+            "number and a unit as rbd reads them, such as 20G or 512M"
+        ),
+        max_length=32,
+    )
+
+
+class GrowthResponse(BaseModel):
+    """The commit raising rbd.size, and the run applying it."""
+
+    name: str
+    size: str
+    commit: str
+    message: str
+    run_id: str = ""
 
 
 class ActionResponse(BaseModel):
@@ -591,6 +614,94 @@ def remove(
     return RemovalResponse(
         name=name, commit=commit.hash, message=commit.message, run_id=record.id
     )
+
+
+@router.post("/{name}/grow", status_code=202)
+def grow(
+    request: Request,
+    name: str,
+    payload: Growth,
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    user: User = admin,
+) -> GrowthResponse:
+    """Grow the RBD image of a workload of `cluster_containers`.
+
+    The entry's `rbd.size` is raised as one commit, then
+    `deploy_containers_cluster` runs, limited to that workload: the role
+    resizes the image with `rbd resize` and grows its filesystem online on the
+    node that has it mounted, the workload running. A stopped workload's
+    filesystem grows when a node next mounts it. Nothing here reaches Ceph.
+
+    Refused before the commit: a size no larger than the entry's, or than the
+    filesystem the node holding it reports (`400 invalid_container`), and a
+    collection whose role reads `rbd.size` only at creation
+    (`409 precondition_failed`). `admin`, because it writes the inventory.
+    """
+    service = _service(request)
+    if not catalogue.role_grows_rbd(_runs(request).paths.collections_path):
+        refused = (
+            f"The SEAPATH collection this image ships "
+            f"({_runs(request).collection_version()}) has a "
+            f"{WORKLOAD_PLAYBOOK} role that reads rbd.size only when it creates "
+            "the image: a larger size would be committed and never applied. "
+            "Update the image to one whose collection grows it."
+        )
+        raise ApiError("precondition_failed", refused, 409, {"unmet": [refused]})
+    shown = next(
+        (item for item in service.containers().containers if item.name == name),
+        None,
+    )
+    try:
+        commit = service.grow(
+            name,
+            payload.size,
+            user.username,
+            if_match,
+            volume=shown.volume if shown else None,
+        )
+    except UnknownContainer as error:
+        raise ApiError("unknown_container", str(error), 404) from error
+    except InvalidContainer as error:
+        raise ApiError("invalid_container", str(error), 400) from error
+    except StaleWrite as error:
+        raise ApiError("stale_write", str(error), 409) from error
+    except RefusedWrite as error:
+        raise ApiError(
+            "refused_write",
+            str(error),
+            409,
+            {"divergences": [d.model_dump() for d in error.divergences]},
+        ) from error
+    except ImportRefused as error:
+        raise ApiError(
+            "invalid_inventory",
+            str(error),
+            422,
+            {"findings": [f.model_dump() for f in error.validation.findings]},
+        ) from error
+    grown = service.workload(name) or {}
+    response = GrowthResponse(
+        name=name,
+        size=str(grown.get("rbd", {}).get("size", payload.size)),
+        commit=commit.hash,
+        message=commit.message,
+    )
+    try:
+        record = _runs(request).launch(
+            WORKLOAD_PLAYBOOK, user.username, variables=_only(request, name)
+        )
+    except ApiError as error:
+        raise ApiError(
+            error.code,
+            (
+                f"{name} is committed as {commit.hash[:12]}, and the run growing "
+                f"its image was not launched: {error.message}"
+            ),
+            error.status_code,
+            error.detail,
+        ) from error
+    response.run_id = record.id
+    return response
 
 
 @router.get("/{name}/files", response_model=QuadletFiles)

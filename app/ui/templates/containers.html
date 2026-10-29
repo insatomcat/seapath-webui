@@ -384,6 +384,11 @@ not.
       <span id="confirm-choice-label"></span>
       <select id="confirm-node"></select>
     </label>
+    {# A value the act takes, such as the new size of an RBD image. #}
+    <label id="confirm-entry" hidden>
+      <span id="confirm-entry-label"></span>
+      <input type="text" id="confirm-typed" autocomplete="off" spellcheck="false">
+    </label>
     {# A part of the act that destroys more, unchecked each time the window
        opens, so the destructive half is never carried over from last time. #}
     <label class="switch" id="confirm-option" hidden>

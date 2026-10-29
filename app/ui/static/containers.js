@@ -91,7 +91,56 @@
       flag.title = container.warnings.join("\n\n");
       node.append(flag);
     }
+    if (container.rbd) {
+      node.append(volume(container));
+    }
     return node;
+  }
+
+  function bytes(value) {
+    const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
+    let index = 0;
+    let scaled = value;
+    while (scaled >= 1024 && index < units.length - 1) {
+      scaled /= 1024;
+      index += 1;
+    }
+    return scaled.toFixed(scaled >= 100 || index === 0 ? 0 : 1) + " " + units[index];
+  }
+
+  // The RBD image under the name: the size the entry gives it, and how full
+  // its filesystem is where a node has it mounted, which is when a growth is
+  // due: amber past 80 %, red past 90 %.
+  function volume(container) {
+    const box = document.createElement("div");
+    box.className = "volume";
+    const label = document.createElement("span");
+    const mounted = container.volume;
+    if (!mounted || !mounted.size_bytes) {
+      label.textContent =
+        "RBD " + (container.rbd_size || "image") + ", mounted nowhere that answered";
+      box.append(label);
+      return box;
+    }
+    const used = mounted.size_bytes - mounted.available_bytes;
+    const share = used / mounted.size_bytes;
+    label.textContent =
+      "RBD " +
+      container.rbd_size +
+      " · " +
+      bytes(used) +
+      " of " +
+      bytes(mounted.size_bytes) +
+      " used on " +
+      mounted.host;
+    const bar = document.createElement("span");
+    bar.className = "bar";
+    const fill = document.createElement("span");
+    fill.className = "fill" + (share > 0.9 ? " bad" : share > 0.8 ? " warn" : "");
+    fill.style.width = Math.min(100, Math.round(share * 100)) + "%";
+    bar.append(fill);
+    box.append(bar, label);
+    return box;
   }
 
   // Who starts and stops it, which decides everything else on the row.
@@ -445,6 +494,9 @@
     // Removing is the role's own `state: absent`, which only a workload of
     // cluster_containers has: an uploaded quadlet has no role to take it off
     // the machines.
+    if (canWrite && container.variable === "cluster_containers" && container.rbd) {
+      node.append(" ", action("Grow", () => confirmGrow(container)));
+    }
     if (canWrite && container.variable === "cluster_containers") {
       node.append(" ", action("Remove", () => confirmRemove(container)));
     }
@@ -561,7 +613,7 @@
   // `choose` is the destination a move needs. The node is part of the act, so
   // it is picked in the window that names the disruption rather than in a
   // control on the row an operator could leave set from last time.
-  function confirm({ title, body, note, label, choose, option, act }) {
+  function confirm({ title, body, note, label, choose, option, entry, act }) {
     element("confirm-title").textContent = title;
     element("confirm-disruption").textContent = body;
     element("confirm-note").textContent = note || "";
@@ -588,6 +640,13 @@
       element("confirm-option-label").textContent = option;
     }
 
+    const typed = element("confirm-typed");
+    element("confirm-entry").hidden = !entry;
+    if (entry) {
+      element("confirm-entry-label").textContent = entry.label;
+      typed.value = entry.value || "";
+    }
+
     const go = element("confirm-go");
     go.textContent = label;
     go.disabled = false;
@@ -595,7 +654,11 @@
       go.disabled = true;
       go.setAttribute("aria-busy", "true");
       try {
-        await act(choose ? picker.value : undefined, option ? checked.checked : false);
+        await act(
+          choose ? picker.value : undefined,
+          option ? checked.checked : false,
+          entry ? typed.value : undefined
+        );
         element("confirm").hidden = true;
       } catch (failure) {
         const error = element("confirm-error");
@@ -771,6 +834,39 @@
         const started = await API.post(
           "/containers/" + encodeURIComponent(container.name) + "/remove",
           { remove_rbd: removeRbd }
+        );
+        RunWatch.open(started.run_id, () => refresh(true));
+      },
+    });
+  }
+
+  // Growing is a larger rbd.size and a run of the role, which resizes the
+  // image and grows the filesystem online: the workload keeps running, so the
+  // window names where it runs rather than a disruption.
+  function confirmGrow(container) {
+    const where = (container.volume && container.volume.host) || "";
+    confirm({
+      title: "Grow the RBD image of " + container.name,
+      body:
+        "Writes the new rbd.size in the inventory and runs " +
+        "deploy_containers_cluster on every member, for this workload alone. " +
+        "The run resizes the image with rbd resize and grows its filesystem " +
+        "online with resize2fs" +
+        (where
+          ? " on " + where + ", where it is mounted. The workload keeps running."
+          : " on the node that mounts it next, since none has it mounted now.") +
+        " Its entry says " +
+        container.rbd_size +
+        ".",
+      note:
+        "An image is only ever grown: giving it less room later means " +
+        "starting it again from nothing.",
+      entry: { label: "New size, such as 20G or 512M", value: container.rbd_size },
+      label: "Grow it",
+      act: async (_, __, size) => {
+        const started = await API.post(
+          "/containers/" + encodeURIComponent(container.name) + "/grow",
+          { size: size }
         );
         RunWatch.open(started.run_id, () => refresh(true));
       },

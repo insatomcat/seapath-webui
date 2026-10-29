@@ -1398,6 +1398,28 @@ def role_declares(collections_path: Path, role: str, variable: str) -> bool:
     return isinstance(defaults, dict) and variable in defaults
 
 
+def role_grows_rbd(collections_path: Path) -> bool:
+    """Whether the installed `deploy_containers_cluster` grows an existing RBD
+    image to its entry's `rbd.size`.
+
+    A role that predates it reads the size once, at creation, and a larger one
+    would be a commit and a green run that changed nothing. The change carries
+    no variable `role_declares` could find, so the tasks are read for the
+    command instead.
+    """
+    path = Path(collections_path).joinpath(
+        *_COLLECTION_DIRECTORY[:-1],
+        "roles",
+        "deploy_containers_cluster",
+        "tasks",
+        "cluster_present.yml",
+    )
+    try:
+        return "rbd resize" in path.read_text()
+    except OSError:
+        return False
+
+
 def missing_from(collections_path: Path) -> set[str]:
     """The entries this image's collection does not actually carry."""
     return {

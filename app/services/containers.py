@@ -42,7 +42,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.cluster import ha, systemd
+from app.cluster import ha, systemd, usage
 from app.cluster.exporters import MetricsClient, UrllibMetricsClient, read_all
 from app.cluster.ha import LocationConstraint, PacemakerCluster, PacemakerResource
 from app.cluster.pool import DEFAULT_PORT
@@ -72,6 +72,8 @@ WORKLOAD_PLAYBOOK = "deploy_containers_cluster"
 # Where deploy_containers_cluster writes the configuration of each workload on
 # every node (deploy_containers_cluster_config_dir).
 CONFIG_DIR = "/etc/seapath-containers"
+# Where seapath-rbd-mount mounts the RBD image of each workload, <dir><name>.
+RBD_MOUNTS = "/mnt/rbd/"
 
 # How much of a quadlet is read to look for its `[Install]` section. A quadlet
 # is a few hundred bytes; anything past this is not one, and reading a file the
@@ -121,6 +123,18 @@ class NodeUnit(BaseModel):
     started_at: str | None = None
 
 
+class Volume(BaseModel):
+    """The filesystem of a workload's RBD image, where a node has it mounted.
+
+    Read from the `node_exporter` of that node, in the GET the unit states
+    come from: `/mnt/rbd/<name>` is a mount like any other there.
+    """
+
+    host: str
+    size_bytes: int
+    available_bytes: int
+
+
 class ContainerView(BaseModel):
     """One container: what the inventory says, and what the machines say."""
 
@@ -154,6 +168,11 @@ class ContainerView(BaseModel):
     rbd: bool = False
     """A workload keeping its state on an RBD image named after it, which its
     removal deletes only when asked to."""
+    rbd_size: str = ""
+    """The size its entry gives that image, which a growth raises."""
+    volume: Volume | None = None
+    """How full that image is, from the node that has it mounted. None when
+    no node does, the workload stopped, or that node did not answer."""
     hosts: list[str] = Field(default_factory=list)
     """The machines this inventory sends it to."""
 
@@ -330,7 +349,7 @@ class ContainerService:
         cluster = self._cluster.pacemaker()
         resources, note = self._resources(cluster)
         view.runtime_note = note
-        units, warnings = self._units(document, declared, resources)
+        units, warnings, volumes = self._units(document, declared, resources)
         view.warnings = warnings
 
         files = {
@@ -370,6 +389,8 @@ class ContainerService:
                 ),
                 values_editable=first.workload and name in described,
                 rbd=first.rbd,
+                rbd_size=first.rbd_size,
+                volume=volumes.get(name) if first.rbd else None,
                 hosts=hosts,
                 file=files.get((first.host, first.src)),
                 managed="pacemaker" if resource else "systemd",
@@ -806,6 +827,75 @@ class ContainerService:
             ),
         )
 
+    def grow(
+        self,
+        name: str,
+        size: str,
+        author: str,
+        expected_head: str | None = None,
+        volume: Volume | None = None,
+    ) -> Commit:
+        """Give a workload's RBD image a larger `rbd.size`, as one commit.
+
+        The size is desired state like the rest of the entry: the next run of
+        `deploy_containers_cluster` grows the image to it with `rbd resize`
+        and the node that has it mounted grows the filesystem online. Nothing
+        here reaches Ceph. A smaller size is refused, as the role refuses it,
+        and so is one no larger than the filesystem `volume` says is there,
+        which an image grown behind the inventory can be.
+        """
+        spec = self.workload(name)
+        if spec is None:
+            raise UnknownContainer(
+                f"No workload called {name!r} is declared in cluster_containers. "
+                "Only a workload deploy_containers_cluster deploys has an RBD "
+                "image the inventory sizes."
+            )
+        if spec.get("state", "present") != "present":
+            raise InvalidContainer(f"{name} is marked for removal.")
+        rbd = spec.get("rbd")
+        if not isinstance(rbd, dict):
+            raise InvalidContainer(f"{name} keeps no RBD image: its entry has no rbd.")
+        wanted = quadlets.rbd_bytes(size)
+        if wanted is None:
+            raise InvalidContainer(
+                f"{size!r} is not a size rbd reads. Give a number and a unit, "
+                "such as 512M or 20G."
+            )
+        written = _size_text(size)
+        if "." in written:
+            raise InvalidContainer(
+                f"rbd takes a whole number: {int(wanted / 1024**2)}M rather "
+                f"than {written}."
+            )
+        current_text = str(rbd.get("size", "")).strip()
+        current = quadlets.rbd_bytes(current_text) or 0
+        if wanted <= current:
+            raise InvalidContainer(
+                f"{name} has {current_text} already, and {written} is not more. "
+                "An RBD image is only grown: a smaller one would cut what the "
+                "workload wrote past its end."
+            )
+        if volume is not None and wanted <= volume.size_bytes:
+            raise InvalidContainer(
+                f"The filesystem of {name} already holds "
+                f"{_binary(volume.size_bytes)} on {volume.host}, more than "
+                f"{written}: its image was grown outside the inventory. Give a "
+                "larger size."
+            )
+        return self.write_workload(
+            name,
+            {**spec, "rbd": {**rbd, "size": written}},
+            author,
+            expected_head,
+            message=(
+                f"containers: grow the RBD image of {name} to {written}\n\n"
+                f"From {current_text}. The next run of {WORKLOAD_PLAYBOOK} "
+                "resizes the image and grows its filesystem online on the node "
+                "that has it mounted, or on the next node that mounts it."
+            ),
+        )
+
     def _colocated_with(self, name: str) -> list[str]:
         """The workloads and guests asking to run on the same node as `name`.
 
@@ -1096,8 +1186,9 @@ class ContainerService:
         document: str,
         declared: list[quadlets.Quadlet],
         resources: dict[str, PacemakerResource],
-    ) -> tuple[dict[tuple[str, str], NodeUnit], list[str]]:
-        """Every declared unit's state, on every machine that declares it.
+    ) -> tuple[dict[tuple[str, str], NodeUnit], list[str], dict[str, Volume]]:
+        """Every declared unit's state, on every machine that declares it, and
+        the RBD images of the workloads where they are mounted.
 
         One GET per machine, on the port the CPU pool is already read from, and
         the units asked about are the ones this inventory declares. A machine
@@ -1105,7 +1196,7 @@ class ContainerService:
         """
         state = self._inventory.state()
         if state.inventory is None:
-            return {}, []
+            return {}, [], {}
         wanted: dict[str, set[str]] = {}
         for quadlet in declared:
             wanted.setdefault(quadlet.host, set()).add(quadlet.unit)
@@ -1118,6 +1209,7 @@ class ContainerService:
         addresses = dict(targets)
         found: dict[tuple[str, str], NodeUnit] = {}
         warnings: list[str] = []
+        volumes: dict[str, Volume] = {}
 
         for exposition in read_all(
             self._client, targets, self._port, timeout=self._timeout
@@ -1135,6 +1227,13 @@ class ContainerService:
                 continue
             if not systemd.reporting(exposition):
                 warnings.append(f"{host} {_NO_COLLECTOR}.")
+            for filesystem in usage.filesystems(exposition.series):
+                if filesystem.mountpoint.startswith(RBD_MOUNTS):
+                    volumes[filesystem.mountpoint.removeprefix(RBD_MOUNTS)] = Volume(
+                        host=host,
+                        size_bytes=filesystem.size_bytes,
+                        available_bytes=filesystem.available_bytes,
+                    )
             states = systemd.read(exposition.series, units)
             for unit in units:
                 published = states.get(unit)
@@ -1164,7 +1263,7 @@ class ContainerService:
                             "its exporter cannot be asked."
                         ),
                     )
-        return found, warnings
+        return found, warnings, volumes
 
     def _container_warnings(
         self,
@@ -1211,6 +1310,20 @@ _DECLARING = (quadlets.UPLOAD_VARIABLE, quadlets.WORKLOADS_VARIABLE)
 # Where a delivery installs a workload's small files, `inventories/<name>/`
 # (`delivery.folder`), which goes whole with the workload.
 _FOLDER = "inventories"
+
+
+def _size_text(size: str) -> str:
+    """A size as the entry writes it: `20G` rather than ` 20 gib`."""
+    found = size.strip().replace(" ", "")
+    number = found.rstrip("BbIi")
+    return number[:-1] + number[-1].upper() if number[-1:].isalpha() else number
+
+
+def _binary(count: int) -> str:
+    for unit, power in (("T", 4), ("G", 3), ("M", 2)):
+        if count >= 1024**power:
+            return f"{count / 1024 ** power:.1f} {unit}iB"
+    return f"{count} B"
 
 
 def _archives(spec: dict[str, Any]) -> set[str]:

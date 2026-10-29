@@ -255,7 +255,12 @@ _NODE1 = (
         ("timemaster.service", "active"),
         ("ptpstatus.service", "active"),
     )
-    + _clock()
+    # nginx keeps its state on its RBD image, which seapath-rbd-mount mounted
+    # where it runs: 1 GiB, three quarters of it used.
+    + 'node_filesystem_size_bytes{device="/dev/rbd0",fstype="ext4",'
+    'mountpoint="/mnt/rbd/nginxquadlet"} 1.040441344e+09\n'
+    'node_filesystem_avail_bytes{device="/dev/rbd0",fstype="ext4",'
+    'mountpoint="/mnt/rbd/nginxquadlet"} 2.60110336e+08\n' + _clock()
 )
 _BUSY = (
     _BUSY

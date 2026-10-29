@@ -101,6 +101,13 @@ def write_fake_collection(
             scripts = root / "roles" / role / "files" / "scripts"
             scripts.mkdir(parents=True, exist_ok=True)
             (scripts / backup.CONTAINER_RESTORE).write_text("#!/bin/bash\n")
+        if role == "deploy_containers_cluster":
+            # What tells a role that grows an RBD image from one that only
+            # creates it.
+            (tasks / "cluster_present.yml").write_text(
+                "- ansible.builtin.command:\n"
+                "    cmd: rbd resize rbd/{{ _name }} --size {{ _size }}\n"
+            )
         if role in declared:
             (root / "roles" / role / "defaults").mkdir(exist_ok=True)
             (root / "roles" / role / "defaults" / "main.yml").write_text(
