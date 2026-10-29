@@ -7,8 +7,8 @@
 // five seconds for what it read since, exactly as the Usage page asks it: the
 // two pages share the recorder, and opening both costs the machines nothing
 // more. `/cluster`, `/storage` and `/realtime/pool` are fan outs to every
-// machine, asked once at load and then by the control in the lead line or the
-// switch in the bar, every ten seconds, like on their own pages. A reading
+// machine, asked once at load and then by the control at the end of the
+// row of counts or the switch in the bar, every ten seconds, like on their own pages. A reading
 // that fails leaves what was drawn and says so in the banner.
 //
 // Nothing here acts. Every count is a link to the page that explains it, and
@@ -335,9 +335,7 @@
   function tile(value, label, href, status, title) {
     const box = make("a", "overview-tile" + (status ? " tile-" + status : ""));
     box.href = href;
-    if (title) {
-      box.title = title;
-    }
+    box.title = title || value + " " + label;
     box.append(make("strong", "", value), make("span", "", label));
     return box;
   }
@@ -351,7 +349,7 @@
     found.push(
       tile(
         answering.length + " / " + all.length,
-        "machines answering",
+        "machines up",
         "usage",
         answering.length === all.length ? "ok" : answering.length ? "warn" : "bad",
         all
@@ -368,7 +366,7 @@
       found.push(
         tile(
           online.length + " / " + members.length,
-          quorate ? "members online, quorate" : "members online, no quorum",
+          quorate ? "members, quorate" : "members, no quorum",
           "cluster",
           !quorate ? "bad" : online.length === members.length ? "ok" : "warn"
         )
@@ -379,7 +377,7 @@
       found.push(
         tile(
           failed.length ? String(failed.length) : started.length + " / " + resources.length,
-          failed.length ? "resources failed" : "resources started",
+          failed.length ? "resources failed" : "resources up",
           "cluster",
           failed.length ? "bad" : started.length === resources.length ? "ok" : "warn",
           failed.map((resource) => resource.id).join(", ")
@@ -406,7 +404,7 @@
       found.push(
         tile(
           synced.length + " / " + tuned.length,
-          "clocks synchronised",
+          "clocks synced",
           "realtime",
           synced.length === tuned.length ? "ok" : "bad",
           tuned
@@ -419,7 +417,7 @@
       found.push(
         tile(
           String(warned.length),
-          "machines with a tuning warning",
+          "tuning warnings",
           "realtime",
           warned.length ? "warn" : "ok",
           warned.map((node) => node.host).join(", ")
@@ -456,7 +454,7 @@
       })
     );
     if (total) {
-      found.push(tile(up + " / " + total, "physical ports up", "usage"));
+      found.push(tile(up + " / " + total, "ports up", "usage"));
     }
 
     let guests = 0;
@@ -467,8 +465,8 @@
         containers += item.kind === "vm" ? 0 : 1;
       })
     );
-    found.push(tile(String(guests), "guests running", "vms"));
-    found.push(tile(String(containers), "pods and containers running", "containers"));
+    found.push(tile(String(guests), "VMs running", "vms"));
+    found.push(tile(String(containers), "pods, containers", "containers"));
 
     box.replaceChildren(...found);
   }
@@ -923,12 +921,6 @@
     blocked.hidden = usage.machines.length > 0;
     blocked.textContent = usage.note || "There is no machine to ask.";
     const all = machines();
-    element("lead").textContent =
-      all.length +
-      (all.length === 1 ? " machine" : " machines") +
-      (cluster && cluster.available ? ", one cluster" : "") +
-      ". What each consumes is the last five minutes this service keeps; the " +
-      "cluster, Ceph and the tuning are read again with the control beside this line.";
     const taken = lastAt === null ? null : new Date(lastAt * 1000);
     element("clock").textContent = taken ? "Read at " + taken.toLocaleTimeString() : "";
     drawTiles();

@@ -4205,9 +4205,12 @@ td.log-line .tag {
    the same stack in the same order, so the eye goes down one and across to
    the same line of the next. */
 .overview {
-  padding: 1.25rem;
+  padding: 1rem 1.25rem;
 }
 
+/* The counts and, at the end of their row, when they were read and the
+   control that reads them again: no lead line above, so the machines start
+   as high as they can. */
 .overview-head {
   display: flex;
   align-items: center;
@@ -4215,30 +4218,27 @@ td.log-line .tag {
   margin-bottom: 0.75rem;
 }
 
-.overview-lead {
-  flex: 1;
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .overview-tiles {
+  flex: 1;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-  gap: 0.5rem;
-  margin-bottom: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.4rem;
 }
 
+/* One line per count, the figure and its word side by side; the full
+   wording and the details are in the tooltip. */
 .overview-tile {
   display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.55rem 0.7rem;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.3rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--panel);
   color: var(--text);
   text-decoration: none;
+  white-space: nowrap;
 }
 
 .overview-tile:hover {
@@ -4246,12 +4246,14 @@ td.log-line .tag {
 }
 
 .overview-tile strong {
-  font-size: 1.35rem;
+  font-size: 1.1rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
 .overview-tile span {
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--muted);
   font-size: 0.78rem;
 }

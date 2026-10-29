@@ -11,8 +11,8 @@ Each count links to the page that explains it.
 
 The usage of each machine comes from the window the service keeps while
 somebody uses it (D67), asked every five seconds like the Usage page does. The
-cluster, Ceph and the tuning are asked once, then again by the control in the
-lead line or the switch in the bar. See D79.
+cluster, Ceph and the tuning are asked once, then again by the control at the
+end of the row of counts or the switch in the bar. See D79.
 #}
 {% extends "base.html" %}
 {% block page_title %}Overview{% endblock %}
@@ -24,12 +24,10 @@ lead line or the switch in the bar. See D79.
   <p class="banner" id="banner" hidden></p>
 
   <div class="overview-head">
-    <p class="overview-lead" id="lead">Asking each machine's exporters.</p>
+    <section class="overview-tiles" id="tiles" aria-label="The site at a glance"></section>
     <span class="usage-clock" id="clock"></span>
     {{ reread("reread", "the cluster, Ceph and the tuning") }}
   </div>
-
-  <section class="overview-tiles" id="tiles" aria-label="The site at a glance"></section>
 
   <p class="loading" id="loading">Reading the machines…</p>
   <p class="warning" id="blocked" hidden></p>
