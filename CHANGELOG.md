@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.231 - 2026-10-29
+
+- overview: the lead line is gone, its clock and reread control sit at the end of the row of counts, and each count reads on one line with shorter wording
+
 ## 0.3.230 - 2026-10-29
 
 - overview: a machine's card opens Usage on that machine, and Usage keeps the machine chosen in its address
