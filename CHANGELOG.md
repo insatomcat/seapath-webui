@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.229 - 2026-10-29
+
+- overview: a pod is one tile with its RBD image's fullness, opened in place to show its volume, its node, its Pacemaker resource and each container's state; the card is denser so four machines fit one screen; a tuning finding ignored on the Real time page is no longer counted
+- usage: each container carries the pod it runs in, from the exporter's pod_name
+
 ## 0.3.228 - 2026-10-29
 
 - overview: the home page is an overview of the whole site, counts that link to their page and a card per machine with its usage, workloads, clock and ports; the Node page moves to /node
