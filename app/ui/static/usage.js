@@ -31,7 +31,9 @@
   // so a workload keeps its colour when others come and go.
   const slots = new Map();
 
-  let selected = null;
+  // The machine a link asked for, the overview's cards among them; one the
+  // inventory does not hold falls back to this one at the first answer.
+  let selected = new URLSearchParams(window.location.search).get("host");
   let latest = null;
   // The service's clock at the last answer, which the points are on.
   let serverNow = 0;
@@ -1022,6 +1024,9 @@
 
   function select(host) {
     selected = host;
+    const url = new URL(window.location.href);
+    url.searchParams.set("host", host);
+    window.history.replaceState(null, "", url);
     drawViews();
     drawMachine();
   }

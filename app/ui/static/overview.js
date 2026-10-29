@@ -879,7 +879,7 @@
     const card = make("article", "card overview-machine");
     const head = make("div", "overview-machine-head");
     const name = make("a", "overview-machine-name", machine.host);
-    name.href = "usage";
+    name.href = "usage?host=" + encodeURIComponent(machine.host);
     head.append(name, make("span", "overview-address", machine.address));
     card.append(head, chips(machine));
 

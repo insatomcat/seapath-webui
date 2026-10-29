@@ -161,6 +161,13 @@ body {
   font: 0.875rem/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
+/* A link keeps one colour whether it was followed or not: the browser's
+   visited purple says nothing in an application whose pages are all
+   visited. */
+:where(a, a:visited) {
+  color: var(--accent);
+}
+
 /* A form control does not inherit the page's font. A browser gives it one of
    its own, in pixels, which makes it the one thing on these pages the root
    font size above does not reach: every button and every field was drawn a
@@ -4288,9 +4295,17 @@ td.log-line .tag {
   gap: 0.6rem;
 }
 
-.overview-machine-name {
+.overview-machine-name,
+.overview-machine-name:visited {
+  color: var(--text);
   font-size: 1.05rem;
   font-weight: 600;
+  text-decoration: none;
+}
+
+.overview-machine-name:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 
 .overview-address,
