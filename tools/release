@@ -1,0 +1,203 @@
+#!/usr/bin/env python3
+# Copyright (C) 2026, RTE (http://www.rte-france.com)
+# SPDX-License-Identifier: Apache-2.0
+
+"""Cut a release: bump the version and record what it ships.
+
+The commits since the last `release: X.Y.Z` go into CHANGELOG.md, the version
+moves in the files that carry it, and the whole is one signed `release: X.Y.Z`
+commit on main. Pushing stays a separate gesture, because the push is what
+publishes the image and a version tag is published once.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+_VERSION = re.compile(r"\d+\.\d+\.\d+")
+_RELEASE_SUBJECT = re.compile(rf"release: {_VERSION.pattern}")
+_INIT = "app/__init__.py"
+_CHANGELOG = "CHANGELOG.md"
+_IMAGE_REFERENCES = ("seapath-webui.container", "docs/deployment.md")
+
+
+class Refused(Exception):
+    """A release that must not be cut, with the reason for the operator."""
+
+
+def _git(*args: str) -> str:
+    done = subprocess.run(["git", *args], capture_output=True, text=True)
+    if done.returncode != 0:
+        raise Refused(f"git {args[0]} failed: {done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def _require_a_clean_main() -> None:
+    branch = _git("branch", "--show-current")
+    if branch != "main":
+        raise Refused(f"a release is cut on main, this is {branch or 'a bare HEAD'}")
+    if _git("status", "--porcelain", "--untracked-files=no"):
+        raise Refused("the working tree has uncommitted changes")
+    # A number is used once, so one taken on the remote has to be seen here,
+    # before a second commit claims it.
+    _git("fetch", "--quiet", "origin", "main")
+    if _git("rev-list", "--count", "HEAD..FETCH_HEAD") != "0":
+        raise Refused("origin/main has commits this checkout does not have")
+
+
+def _current_version(root: Path) -> str:
+    found = re.search(
+        rf'^__version__ = "({_VERSION.pattern})"$',
+        (root / _INIT).read_text(),
+        re.MULTILINE,
+    )
+    if found is None:
+        raise Refused(f"{_INIT} carries no __version__")
+    return found.group(1)
+
+
+def _numbers(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
+def _target_version(current: str, asked: str | None) -> str:
+    if asked is None:
+        major, minor, patch = _numbers(current)
+        return f"{major}.{minor}.{patch + 1}"
+    if _VERSION.fullmatch(asked) is None:
+        raise Refused(f"{asked} is not a version, expected X.Y.Z")
+    if _numbers(asked) <= _numbers(current):
+        raise Refused(f"{asked} is not above the current version, {current}")
+    return asked
+
+
+def _commits_since_last_release() -> list[str]:
+    for line in _git("log", "--format=%H %s").splitlines():
+        commit, subject = line.split(" ", 1)
+        if _RELEASE_SUBJECT.fullmatch(subject):
+            subjects = _git(
+                "log", "--reverse", "--no-merges", "--format=%s", f"{commit}..HEAD"
+            )
+            return subjects.splitlines()
+    raise Refused("no release commit in the history")
+
+
+def _buildpush_default(root: Path, name: str) -> str:
+    # buildpush.sh names what an image is built from, and read here it stays
+    # the one place to change.
+    script = (root / "buildpush.sh").read_text()
+    found = re.search(rf'^{name}="\$\{{{name}:-(.+)\}}"$', script, re.MULTILINE)
+    if found is None:
+        raise Refused(f"buildpush.sh gives {name} no default")
+    return found.group(1)
+
+
+def _collection_entry(root: Path) -> str:
+    """The changelog line of a release that carries no commit of this repository.
+
+    The image takes the head of the collection's branch when it is built, so
+    that head is what such a release changes.
+    """
+    reference = "SEAPATH_ANSIBLE_REF"
+    repository = "SEAPATH_ANSIBLE_REPOSITORY"
+    branch = os.environ.get(reference) or _buildpush_default(root, reference)
+    url = os.environ.get(repository) or _buildpush_default(root, repository)
+    head = _git("ls-remote", url, f"refs/heads/{branch}")
+    if not head:
+        raise Refused(f"{url} has no branch {branch}")
+    return f"collection: {branch} {head[:8]}"
+
+
+def _replace_once(text: str, old: str, new: str, path: str) -> str:
+    if text.count(old) != 1:
+        raise Refused(f"expected {old} exactly once in {path}")
+    return text.replace(old, new)
+
+
+def _edited_files(
+    root: Path, current: str, target: str, entries: list[str]
+) -> dict[str, str]:
+    edited = {
+        _INIT: _replace_once(
+            (root / _INIT).read_text(),
+            f'__version__ = "{current}"',
+            f'__version__ = "{target}"',
+            _INIT,
+        )
+    }
+    for path in _IMAGE_REFERENCES:
+        edited[path] = _replace_once(
+            (root / path).read_text(),
+            f"seapath-webui:{current}",
+            f"seapath-webui:{target}",
+            path,
+        )
+
+    changelog = (root / _CHANGELOG).read_text()
+    if "\n## " not in changelog:
+        raise Refused(f"{_CHANGELOG} has no version section")
+    today = datetime.date.today().isoformat()
+    lines = "\n".join(f"- {entry}" for entry in entries)
+    section = f"\n## {target} - {today}\n\n{lines}\n"
+    edited[_CHANGELOG] = changelog.replace("\n## ", f"{section}\n## ", 1)
+    return edited
+
+
+def _release(asked: str | None, force: bool) -> None:
+    root = Path(_git("rev-parse", "--show-toplevel"))
+    _require_a_clean_main()
+    current = _current_version(root)
+    target = _target_version(current, asked)
+
+    entries = _commits_since_last_release()
+    if not entries:
+        if not force:
+            raise Refused("no commit since the last release, --force cuts one anyway")
+        entries = [_collection_entry(root)]
+
+    # Everything is computed before the first write, so a refusal leaves the
+    # tree as it was.
+    edited = _edited_files(root, current, target, entries)
+    for path, text in edited.items():
+        (root / path).write_text(text)
+    # Named paths, so that nothing another session staged in the meantime
+    # travels in this commit.
+    _git("commit", "--signoff", "-m", f"release: {target}", "--", *edited)
+
+    print(f"release: {target}")
+    for entry in entries:
+        print(f"- {entry}")
+    print("Publish it with: git push origin main")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Cut a release from the commits since the last one."
+    )
+    parser.add_argument(
+        "version",
+        nargs="?",
+        help="the version to release, by default the next bugfix",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="release even with no new commit, to pick up a new collection",
+    )
+    args = parser.parse_args()
+    try:
+        _release(args.version, args.force)
+    except Refused as refused:
+        print(f"release refused: {refused}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

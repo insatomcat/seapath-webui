@@ -95,6 +95,12 @@ and recorded in [CHANGELOG.md](CHANGELOG.md). The version is the identity of a
 build, which is how a machine says which code is answering on it, so a number
 is used once.
 
+`tools/release [X.Y.Z]` makes that commit on a clean, up to date `main`: it
+lists the commits since the last release in the changelog, and takes the next
+bugfix when no number is given. It refuses when there is no new commit, unless
+`--force` is given to release a new collection, which the changelog then
+records with its commit. Pushing the result is what publishes the image.
+
 ## Reporting a vulnerability
 
 Privately, and [SECURITY.md](SECURITY.md) says how.

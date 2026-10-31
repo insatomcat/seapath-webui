@@ -83,6 +83,7 @@ app/
   api/v1/            routers, one module per resource
   ui/                Jinja templates and static assets
 packaging/           the PAM service file the image ships
+tools/               release, which cuts a version
 tests/               pytest, fakes, fixtures
 Dockerfile
 seapath-webui.container

@@ -257,8 +257,9 @@ record cannot supply on its own. A test in `tests/test_packaging.py` holds the
 tag and the version together, and `buildpush.sh` reads the version from the
 source rather than repeating it.
 
-Releasing is therefore one gesture: **bump `__version__`**, then build. The
-`image` workflow publishes three tags and only one of them is a promise:
+Releasing is therefore one gesture: **bump `__version__`**, which
+`tools/release` does, then build. The `image` workflow publishes three tags and
+only one of them is a promise:
 
 | Tag | What it names |
 |---|---|
