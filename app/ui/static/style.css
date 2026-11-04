@@ -3588,9 +3588,11 @@ td.meta-key code.reserved {
   }
 
   /* The undeclared guests and the note under them: read after the table
-     beside them, and where they sit beside it they cost it no height. */
+     beside them, and where they sit beside it they cost it no height.
+     26rem is the narrowest their table holds without scrolling, a state and
+     its Start or Stop included. */
   .page.vms > .column.aside {
-    flex: 1 1 24rem;
+    flex: 1 1 26rem;
     max-width: 32rem;
   }
 }
@@ -3642,9 +3644,65 @@ td.placed {
   gap: 0.2rem 0.9rem;
 }
 
-/* Move and Return, side by side for the same reason. */
-#guest-rows td.acts {
+/* Move and Return, side by side for the same reason, and the controls of
+   the undeclared guests beside their `⋯`. */
+#guest-rows td.acts,
+#undeclared-rows td.acts {
   white-space: nowrap;
+}
+
+/* The undeclared guests sit in a column of 26 to 32rem, where five cells
+   with the padding of a wide table came out a few pixels wider than the card
+   and scrolled. Half of that padding is enough between short words. */
+#undeclared-card th,
+#undeclared-card td {
+  padding-inline: 0.3rem;
+}
+
+/* The controls of a row used now and then, behind a `⋯` at its end
+   (rowmenu.js). The list is drawn over the page with fixed coordinates, as
+   the matrix menu of the Real time page is, and its items are the row's own
+   buttons and links, so `td button` and `a.act-link` are undone here. */
+.row-menu-toggle {
+  min-width: 2rem;
+  letter-spacing: 0.05em;
+}
+
+.row-menu-list {
+  white-space: nowrap;
+}
+
+.row-menu-list[hidden] {
+  display: none;
+}
+
+td .row-menu-list > button,
+.row-menu-list > a.act-link {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 0.35rem 0.6rem;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+td .row-menu-list > button:hover,
+td .row-menu-list > button:focus-visible,
+.row-menu-list > a.act-link:hover,
+.row-menu-list > a.act-link:focus-visible {
+  background: var(--row-hover);
+  color: var(--text);
+  outline: none;
+}
+
+td .row-menu-list > button:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 /* The same pair on the Containers page, where a row Pacemaker places carries

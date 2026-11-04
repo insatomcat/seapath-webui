@@ -1852,7 +1852,31 @@ def test_the_vms_page_reads_its_two_lists_side_by_side(
     # three rows of this table four lines tall.
     assert 'box.className = "placed";' in script
     assert "td.placed {\n  white-space: nowrap;\n}" in css
-    assert "#guest-rows td.acts {\n  white-space: nowrap;\n}" in css
+    assert (
+        "#guest-rows td.acts,\n#undeclared-rows td.acts {\n  white-space: nowrap;\n}"
+    ) in css
+
+
+def test_a_guest_row_keeps_its_main_controls_and_folds_the_others(
+    signed_in: TestClient,
+) -> None:
+    # Ten controls side by side made the guest table wider than any window.
+    # The row keeps Start or Stop, the serial console and Return, and the
+    # rest open from one menu at its end, in a single actions column.
+    body = signed_in.get("/vms").text
+    script = signed_in.get("/static/vms.js").text
+    menu = signed_in.get("/static/rowmenu.js")
+
+    assert menu.status_code == 200
+    assert "rowmenu.js" in body
+    assert body.index("rowmenu.js") < body.index("vms.js")
+    assert "function actionCell(name, cells, narrow)" in script
+    assert "RowMenu.build(rest" in script
+    assert script.count("main(") >= 4
+    # The menu stays inside its cell, so that a kept answer holds its items
+    # with the rest of the card's controls.
+    assert "box.append(toggle, menu);" in menu.text
+
 
 
 def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(

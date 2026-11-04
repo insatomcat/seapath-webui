@@ -385,7 +385,7 @@
         "'s serial console with " +
         (guest.deployment === "cluster" ? "vm-mgr console" : "virsh console");
       button.addEventListener("click", () => Console.openSerial(guest.name));
-      cell.append(cell.childNodes.length ? " " : "", button);
+      cell.append(cell.childNodes.length ? " " : "", main(button));
     }
     // Its screen, the one way into a Windows guest whose network is down.
     // Offered when the guest's definition has a VNC display: the XML Ceph
@@ -440,7 +440,7 @@
     // putting it back, or deleting it for good. Deleting writes the inventory
     // and destroys the images, so it is the administrator's.
     if (guest.disabled) {
-      cell.append(actButton(guest.name, "enable"));
+      cell.append(main(actButton(guest.name, "enable")));
       if (canWrite) {
         cell.append(" ", actButton(guest.name, "delete"));
       }
@@ -455,7 +455,7 @@
     const running = guest.resource
       ? guest.resource.role === "started"
       : guest.domain.running;
-    cell.append(actButton(guest.name, running ? "stop" : "start"));
+    cell.append(main(actButton(guest.name, running ? "stop" : "start")));
     // Taking it out of the cluster, offered wherever Pacemaker holds it: a
     // stop keeps the resource and a node failure or a Start brings the guest
     // back, while this removes the resource and leaves the disk.
@@ -767,7 +767,7 @@
       back.className = "secondary";
       back.textContent = "Return";
       back.addEventListener("click", () => confirmReturn(guest));
-      box.append(box.childNodes.length ? " " : "", back);
+      box.append(box.childNodes.length ? " " : "", main(back));
     }
     return box;
   }
@@ -856,6 +856,32 @@
         RunWatch.open(started.run_id);
       },
     });
+  }
+
+  // The controls a row keeps in sight: the one that changes what the guest
+  // is doing, its serial console, and Return, which is only offered on a
+  // row that has a move to undo and so is itself a reading. The others open
+  // from the row's menu, which is what keeps the table inside the window.
+  function main(control) {
+    control.dataset.main = "";
+    return control;
+  }
+
+  //
+  // In the narrow column of the undeclared guests only the first of them,
+  // Start or Stop, stays: a console beside it pushed the row past the card.
+  function actionCell(name, cells, narrow) {
+    const cell = document.createElement("td");
+    cell.className = "acts";
+    const controls = cells.flatMap((part) => Array.from(part.children));
+    const mains = controls.filter((control) => "main" in control.dataset);
+    const kept = narrow ? mains.slice(0, 1) : mains;
+    const rest = controls.filter((control) => !kept.includes(control));
+    kept.forEach((control, index) => cell.append(index ? " " : "", control));
+    if (rest.length) {
+      cell.append(kept.length ? " " : "", RowMenu.build(rest, "More for " + name));
+    }
+    return cell;
   }
 
   function actButton(name, action) {
@@ -1455,9 +1481,11 @@
         addressCell(guest),
         specsCell(guest.domain),
         ...(creation ? [creationCell(guest)] : []),
-        acts(guest),
-        placement(guest),
-        metaButton(guest.name, guest.deployment, guest),
+        actionCell(guest.name, [
+          acts(guest),
+          placement(guest),
+          metaButton(guest.name, guest.deployment, guest),
+        ]),
       ]);
     });
     element("guest-table").hidden = !(view.guests || []).length;
@@ -1531,8 +1559,10 @@
         // words the table above uses.
         cell(""),
         cell(domain.state),
-        acts({ name: domain.name, domain }),
-        metaButton(domain.name, "standalone"),
+        actionCell(domain.name, [
+          acts({ name: domain.name, domain }),
+          metaButton(domain.name, "standalone"),
+        ], true),
       ]);
     });
     resources.forEach((resource) => {
@@ -1544,10 +1574,12 @@
         // Acted on like a declared guest: it is the one most likely to need
         // stopping, since a convergence will not touch it and nothing else
         // here can reach it.
-        acts({ name: resource.id, resource }),
         // Pacemaker reported it, so it is a cluster guest whatever the
         // inventory failed to say about it.
-        metaButton(resource.id, "cluster"),
+        actionCell(resource.id, [
+          acts({ name: resource.id, resource }),
+          metaButton(resource.id, "cluster"),
+        ], true),
       ]);
     });
   }
