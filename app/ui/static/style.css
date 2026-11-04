@@ -4233,6 +4233,7 @@ td.log-line .tag {
   margin-top: 0.2rem;
   color: var(--muted);
   font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .volume .bar {

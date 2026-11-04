@@ -1878,6 +1878,21 @@ def test_a_guest_row_keeps_its_main_controls_and_folds_the_others(
     assert "box.append(toggle, menu);" in menu.text
 
 
+def test_a_delivery_starts_on_the_update_of_an_installed_instance(
+    signed_in: TestClient,
+) -> None:
+    # A site that installed the application under another name than the one
+    # the delivery proposes is offered the update of that workload first.
+    script = signed_in.get("/static/containers.js").text
+
+    assert (
+        "target.value = names.includes(staged.name)\n"
+        "      ? staged.name\n"
+        "      : names.length\n"
+        "        ? names[0]\n"
+        "        : NEW_WORKLOAD;"
+    ) in script
+
 
 def test_adding_a_vm_asks_for_the_three_things_a_guest_is_made_of(
     signed_in: TestClient,

@@ -124,15 +124,28 @@
     }
     const used = mounted.size_bytes - mounted.available_bytes;
     const share = used / mounted.size_bytes;
+    // One short line, the sentence on hover: spelled out under every name it
+    // wrapped onto a second and third line and made each row three tall, and
+    // the machine it named is the one the Where column already gives.
     label.textContent =
       "RBD " +
       container.rbd_size +
       " · " +
       bytes(used) +
+      " / " +
+      bytes(mounted.size_bytes);
+    box.title =
+      "RBD image of " +
+      container.rbd_size +
+      ": " +
+      bytes(used) +
       " of " +
       bytes(mounted.size_bytes) +
-      " used on " +
-      mounted.host;
+      " used (" +
+      Math.round(share * 100) +
+      " %), on the filesystem mounted on " +
+      mounted.host +
+      ".";
     const bar = document.createElement("span");
     bar.className = "bar";
     const fill = document.createElement("span");
@@ -1082,7 +1095,16 @@
     // choosing one, or copying its values, waits on nothing.
     updated().forEach(describeAs);
     targetForm();
-    describeDelivery();
+    const target = element("delivery-target").value;
+    if (target === NEW_WORKLOAD || target === staged.name) {
+      describeDelivery();
+      return;
+    }
+    // The update of a workload installed under another name than the one
+    // the delivery proposes: the form is drawn from its answer, once it is in.
+    element("delivery-form").hidden = true;
+    element("delivery-go").hidden = true;
+    showName(target);
   }
 
   function listFindings(holder, found) {
@@ -1133,7 +1155,16 @@
     const target = clear(element("delivery-target"));
     names.forEach((name) => target.append(new Option("Update " + name, name)));
     target.append(new Option("A new workload", NEW_WORKLOAD));
-    target.value = names.includes(staged.name) ? staged.name : NEW_WORKLOAD;
+    // A delivery is far more often the next version of what runs than a
+    // second copy of it, so the form starts on an update: of the workload
+    // under the proposed name where there is one, of the first installed
+    // one otherwise. A site that renamed its instance is then offered the
+    // update all the same.
+    target.value = names.includes(staged.name)
+      ? staged.name
+      : names.length
+        ? names[0]
+        : NEW_WORKLOAD;
     const copy = clear(element("delivery-copy"));
     names.forEach((name) => copy.append(new Option(name, name)));
     element("delivery-copy-box").hidden = names.length === 0;
