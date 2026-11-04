@@ -19,6 +19,11 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.236 - 2026-11-04
+
+- ui: a guest row keeps its main controls and folds the others
+- containers: a delivery starts on the update of an installed instance
+
 ## 0.3.235 - 2026-11-04
 
 - collection: seapathalloc 8e67007a
