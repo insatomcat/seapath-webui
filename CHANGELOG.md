@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.233 - 2026-11-04
+
+- collection: seapathalloc 84f7f3b2
+
 ## 0.3.232 - 2026-10-31
 
 - tools: release cuts a version from the commits since the last one
