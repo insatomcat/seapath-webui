@@ -2180,7 +2180,9 @@
     // Conformance first. It is the question the page exists to answer, and the
     // only panel that says something on a machine where nothing has been
     // deployed yet.
-    showView("checks");
+    // A link may name another tab after a #.
+    const asked = location.hash.slice(1);
+    showView(Object.hasOwn(VIEWS, asked) ? asked : "checks");
     const pending = {
       machines: API.started("/inventory"),
       key: API.started("/trust/public-key"),

@@ -340,17 +340,24 @@
     return box;
   }
 
+  // A tile that reports a finding on one machine opens the usage page on that
+  // machine, so the operator lands on the row the tile counted.
+  function usageLink(host) {
+    return host ? "usage?host=" + encodeURIComponent(host) : "usage";
+  }
+
   function drawTiles() {
     const box = element("tiles");
     const found = [];
     const all = machines();
 
     const answering = all.filter((machine) => machine.latest && machine.latest.node_reach.reachable);
+    const silent = all.find((machine) => !answering.includes(machine));
     found.push(
       tile(
         answering.length + " / " + all.length,
         "machines up",
-        "usage",
+        usageLink(silent && silent.host),
         answering.length === all.length ? "ok" : answering.length ? "warn" : "bad",
         all
           .filter((machine) => !answering.includes(machine))
@@ -367,7 +374,7 @@
         tile(
           online.length + " / " + members.length,
           quorate ? "members, quorate" : "members, no quorum",
-          "cluster",
+          "cluster#members",
           !quorate ? "bad" : online.length === members.length ? "ok" : "warn"
         )
       );
@@ -378,7 +385,7 @@
         tile(
           failed.length ? String(failed.length) : started.length + " / " + resources.length,
           failed.length ? "resources failed" : "resources up",
-          "cluster",
+          "cluster#resources",
           failed.length ? "bad" : started.length === resources.length ? "ok" : "warn",
           failed.map((resource) => resource.id).join(", ")
         )
@@ -391,7 +398,7 @@
         tile(
           health || "–",
           "Ceph, " + percent(storage.used_ratio) + " used",
-          "cluster",
+          "cluster#storage",
           health === "OK" ? "ok" : health === "WARN" ? "warn" : "bad",
           (storage.messages || []).map((message) => message.name).join("\n")
         )
@@ -405,7 +412,7 @@
         tile(
           synced.length + " / " + tuned.length,
           "clocks synced",
-          "realtime",
+          "realtime#checks",
           synced.length === tuned.length ? "ok" : "bad",
           tuned
             .filter((node) => !node.clock.synchronised)
@@ -418,7 +425,7 @@
         tile(
           String(warned.length),
           "tuning warnings",
-          "realtime",
+          "realtime#checks",
           warned.length ? "warn" : "ok",
           warned.map((node) => node.host).join(", ")
         )
@@ -433,11 +440,14 @@
         }
       })
     );
+    // The fullest one is where the operator is sent: it is the volume that
+    // fills first.
+    full.sort((a, b) => b.share - a.share);
     found.push(
       tile(
         String(full.length),
         "volumes nearly full",
-        "usage",
+        usageLink(full.length && full[0].host),
         full.some((item) => item.share > VERY_FULL) ? "bad" : full.length ? "warn" : "ok",
         full
           .map((item) => item.host + " " + item.mountpoint + " " + percent(item.share))
@@ -447,14 +457,16 @@
 
     let up = 0;
     let total = 0;
+    let down = null;
     all.forEach((machine) =>
       ports(machine).forEach((port) => {
         total += 1;
         up += port.operstate === "up" ? 1 : 0;
+        down = down || (port.operstate === "up" ? null : machine.host);
       })
     );
     if (total) {
-      found.push(tile(up + " / " + total, "ports up", "usage"));
+      found.push(tile(up + " / " + total, "ports up", usageLink(down)));
     }
 
     let guests = 0;

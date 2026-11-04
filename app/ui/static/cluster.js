@@ -1052,7 +1052,11 @@
   async function start() {
     const me = Chrome.current();
     canAct = me.role === "operator" || Chrome.isAdmin(me);
-    showView("members");
+    // A link may name the tab it is for, as the overview's Ceph tile does with
+    // #storage: the operator followed a storage warning, and landing on the
+    // membership would make them look for it.
+    const asked = location.hash.slice(1);
+    showView(Object.hasOwn(VIEWS, asked) ? asked : "members");
     wireReread();
     // Both requests leave before anything is drawn, so the two readings are in
     // flight while this browser paints what it last saw.
