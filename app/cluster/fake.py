@@ -177,7 +177,8 @@ def _machine(
     return "\n".join(lines) + "\n"
 
 
-# elabo1: a NIC IRQ in its own slot, and a pinned container beside it.
+# elabo1: a NIC IRQ in its own slot, a pinned container beside it, and a tool
+# pinned by hand.
 _NODE1 = _machine(
     {
         3: {
@@ -194,6 +195,15 @@ _NODE1 = _machine(
             "group": "quadlet",
             "scheduler": "FIFO",
             "priority": "5",
+        },
+        # A tool someone started under taskset, which the allocator counts
+        # as busy and names by command and PID.
+        5: {
+            "state": "pinned",
+            "label": "sv-sub[2481]",
+            "group": "pinned",
+            "scheduler": "FIFO",
+            "priority": "70",
         },
     },
     range(3, 12),

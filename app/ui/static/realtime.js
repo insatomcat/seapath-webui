@@ -687,6 +687,7 @@
     quadlet: ["A pinned container", "#3fbfb0"],
     run: ["A seapath-run process", "#c86bd0"],
     claim: ["A claim held by an operator tool", "#c86bd0"],
+    pinned: ["A process pinned outside seapath-alloc", "#9b7fd4"],
     reserved: ["The idle sibling of an exclusive core", "#7a2f2f"],
     housekeeping: ["Not isolated", "#39424f"],
     unknown: ["The exporter did not say", "#8d9bad"],

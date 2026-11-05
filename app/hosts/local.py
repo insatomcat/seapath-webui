@@ -619,8 +619,12 @@ class LocalHostReader:
         the same way: the interrupt numbers come from
         `/sys/class/net/<iface>/device/msi_irqs`, never from the handler names
         under `/proc/irq`, which are the driver's to choose and match `eth1`
-        against `eth10`. Only what reached an isolated CPU is described, so the
-        local column of the matrix answers exactly what the others do.
+        against `eth10`. An interrupt is described when it is confined to
+        isolated CPUs, read from `effective_affinity_list` (where it actually
+        fires) or `smp_affinity_list` when the kernel does not expose it, so
+        the local column of the matrix answers exactly what the others do. A
+        queue left on the boot mask, which covers every CPU, is pinned nowhere
+        and is not described.
 
         Both trees are already here: `/sys` is mounted read only by the
         quadlet, and the container shares the host's network namespace, so
@@ -636,15 +640,12 @@ class LocalHostReader:
             ):
                 if not entry.name.isdigit():
                     continue
-                raw = _text_at(self._path("proc/irq", entry.name, "smp_affinity_list"))
-                if raw is None:
+                mask = _irq_mask(self._path("proc/irq", entry.name))
+                if not mask or not mask <= isolated:
                     continue
-                overlap = tuple(sorted(isolated.intersection(parse_cpu_list(raw))))
-                if not overlap:
-                    continue
-                by_iface.setdefault(interface.name, {}).setdefault(overlap, []).append(
-                    int(entry.name)
-                )
+                by_iface.setdefault(interface.name, {}).setdefault(
+                    tuple(sorted(mask)), []
+                ).append(int(entry.name))
         pins: list[NicIrqPin] = []
         for iface in sorted(by_iface):
             for cpus, numbers in sorted(
@@ -1015,6 +1016,21 @@ def _bracketed(value: str | None) -> str | None:
 def _hugepage_size_kb(name: str) -> int | None:
     match = re.fullmatch(r"hugepages-(\d+)kB", name)
     return int(match.group(1)) if match else None
+
+
+def _irq_mask(entry: Path) -> set[int]:
+    """Where an interrupt fires: its effective affinity, else the requested one.
+
+    The same reading `seapath-alloc` makes. An empty set is an interrupt this
+    reader could not place.
+    """
+    for name in ("effective_affinity_list", "smp_affinity_list"):
+        raw = _text_at(entry / name)
+        if raw:
+            cpus = set(parse_cpu_list(raw))
+            if cpus:
+                return cpus
+    return set()
 
 
 def _irq_name(entry: Path) -> str | None:

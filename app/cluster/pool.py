@@ -84,8 +84,10 @@ class CpuSlot(BaseModel):
     """The physical core, which is what pairs a CPU with its HT sibling."""
     sibling: int | None = None
     state: str = "unknown"
-    """`free`, `vm`, `irq`, `quadlet`, `run`, `claim`, `reserved`, `slot`,
-    `irq_slot` or `housekeeping`, straight from the exporter."""
+    """`free`, `vm`, `irq`, `quadlet`, `run`, `claim`, `pinned`, `reserved`,
+    `slot`, `irq_slot` or `housekeeping`, straight from the exporter. `pinned`
+    is a process held on isolated cores by something other than seapath-alloc,
+    a quadlet's `CPUAffinity=` or a `taskset`: it holds them all the same."""
     label: str = ""
     """Who is on it: the VM, the interface, the claim, or the slot name."""
     group: str = ""

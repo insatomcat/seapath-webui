@@ -684,3 +684,57 @@ def test_the_reader_opens_no_path_the_container_masks() -> None:
         if any(path == entry or path.startswith(entry + "/") for entry in _MASKED)
     ]
     assert masked == []
+
+
+def _nic_irq(host: Path, number: int, smp: str, effective: str | None = None) -> None:
+    (host / "sys/class/net/eno1/device/msi_irqs").mkdir(parents=True, exist_ok=True)
+    (host / f"sys/class/net/eno1/device/msi_irqs/{number}").write_text("")
+    irq = host / f"proc/irq/{number}"
+    irq.mkdir(parents=True, exist_ok=True)
+    (irq / "smp_affinity_list").write_text(smp + "\n")
+    if effective is not None:
+        (irq / "effective_affinity_list").write_text(effective + "\n")
+
+
+def test_a_nic_irq_confined_to_isolated_cpus_is_described(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    _nic_irq(host, 181, "5")
+    _nic_irq(host, 182, "5")
+
+    pins = LocalHostReader(root=host, runner=runner).realtime().nic_irqs
+
+    assert [(pin.iface, pin.irqs, pin.cpus) for pin in pins] == [
+        ("eno1", "181-182", [5])
+    ]
+
+
+def test_a_nic_irq_on_the_boot_mask_is_pinned_nowhere(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    # The same rule seapath-alloc applies: reaching the isolated set is not
+    # being placed on it.
+    _nic_irq(host, 181, "0-7")
+    _nic_irq(host, 182, "3-4")
+
+    assert LocalHostReader(root=host, runner=runner).realtime().nic_irqs == []
+
+
+def test_a_nic_irq_is_placed_where_it_actually_fires(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    _nic_irq(host, 181, "0-7", effective="6")
+    _nic_irq(host, 182, "5", effective="")
+
+    pins = LocalHostReader(root=host, runner=runner).realtime().nic_irqs
+
+    assert [(pin.irqs, pin.cpus) for pin in pins] == [("181", [6]), ("182", [5])]
+
+
+def test_a_nic_irq_with_no_readable_affinity_is_skipped(
+    host: Path, runner: FakeCommandRunner
+) -> None:
+    _nic_irq(host, 181, "5")
+    (host / "proc/irq/181/smp_affinity_list").unlink()
+
+    assert LocalHostReader(root=host, runner=runner).realtime().nic_irqs == []
