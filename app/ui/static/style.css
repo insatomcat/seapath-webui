@@ -3725,6 +3725,8 @@ button.quadlet-open {
   font-weight: 400;
   text-decoration: underline dotted;
   text-underline-offset: 0.2em;
+  text-align: left;
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -4225,18 +4227,21 @@ td.log-line .tag {
 }
 
 /* The RBD image of a container workload, in its own column: a short bar and
-   the numbers, so the one nearly full is found by looking down the column. */
+   the numbers, so the one nearly full is found by looking down the column.
+   Laid out inline rather than as a flex box: the table sized the column from
+   a flex box's min-content too narrow, and the numbers ran over the Quadlet
+   column beside it. */
 .volume {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
   color: var(--muted);
   font-size: 0.78rem;
   white-space: nowrap;
 }
 
 .volume .bar {
-  flex: 0 0 4rem;
+  display: inline-block;
+  vertical-align: middle;
+  width: 4rem;
+  margin-right: 0.4rem;
   height: 0.4rem;
   border: 1px solid var(--line);
   border-radius: 3px;
