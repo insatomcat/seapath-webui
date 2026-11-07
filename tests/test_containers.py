@@ -215,6 +215,28 @@ def test_a_cluster_workload_is_a_container_pacemaker_holds(
     assert payload["undeclared"] == []
 
 
+def test_a_workload_carries_the_version_its_images_are_tagged_with(
+    signed_in: TestClient,
+) -> None:
+    # The delivery contract tags each image `localhost/<image>:<version>`.
+    _import(signed_in, WORKLOADS)
+
+    containers = _by_name(_containers(signed_in))
+
+    assert containers["protect"]["version"] == "1.0"
+    assert containers["nginxquadlet"]["version"] == "1.31.5"
+
+
+def test_the_version_is_the_tag_and_never_a_registry_port() -> None:
+    from app.inventory.quadlets import _version_of
+
+    assert _version_of([{"name": "registry:5000/app"}]) == ""
+    assert _version_of([{"name": "registry:5000/app:2.1"}]) == "2.1"
+    # Two images of one delivery share its version, which is shown once.
+    assert _version_of([{"name": "a:3"}, {"name": "b:3"}, {"name": "c:4"}]) == "3, 4"
+    assert _version_of(None) == ""
+
+
 def test_a_pod_workload_is_read_from_the_quadlet_its_unit_comes_from(
     signed_in: TestClient,
 ) -> None:

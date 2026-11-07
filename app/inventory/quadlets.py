@@ -131,6 +131,10 @@ class Quadlet:
     rbd_size: str = ""
     """The size the entry gives that image, as written: what the role creates
     it with, and grows it to when it is larger than the image."""
+    version: str = ""
+    """The tag of the images the entry names, which the delivery contract
+    makes the delivery's version. Several tags are joined, and an entry naming
+    no image has none."""
 
     @property
     def actionable(self) -> bool:
@@ -378,7 +382,22 @@ def _workload(host: str, name: Any, spec: Any) -> Quadlet | None:
         preferred_host=preferred if isinstance(preferred, str) else "",
         rbd=isinstance(spec.get("rbd"), dict),
         rbd_size=_size_of(spec.get("rbd")),
+        version=_version_of(spec.get("images")),
     )
+
+
+def _version_of(images: Any) -> str:
+    # `localhost/<image>:<version>`: the tag follows the last colon, unless
+    # that colon belongs to a registry port and is followed by a path.
+    tags: list[str] = []
+    for image in images if isinstance(images, list) else []:
+        name = image.get("name") if isinstance(image, dict) else None
+        if not isinstance(name, str) or ":" not in name:
+            continue
+        tag = name.rsplit(":", 1)[1].strip()
+        if tag and "/" not in tag and tag not in tags:
+            tags.append(tag)
+    return ", ".join(tags)
 
 
 def _size_of(rbd: Any) -> str:

@@ -91,6 +91,25 @@
       flag.title = container.warnings.join("\n\n");
       node.append(flag);
     }
+    return node;
+  }
+
+  // The version a delivery installed, the tag of its images. A column of its
+  // own, so that the name keeps one line and the versions read down the page.
+  function versioned(container) {
+    const node = document.createElement("td");
+    if (container.version) {
+      const tag = document.createElement("code");
+      tag.textContent = container.version;
+      node.append(tag);
+    }
+    return node;
+  }
+
+  // The RBD image in a column of its own: under the name it made every row
+  // two lines tall.
+  function storage(container) {
+    const node = document.createElement("td");
     if (container.rbd) {
       node.append(volume(container));
     }
@@ -108,7 +127,7 @@
     return scaled.toFixed(scaled >= 100 || index === 0 ? 0 : 1) + " " + units[index];
   }
 
-  // The RBD image under the name: the size the entry gives it, and how full
+  // The RBD image of a workload: the size the entry gives it, and how full
   // its filesystem is where a node has it mounted, which is when a growth is
   // due: amber past 80 %, red past 90 %.
   function volume(container) {
@@ -118,7 +137,7 @@
     const mounted = container.volume;
     if (!mounted || !mounted.size_bytes) {
       label.textContent =
-        "RBD " + (container.rbd_size || "image") + ", mounted nowhere that answered";
+        (container.rbd_size || "Image") + ", mounted nowhere that answered";
       box.append(label);
       return box;
     }
@@ -128,7 +147,6 @@
     // wrapped onto a second and third line and made each row three tall, and
     // the machine it named is the one the Where column already gives.
     label.textContent =
-      "RBD " +
       container.rbd_size +
       " · " +
       bytes(used) +
@@ -540,9 +558,11 @@
         const resource = container.resource || {};
         row(body, [
           named(container),
+          versioned(container),
           managedBy(container),
           placedCell(container),
           resourceState(container.resource),
+          storage(container),
           quadletFile(container),
           scope(container),
           acts(container, "", resource.role === "started"),
@@ -554,9 +574,11 @@
       (container.units || []).forEach((unit) => {
         row(body, [
           named(container),
+          versioned(container),
           managedBy(container),
           cell(unit.host),
           unitState(unit),
+          storage(container),
           quadletFile(container),
           scope(container),
           acts(container, unit.host, unit.active),

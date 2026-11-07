@@ -170,6 +170,9 @@ class ContainerView(BaseModel):
     removal deletes only when asked to."""
     rbd_size: str = ""
     """The size its entry gives that image, which a growth raises."""
+    version: str = ""
+    """The version a delivery installed, read from the tag of the images its
+    entry names. Empty for a container no entry gives an image."""
     volume: Volume | None = None
     """How full that image is, from the node that has it mounted. None when
     no node does, the workload stopped, or that node did not answer."""
@@ -390,6 +393,7 @@ class ContainerService:
                 values_editable=first.workload and name in described,
                 rbd=first.rbd,
                 rbd_size=first.rbd_size,
+                version=first.version,
                 volume=volumes.get(name) if first.rbd else None,
                 hosts=hosts,
                 file=files.get((first.host, first.src)),

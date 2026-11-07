@@ -4224,13 +4224,12 @@ td.log-line .tag {
   margin-top: 0;
 }
 
-/* The RBD image of a container workload, under its name: a short bar and the
-   numbers, so the one nearly full is found by looking down the column. */
+/* The RBD image of a container workload, in its own column: a short bar and
+   the numbers, so the one nearly full is found by looking down the column. */
 .volume {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  margin-top: 0.2rem;
   color: var(--muted);
   font-size: 0.78rem;
   white-space: nowrap;
