@@ -72,6 +72,13 @@ class ServiceUpdate(BaseModel):
     pending: bool = Field(
         default=False, description="Whether an apply would replace this service"
     )
+    behind: bool = Field(
+        default=False,
+        description=(
+            "Whether the inventory names a version below the one answering, "
+            "so that an apply would take this service back to it"
+        ),
+    )
     variable: str = IMAGE_VARIABLE
     playbook: str = PLAYBOOK
     # Why there is nothing to say, when there is nothing to say. A node absent
@@ -98,7 +105,10 @@ class AvailableRelease(BaseModel):
     )
     newer: bool = Field(
         default=False,
-        description="Whether the registry holds a version above the pinned one",
+        description=(
+            "Whether the registry holds a version above the pinned one, and "
+            "not below the one answering"
+        ),
     )
     machines: list[str] = Field(
         default_factory=list,
@@ -164,6 +174,7 @@ class UpdateService:
             image=image,
             wanted=tag,
             pending=tag != self._running,
+            behind=_below(tag, self._running),
         )
 
     def available(self) -> AvailableRelease:
@@ -215,7 +226,7 @@ class UpdateService:
             repository=repository,
             latest=latest,
             pinned=pinned,
-            newer=_above(latest, pinned),
+            newer=_above(latest, pinned) and not _below(latest, self._running),
             machines=list(machines),
         )
 
@@ -414,6 +425,20 @@ def _tag(reference: str) -> str | None:
     name = reference.rsplit("/", 1)[-1]
     tag = name.rpartition(":")[2] if ":" in name else ""
     return tag or None
+
+
+def _below(version: str, running: str) -> bool:
+    """Whether `version` is older than the one answering.
+
+    A machine reaches that state when its image moved without the inventory:
+    the ISO installs a moving tag, the seed pins the version that answered at
+    first boot, and a later pull of that tag brings a newer one. Applying the
+    inventory then goes back, which is a decision to offer as one, never as an
+    update.
+    """
+    if not is_version(version) or not is_version(running):
+        return False
+    return version_key(version) < version_key(running)
 
 
 def _above(latest: str, pinned: str | None) -> bool:

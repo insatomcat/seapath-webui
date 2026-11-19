@@ -110,6 +110,7 @@ def test_the_image_the_inventory_names_is_read_for_this_machine(
 
     assert body["wanted"] == "9.9.9"
     assert body["pending"] is True
+    assert body["behind"] is False
     assert body["image"] == "docker.io/insatomcat/seapath-webui:9.9.9"
 
 
@@ -122,6 +123,22 @@ def test_the_version_that_answers_and_the_one_asked_for_can_agree(
 
     assert body["wanted"] == __version__
     assert body["pending"] is False
+
+
+def test_an_inventory_naming_an_older_version_says_an_apply_goes_back(
+    signed_in: TestClient,
+) -> None:
+    # The ISO installs a moving tag, the seed pins the version that answered at
+    # first boot, and a later pull of that tag brings a newer one. Applying the
+    # inventory then takes this service back, and the page must not offer that
+    # as an update.
+    _with_image(signed_in, "docker.io/insatomcat/seapath-webui:0.0.1")
+
+    body = signed_in.get("/api/v1/node/update").json()
+
+    assert body["wanted"] == "0.0.1"
+    assert body["pending"] is True
+    assert body["behind"] is True
 
 
 @pytest.mark.parametrize(
@@ -264,6 +281,22 @@ def test_versions_are_compared_as_numbers_and_not_as_text(
     tag_source.tags_returned = ["0.3.9", "0.3.10"]
 
     assert signed_in.get("/api/v1/node/update/latest").json()["latest"] == "0.3.10"
+
+
+def test_a_version_below_the_one_answering_is_never_offered_as_newer(
+    signed_in: TestClient, tag_source: FakeTagSource
+) -> None:
+    # A mirror that lags behind the image this machine pulled holds versions
+    # above the pinned one and below the one running. Pinning one of them
+    # would go back as surely as applying the inventory would.
+    _with_image(signed_in, "docker.io/insatomcat/seapath-webui:0.0.1")
+    tag_source.tags_returned = ["0.0.1", "0.0.2"]
+
+    body = signed_in.get("/api/v1/node/update/latest").json()
+
+    assert body["latest"] == "0.0.2"
+    assert body["pinned"] == "0.0.1"
+    assert body["newer"] is False
 
 
 def test_a_moving_tag_is_never_offered_as_a_version(

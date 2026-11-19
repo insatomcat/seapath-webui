@@ -124,8 +124,13 @@
     button.hidden = false;
     button.classList.remove("version-due");
     if (answer && answer.act === "pin") {
-      showWord("Upgrade to " + answer.version);
+      showWord((answer.behind ? "Pin " : "Upgrade to ") + answer.version);
       button.title =
+        (answer.behind
+          ? "The inventory names " + answer.behind + ", below the " +
+            answer.version + " answering here, and applying it would go " +
+            "back. "
+          : "") +
         "Pins " + answer.version + " in the inventory for " +
         answer.machines.join(", ") + ", then deploys it there. This " +
         "service restarts on each of them, and no guest does.";
@@ -180,6 +185,16 @@
       ]);
       if (!latest.reason && latest.newer) {
         answer = { act: "pin", version: latest.latest, machines: latest.machines };
+      } else if (update.pending && update.behind) {
+        // The inventory names an older version than the one answering, so
+        // applying it would go back. What it is missing is the version that
+        // runs, written the way any newer one would be.
+        answer = {
+          act: "pin",
+          version: update.running,
+          machines: latest.machines,
+          behind: update.wanted,
+        };
       } else if (update.pending) {
         answer = { act: "apply", version: update.wanted };
       } else if (latest.reason) {

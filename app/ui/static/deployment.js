@@ -132,7 +132,13 @@
       summary.append(term, definition);
     });
     const note = element("update-note");
-    if (update.pending) {
+    if (update.behind) {
+      note.textContent =
+        "The inventory names " + update.wanted + ", below the " +
+        update.running + " answering here: an apply would take this " +
+        "service back to it.";
+      note.className = "help warn";
+    } else if (update.pending) {
       note.textContent =
         "An apply would replace this service with " + update.wanted + ".";
       note.className = "help warn";
@@ -221,6 +227,11 @@
       go.textContent = "Pin " + state.latest.latest + " and apply";
       return;
     }
+    if (state.update && state.update.behind) {
+      go.hidden = !admin;
+      go.textContent = "Pin " + state.update.running + " and apply";
+      return;
+    }
     if (state.update && state.update.pending) {
       go.hidden = !admin;
       go.textContent = "Apply " + state.update.wanted;
@@ -241,7 +252,7 @@
   // changed the desired state and changed no machine, which is the state this
   // whole service is built to make ordinary. The apply that follows is the
   // catalogue entry, with the confirmation every other convergence gets.
-  async function pinAndApply() {
+  async function pinAndApply(version) {
     const go = element("update-go");
     const error = element("update-error");
     error.hidden = true;
@@ -249,13 +260,15 @@
     go.setAttribute("aria-busy", "true");
     let pinned = null;
     try {
-      pinned = await API.post("/node/update", { version: state.latest.latest });
+      pinned = await API.post("/node/update", { version });
       // What the inventory names has just changed, so the summary above is
       // read again. The registry is not asked a second time: its answer has
       // not changed, and it is the only thing on this page that leaves the
       // machine.
-      state.latest.pinned = pinned.version;
-      state.latest.newer = false;
+      if (state.latest && !state.latest.reason) {
+        state.latest.pinned = pinned.version;
+        state.latest.newer = false;
+      }
       await loadUpdate();
       renderLatest();
     } catch (failure) {
@@ -296,7 +309,13 @@
   element("update-go").addEventListener("click", () => {
     element("update-error").hidden = true;
     if (pinnable()) {
-      pinAndApply();
+      pinAndApply(state.latest.latest);
+      return;
+    }
+    if (state.update.behind) {
+      // Applying the inventory as it stands would go back, so the version
+      // that answers is written first, the way a newer one would be.
+      pinAndApply(state.update.running);
       return;
     }
     applyService(

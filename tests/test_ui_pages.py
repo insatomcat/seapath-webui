@@ -546,8 +546,13 @@ def test_the_deployment_page_offers_the_version_the_registry_holds(
     assert 'element("update-check").addEventListener("click", loadLatest)' in script
     # And what the button does is a commit, then the confirmation every other
     # convergence gets.
-    assert 'API.post("/node/update", { version: state.latest.latest })' in script
+    assert 'API.post("/node/update", { version })' in script
+    assert "pinAndApply(state.latest.latest)" in script
     assert "confirmRun(item, false)" in script
+    # An inventory naming an older version than the one answering is never
+    # applied as it stands, which would go back: the version answering is
+    # pinned first, the way a newer one would be.
+    assert "pinAndApply(state.update.running)" in script
 
 
 def test_a_version_the_inventory_already_names_is_offered_as_an_apply(
