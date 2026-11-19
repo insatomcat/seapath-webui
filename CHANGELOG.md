@@ -19,6 +19,10 @@ Dates are the date of the release commit. The milestones these versions belong
 to are described in [README.md](README.md), and what remains to be checked on
 real hardware is in [docs/validation.md](docs/validation.md).
 
+## 0.3.242 - 2026-11-19
+
+- feat: update the service through an HTTP proxy
+
 ## 0.3.241 - 2026-11-16
 
 - collection: seapathalloc 14fa38d4
