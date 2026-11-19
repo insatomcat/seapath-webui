@@ -951,6 +951,30 @@ _SELF: tuple[Term, ...] = (
             "answering on it, and a run has to be able to change it."
         ),
     ),
+    Term(
+        "seapath_webui_http_proxy",
+        Kind.STRING,
+        Scope.ANY,
+        "Pull this service's image, and ask its registry for versions, through "
+        "this HTTP proxy.",
+        role="seapath_setup_seapath_webui",
+        caution=(
+            "Credentials in the URL land in a quadlet every account on the "
+            "machine can read. The rest of the machine keeps its own route."
+        ),
+    ),
+    Term(
+        "seapath_webui_no_proxy",
+        Kind.STRING,
+        Scope.ANY,
+        "Reach these names and addresses without the proxy.",
+        role="seapath_setup_seapath_webui",
+        default="localhost,127.0.0.1",
+        caution=(
+            "No CIDR range: Python matches names, domain suffixes and exact "
+            "addresses. The cluster's exporters never go through the proxy."
+        ),
+    ),
 )
 
 

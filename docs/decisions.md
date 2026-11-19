@@ -6096,3 +6096,29 @@ container scrolling past it.
 The page acts on nothing. Every act stays on its own page, behind its own
 confirmation naming the machines it touches.
 
+
+## D80 - Settled: an HTTP proxy is the web UI role's variable, and the cluster is read without it
+
+A site whose machines reach the outside only through an HTTP proxy could not
+update this service. The apply failed pulling the image, and the Deployment
+page could not ask the registry which versions exist.
+
+**A variable of the role, given to two things.** `seapath_webui_http_proxy`
+and `seapath_webui_no_proxy` live in the inventory like every other setting
+([D1](#d1)). The `seapath_webui` role hands them, as `http_proxy`,
+`https_proxy` and `no_proxy`, to the task pulling the image and to the
+container. A proxy for the whole machine, in `containers.conf` or
+`/etc/environment`, was weighed and left to the site: it would change the route
+of apt, of every other container and of every other role, which this role has
+no business deciding, and no upstream role puts a proxy in either.
+
+**The exporters are read directly.** `urllib` reads the proxy from the
+environment, and the exporter fan-out uses `urllib` as the registry does. With
+the proxy in the container and nothing else changed, every reading of the
+cluster would have gone to the proxy, which cannot reach the administration
+network or answers for it badly, and the pages would have emptied. `no_proxy`
+cannot fix that in practice: Python matches names, suffixes and exact
+addresses, and a cluster would have to be listed machine by machine and kept
+in step with the inventory. So `UrllibMetricsClient` builds its opener with an
+empty `ProxyHandler`, and the registry client is the one that follows the
+environment. `tests/test_http_proxy.py` holds both against real sockets.

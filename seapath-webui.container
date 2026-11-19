@@ -125,6 +125,13 @@ Environment=SEAPATH_WEBUI_BIND_ADDRESS=auto
 # cluster_ip_addr. Only affects how loudly the browser complains: what the
 # operator verifies is the fingerprint printed on the console.
 #Environment=SEAPATH_WEBUI_TLS_ADDITIONAL_SANS=192.168.200.121,192.168.55.1
+# The HTTP proxy the Deployment page asks the registry for versions through,
+# from seapath_webui_http_proxy and seapath_webui_no_proxy. The service reads
+# the other machines' exporters without it. See section 8 of
+# docs/deployment.md.
+#Environment=http_proxy=http://proxy.example:3128
+#Environment=https_proxy=http://proxy.example:3128
+#Environment=no_proxy=localhost,127.0.0.1
 # The console, meaning the terminal the node view opens on this machine over
 # the same ssh path a run uses. It lands on the `ansible` account, which may
 # run /bin/sh as root with no password, so `sudo sh` is root on this machine

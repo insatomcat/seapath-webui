@@ -66,6 +66,12 @@ class UrllibMetricsClient:
     SSH. A failure to verify is the one error retried here, once, because the
     role replaces a certificate before it expires and a site can install its
     own: the copy is re-read over SSH and the request made again.
+
+    The request goes straight to the machine, whatever `http_proxy` the
+    container was given. That proxy is the way to a registry (D80), and the
+    exporters sit on the administration network beside this one: through it,
+    every reading of the cluster would fail at once unless `no_proxy` listed
+    each machine by address, since Python reads no CIDR range there.
     """
 
     def __init__(self, trust: MetricsProxyTrust | None = None) -> None:
@@ -98,10 +104,14 @@ class UrllibMetricsClient:
         self, url: str, timeout: float, context: ssl.SSLContext | None
     ) -> tuple[str | None, str, bool]:
         """The answer, why there is none, and whether the certificate is the reason."""
+        # An empty ProxyHandler replaces the default one, which reads the
+        # proxy from the environment.
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}),
+            urllib.request.HTTPSHandler(context=context),
+        )
         try:
-            with urllib.request.urlopen(  # noqa: S310
-                url, timeout=timeout, context=context
-            ) as response:
+            with opener.open(url, timeout=timeout) as response:
                 return response.read().decode("utf-8", errors="replace"), "", False
         except urllib.error.HTTPError as error:
             return None, f"the exporter answered {error.code}", False

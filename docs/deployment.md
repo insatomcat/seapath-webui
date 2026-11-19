@@ -599,6 +599,8 @@ interruptions that matter are reboots. Left as D9, deliberately unimplemented.
 | `seapath_webui_ansible_user` | no | `{{ ansible_user }}` | The account the trust targets, must match the inventory |
 | `seapath_webui_ansible_user_home` | no | looked up with `getent` | Source of the `.ssh` mount, never hardcoded to `/home/ansible` |
 | `seapath_webui_image_retention` | no | `2` | How many versions of this image the machine keeps once the new one is in place. Two, because that is what a rollback costs: [D23](decisions.md#d23) makes `seapath_webui_image` the update lever, and a substation is not necessarily connected to a registry, so the previous version has to already be on the machine. The image the quadlet names, the one running, and the `latest` the ISO preloads are kept whatever their age. `0` keeps everything |
+| `seapath_webui_http_proxy` | no | empty | HTTP proxy for the pull of this image and for the registry the Deployment page asks for versions. Empty is a direct connection. See [section 8](#8-behind-an-http-proxy) |
+| `seapath_webui_no_proxy` | no | `localhost,127.0.0.1` | Reached without that proxy: names, domain suffixes and exact addresses, no CIDR range |
 
 Tasks: create the state directories, initialise the inventory repository if
 absent, create the three Unix groups, template the quadlet, `daemon-reload`,
@@ -759,3 +761,38 @@ document sat at `/<prefix>/api/v1/openapi.json` and Swagger UI rendered
 "Failed to load API definition" over a 404. The page is served by `main.py`
 now and asks for `openapi.json`, resolved against its own directory like every
 other URL here.
+
+## 8. Behind an HTTP proxy
+
+Updating this service reaches a registry twice. The Deployment page asks it
+which versions exist, from inside the container. Then the apply pulls the
+chosen image on every machine, with `podman pull` run by the role. A site whose
+machines reach a registry only through a proxy sets it in the inventory, under
+`all` or per machine:
+
+```yaml
+seapath_webui_http_proxy: http://proxy.example:3128
+seapath_webui_no_proxy: localhost,127.0.0.1,registry.example
+```
+
+The role gives `http_proxy`, `https_proxy` and `no_proxy` to the task pulling
+the image and to the container, and to nothing else: apt, the other containers
+and the other roles keep their own route. The first apply after setting it
+still has to reach the registry the old way, or find the image already on the
+machine, since the proxy arrives with that run.
+
+Inside the container, the registry is the one request that uses it. The
+exporters of the other machines are read directly whatever the environment
+says, so `seapath_webui_no_proxy` never has to list the cluster, which Python
+could not do with a range anyway: it matches names, domain suffixes and exact
+addresses, and reads no CIDR. [D80](decisions.md#d80) records why.
+
+Credentials in the URL end up in the quadlet, which any account on the machine
+can read, and in `podman inspect`. A proxy that authenticates by source address
+keeps them off the machine.
+
+A site with its own registry reachable directly needs none of this: setting
+`seapath_webui_image` to that registry is enough, since a pin moves only the
+tag ([D23](decisions.md#d23)) and the Deployment page asks the registry the
+reference names. That registry has to answer a tag list anonymously, as Docker
+Hub does, because this service holds no registry credentials.
