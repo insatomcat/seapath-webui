@@ -3103,6 +3103,28 @@ def test_the_overview_is_the_home_page_and_reads_what_the_others_read(
     assert "API.del" not in script
 
 
+def test_the_overview_names_commissioning_while_no_exporter_answers(
+    signed_in: TestClient,
+) -> None:
+    # The first sign-in lands here on a machine fresh from the ISO, where no
+    # exporter runs yet: the page says what fills it rather than staying empty.
+    body = signed_in.get("/").text
+    script = signed_in.get("/static/overview.js").text
+
+    for anchor in ('id="start"', 'id="start-inventory"', 'id="start-deployment"'):
+        assert anchor in body
+    assert '<a href="inventory">Inventory</a>' in body
+    assert '<a href="deployment">Deployment</a>' in body
+    # Shown on the reading the page already makes, and filled from the two
+    # pages' own readings, still acting on nothing.
+    assert 'element("start").hidden = !quiet;' in script
+    assert 'API.get("/inventory")' in script
+    assert 'API.get("/runs?limit=100")' in script
+    assert 'const MAIN = "seapath_setup_main";' in script
+    assert "run.playbook_id === MAIN && !run.check" in script
+    assert "API.post" not in script
+
+
 def test_the_overview_counts_a_pod_once_and_leaves_ignored_findings_out(
     signed_in: TestClient,
 ) -> None:

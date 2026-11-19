@@ -13,6 +13,10 @@ The usage of each machine comes from the window the service keeps while
 somebody uses it (D67), asked every five seconds like the Usage page does. The
 cluster, Ceph and the tuning are asked once, then again by the control at the
 end of the row of counts or the switch in the bar. See D79.
+
+While no machine's exporter answers, which is the state of a machine fresh
+from the ISO, the page also says what fills it: the inventory, then the
+commissioning run, each with where this node stands on it. See D81.
 #}
 {% extends "base.html" %}
 {% block page_title %}Overview{% endblock %}
@@ -31,6 +35,29 @@ end of the row of counts or the switch in the bar. See D79.
 
   <p class="loading" id="loading">Reading the machines…</p>
   <p class="warning" id="blocked" hidden></p>
+
+  <section class="card overview-start" id="start" hidden aria-labelledby="start-title">
+    <h2 id="start-title">No machine publishes its state yet</h2>
+    <p class="lead">
+      This page draws what each machine's exporters publish:
+      prometheus-node-exporter for the machine, libvirt-exporter and
+      prometheus-podman-exporter for its guests and containers. A machine
+      fresh from the ISO runs none of them. Commissioning deploys them with
+      the rest of the configuration, and the page fills once it has run.
+    </p>
+    <ol class="overview-steps">
+      <li>
+        <a href="inventory">Inventory</a>: describe the machines, starting
+        from what this one discovered about itself.
+        <span class="overview-step-state" id="start-inventory"></span>
+      </li>
+      <li>
+        <a href="deployment">Deployment</a>: apply commissioning,
+        <code>seapath_setup_main</code>, to them.
+        <span class="overview-step-state" id="start-deployment"></span>
+      </li>
+    </ol>
+  </section>
 
   <section class="overview-machines" id="machines" aria-label="Machines"></section>
 </main>

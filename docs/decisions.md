@@ -6122,3 +6122,35 @@ addresses, and a cluster would have to be listed machine by machine and kept
 in step with the inventory. So `UrllibMetricsClient` builds its opener with an
 empty `ProxyHandler`, and the registry client is the one that follows the
 environment. `tests/test_http_proxy.py` holds both against real sockets.
+
+## D81 - Settled: the overview names commissioning while no exporter answers
+
+A sign-in lands on the Overview ([D79](#d79)), and the first sign-in of all
+happens on a machine fresh from the ISO. Every figure on that page comes from
+an exporter, and the exporters are deployed by `seapath_setup_main`, which has
+not run yet. The operator saw a red count of machines up, one card saying its
+node_exporter refused the connection, and nothing about what to do next.
+
+**A panel while nothing answers.** When the usage reading holds no machine
+whose node_exporter answered, including when the inventory names no machine,
+the page says why it is empty and lists the two steps that fill it: the
+Inventory, then commissioning on the Deployment page. Each step carries where
+this node stands on it, read from what the other pages already ask:
+`/inventory` for whether the file exists, parses and validates, with its
+errors and warnings counted, and `/runs` for the newest commissioning run
+launched from here, going, failed or succeeded, linked to its record. A check
+run deploys nothing and is not counted. The two are read only while the panel
+is shown, again every fifteen seconds and on the control that reads the page
+again, so a run launched from another tab is followed. Once one machine
+answers, the panel goes, and a machine whose exporter later stops is a
+machine down, which the tiles and its card already say.
+
+**The home page stays the Overview.** Sending the first sign-in to the
+Inventory page instead would need a test for a machine never commissioned,
+and none is exact: the run history starts empty on a node reinstalled into a
+commissioned cluster, and an inventory adopted from a conventional control
+machine carries no run of this service at all. Whether an exporter answers is
+the one reading the page already makes, and it is the condition under which
+the page has nothing to show. A commissioning that succeeded while nothing
+answers is said as such, so the panel then points at the exporters rather
+than at a step already done.

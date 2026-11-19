@@ -13,6 +13,11 @@
 //
 // Nothing here acts. Every count is a link to the page that explains it, and
 // every act stays on that page, with its confirmation.
+//
+// While no machine's node_exporter answers, the page also reads `/inventory`
+// and `/runs` to say where this node stands on the two steps that fill it:
+// the first page an operator sees after installing the ISO is this one, and
+// every reading it makes is of an exporter commissioning has yet to deploy.
 
 (function () {
   const PERIOD_MS = 5000;
@@ -27,6 +32,13 @@
   // exporters, and this service with its proxy. Counted on one line under the
   // site's workloads, so a card shows first what the substation runs.
   const SYSTEM = /^(ceph-|seapath-webui$|seapath-metrics-proxy$)|exporter/;
+  // The playbook that deploys the exporters, with the rest of a machine's
+  // configuration. A check run of it deploys nothing, so it is not counted.
+  const MAIN = "seapath_setup_main";
+  // How often the two steps are read again while they are shown: a run
+  // launched from another tab ends, or the inventory is saved, and the panel
+  // follows without the operator reloading it.
+  const STEPS_PERIOD_MS = 15000;
 
   let usage = null;
   let lastAt = null;
@@ -39,6 +51,10 @@
   // The workload tiles an operator opened, by machine and name, so the
   // redraw every reading makes leaves them open.
   const opened = new Set();
+  // What the two steps last answered, and when they were asked.
+  let steps = null;
+  let stepsAt = 0;
+  let stepsInFlight = false;
 
   // The tuning findings an operator chose to live with on the Real time page,
   // kept in this browser under its key. A finding ignored there is not
@@ -924,13 +940,142 @@
     return card;
   }
 
+  // First steps
+
+  // Nothing answers: no machine at all, or none whose node_exporter does. A
+  // site where some answer and others do not is a site with machines down,
+  // which the tiles and the cards already say.
+  function nothingAnswers() {
+    return !machines().some(
+      (machine) => machine.latest && machine.latest.node_reach.reachable
+    );
+  }
+
+  async function readSteps() {
+    if (stepsInFlight || Date.now() - stepsAt < STEPS_PERIOD_MS) {
+      return;
+    }
+    stepsInFlight = true;
+    stepsAt = Date.now();
+    const [inventory, runs] = await Promise.allSettled([
+      API.get("/inventory"),
+      API.get("/runs?limit=100"),
+    ]);
+    stepsInFlight = false;
+    steps = {
+      inventory: inventory.status === "fulfilled" ? inventory.value : null,
+      inventoryError: inventory.status === "rejected" ? inventory.reason.message : "",
+      runs: runs.status === "fulfilled" ? runs.value : null,
+      runsError: runs.status === "rejected" ? runs.reason.message : "",
+    };
+    drawSteps();
+  }
+
+  function plural(count, word) {
+    return count + " " + word + (count === 1 ? "" : "s");
+  }
+
+  function inventoryStep(state) {
+    if (!state.seeded) {
+      return "There is no inventory yet.";
+    }
+    if (state.parse_error) {
+      return "The inventory does not parse: " + state.parse_error;
+    }
+    const findings = (state.validation && state.validation.findings) || [];
+    const errors = findings.filter((finding) => finding.level === "error").length;
+    const warnings = findings.length - errors;
+    // The note the usage reading carries when it found nothing to ask: an
+    // inventory naming no machine with an address.
+    const note = usage && !usage.machines.length && usage.note ? " " + usage.note : "";
+    if (errors) {
+      return (
+        "It has " + plural(errors, "error") + " to correct before an apply" +
+        (warnings ? ", and " + plural(warnings, "warning") + "." : ".") + note
+      );
+    }
+    return (
+      (warnings
+        ? "It is valid, with " + plural(warnings, "warning") + " to read."
+        : "It is valid.") + note
+    );
+  }
+
+  function when(stamp) {
+    return stamp ? new Date(stamp).toLocaleString() : "";
+  }
+
+  function runLink(run, text) {
+    const link = make("a", "", text);
+    link.href = "runs?run=" + encodeURIComponent(run.id);
+    return link;
+  }
+
+  // The newest commissioning run this node launched, the one going first.
+  function deploymentStep(runs) {
+    const ours = runs.filter((run) => run.playbook_id === MAIN && !run.check);
+    const going = ours.find((run) =>
+      ["queued", "pending", "running"].includes(run.state)
+    );
+    if (going) {
+      return [
+        "Commissioning is ",
+        runLink(going, going.state === "queued" ? "queued" : "running"),
+        going.started_at ? " since " + when(going.started_at) + "." : ".",
+      ];
+    }
+    const last = ours[0];
+    if (!last) {
+      return ["It has not been run from this node."];
+    }
+    if (last.state === "success") {
+      return [
+        "Commissioning ",
+        runLink(last, "succeeded"),
+        " on " + when(last.finished_at) +
+          ". The exporters it deployed should answer: each card below says " +
+          "what its machine's answered.",
+      ];
+    }
+    return [
+      "The last commissioning run ",
+      runLink(last, last.state === "failed" ? "failed" : "ended " + last.state),
+      " on " + when(last.finished_at || last.started_at) + ".",
+    ];
+  }
+
+  function drawSteps() {
+    const inventory = element("start-inventory");
+    const deployment = element("start-deployment");
+    if (!steps) {
+      inventory.textContent = "";
+      deployment.textContent = "";
+      return;
+    }
+    inventory.textContent = steps.inventory
+      ? inventoryStep(steps.inventory)
+      : "The inventory could not be read: " + steps.inventoryError;
+    deployment.replaceChildren(
+      ...(steps.runs
+        ? deploymentStep(steps.runs)
+        : ["The runs could not be read: " + steps.runsError])
+    );
+  }
+
   function draw() {
     if (!usage) {
       return;
     }
     element("loading").hidden = true;
+    const quiet = nothingAnswers();
+    element("start").hidden = !quiet;
+    if (quiet) {
+      drawSteps();
+      readSteps();
+    }
+    // The panel's first step carries what the note says.
     const blocked = element("blocked");
-    blocked.hidden = usage.machines.length > 0;
+    blocked.hidden = quiet || usage.machines.length > 0;
     blocked.textContent = usage.note || "There is no machine to ask.";
     const all = machines();
     const taken = lastAt === null ? null : new Date(lastAt * 1000);
@@ -967,6 +1112,8 @@
     element("reread"),
     async (fresh) => {
       showBanner("");
+      // The steps are read again with the rest, whenever they were last.
+      stepsAt = 0;
       await readCluster(fresh);
     },
     (failure) => showBanner(failure.message)

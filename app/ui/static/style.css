@@ -4337,6 +4337,28 @@ td.log-line .tag {
   color: var(--bad);
 }
 
+/* What fills the page, shown while no machine's exporter answers. Above the
+   cards, which then only say that nothing answered. */
+.overview-start {
+  margin-bottom: 1rem;
+}
+
+.overview-steps {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.overview-steps li + li {
+  margin-top: 0.6rem;
+}
+
+.overview-step-state {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
 .overview-machines {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(26rem, 100%), 1fr));

@@ -51,7 +51,10 @@ which machines carry a tuning warning, which volumes are nearly full, and how
 many ports are up and workloads running, each a link to the page with the
 detail. Below, one card per machine: CPU, memory and filesystems, the last
 five minutes, the guests and containers it runs, its clock and its ports. It
-reads what the other pages read, and acts on nothing.
+reads what the other pages read, and acts on nothing. On a machine fresh from
+the ISO no exporter answers yet, and the page names the two steps that fill
+it, the inventory and the commissioning run, with where this node stands on
+each.
 
 ![The Node page: machine, CPU and isolation, disks, network](img/1-node.png)
 
