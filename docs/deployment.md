@@ -781,6 +781,12 @@ and the other roles keep their own route. The first apply after setting it
 still has to reach the registry the old way, or find the image already on the
 machine, since the proxy arrives with that run.
 
+Saving the variable alone changes nothing in the running container. Until
+`seapath_setup_seapath_webui` has run, the version check fails as it did
+before, and its message adds that the inventory names a proxy this service
+does not run with yet. With the image already on the machine, that run pulls
+nothing: it rewrites the quadlet and restarts this service.
+
 Inside the container, the registry is the one request that uses it. The
 exporters of the other machines are read directly whatever the environment
 says, so `seapath_webui_no_proxy` never has to list the cluster, which Python

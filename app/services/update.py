@@ -32,6 +32,8 @@ other convergence is.
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +59,11 @@ from app.services.registry import (
 # here cannot drift apart.
 IMAGE_VARIABLE = WEBUI_IMAGE_VARIABLE
 PLAYBOOK = "seapath_setup_seapath_webui"
+
+# The proxy the role hands the container as `https_proxy` (D80). Saving it in
+# the inventory changes nothing here: the container keeps the environment its
+# quadlet gave it until a run of PLAYBOOK templates the new one.
+PROXY_VARIABLE = "seapath_webui_http_proxy"
 
 
 class ServiceUpdate(BaseModel):
@@ -144,9 +151,11 @@ class UpdateService:
         inventory: InventoryService,
         running: str = __version__,
         tags: TagSource | None = None,
+        environment: Mapping[str, str] = os.environ,
     ) -> None:
         self._inventory = inventory
         self._running = running
+        self._environment = environment
         self._tags = tags
 
     def state(self) -> ServiceUpdate:
@@ -209,7 +218,7 @@ class UpdateService:
             return AvailableRelease(
                 repository=repository,
                 machines=list(machines),
-                reason=str(error),
+                reason=" ".join(filter(None, (str(error), self._proxy_pending()))),
             )
         latest = newest(found)
         if latest is None:
@@ -304,6 +313,23 @@ class UpdateService:
                 found[name] = repository
         return found
 
+    def _proxy_pending(self) -> str | None:
+        """Why a registry failure may be a proxy saved and never applied.
+
+        The URL is left out of the sentence: it may carry credentials, and the
+        operator reading it has the inventory in front of them anyway.
+        """
+        wanted = self._this_node_variable(PROXY_VARIABLE)
+        if wanted is None:
+            return None
+        if self._environment.get("https_proxy", "").strip() == wanted.strip():
+            return None
+        return (
+            f"The inventory names a proxy in {PROXY_VARIABLE} that this service "
+            f"does not run with yet: it reaches the container with the next run "
+            f"of {PLAYBOOK}."
+        )
+
     def _wanted_image(self) -> str | None:
         """The reference the inventory names for the machine serving this page.
 
@@ -311,13 +337,16 @@ class UpdateService:
         under `all` and a site that pins one machine both work: the resolver
         applies group variables before host variables, the way Ansible does.
         """
+        return self._this_node_variable(IMAGE_VARIABLE)
+
+    def _this_node_variable(self, name: str) -> str | None:
         state = self._inventory.state()
         if state.inventory is None or state.this_host is None:
             return None
         node = state.inventory.hosts.get(state.this_host)
         if node is None:
             return None
-        value = node.extra.get(IMAGE_VARIABLE)
+        value = node.extra.get(name)
         return str(value) if isinstance(value, str) and value.strip() else None
 
 

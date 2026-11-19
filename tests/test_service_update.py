@@ -329,6 +329,49 @@ def test_a_registry_that_cannot_be_reached_says_so_and_breaks_nothing(
     assert response.json()["newer"] is False
 
 
+_PROXIED = """
+all:
+  vars:
+    seapath_webui_image: docker.io/insatomcat/seapath-webui:0.3.0
+    seapath_webui_http_proxy: http://10.0.0.1:3128
+  hosts:
+    seapath-machine:
+      ansible_host: 192.168.200.125
+      network_interface: eno1
+"""
+
+
+def test_a_proxy_saved_and_never_applied_is_named_when_the_registry_fails(
+    signed_in: TestClient, tag_source: FakeTagSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Saving the variable reaches no container: the quadlet carries the proxy
+    # once the role has run. Until then the registry fails exactly as it did
+    # before the proxy was written, and the operator who just wrote it needs
+    # to hear why.
+    monkeypatch.delenv("https_proxy", raising=False)
+    _with_document(signed_in, _PROXIED)
+    tag_source.failure = "registry-1.docker.io could not be reached: timed out."
+
+    reason = signed_in.get("/api/v1/node/update/latest").json()["reason"]
+
+    assert reason.startswith(tag_source.failure + " ")
+    assert "seapath_webui_http_proxy" in reason
+    assert "seapath_setup_seapath_webui" in reason
+    assert "10.0.0.1" not in reason
+
+
+def test_a_proxy_the_container_runs_with_adds_nothing_to_the_failure(
+    signed_in: TestClient, tag_source: FakeTagSource, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("https_proxy", "http://10.0.0.1:3128")
+    _with_document(signed_in, _PROXIED)
+    tag_source.failure = "registry-1.docker.io could not be reached: timed out."
+
+    reason = signed_in.get("/api/v1/node/update/latest").json()["reason"]
+
+    assert reason == tag_source.failure
+
+
 def test_an_image_pinned_by_digest_has_no_repository_to_ask_about(
     signed_in: TestClient, tag_source: FakeTagSource
 ) -> None:
